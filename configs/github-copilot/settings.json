@@ -1,0 +1,11 @@
+{
+  "github.copilot.enable": {
+    "*": true,
+    "yaml": true,
+    "plaintext": false,
+    "markdown": true
+  },
+  "github.copilot.editor.enableAutoCompletions": true,
+  "github.copilot.chat.localeOverride": "es",
+  "github.copilot.renameSuggestions.triggerAutomatically": true
+}
