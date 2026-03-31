@@ -22,3 +22,13 @@ Salida minima:
 3. Riesgos y supuestos.
 4. Pruebas minimas requeridas.
 5. Checklist de salida para merge.
+
+Capas foco:
+- Presentacion: alcance de pantallas, validaciones y UX funcional.
+- Negocio: reglas, estados, permisos y procesos.
+- Datos: impacto funcional en entidades y persistencia (sin diseno tecnico detallado).
+
+Instrucciones a priorizar:
+- .github/instructions/00-operativa-global.instructions.md
+- .github/instructions/01-fronteras-por-capa.instructions.md
+- .github/instructions/10-blankproject-base.instructions.md

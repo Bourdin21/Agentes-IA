@@ -24,3 +24,12 @@ Salida minima:
 3. Riesgos y supuestos.
 4. Pruebas minimas requeridas.
 5. Checklist de salida para merge.
+
+Capas foco:
+- Presentacion, Negocio y Datos con estimacion separada por complejidad.
+
+Instrucciones a priorizar:
+- .github/instructions/00-operativa-global.instructions.md
+- .github/instructions/01-fronteras-por-capa.instructions.md
+- .github/instructions/10-blankproject-base.instructions.md
+- .github/instructions/26-checklists.instructions.md

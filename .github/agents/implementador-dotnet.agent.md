@@ -22,3 +22,17 @@ Salida minima:
 3. Riesgos y supuestos.
 4. Pruebas minimas requeridas.
 5. Checklist de salida para merge.
+
+Capas foco:
+- Domain/Application para contratos y reglas.
+- Infrastructure para acceso a datos e integraciones.
+- Web para flujo HTTP, controllers, views y middleware.
+
+Instrucciones a priorizar:
+- .github/instructions/00-operativa-global.instructions.md
+- .github/instructions/01-fronteras-por-capa.instructions.md
+- .github/instructions/20-domain.instructions.md
+- .github/instructions/21-application.instructions.md
+- .github/instructions/22-infrastructure.instructions.md
+- .github/instructions/23-web.instructions.md
+- .github/instructions/26-checklists.instructions.md

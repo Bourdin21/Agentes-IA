@@ -21,3 +21,16 @@ Salida minima:
 3. Riesgos y supuestos.
 4. Pruebas minimas requeridas.
 5. Checklist de salida para merge.
+
+Capas foco:
+- Domain y Application para contratos y modelos.
+- Infrastructure para persistencia, integraciones y servicios.
+- Web para pipeline, controllers y autorizacion.
+
+Instrucciones a priorizar:
+- .github/instructions/10-blankproject-base.instructions.md
+- .github/instructions/20-domain.instructions.md
+- .github/instructions/21-application.instructions.md
+- .github/instructions/22-infrastructure.instructions.md
+- .github/instructions/23-web.instructions.md
+- .github/instructions/24-config-paquetes.instructions.md

@@ -1,36 +1,41 @@
-# Stack oficial
-- ASP.NET Core MVC (.NET 10)
-- Entity Framework Core
-- MySQL 8
-- Arquitectura de tres capas: Presentacion, Negocio, Datos
+# Copilot Instructions - BlankProject (Orquestador)
 
-# Secuencia operativa obligatoria
+Este archivo define el marco general. El detalle operativo y tecnico se encuentra modularizado en instrucciones por etapa y por capa dentro de .github/instructions.
+
+## Secuencia operativa obligatoria
 Analisis -> Diseno -> Arquitectura -> Presupuesto -> Implementacion -> Pruebas -> Documentacion
 
-# Fronteras por capa
-- Presentacion: Controllers, Views, ViewModels, validaciones de pantalla.
-- Negocio: Services, reglas de negocio, estados, permisos, procesos.
-- Datos: DbContext, entidades, configuraciones EF, migraciones, acceso MySQL.
+## Objetivo de la reestructuracion
+- Separar reglas globales de reglas por capa.
+- Facilitar reutilizacion por agentes especializados.
+- Reducir ambiguedad al implementar cambios en MVC + EF Core + MySQL.
 
-# Reglas obligatorias
+## Mapa de instrucciones modulares
+- .github/instructions/00-operativa-global.instructions.md
+- .github/instructions/01-fronteras-por-capa.instructions.md
+- .github/instructions/10-blankproject-base.instructions.md
+- .github/instructions/20-domain.instructions.md
+- .github/instructions/21-application.instructions.md
+- .github/instructions/22-infrastructure.instructions.md
+- .github/instructions/23-web.instructions.md
+- .github/instructions/24-config-paquetes.instructions.md
+- .github/instructions/25-frontend-design-system.instructions.md
+- .github/instructions/26-checklists.instructions.md
+
+## Reglas base que siempre aplican
 - No colocar logica de negocio compleja en Controllers.
-- Los Controllers solo coordinan request/response y delegan en Services.
+- Los Controllers coordinan request/response y delegan en Services.
 - La logica de negocio vive en Services.
 - El acceso a datos vive en DbContext, repositorios o infraestructura.
-- Toda modificacion debe indicar que capas afecta y por que.
-- Si un cambio requiere migracion EF, debe indicarse explicitamente.
-- Si un cambio afecta permisos, estados o validaciones, debe listarse.
-- No hacer refactors cosmeticos salvo pedido expreso.
+- Toda modificacion debe indicar capas afectadas y motivo.
+- Si hay migracion EF, debe explicitarse.
+- Si hay impacto en permisos, estados o validaciones, debe listarse.
 - Preservar comportamiento legacy salvo indicacion contraria.
 - Siempre proponer pruebas minimas.
 
-# Modo de trabajo recomendado
-- Ask mode: Analisis, Diseno, Arquitectura, Presupuesto.
-- Agent mode: Implementacion, pruebas tecnicas, correccion de build, generacion de tests, documentacion tecnica derivada de codigo.
-
-# Formato minimo de respuestas tecnicas
-- Alcance funcional resumido.
-- Impacto tecnico por capa.
-- Riesgos y supuestos.
-- Pruebas minimas requeridas.
-- Checklist de salida para merge.
+## Formato minimo de respuestas tecnicas
+1. Alcance funcional resumido.
+2. Impacto tecnico por capa.
+3. Riesgos y supuestos.
+4. Pruebas minimas requeridas.
+5. Checklist de salida para merge.
