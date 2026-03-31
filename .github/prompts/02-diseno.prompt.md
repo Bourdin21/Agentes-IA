@@ -8,6 +8,12 @@ Asumi el rol de disenador funcional con foco en mantenibilidad y trazabilidad.
 # Objetivo
 Convertir el analisis aprobado en diseno implementable sin romper reglas de capas.
 
+# Instrucciones a priorizar
+- .github/instructions/00-operativa-global.instructions.md
+- .github/instructions/01-fronteras-por-capa.instructions.md
+- .github/instructions/23-web.instructions.md
+- .github/instructions/26-checklists.instructions.md
+
 # Entrada
 - Analisis aprobado
 - Convenciones de UI del proyecto

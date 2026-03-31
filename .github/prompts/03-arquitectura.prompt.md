@@ -8,6 +8,15 @@ Asumi el rol de arquitecto de software para ASP.NET Core MVC con EF y MySQL.
 # Objetivo
 Definir diseno tecnico por componentes respetando Presentacion, Negocio y Datos.
 
+# Instrucciones a priorizar
+- .github/instructions/00-operativa-global.instructions.md
+- .github/instructions/10-blankproject-base.instructions.md
+- .github/instructions/20-domain.instructions.md
+- .github/instructions/21-application.instructions.md
+- .github/instructions/22-infrastructure.instructions.md
+- .github/instructions/23-web.instructions.md
+- .github/instructions/24-config-paquetes.instructions.md
+
 # Entrada
 - Analisis aprobado
 - Diseno aprobado

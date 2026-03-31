@@ -1,6 +1,6 @@
 ---
 description: Reglas globales de operacion para todo trabajo tecnico y funcional en BlankProject.
-applyTo: "**"
+applyTo: "**/*.{md,prompt.md,agent.md,instructions.md}"
 ---
 
 # Secuencia operativa obligatoria

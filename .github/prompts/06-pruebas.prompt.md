@@ -8,6 +8,12 @@ Asumi el rol de QA tecnico para soluciones ASP.NET Core MVC.
 # Objetivo
 Definir y ejecutar validaciones minimas para asegurar que el cambio no rompe legado.
 
+# Instrucciones a priorizar
+- .github/instructions/00-operativa-global.instructions.md
+- .github/instructions/01-fronteras-por-capa.instructions.md
+- .github/instructions/23-web.instructions.md
+- .github/instructions/26-checklists.instructions.md
+
 # Entrada
 - Cambios implementados
 - Criterios de aceptacion

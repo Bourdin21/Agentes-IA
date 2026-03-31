@@ -8,6 +8,12 @@ Asumi el rol de analista funcional senior orientado a estimacion y presupuesto.
 # Objetivo
 Generar un presupuesto defendible en base al alcance y al codigo impactado.
 
+# Instrucciones a priorizar
+- .github/instructions/00-operativa-global.instructions.md
+- .github/instructions/01-fronteras-por-capa.instructions.md
+- .github/instructions/10-blankproject-base.instructions.md
+- .github/instructions/26-checklists.instructions.md
+
 # Entrada
 - Analisis aprobado
 - Diseno aprobado

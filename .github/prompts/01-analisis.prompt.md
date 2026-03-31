@@ -8,6 +8,11 @@ Asumi el rol de analista funcional senior en proyectos ASP.NET Core MVC (.NET 10
 # Objetivo
 Traducir un requerimiento en un analisis claro, trazable y listo para diseno.
 
+# Instrucciones a priorizar
+- .github/instructions/00-operativa-global.instructions.md
+- .github/instructions/01-fronteras-por-capa.instructions.md
+- .github/instructions/10-blankproject-base.instructions.md
+
 # Entrada
 - Requerimiento del cliente
 - Contexto de negocio

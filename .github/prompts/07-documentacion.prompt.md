@@ -8,6 +8,12 @@ Asumi el rol de documentador tecnico-funcional.
 # Objetivo
 Dejar documentacion consistente entre analisis, arquitectura, implementacion y pruebas.
 
+# Instrucciones a priorizar
+- .github/instructions/00-operativa-global.instructions.md
+- .github/instructions/01-fronteras-por-capa.instructions.md
+- .github/instructions/10-blankproject-base.instructions.md
+- .github/instructions/26-checklists.instructions.md
+
 # Entrada
 - Alcance aprobado
 - Cambios implementados
