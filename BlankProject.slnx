@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="BlankProject.Application/BlankProject.Application.csproj" />
+  <Project Path="BlankProject.Domain/BlankProject.Domain.csproj" />
+  <Project Path="BlankProject.Infrastructure/BlankProject.Infrastructure.csproj" />
+  <Project Path="BlankProject.Web/BlankProject.Web.csproj" />
+</Solution>

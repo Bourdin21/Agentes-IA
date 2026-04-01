@@ -1,0 +1,85 @@
+@{
+    ViewData["Title"] = "Herramientas del Sistema";
+}
+
+<h3 class="mb-4">Herramientas del Sistema</h3>
+
+<div class="row g-4">
+
+    <!-- Test Email -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body text-center py-4">
+                <div class="rounded-circle bg-primary bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width:64px;height:64px;">
+                    <i class="fas fa-envelope fa-2x text-primary"></i>
+                </div>
+                <h5 class="card-title">Servicio de Email</h5>
+                <p class="text-muted small mb-3">
+                    Envía un email de prueba para verificar que el servicio SMTP funciona correctamente.
+                </p>
+                <form asp-controller="System" asp-action="TestEmail" method="post">
+                    @Html.AntiForgeryToken()
+                    <div class="mb-3 text-start">
+                        <label for="destinatario" class="form-label small fw-semibold">Destinatario</label>
+                        <input type="email" class="form-control" id="destinatario" name="destinatario"
+                               placeholder="ejemplo@correo.com" required />
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100" id="btnTestEmail"
+                            onclick="if(this.form.checkValidity()){ this.disabled=true; this.innerHTML='<i class=\'fas fa-spinner fa-spin me-1\'></i> Enviando...'; this.form.submit(); }">
+                        <i class="fas fa-paper-plane me-1"></i> Enviar email de prueba
+                    </button>
+                </form>
+            </div>
+            <div class="card-footer bg-transparent text-center">
+                <small class="text-muted">
+                    <i class="fas fa-info-circle me-1"></i> Se envía desde no-reply@@olvidata.com.ar
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Health Check -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body text-center py-4">
+                <div class="rounded-circle bg-success bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width:64px;height:64px;">
+                    <i class="fas fa-heartbeat fa-2x text-success"></i>
+                </div>
+                <h5 class="card-title">Health Checks</h5>
+                <p class="text-muted small mb-3">
+                    Verifica el estado de la base de datos MySQL y el servidor SMTP.
+                </p>
+                <a href="/health" target="_blank" class="btn btn-success">
+                    <i class="fas fa-stethoscope me-1"></i> Ver estado
+                </a>
+            </div>
+            <div class="card-footer bg-transparent text-center">
+                <small class="text-muted">
+                    <i class="fas fa-info-circle me-1"></i> Endpoint público: /health
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info del ambiente -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body text-center py-4">
+                <div class="rounded-circle bg-info bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width:64px;height:64px;">
+                    <i class="fas fa-server fa-2x text-info"></i>
+                </div>
+                <h5 class="card-title">Info del Ambiente</h5>
+                <p class="text-muted small mb-3">
+                    Datos del entorno de ejecución actual.
+                </p>
+                <table class="table table-sm text-start mb-0" style="font-size: 0.85rem;">
+                    <tr><th class="text-muted" style="width:110px;">Ambiente</th><td>@(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "N/A")</td></tr>
+                    <tr><th class="text-muted">Servidor</th><td>@Environment.MachineName</td></tr>
+                    <tr><th class="text-muted">.NET</th><td>@System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription</td></tr>
+                    <tr><th class="text-muted">OS</th><td>@System.Runtime.InteropServices.RuntimeInformation.OSDescription</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>

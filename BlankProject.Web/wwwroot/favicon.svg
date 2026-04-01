@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Olvidata Soft logo icon">
+  <defs>
+    <style>
+      .ring{fill:none;stroke:#2B9DE4;stroke-width:16;stroke-linecap:round;}
+      .link{fill:none;stroke:#2B9DE4;stroke-width:10;stroke-linecap:round;stroke-linejoin:round;}
+      .node{fill:#2B9DE4;}
+      .node2{fill:#0B1F2A;}
+    </style>
+  </defs>
+
+  <!-- Outer ring (minimal, premium) -->
+  <circle class="ring" cx="128" cy="128" r="92"></circle>
+
+  <!-- Network links (modules / integrations) -->
+  <path class="link" d="M86 142 L118 110 L150 128 L174 94"></path>
+  <path class="link" d="M86 142 L150 128 L170 162"></path>
+  <path class="link" d="M118 110 L92 88"></path>
+
+  <!-- Nodes -->
+  <circle class="node" cx="86" cy="142" r="10"></circle>
+  <circle class="node" cx="118" cy="110" r="10"></circle>
+  <circle class="node" cx="150" cy="128" r="10"></circle>
+  <circle class="node" cx="174" cy="94" r="10"></circle>
+  <circle class="node" cx="170" cy="162" r="10"></circle>
+  <circle class="node2" cx="92" cy="88" r="10"></circle>
+</svg>

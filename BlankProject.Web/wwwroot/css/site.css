@@ -1,0 +1,15 @@
+/* site.css — project-specific overrides (base styles in olvidata-theme.css) */
+
+.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
+  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem rgba(43, 157, 228, .3);
+}
+
+/* Smooth page transitions */
+main {
+  animation: fadeIn 250ms ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
