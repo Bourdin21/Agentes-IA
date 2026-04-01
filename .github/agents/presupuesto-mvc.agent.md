@@ -33,3 +33,4 @@ Instrucciones a priorizar:
 - .github/instructions/01-fronteras-por-capa.instructions.md
 - .github/instructions/10-blankproject-base.instructions.md
 - .github/instructions/26-checklists.instructions.md
+- .github/instructions/27-presupuesto-parametros.instructions.md
