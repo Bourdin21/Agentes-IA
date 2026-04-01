@@ -1,5 +1,5 @@
 ---
-name: documentador
+name: 7 - documentador
 description: Use when you need a short, client-facing sprint summary in plain language, without technical jargon.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: QA
+name: 6 - QA
 description: Use when you need plan de pruebas, ejecucion de regresion y reporte de riesgos para cambios MVC.
 ---
 
