@@ -1,5 +1,5 @@
 ---
-name: Implementador DotNet
+name: implementador
 description: Use when you need implementar cambios de codigo en ASP.NET Core MVC, EF Core y MySQL usando Agent mode.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: Analista Funcional
+name: analista-funcional
 description: Use when you need analisis funcional, alcance, criterios de aceptacion, riesgos y supuestos para una feature MVC.
 ---
 

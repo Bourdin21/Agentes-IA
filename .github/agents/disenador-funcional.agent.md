@@ -1,5 +1,5 @@
 ---
-name: Disenador Funcional
+name: disenador-funcional
 description: Use when you need diseno funcional de pantallas, validaciones y ViewModels antes de implementar en MVC.
 ---
 

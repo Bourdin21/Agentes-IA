@@ -1,5 +1,5 @@
 ---
-name: Arquitectura MVC
+name: arquitecto-mvc
 description: Use when you need arquitectura tecnica para ASP.NET Core MVC con EF Core y MySQL respetando tres capas.
 ---
 

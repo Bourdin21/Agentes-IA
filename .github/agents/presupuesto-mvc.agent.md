@@ -1,5 +1,5 @@
 ---
-name: Presupuesto MVC
+name: presupuestador
 description: Use when you need estimacion de esfuerzo y presupuesto para cambios ASP.NET Core MVC con EF y MySQL.
 ---
 
