@@ -22,6 +22,7 @@ Analisis -> Diseno -> Arquitectura -> Presupuesto -> Implementacion -> Pruebas -
 - .github/instructions/25-frontend-design-system.instructions.md
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/27-presupuesto-parametros.instructions.md
+- .github/instructions/28-estimacion-avanzada.instructions.md
 
 ## Reglas base que siempre aplican
 - No colocar lógica de negocio compleja en Controllers.
@@ -43,3 +44,4 @@ Analisis -> Diseno -> Arquitectura -> Presupuesto -> Implementacion -> Pruebas -
 
 ## Presupuesto
 - Los parámetros están en .github/instructions/27-presupuesto-parametros.instructions.md.
+- El metodo avanzado de estimacion esta en .github/instructions/28-estimacion-avanzada.instructions.md.

@@ -44,7 +44,9 @@ Agentes-IA/
 |   |   |-- 23-web.instructions.md
 |   |   |-- 24-config-paquetes.instructions.md
 |   |   |-- 25-frontend-design-system.instructions.md
-|   |   `-- 26-checklists.instructions.md
+|   |   |-- 26-checklists.instructions.md
+|   |   |-- 27-presupuesto-parametros.instructions.md
+|   |   `-- 28-estimacion-avanzada.instructions.md
 |   |-- agents/
 |   `-- prompts/
 |-- configs/
@@ -74,6 +76,8 @@ Agentes-IA/
 - `.github/instructions/24-config-paquetes.instructions.md`: configuracion y paquetes.
 - `.github/instructions/25-frontend-design-system.instructions.md`: lineamientos UI.
 - `.github/instructions/26-checklists.instructions.md`: checklists de implementacion.
+- `.github/instructions/27-presupuesto-parametros.instructions.md`: parametros base de tarifa y calibracion historica.
+- `.github/instructions/28-estimacion-avanzada.instructions.md`: metodo PERT, contingencia por riesgo y calibracion periodica.
 
 ## Como Aplicar Esta Arquitectura en un Proyecto
 

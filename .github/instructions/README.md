@@ -13,6 +13,8 @@ Esta carpeta divide las reglas en modulos reutilizables por etapa y por capa.
 8. 24-config-paquetes.instructions.md
 9. 25-frontend-design-system.instructions.md
 10. 26-checklists.instructions.md
+11. 27-presupuesto-parametros.instructions.md
+12. 28-estimacion-avanzada.instructions.md
 
 ## Como usar
 - Las reglas globales definen marco comun de trabajo y formato de salida.
