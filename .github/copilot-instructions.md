@@ -3,7 +3,7 @@
 Este archivo define el marco general. El detalle operativo y técnico se encuentra modularizado en instrucciones por etapa y por capa dentro de .github/instructions.
 
 ## Secuencia operativa obligatoria
-Analisis -> Diseno -> Arquitectura -> Presupuesto -> Implementacion -> Pruebas -> Documentacion
+Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> Implementacion -> Pruebas funcionales -> Documentacion de alcance (cliente) -> Cierre de calibracion estimado vs real
 
 ## Objetivo de la reestructuracion
 - Separar reglas globales de reglas por capa.
@@ -33,14 +33,17 @@ Analisis -> Diseno -> Arquitectura -> Presupuesto -> Implementacion -> Pruebas -
 - Si hay migración EF, debe explicitarse.
 - Si hay impacto en permisos, estados o validaciones, debe listarse.
 - Preservar comportamiento legacy salvo indicación contraria.
-- Siempre proponer pruebas mínimas.
+- Las pruebas requeridas son funcionales.
+- La documentacion requerida es de alcance para el cliente.
+- El cierre de calibracion estimado vs real es obligatorio.
 
 ## Formato mínimo de respuestas técnicas
 1. Alcance funcional resumido.
 2. Impacto técnico por capa.
 3. Riesgos y supuestos.
-4. Pruebas mínimas requeridas.
+4. Pruebas funcionales mínimas requeridas.
 5. Checklist de salida para merge.
+6. Cierre de calibracion estimado vs real.
 
 ## Presupuesto
 - Los parámetros están en .github/instructions/27-presupuesto-parametros.instructions.md.

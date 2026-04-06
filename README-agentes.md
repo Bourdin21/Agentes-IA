@@ -10,7 +10,7 @@ Estandarizar cómo se analizan, diseñan e implementan cambios técnicos y funci
 
 ## Secuencia Operativa Obligatoria
 
-Analisis -> Diseno -> Arquitectura -> Presupuesto -> Implementacion -> Pruebas -> Documentacion
+Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> Implementacion -> Pruebas funcionales -> Documentacion de alcance (cliente) -> Cierre de calibracion estimado vs real
 
 ## Arquitectura Establecida
 
@@ -79,21 +79,37 @@ Agentes-IA/
 - `.github/instructions/27-presupuesto-parametros.instructions.md`: parametros base de tarifa y calibracion historica.
 - `.github/instructions/28-estimacion-avanzada.instructions.md`: metodo PERT, contingencia por riesgo y calibracion periodica.
 
+## Mapa de Prompts por Etapa
+
+- `.github/prompts/00-discovery.prompt.md`: discovery y relevamiento formal.
+- `.github/prompts/01-analisis.prompt.md`: analisis funcional trazable.
+- `.github/prompts/02-diseno.prompt.md`: diseno funcional de pantallas y validaciones.
+- `.github/prompts/03-arquitectura.prompt.md`: arquitectura tecnica por capas.
+- `.github/prompts/04-presupuesto.prompt.md`: presupuesto con WBS, PERT y riesgo.
+- `.github/prompts/05-implementacion.prompt.md`: ejecucion de cambios en codigo.
+- `.github/prompts/06-pruebas.prompt.md`: pruebas funcionales.
+- `.github/prompts/07-documentacion.prompt.md`: documentacion de alcance para cliente.
+- `.github/prompts/08-cierre-calibracion.prompt.md`: cierre de calibracion estimado vs real.
+- `.github/prompts/09-orquestador-flujo-completo.prompt.md`: orquestador maestro de la secuencia completa por etapas.
+
 ## Como Aplicar Esta Arquitectura en un Proyecto
 
 1. Copiar `.github/copilot-instructions.md` y la carpeta `.github/instructions/` al repositorio destino.
 2. Configurar editor con `configs/github-copilot/settings.json` en `.vscode/settings.json`.
 3. Usar la secuencia operativa obligatoria para cada feature o cambio.
-4. Para cada cambio, explicitar capas afectadas, riesgos y pruebas minimas.
+4. Para cada cambio, explicitar capas afectadas, riesgos y pruebas funcionales.
 5. Si hay impacto en permisos, estados, validaciones o migraciones EF, declararlo de forma explícita.
+6. La documentacion final debe ser de alcance para el cliente.
+7. Cerrar cada presupuesto con calibracion estimado vs real para recalibrar parametros.
 
 ## Formato Minimo de Respuesta Tecnica
 
 1. Alcance funcional resumido.
 2. Impacto tecnico por capa.
 3. Riesgos y supuestos.
-4. Pruebas minimas requeridas.
+4. Pruebas funcionales minimas requeridas.
 5. Checklist de salida para merge.
+6. Cierre de calibracion estimado vs real.
 
 ## Agentes Disponibles
 

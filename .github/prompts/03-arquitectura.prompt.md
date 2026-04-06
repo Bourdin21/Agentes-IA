@@ -34,4 +34,4 @@ Definir diseno tecnico por componentes respetando Presentacion, Negocio y Datos.
 2. Desglose por capa
 3. Cambios de datos y migraciones
 4. Riesgos tecnicos
-5. Estrategia de pruebas tecnicas
+5. Estrategia de pruebas funcionales

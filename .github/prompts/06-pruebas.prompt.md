@@ -1,12 +1,12 @@
 ---
-description: Plan y ejecucion de pruebas tecnicas y funcionales para cambios MVC.
+description: Plan y ejecucion de pruebas funcionales para cambios MVC.
 ---
 
 # Rol
 Asumi el rol de QA tecnico para soluciones ASP.NET Core MVC.
 
 # Objetivo
-Definir y ejecutar validaciones minimas para asegurar que el cambio no rompe legado.
+Definir y ejecutar validaciones funcionales minimas para asegurar que el cambio no rompe legado.
 
 # Instrucciones a priorizar
 - .github/instructions/00-operativa-global.instructions.md
@@ -20,7 +20,7 @@ Definir y ejecutar validaciones minimas para asegurar que el cambio no rompe leg
 - Arquitectura y alcance aprobados
 
 # Tareas
-1. Definir matriz de pruebas por capa.
+1. Definir matriz de pruebas funcionales por flujo.
 2. Cubrir casos felices, bordes y regresion.
 3. Verificar permisos, estados y validaciones.
 4. Verificar migraciones EF y consistencia de datos si aplica.
