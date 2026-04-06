@@ -1,0 +1,121 @@
+@{
+    ViewData["Title"] = "Auditoria";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="mb-0">Auditoria de Cambios</h3>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table id="auditTable" class="table table-sm table-hover" style="width:100%">
+                <thead class="table-light">
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Usuario</th>
+                        <th>Accion</th>
+                        <th>Entidad</th>
+                        <th>ID</th>
+                        <th>Campos</th>
+                        <th>IP</th>
+                        <th style="width:50px;"></th>
+                    </tr>
+                </thead>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal detalle -->
+<div class="modal fade" id="auditDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Detalle de Auditoria</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="auditDetailBody"></div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            var table = $('#auditTable').DataTable({
+                processing: true,
+                serverSide: true,
+                ajax: { url: '@Url.Action("GetData", "Audit")', type: 'POST' },
+                order: [[0, 'desc']],
+                columns: [
+                    { data: 'timestamp' },
+                    { data: 'userName', defaultContent: '<span class="text-muted">Sistema</span>' },
+                    {
+                        data: 'action', render: function (data) {
+                            var badge = { 'Create': 'bg-success', 'Update': 'bg-primary', 'Delete': 'bg-danger' };
+                            var label = { 'Create': 'Creacion', 'Update': 'Edicion', 'Delete': 'Eliminacion' };
+                            return '<span class="badge ' + (badge[data] || 'bg-secondary') + '">' + (label[data] || data) + '</span>';
+                        }
+                    },
+                    { data: 'entityName' },
+                    { data: 'entityId', defaultContent: '-' },
+                    {
+                        data: 'affectedColumns', orderable: false, render: function (data) {
+                            if (!data) return '-';
+                            try {
+                                var cols = JSON.parse(data);
+                                return cols.map(function (c) { return '<span class="badge bg-light text-dark me-1">' + c + '</span>'; }).join('');
+                            } catch (e) { return data; }
+                        }
+                    },
+                    { data: 'ipAddress', defaultContent: '-' },
+                    {
+                        data: null, orderable: false, render: function (data) {
+                            return '<button class="btn btn-outline-info btn-sm btn-detail" title="Ver detalle"><i class="fas fa-eye"></i></button>';
+                        }
+                    }
+                ],
+                language: {
+                    processing: 'Cargando...',
+                    search: 'Buscar:',
+                    lengthMenu: 'Mostrar _MENU_ registros',
+                    info: '_START_ a _END_ de _TOTAL_',
+                    infoEmpty: 'Sin registros',
+                    infoFiltered: '(filtrado de _MAX_ totales)',
+                    zeroRecords: 'No se encontraron resultados',
+                    paginate: { first: '«', last: '»', next: '›', previous: '‹' }
+                },
+                pageLength: 15,
+                lengthMenu: [15, 30, 50, 100]
+            });
+
+            // Detalle
+            $('#auditTable').on('click', '.btn-detail', function () {
+                var data = table.row($(this).closest('tr')).data();
+                var html = '<table class="table table-sm">';
+                html += '<tr><th style="width:120px;">Fecha</th><td>' + data.timestamp + '</td></tr>';
+                html += '<tr><th>Usuario</th><td>' + (data.userName || 'Sistema') + '</td></tr>';
+                html += '<tr><th>Accion</th><td>' + data.action + '</td></tr>';
+                html += '<tr><th>Entidad</th><td>' + data.entityName + ' #' + (data.entityId || '-') + '</td></tr>';
+                html += '<tr><th>IP</th><td>' + (data.ipAddress || '-') + '</td></tr>';
+                html += '</table>';
+
+                if (data.oldValues) {
+                    html += '<h6 class="mt-3">Valores anteriores</h6><pre class="bg-light p-2 rounded small" style="max-height:200px;overflow:auto;">' + formatJson(data.oldValues) + '</pre>';
+                }
+                if (data.newValues) {
+                    html += '<h6 class="mt-3">Valores nuevos</h6><pre class="bg-light p-2 rounded small" style="max-height:200px;overflow:auto;">' + formatJson(data.newValues) + '</pre>';
+                }
+
+                $('#auditDetailBody').html(html);
+                new bootstrap.Modal('#auditDetailModal').show();
+            });
+
+            function formatJson(str) {
+                try { return JSON.stringify(JSON.parse(str), null, 2); }
+                catch (e) { return str; }
+            }
+        });
+    </script>
+}
