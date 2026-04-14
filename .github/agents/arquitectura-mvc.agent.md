@@ -14,6 +14,7 @@ Reglas:
 - preservar comportamiento legacy salvo indicacion contraria
 - indicar explicitamente si requiere migracion EF
 - listar impacto en permisos, estados o validaciones
+- no implementar código
 
 Salida minima:
 1. Alcance funcional resumido.

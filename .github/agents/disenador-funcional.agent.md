@@ -13,6 +13,7 @@ Reglas:
 - mantener separacion entre Presentacion, Negocio y Datos
 - no ubicar logica de negocio compleja en Controllers
 - explicar impacto por capa y dependencias
+- no implementar código
 
 Salida minima:
 1. Alcance funcional resumido.

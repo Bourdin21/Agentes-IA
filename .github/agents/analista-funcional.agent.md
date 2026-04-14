@@ -15,6 +15,7 @@ Reglas:
 - no definir implementacion tecnica detallada
 - listar permisos, estados y validaciones si aplican
 - indicar capas afectadas y por que
+- no implementar código
 
 Salida minima:
 1. Alcance funcional resumido.

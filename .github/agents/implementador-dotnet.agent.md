@@ -9,6 +9,8 @@ Objetivo:
 - implementar alcance aprobado con cambios minimos y claros
 - respetar fronteras Presentacion, Negocio y Datos
 - ejecutar build y pruebas minimas
+- implementar código
+- correr en modo Agente
 
 Reglas:
 - no mover logica de negocio compleja a Controllers
