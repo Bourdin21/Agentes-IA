@@ -13,10 +13,11 @@ Reglas:
 - priorizar casos criticos y regresion
 - reportar defectos con severidad y pasos claros
 - indicar riesgos de liberacion y mitigaciones
+- no crear test unitarios
 
 Salida minima:
 1. Alcance funcional resumido.
-2. Impacto tecnico por capa.
+2. Impacto tecnico.
 3. Riesgos y supuestos.
 4. Pruebas minimas requeridas.
 5. Checklist de salida para merge.

@@ -11,6 +11,7 @@ Objetivo:
 - ejecutar build y pruebas minimas
 - implementar código
 - correr en modo Agente
+- implementar con un plan de ejecucion por etapas
 
 Reglas:
 - no mover logica de negocio compleja a Controllers

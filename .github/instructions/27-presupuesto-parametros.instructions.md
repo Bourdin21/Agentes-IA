@@ -99,11 +99,68 @@ applyTo: "**/*.{md,prompt.md,agent.md,instructions.md}"
 
 ## Reglas de escala para nuevos presupuestos
 
+## Definicion operativa de complejidad ABM (obligatoria)
+
+- ABM simple:
+- Entidad con campos escalares (texto, numero, fecha, booleano), sin colecciones hijas.
+- Validaciones basicas de formulario.
+- Puede tener clave foranea simple, pero sin edicion compuesta de detalle en la misma pantalla.
+
+- ABM intermedio:
+- Entidad con una o mas relaciones a otras entidades (many-to-one o one-to-one) y validaciones adicionales por relacion.
+- Incluye reglas de negocio moderadas en alta/edicion.
+- No incluye administracion compleja de listas hijas dentro del mismo flujo.
+
+- ABM complejo:
+- Entidad raiz con detalle (one-to-many o many-to-many), con lista de referencias a otras entidades hijas.
+- Requiere consistencia entre cabecera y detalle, reglas transaccionales o validaciones cruzadas.
+- Puede incluir estados de proceso o flujo operativo acoplado.
+
+Regla de clasificacion rapida:
+- Sin detalle ni relaciones complejas: ABM simple.
+- Con relaciones y validaciones relacionales, sin detalle hijo editable: ABM intermedio.
+- Con cabecera + detalle editable y consistencia transaccional: ABM complejo.
+
 ### Por modulo individual (nuevo modulo simple)
 - Catalogo / ABM basico: 1 a 2 h - USD 17 a 34
 - ABM con relaciones y validaciones: 2 a 4 h - USD 34 a 68
 - Modulo con workflow / estados: 4 a 6 h - USD 68 a 102
 - Modulo financiero o con logica compleja: 5 a 8 h - USD 85 a 136
+
+## Calibracion incremental Abril 2026 (dataset real compartido)
+
+Fuente:
+- Dataset de modulos de Delicias Naturales, Recotrack, Lumitrack y Piapartments.
+- Las horas reportadas ya incluyen contingencia y margen de errores/devoluciones del 30%.
+
+Regla de normalizacion obligatoria:
+- Si una referencia historica viene con contingencia del 30% incluida, convertir primero a horas base: Horas base = Horas finales / 1.30.
+- Evitar doble contingencia: no volver a aplicar 15% o 25% sobre una referencia que ya esta inflada por contingencia, salvo justificacion explicita por riesgo nuevo.
+
+Resumen de rangos observados (horas finales con 30% incluida):
+- ABM simple: 2 a 4 h (moda observada: 2 h).
+- ABM intermedio: 5 a 7 h (moda observada: 6.5 h).
+- ABM complejo: 10 a 15 h.
+- ABM complejo con padre/hijos detalle: 10 h como referencia inicial.
+- Notificaciones SignalR acotadas: 4.5 h como referencia inicial.
+
+Resumen de rangos base equivalentes (sin contingencia):
+- ABM simple: 1.5 a 3.1 h.
+- ABM intermedio: 3.8 a 5.4 h.
+- ABM complejo: 7.7 a 11.5 h.
+- ABM complejo con padre/hijos detalle: 7.7 h.
+- Notificaciones SignalR acotadas: 3.5 h.
+
+Ejemplos usados para calibrar (horas finales con 30%):
+- Delicias Naturales: Notificaciones SignalR 4.5 h, Gestion de pedidos 10 h, ABM Pedidos 10.5 h, ABM descuentos 6.5 h, ABM Pagos 5 h, ABM Compras 15 h, ABM Proveedores 7 h, ABM Ventas 10 h, ABM Categorias 2 h.
+- Recotrack: ABM Empleados 6 h, ABM Usuarios 6 h, ABM Camiones 2 h, ABM Tipo Servicio 4 h, Multas Choferes 2 h, Accidentes Choferes 2 h, Horas Extras Choferes 2 h.
+- Lumitrack: ABM Reclamo 6.5 h, ABM Cuadrilla 6.5 h, ABM Usuarios 6.5 h, ABM Tipo Servicio 6.5 h, ABM Materiales 6.5 h, ABM Relevamientos 10 h.
+- Piapartments: ABM Edificios 6.5 h.
+
+Reglas practicas de uso del dataset:
+- Si el pedido nuevo coincide con un modulo comparable, usar primero la banda historica y luego ajustar por drivers reales (permisos, estados, integraciones, migraciones EF).
+- Si la estimacion final supera 20% del techo historico de la banda elegida, documentar causa puntual.
+- Si no hay modulo comparable claro, declarar incertidumbre y devolver rango por fase.
 
 ### Modificacion sobre modulo existente
 - Agregar campo simple: 0.5 h - USD 8

@@ -35,6 +35,23 @@ applyTo: "**/*.{md,prompt.md,agent.md,instructions.md}"
 - Horas finales = suma PERT por item + contingencia por riesgo.
 - Costo = horas finales x tasa vigente (ver 27-presupuesto-parametros).
 
+## 6) Autocorreccion contra historicos (obligatoria antes del cierre)
+- Antes de cerrar el numero final, cada item funcional debe pasar por un control de calibracion contra historicos comparables.
+- Seleccionar al menos 1 y hasta 3 referencias comparables del dataset vigente.
+- Normalizar unidades: si la referencia historica incluye contingencia, llevar primero a base para comparar base con base.
+- Calcular ratio de calibracion por item: Ratio = Horas base estimadas / Horas base historicas comparables (mediana).
+- Umbrales de decision:
+- Ratio entre 0.85 y 1.15: mantener estimacion.
+- Ratio mayor a 1.15: revisar sobreestimacion y ajustar a la baja o justificar drivers adicionales concretos.
+- Ratio menor a 0.85: revisar omisiones y ajustar al alza o justificar simplificacion real.
+- Registrar obligatoriamente por item: referencia usada, ratio, ajuste aplicado y motivo.
+- Regla anti-doble contingencia: aplicar contingencia una sola vez en toda la cadena de calculo.
+
+## 7) Cierre numerico por dos pasos
+- Paso A: total preliminar (sin autocorreccion final).
+- Paso B: total ajustado por autocorreccion historica + validacion de contingencia no duplicada.
+- El numero a comunicar al cliente debe ser el Paso B.
+
 # Formato de entrega de presupuesto
 - Mostrar por item funcional: O, M, P, horas PERT, riesgo, horas finales, USD.
 - Incluir explicitamente:
@@ -51,6 +68,7 @@ applyTo: "**/*.{md,prompt.md,agent.md,instructions.md}"
 
 # Seguimiento y calibracion
 - Registrar por cada item: horas estimadas, horas reales, desvio porcentual.
+- Registrar tambien el ratio de calibracion usado al presupuestar (para medir si el ajuste pre-cierre fue correcto).
 - Revisar calibracion cada 3 meses o cada 5 presupuestos cerrados.
 - Si el desvio promedio absoluto supera 20%, recalibrar rangos por tipo de modulo.
 
