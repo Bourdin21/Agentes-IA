@@ -42,9 +42,9 @@ applyTo: "**/*.{md,prompt.md,agent.md,instructions.md}"
 
 ## Tasa vigente
 
-- Tasa base: USD 14 / hora
+- Tasa base: USD 12 / hora
 - Aplicar a todos los presupuestos futuros salvo indicacion contraria del cliente.
-- Si el cliente negocia descuento, no bajar de USD 12/h sin aprobacion explicita.
+- Si el cliente negocia descuento, no bajar de USD 10/h sin aprobacion explicita.
 
 ## Rangos de referencia por tipo de modulo
 
