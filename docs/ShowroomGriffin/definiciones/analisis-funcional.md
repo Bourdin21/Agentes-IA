@@ -3,8 +3,8 @@
 
 **Cliente:** Ulises  
 **Proveedor:** OlvidataSoft  
-**Versión:** 1.0  
-**Estado:** Análisis funcional aprobado  
+**Versión:** 1.1  
+**Estado:** Análisis funcional cerrado — listo para handoff a Diseño  
 
 ---
 
@@ -61,7 +61,40 @@ Desarrollar un sistema de gestión comercial web (MVC, .NET 10, MySQL) que permi
 
 ---
 
-## 3. Análisis por Módulo
+## 3. Casos de Uso (índice maestro)
+
+| ID | Caso de uso | Actor primario | Módulo |
+|---|---|---|---|
+| CU-01 | Iniciar sesión y navegar según rol | Admin / Vendedor | Seguridad |
+| CU-02 | Editar perfil propio (nombre, contraseña) | Cualquier usuario | Seguridad |
+| CU-03 | Gestionar usuarios y asignar roles | Admin | Seguridad |
+| CU-04 | ABM Categorías / Subgrupos / Proveedores / TipoPrecioZapatilla | Admin | Maestros |
+| CU-05 | ABM Clientes (Vendedor solo lectura) | Admin / Vendedor | Maestros |
+| CU-06 | Crear/editar producto y variantes con campos dinámicos por tipo | Admin | Productos |
+| CU-07 | Consultar catálogo (sin costos para Vendedor) | Admin / Vendedor | Productos |
+| CU-08 | Carga inicial de stock por variante | Admin | Stock |
+| CU-09 | Ajuste manual de stock con motivo | Admin | Stock |
+| CU-10 | Consultar historial de movimientos de stock | Admin / Vendedor | Stock |
+| CU-11 | Visualizar alertas de stock bajo | Admin / Vendedor | Stock |
+| CU-12 | Crear orden de compra a proveedor (Borrador) | Admin | Compras |
+| CU-13 | Avanzar estado de compra (Borrador → EnProceso → Verificada → Recibida) | Admin | Compras |
+| CU-14 | Recepcionar compra con cantidades Recibida/Dañada/Devuelta | Admin | Compras |
+| CU-15 | Adjuntar comprobantes a compra | Admin | Compras |
+| CU-16 | Registrar venta con carrito AJAX y múltiples medios de pago | Admin / Vendedor | Ventas |
+| CU-17 | Marcar venta como Entregada | Admin / Vendedor | Ventas |
+| CU-18 | Anular venta Confirmada (repone stock) | Admin / Vendedor | Ventas |
+| CU-19 | Generar remito PDF | Admin / Vendedor | Ventas |
+| CU-20 | Adjuntar comprobante a venta | Admin / Vendedor | Ventas |
+| CU-21 | Procesar devolución de dinero (wizard 4 pasos) | Admin / Vendedor | Devoluciones |
+| CU-22 | Procesar cambio mismo valor | Admin / Vendedor | Devoluciones |
+| CU-23 | Procesar cambio mayor valor con diferencia y medio de pago | Admin / Vendedor | Devoluciones |
+| CU-24 | Generar resumen semanal de transferencias y exportar a Excel | Admin | Resumen Semanal |
+| CU-25 | Aplicar aumento masivo de precios con preview y exclusiones | Admin | Aumento Masivo |
+| CU-26 | Visualizar dashboard según rol | Admin / Vendedor | Dashboard |
+
+---
+
+## 4. Análisis por Módulo
 
 ---
 
@@ -591,7 +624,20 @@ PASO 4: Confirmar
 
 ---
 
-## 4. Parámetros del Sistema
+## 5. Decisiones funcionales resueltas (cierre v1.1)
+
+| # | Tema | Decisión | Regla impactada |
+|---|---|---|---|
+| D1 | Numeración correlativa de venta | `int` autoincremental gestionado por la base de datos | R-VTA-08 |
+| D2 | Redondeo en pago con Cuotas | El recargo por financiamiento se distribuye en cada cuota (no se prorratea sobre el total). Cada cuota = `(Monto + Recargo) / CantidadCuotas`, redondeo 2 decimales. La diferencia por redondeo se ajusta en la última cuota. | R-VTA-07 |
+| D3 | Cantidades dañadas devueltas al proveedor antes de recepción | Si la devolución al proveedor ocurre **antes** de recepcionar, se **ignora** (no genera movimiento de stock ni descuenta del pedido). Solo se contabiliza tras tener stock recepcionado. | R-COM-06 / R-COM-07 |
+| D4 | Persistencia de preview de Aumento Masivo | **No** se persiste registro `AumentoMasivo` si el admin cancela antes de aplicar. Solo se crea al confirmar. | R-AUM-04 / Entidad #20 |
+| D5 | Soft delete de Cliente con ventas | Se **bloquea** la inactivación de un cliente con ventas asociadas (mismo criterio que categorías con productos). Mostrar mensaje de error. | R-MAE-05 (extendido a Cliente) |
+| D6 | Concurrencia en Aumento Masivo | Si dos admins lanzan aumentos simultáneos sobre la misma variante, **prevalece el primero** que confirma (first-write-wins). Se implementa con bloqueo optimista por `RowVersion` o lock pesimista en la transacción del batch. El segundo recibe error y debe re-previsualizar. | R-AUM-05 (nuevo) |
+
+---
+
+## 6. Parámetros del Sistema
 
 | Parámetro | Valor | Notas |
 |---|---|---|
@@ -605,7 +651,7 @@ PASO 4: Confirmar
 
 ---
 
-## 5. Resumen de Entidades
+## 7. Resumen de Entidades
 
 | # | Entidad | Módulo | Relaciones clave |
 |---|---|---|---|
@@ -632,7 +678,7 @@ PASO 4: Confirmar
 
 ---
 
-## 6. Impacto Técnico
+## 8. Impacto Técnico
 
 | Área | Impacto |
 |---|---|
@@ -645,7 +691,17 @@ PASO 4: Confirmar
 
 ---
 
-## 7. Riesgos y Supuestos
+## 9. Banderas tempranas
+
+| Bandera | Estado | Justificación |
+|---|---|---|
+| **¿Requiere migración EF?** | ✅ **SÍ** | 20 entidades nuevas + 5 enums + 20 configuraciones Fluent API. Se proyectan **6 migraciones (M1–M6)**. Impacta `AppDbContext`, seed de rol Vendedor y policies de autorización. |
+| **¿Integración externa?** | ❌ **NO** | AFIP/ARCA, hardware fiscal, notificaciones email/push y backup están explícitamente excluidos (sección 11). El lector USB de código de barras opera como teclado: sin desarrollo de integración. Único componente externo: librerías locales (QuestPDF, ClosedXML). |
+| **¿Máquina de estados?** | ✅ **SÍ** | Dos máquinas relevantes:<br>• **Compra**: Borrador → EnProceso → Verificada → Recibida (lineal, sin retroceso; efectos colaterales en Recibida: stock + UltimoPrecioCompra).<br>• **Venta**: Confirmada → Entregada \| Anulada (Anulada repone stock; Entregada bloquea anulación → forzar flujo de Devolución).<br>Las reglas de transición deben encapsularse en `ICompraService` e `IVentaService` para garantizar invariantes. |
+
+---
+
+## 10. Riesgos y Supuestos
 
 ### Riesgos
 
@@ -668,7 +724,7 @@ PASO 4: Confirmar
 
 ---
 
-## 8. Pruebas Mínimas Requeridas
+## 11. Pruebas Mínimas Requeridas
 
 ### Integración (por service)
 
@@ -695,7 +751,7 @@ PASO 4: Confirmar
 
 ---
 
-## 9. Exclusiones
+## 12. Exclusiones
 
 Las siguientes funcionalidades **NO** están incluidas en el alcance:
 
@@ -711,7 +767,7 @@ Las siguientes funcionalidades **NO** están incluidas en el alcance:
 
 ---
 
-## 10. Checklist de Salida
+## 13. Checklist de Salida
 
 ```
 ANÁLISIS FUNCIONAL — CHECKLIST DE SALIDA
@@ -738,5 +794,39 @@ CRITERIOS DE ACEPTACIÓN
 
 EXCLUSIONES
 [✓] Exclusiones documentadas explícitamente
+
+CIERRE v1.1
+[✓] Casos de uso indexados (CU-01..CU-26)
+[✓] Decisiones funcionales resueltas (D1..D6)
+[✓] Banderas tempranas explícitas (EF: SÍ / Integración: NO / Máquina de estados: SÍ)
+[✓] Listo para handoff a Diseño
 ────────────────────────────────────────────────────────────────────────
 ```
+
+---
+
+## 14. Handoff a Diseño
+
+### Paquete entregado al agente de Diseño
+
+1. **Alcance cerrado**: 9 módulos + Dashboard, 26 casos de uso, 20 entidades, 5 enums, 3 roles.
+2. **Reglas de negocio codificadas**: R-SEG, R-MAE, R-PRD, R-STK, R-COM, R-VTA, R-DEV, R-RES, R-AUM, R-DSH (~60 reglas).
+3. **Decisiones funcionales resueltas (D1–D6)**: numeración correlativa, redondeo de cuotas, dañadas pre-recepción, no persistencia de preview, bloqueo de cliente con ventas, first-write-wins en aumento masivo.
+4. **Banderas tempranas**:
+   - Migración EF: **SÍ** (6 migraciones M1–M6).
+   - Integración externa: **NO**.
+   - Máquina de estados: **SÍ** (Compra y Venta).
+5. **Criterios de aceptación verificables** por módulo (~55 ítems).
+6. **Riesgos y supuestos** (R1–R4 / S1–S5).
+7. **Exclusiones explícitas** (sección 12).
+
+### Foco esperado en la etapa de Diseño
+
+- **Domain**: modelar las 20 entidades + enums + invariantes de las dos máquinas de estado.
+- **Application**: 14 interfaces de service con contratos `ServiceResult<T>`, política de visibilidad de costos por rol, reglas de transición de estado.
+- **Infrastructure**: Fluent API, plan de 6 migraciones M1–M6, transacciones serializables (Venta/Compra/Devolución), bloqueo optimista para Aumento Masivo (D6).
+- **Web**: 13 controllers, ~30 vistas, ~35 ViewModels, 7 endpoints AJAX, sidebar dinámico por rol, formularios con campos condicionales (Ropa vs Zapatillas), wizard 4 pasos (Devolución), carrito single-page (Venta).
+
+### Preguntas pendientes para el diseñador
+
+Ninguna desde el plano funcional. Las cuestiones técnicas (mecanismo concreto de bloqueo en D6, estrategia de redondeo en D2 a nivel persistencia, índices únicos para SKU/CódigoBarra/correlativo de venta) se resuelven en la etapa de Diseño/Arquitectura.

@@ -11,3 +11,4 @@ Registrar una fila por cada proyecto con memoria activa en /docs.
 | lumitrack | 2026-01-01 | cerrado | /docs/lumitrack |
 | piapartments | 2026-01-01 | cerrado | /docs/piapartments |
 | ganaderia | 2026-04-22 | abierto | /docs/ganaderia |
+| ShowroomGriffin | 2026-04-28 | abierto | /docs/ShowroomGriffin |
