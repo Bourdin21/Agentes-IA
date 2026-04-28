@@ -24,9 +24,10 @@ Proyectos de referencia disponibles:
 
 ## Tasa vigente
 
-- Tasa base: USD 12 / hora
+- Tasa base: USD 14 / hora (referencia confirmada en proyectos cerrados).
 - Aplicar a todos los presupuestos futuros salvo indicacion contraria del cliente.
 - Si el cliente negocia descuento, no bajar de USD 10/h sin aprobacion explicita.
+- La tasa es independiente de la complejidad: proyectos mas complejos se expresan en mas horas, no en mayor tarifa.
 
 ## Rangos de referencia por tipo de modulo
 
@@ -94,7 +95,7 @@ Reglas practicas de uso del dataset:
 - Total combinado base: 175 horas - USD 2.450 - tasa efectiva confirmada USD 14/h.
 - Total combinado con contingencias: 190 horas - USD 2.660.
 - Revisar y actualizar la tasa cada 6 meses o ante cambio de contexto economico.
-- Para proyectos mayores a 50h aplicar contingencia adicional del 15%.
-- Para proyectos que incluyan migracion de datos, agregar entre 20% y 30% al total.
+- La contingencia se aplica una unica vez segun la politica vigente (variable por riesgo 8/15/25 por defecto, o fija del cliente cuando aplique). No sumar 15% adicional por encima de proyectos >50h: ese efecto ya esta absorbido en la contingencia por riesgo.
+- Para proyectos que incluyan migracion de datos, agregar entre 20% y 30% al total como riesgo declarado, no como contingencia adicional sobre otra contingencia.
 - Facturacion AFIP es exclusion estandar salvo excepcion documentada (ver Proyecto 3 Delicias Naturales).
 - Integraciones externas tipo Web Service se estiman entre 2 y 4 h por integracion segun complejidad.

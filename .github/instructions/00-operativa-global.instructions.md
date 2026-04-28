@@ -44,7 +44,17 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - Ask mode: Discovery/Relevamiento, Analisis, Diseno, Arquitectura y Presupuesto.
 - Agent mode: Implementacion, pruebas funcionales, correccion de build, documentacion de alcance y cierre de calibracion.
 
+# Gates de aprobacion entre etapas
+- Cada etapa debe cerrar su archivo en /docs/<proyecto>/definiciones/ antes de pasar a la siguiente.
+- No iniciar Diseno sin Analisis aprobado.
+- No iniciar Arquitectura sin Diseno aprobado.
+- No iniciar Presupuesto sin Arquitectura aprobada.
+- No iniciar Implementacion sin Presupuesto aprobado por el cliente.
+- No iniciar Documentacion al cliente sin QA aprobado.
+- El Cierre de calibracion lo ejecuta el agente 4 al finalizar el sprint.
+
 # Formato minimo de respuestas tecnicas
+Este formato es el contrato de salida del orquestador hacia el cliente. Cada agente entrega su Salida minima propia (definida en su .agent.md), y el orquestador consolida estos puntos:
 1. Alcance funcional resumido.
 2. Impacto tecnico por capa.
 3. Riesgos y supuestos.

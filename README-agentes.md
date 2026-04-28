@@ -1,12 +1,12 @@
 # Agentes-IA
 
-Repositorio centralizado de configuración de agentes de IA para los proyectos de **OlvidataSoft**.
+Repositorio centralizado de configuracion de agentes de IA para los proyectos de **OlvidataSoft**.
 
-Repositorio centralizado de configuración de agentes de IA para proyectos de OlvidataSoft, con una arquitectura de instrucciones modular y orientada a MVC + EF Core + MySQL.
+Repositorio centralizado de configuracion de agentes de IA para proyectos de OlvidataSoft, con una arquitectura de instrucciones modular y orientada a MVC + EF Core + MySQL.
 
 ## Objetivo
 
-Estandarizar cómo se analizan, diseñan e implementan cambios técnicos y funcionales usando agentes, separando reglas globales de reglas por capa para reducir ambigüedad y facilitar reutilización.
+Estandarizar como se analizan, disenan e implementan cambios tecnicos y funcionales usando agentes, separando reglas globales de reglas por capa para reducir ambiguedad y facilitar reutilizacion.
 
 ## Secuencia Operativa Obligatoria
 
@@ -22,9 +22,9 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 
 ### Reglas base transversales
 
-- No colocar lógica de negocio compleja en Controllers.
+- No colocar logica de negocio compleja en Controllers.
 - Controllers coordinan request/response y delegan en Services.
-- La lógica de negocio vive en Services.
+- La logica de negocio vive en Services.
 - El acceso a datos vive en DbContext, repositorios o infraestructura.
 - Preservar comportamiento legacy salvo indicacion contraria.
 
@@ -71,8 +71,8 @@ Agentes-IA/
 
 ## Mapa de Instrucciones Modulares
 
-- `.github/instructions/00-operativa-global.instructions.md`: marco común de trabajo y formato de salida.
-- `.github/instructions/01-fronteras-por-capa.instructions.md`: límites arquitectónicos por capa.
+- `.github/instructions/00-operativa-global.instructions.md`: marco comun de trabajo y formato de salida.
+- `.github/instructions/01-fronteras-por-capa.instructions.md`: limites arquitectonicos por capa.
 - `.github/instructions/10-blankproject-base.instructions.md`: baseline tecnico de plataforma.
 - `.github/instructions/20-domain.instructions.md`: reglas de Domain.
 - `.github/instructions/21-application.instructions.md`: reglas de Application.
@@ -87,32 +87,32 @@ Agentes-IA/
 
 ## Trazabilidad de Conversaciones en /docs
 
-Cada proyecto debe persistir la conversacion y sus definiciones en archivos Markdown dentro de `/docs`.
+Cada proyecto persiste su memoria de trabajo en `/docs/<proyecto>/`, con un archivo por agente.
 
-Estructura base sugerida:
+Estructura oficial:
 
 ```
 /docs/
-	conversaciones/
-		indice.md
-		<conversacion-id>/
-			metadata.md
-			trazabilidad.md
-			definiciones/
-				1-analista-funcional.md
-				2-disenador-funcional.md
-				3-arquitecto-mvc.md
-				4-presupuestador.md
-				5-implementador.md
-				6-qa.md
-				7-documentador.md
+  indice.md
+  <proyecto>/
+    metadata.md
+    trazabilidad.md
+    definiciones/
+      1-analista-funcional.md
+      2-disenador-funcional.md
+      3-arquitecto-mvc.md
+      4-presupuestador.md
+      5-implementador.md
+      6-qa.md
+      7-documentador.md
 ```
 
 Reglas obligatorias:
-- Cada agente guarda su salida en su archivo de definicion individual.
-- Si una definicion cambia, se modifica el mismo archivo `.md` configurado para esa conversacion.
-- No duplicar archivos de definicion para el mismo agente dentro de la misma conversacion.
-- Cada ajuste debe registrarse tambien en `trazabilidad.md`.
+- Cada agente edita su unico archivo de definicion en `/docs/<proyecto>/definiciones/`.
+- Si el archivo no existe, se crea desde `/docs/templates/proyecto/definiciones/`.
+- No duplicar archivos para el mismo agente y proyecto.
+- Cada ajuste relevante se registra tambien en `/docs/<proyecto>/trazabilidad.md`.
+- El indice consolidado de proyectos vive en `/docs/indice.md`.
 
 ## Mapa de Prompts por Etapa
 
@@ -133,7 +133,7 @@ Reglas obligatorias:
 2. Configurar editor con `configs/github-copilot/settings.json` en `.vscode/settings.json`.
 3. Usar la secuencia operativa obligatoria para cada feature o cambio.
 4. Para cada cambio, explicitar capas afectadas, riesgos y pruebas funcionales.
-5. Si hay impacto en permisos, estados, validaciones o migraciones EF, declararlo de forma explícita.
+5. Si hay impacto en permisos, estados, validaciones o migraciones EF, declararlo de forma explicita.
 6. La documentacion final debe ser de alcance para el cliente.
 7. Cerrar cada presupuesto con calibracion estimado vs real para recalibrar parametros.
 
@@ -148,10 +148,19 @@ Reglas obligatorias:
 
 ## Agentes Disponibles
 
-| Agente | Directorio | Descripción |
-|--------|------------|-------------|
-| GitHub Copilot | `configs/github-copilot/` | Asistente de codificación integrado en el editor |
-| OpenAI API | `configs/openai/` | Integración con modelos GPT para automatización |
+Flujo funcional por etapa, definidos en `.github/agents/`:
+
+| # | Agente | Archivo | Etapa que cubre |
+|---|--------|---------|-----------------|
+| 1 | Analista funcional | `analista-funcional.agent.md` | Discovery + Analisis |
+| 2 | Disenador funcional | `disenador-funcional.agent.md` | Diseno funcional + maquina de estados |
+| 3 | Arquitecto MVC | `arquitecto-mvc.agent.md` | Arquitectura tecnica + permisos + EF |
+| 4 | Presupuestador | `presupuesto-mvc.agent.md` | Presupuesto + cierre de calibracion |
+| 5 | Implementador .NET | `implementador-dotnet.agent.md` | Implementacion + build + pruebas minimas |
+| 6 | QA | `qa-mvc.agent.md` | Pruebas funcionales + criterios de aceptacion |
+| 7 | Documentador | `documentador.agent.md` | Documentacion de alcance al cliente |
+
+Gates de aprobacion: ninguna etapa puede iniciar sin el cierre de la anterior en `/docs/<proyecto>/definiciones/`.
 
 ## Directrices de Uso
 
@@ -159,6 +168,6 @@ Consultar [`configs/general/agent-guidelines.md`](configs/general/agent-guidelin
 
 ## Seguridad
 
-- Nunca incluir claves de API ni credenciales en el código fuente.
+- Nunca incluir claves de API ni credenciales en el codigo fuente.
 - Usar siempre variables de entorno para gestionar secretos.
-- Revisar y validar todo código generado por IA antes de integrar.
+- Revisar y validar todo codigo generado por IA antes de integrar.
