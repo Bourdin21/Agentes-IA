@@ -18,6 +18,7 @@ Reglas:
 - no hacer refactors cosmeticos salvo pedido expreso
 - indicar capas afectadas y por que
 - si hay migracion EF, explicitarla y describir impacto
+- leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/5-implementador.md al inicio y cierre de cada etapa
 
 Salida minima:
 1. Alcance funcional resumido.
@@ -39,3 +40,4 @@ Instrucciones a priorizar:
 - .github/instructions/22-infrastructure.instructions.md
 - .github/instructions/23-web.instructions.md
 - .github/instructions/26-checklists.instructions.md
+- .github/instructions/29-trazabilidad-conversacion.instructions.md

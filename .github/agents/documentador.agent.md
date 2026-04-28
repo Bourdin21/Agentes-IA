@@ -15,6 +15,7 @@ Reglas:
 - evitar tecnicismos, nombres internos de clases, capas o frameworks
 - escribir en tono ejecutivo, breve y orientado a valor para el cliente
 - priorizar: que se hizo, que mejora aporta y que queda pendiente
+- leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/7-documentador.md al inicio y cierre de cada etapa
 
 Formato de salida (maximo 6 bloques cortos):
 1. Resumen del sprint (3 a 5 lineas).
@@ -35,3 +36,4 @@ Instrucciones a priorizar:
 - .github/instructions/01-fronteras-por-capa.instructions.md
 - .github/instructions/10-blankproject-base.instructions.md
 - .github/instructions/26-checklists.instructions.md
+- .github/instructions/29-trazabilidad-conversacion.instructions.md

@@ -1,42 +1,24 @@
 ﻿---
-description: Parametros base de estimacion y presupuesto. Calibrado sobre tres proyectos reales finalizados en 2025.
+description: Parametros base de estimacion y presupuesto. Calibrado sobre proyectos reales de OlvidataSoft.
 applyTo: "**/*.{md,prompt.md,agent.md,instructions.md}"
 ---
 
-# Parametros de referencia - Proyectos calibrados 2025
+# Parametros de referencia - Proyectos calibrados
 
-## Proyecto de referencia 1 - Eleven La Plata
+Los datos especificos de cada proyecto viven en /docs/<proyecto>/definiciones/4-presupuestador.md.
+Para calibrar, leer primero ese archivo antes de estimar.
 
-- Sistema: Gestion Integral Eleven La Plata (27 modulos funcionales, Clean Architecture, .NET 10 + MySQL)
-- Horas reales totales: 50 horas
-- Costo total real: USD 700
-- Tasa efectiva: USD 14 / hora
-- Perfil: Sistema de gestion general. Modulos de complejidad media. Sin maquinas de estado complejas ni parsers externos.
-- Fecha de cierre: Julio 2025
-
-## Proyecto de referencia 2 - VinoSeFue
-
-- Sistema: Gestion Comercial de Vinos VinoSeFue (16 modulos funcionales, Clean Architecture, .NET 10 + MySQL)
-- Horas reales totales: 30 horas
-- Costo total real: USD 420
-- Tasa efectiva: USD 14 / hora
-- Perfil: Sistema comercial con alta complejidad por modulo. Incluye maquinas de estados (Pedidos + CompraProveedor), flujo de concesiones con ajuste de cuenta corriente, importacion automatica de catalogo (HTML / PDF / CSV) con Background Worker, ledger de movimientos, 6 migraciones EF, 17 entidades de dominio, 13 servicios, 40 vistas.
-- Fecha de cierre: Julio 2025
-
-## Proyecto de referencia 3 - Delicias Naturales
-
-- Sistema: Gestion Comercial Delicias Naturales (19 modulos funcionales, ASP.NET MVC 5 + .NET Framework 4.7.2 + EF6 + MySQL)
-- Horas estimadas base (sin contingencia): 95 horas
-- Horas totales con contingencia 15%: 110 horas
-- Costo total estimado: USD 1.540
-- Tasa efectiva: USD 14 / hora
-- Perfil: Sistema comercial de mayor escala del dataset. 26 entidades, 19 controladores, 25 migraciones EF evolutivas, 5 integraciones AFIP, maquinas de estado multiples, SignalR, reportes PDF, soft-delete.
-- Fecha de presupuesto: Junio 2025
-- Estado: Presupuestado sobre sistema existente. Estimacion retrospectiva validada por el cliente.
+Proyectos de referencia disponibles:
+- /docs/eleven-la-plata/definiciones/4-presupuestador.md (50 h reales, 27 modulos, .NET 10)
+- /docs/vinosefue/definiciones/4-presupuestador.md (30 h reales, 16 modulos, maquinas de estado)
+- /docs/delicias-naturales/definiciones/4-presupuestador.md (95 h base / 110 h con contingencia, 19 modulos, dataset por modulo)
+- /docs/recotrack/definiciones/4-presupuestador.md (dataset ABM simple/intermedio con 30% incluido)
+- /docs/lumitrack/definiciones/4-presupuestador.md (dataset ABM intermedio/complejo con 30% incluido)
+- /docs/piapartments/definiciones/4-presupuestador.md (ABM intermedio con 30% incluido)
 
 ## Conclusion de calibracion
 
-- Los tres proyectos confirman la tasa de USD 14 / hora como referencia solida.
+- Los proyectos cerrados confirman la tasa de USD 14 / hora como referencia solida.
 - La tasa es independiente de la complejidad: proyectos mas complejos se expresan en mas horas, no en mayor tarifa.
 - La contingencia del 15% se aplica correctamente desde los 50h de base en adelante.
 
@@ -56,9 +38,8 @@ applyTo: "**/*.{md,prompt.md,agent.md,instructions.md}"
 
 ## Calibracion incremental Abril 2026 (dataset real compartido)
 
-Fuente:
-- Dataset de modulos de Delicias Naturales, Recotrack, Lumitrack y Piapartments.
-- Las horas reportadas ya incluyen contingencia y margen de errores/devoluciones del 30%.
+Fuente: dataset de modulos de Delicias Naturales, Recotrack, Lumitrack y Piapartments.
+Ver detalle por modulo en /docs/<proyecto>/definiciones/4-presupuestador.md de cada proyecto.
 
 Regla de normalizacion obligatoria:
 - Si una referencia historica viene con contingencia del 30% incluida, convertir primero a horas base: Horas base = Horas finales / 1.30.
@@ -78,14 +59,8 @@ Resumen de rangos base equivalentes (sin contingencia):
 - ABM complejo con padre/hijos detalle: 7.7 h.
 - Notificaciones SignalR acotadas: 3.5 h.
 
-Ejemplos usados para calibrar (horas finales con 30%):
-- Delicias Naturales: Notificaciones SignalR 4.5 h, Gestion de pedidos 10 h, ABM Pedidos 10.5 h, ABM descuentos 6.5 h, ABM Pagos 5 h, ABM Compras 15 h, ABM Proveedores 7 h, ABM Ventas 10 h, ABM Categorias 2 h.
-- Recotrack: ABM Empleados 6 h, ABM Usuarios 6 h, ABM Camiones 2 h, ABM Tipo Servicio 4 h, Multas Choferes 2 h, Accidentes Choferes 2 h, Horas Extras Choferes 2 h.
-- Lumitrack: ABM Reclamo 6.5 h, ABM Cuadrilla 6.5 h, ABM Usuarios 6.5 h, ABM Tipo Servicio 6.5 h, ABM Materiales 6.5 h, ABM Relevamientos 10 h.
-- Piapartments: ABM Edificios 6.5 h.
-
 Reglas practicas de uso del dataset:
-- Si el pedido nuevo coincide con un modulo comparable, usar primero la banda historica y luego ajustar por drivers reales.
+- Si el pedido nuevo coincide con un modulo comparable, leer primero el 4-presupuestador.md del proyecto de referencia y luego ajustar por drivers reales.
 - Si la estimacion final supera 20% del techo historico de la banda elegida, documentar causa puntual.
 - Si no hay modulo comparable claro, declarar incertidumbre y devolver rango por fase.
 

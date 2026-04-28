@@ -20,6 +20,7 @@ Reglas:
 - hacer preguntas para aclarar requerimientos si es necesario
 - asegurar que el alcance definido es factible y alineado con objetivos del negocio
 - evitar ambigüedades y suposiciones no verificadas en la definición de requerimientos
+- leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/1-analista-funcional.md al inicio y cierre de cada etapa
 
 Salida minima:
 1. Alcance funcional resumido.
@@ -37,3 +38,4 @@ Instrucciones a priorizar:
 - .github/instructions/00-operativa-global.instructions.md
 - .github/instructions/01-fronteras-por-capa.instructions.md
 - .github/instructions/10-blankproject-base.instructions.md
+- .github/instructions/29-trazabilidad-conversacion.instructions.md

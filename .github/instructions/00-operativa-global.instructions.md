@@ -20,6 +20,15 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - La documentacion requerida es de alcance para el cliente.
 - El cierre de calibracion estimado vs real es obligatorio para mejorar la asertividad del presupuesto.
 
+# Trazabilidad documental obligatoria en /docs
+- Este repositorio (Agentes-IA) centraliza la memoria de trabajo de todos los proyectos.
+- Cada proyecto tiene su carpeta propia en /docs/<proyecto>/.
+- Cada agente tiene un unico archivo de memoria por proyecto en /docs/<proyecto>/definiciones/.
+- Al trabajar sobre un proyecto, leer primero la version vigente del agente y luego editar ese mismo archivo.
+- No crear archivos nuevos para el mismo agente y proyecto: siempre editar el existente.
+- Cada ajuste relevante debe registrarse en /docs/<proyecto>/trazabilidad.md.
+- El indice consolidado de proyectos vive en /docs/indice.md.
+
 # Definicion minima por etapa
 - Discovery/Relevamiento: alcance inicial, supuestos, exclusiones y dependencias.
 - Analisis: problema de negocio, casos de uso y criterios de aceptacion.

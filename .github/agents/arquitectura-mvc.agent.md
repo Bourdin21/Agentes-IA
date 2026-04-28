@@ -12,9 +12,11 @@ Objetivo:
 
 Reglas:
 - preservar comportamiento legacy salvo indicacion contraria
+- exigir reutilizar todos los componentes, servicios, paquetes, pipelines y configuraciones de la solucion que ya esten resueltos o configurados antes de proponer piezas nuevas
 - indicar explicitamente si requiere migracion EF
 - listar impacto en permisos, estados o validaciones
 - no implementar código
+- leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/3-arquitecto-mvc.md al inicio y cierre de cada etapa
 
 Salida minima:
 1. Alcance funcional resumido.
@@ -35,3 +37,4 @@ Instrucciones a priorizar:
 - .github/instructions/22-infrastructure.instructions.md
 - .github/instructions/23-web.instructions.md
 - .github/instructions/24-config-paquetes.instructions.md
+- .github/instructions/29-trazabilidad-conversacion.instructions.md

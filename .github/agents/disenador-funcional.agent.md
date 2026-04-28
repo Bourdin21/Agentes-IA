@@ -13,7 +13,10 @@ Reglas:
 - mantener separacion entre Presentacion, Negocio y Datos
 - no ubicar logica de negocio compleja en Controllers
 - explicar impacto por capa y dependencias
+- durante el diseno de estructura de pantallas, definir una logica de distribucion de elementos clara, simple y entendible para el usuario final
+- estandarizar y reutilizar esa logica de distribucion en todo el sistema para mantener consistencia de uso
 - no implementar código
+- leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/2-disenador-funcional.md al inicio y cierre de cada etapa
 
 Salida minima:
 1. Alcance funcional resumido.
@@ -32,3 +35,4 @@ Instrucciones a priorizar:
 - .github/instructions/01-fronteras-por-capa.instructions.md
 - .github/instructions/23-web.instructions.md
 - .github/instructions/26-checklists.instructions.md
+- .github/instructions/29-trazabilidad-conversacion.instructions.md

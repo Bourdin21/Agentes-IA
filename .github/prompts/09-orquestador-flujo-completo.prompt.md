@@ -15,6 +15,7 @@ Ejecutar la secuencia obligatoria sin saltos, garantizando trazabilidad, consist
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/27-presupuesto-parametros.instructions.md
 - .github/instructions/28-estimacion-avanzada.instructions.md
+- .github/instructions/29-trazabilidad-conversacion.instructions.md
 
 # Secuencia obligatoria a ejecutar
 1. .github/prompts/00-discovery.prompt.md
@@ -33,6 +34,10 @@ Ejecutar la secuencia obligatoria sin saltos, garantizando trazabilidad, consist
 - Mantener trazabilidad: cada decision debe referenciar alcance, riesgo y capa afectada.
 - Preservar comportamiento legacy salvo indicacion contraria.
 - No omitir cierre de calibracion estimado vs real.
+- Inicializar al comienzo /docs/<proyecto>/ si no existe, usando plantillas de /docs/templates/proyecto/.
+- Antes de cada etapa, leer la version vigente del agente en /docs/<proyecto>/definiciones/.
+- Al cierre de cada etapa, actualizar el archivo del agente en /docs/<proyecto>/definiciones/ y registrar entrada en trazabilidad.md.
+- Si cambia una definicion, editar el archivo existente del agente (no crear uno nuevo).
 
 # Criterios de entrada/salida por etapa
 - Entrada de Discovery: pedido inicial y contexto de negocio.
@@ -61,3 +66,4 @@ Ejecutar la secuencia obligatoria sin saltos, garantizando trazabilidad, consist
 4. Resultado de pruebas funcionales
 5. Documentacion de alcance para cliente
 6. Cierre de calibracion estimado vs real
+7. Rutas de archivos de trazabilidad y definiciones actualizados en /docs/<proyecto>/

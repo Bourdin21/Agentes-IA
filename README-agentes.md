@@ -46,9 +46,14 @@ Agentes-IA/
 |   |   |-- 25-frontend-design-system.instructions.md
 |   |   |-- 26-checklists.instructions.md
 |   |   |-- 27-presupuesto-parametros.instructions.md
-|   |   `-- 28-estimacion-avanzada.instructions.md
+|   |   |-- 28-estimacion-avanzada.instructions.md
+|   |   `-- 29-trazabilidad-conversacion.instructions.md
 |   |-- agents/
 |   `-- prompts/
+|-- docs/
+|   |-- README.md
+|   |-- conversaciones/
+|   `-- templates/
 |-- configs/
 |   |-- general/
 |   |   |-- README.md
@@ -78,6 +83,36 @@ Agentes-IA/
 - `.github/instructions/26-checklists.instructions.md`: checklists de implementacion.
 - `.github/instructions/27-presupuesto-parametros.instructions.md`: parametros base de tarifa y calibracion historica.
 - `.github/instructions/28-estimacion-avanzada.instructions.md`: metodo PERT, contingencia por riesgo y calibracion periodica.
+- `.github/instructions/29-trazabilidad-conversacion.instructions.md`: trazabilidad por conversacion en `/docs` y definiciones por agente en archivos individuales.
+
+## Trazabilidad de Conversaciones en /docs
+
+Cada proyecto debe persistir la conversacion y sus definiciones en archivos Markdown dentro de `/docs`.
+
+Estructura base sugerida:
+
+```
+/docs/
+	conversaciones/
+		indice.md
+		<conversacion-id>/
+			metadata.md
+			trazabilidad.md
+			definiciones/
+				1-analista-funcional.md
+				2-disenador-funcional.md
+				3-arquitecto-mvc.md
+				4-presupuestador.md
+				5-implementador.md
+				6-qa.md
+				7-documentador.md
+```
+
+Reglas obligatorias:
+- Cada agente guarda su salida en su archivo de definicion individual.
+- Si una definicion cambia, se modifica el mismo archivo `.md` configurado para esa conversacion.
+- No duplicar archivos de definicion para el mismo agente dentro de la misma conversacion.
+- Cada ajuste debe registrarse tambien en `trazabilidad.md`.
 
 ## Mapa de Prompts por Etapa
 

@@ -14,6 +14,7 @@ Reglas:
 - reportar defectos con severidad y pasos claros
 - indicar riesgos de liberacion y mitigaciones
 - no crear test unitarios
+- leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/6-qa.md al inicio y cierre de cada etapa
 
 Salida minima:
 1. Alcance funcional resumido.
@@ -32,3 +33,4 @@ Instrucciones a priorizar:
 - .github/instructions/01-fronteras-por-capa.instructions.md
 - .github/instructions/23-web.instructions.md
 - .github/instructions/26-checklists.instructions.md
+- .github/instructions/29-trazabilidad-conversacion.instructions.md

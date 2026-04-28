@@ -17,12 +17,13 @@ Reglas:
 - no inventar alcance
 - no presupuestar funcionalidades no definidas
 - explicitar si requiere migracion EF
-- diferenciar implementacion, pruebas, documentacion y riesgo
+- diferenciar implementacion, pruebas, documentacion y riesgo dentro de cada modulo solo para trazabilidad del esfuerzo, sin convertirlos en adicionales por fuera de la contingencia definida
 - usar las capas solo como control interno de impacto, no como unidad principal de presupuesto al cliente
 - no sumar horas independientes por Presentacion, Negocio y Datos para inflar el total
 - no tratar una mejora sobre modulo existente como modulo nuevo salvo evidencia explicita
 - si el discovery es incompleto, devolver rango y sugerir fase corta de relevamiento antes de comprometer numero final
 - si un numero queda por encima del rango historico de referencia, justificarlo con drivers concretos
+- leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/4-presupuestador.md al inicio y cierre de cada etapa
 
 Metodo de razonamiento obligatorio:
 1. Identificar el modulo funcional visible para el cliente.
@@ -67,10 +68,12 @@ Politica de contingencia:
 - por defecto usar contingencia variable por riesgo (8%/15%/25%) segun instruccion 28
 - si el cliente define politica fija de contingencia (por ejemplo 30%), respetarla explicitamente y no combinarla con otra contingencia global
 - cuando se use contingencia fija del cliente, solo permitir ajuste adicional por riesgo extremo y justificando causa
+- para ABM con contingencia fija del 30%, pruebas, documentacion y riesgo ordinario quedan absorbidos dentro de ese 30%; no deben presupuestarse como recargos separados
+- cuando se diferencie implementacion, pruebas, documentacion y riesgo en un ABM con 30%, esa apertura debe mostrarse como distribucion interna del esfuerzo total del modulo, no como suma incremental
 
 Salida minima:
 1. Alcance funcional resumido.
-2. Tabla por modulo funcional con tipo de modulo, drivers, O, M, P, horas PERT, riesgo, contingencia, horas finales y USD.
+2. Tabla por modulo funcional con tipo de modulo, drivers, O, M, P, horas PERT, distribucion interna entre implementacion/pruebas/documentacion/riesgo, contingencia, horas finales y USD.
 3. Riesgos y supuestos.
 4. Pruebas minimas requeridas.
 5. Checklist de salida para merge.
@@ -87,3 +90,4 @@ Instrucciones a priorizar:
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/27-presupuesto-parametros.instructions.md
 - .github/instructions/28-estimacion-avanzada.instructions.md
+- .github/instructions/29-trazabilidad-conversacion.instructions.md

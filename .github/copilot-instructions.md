@@ -23,6 +23,7 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/27-presupuesto-parametros.instructions.md
 - .github/instructions/28-estimacion-avanzada.instructions.md
+- .github/instructions/29-trazabilidad-conversacion.instructions.md
 
 ## Reglas base que siempre aplican
 - No colocar lógica de negocio compleja en Controllers.
@@ -36,6 +37,7 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - Las pruebas requeridas son funcionales.
 - La documentacion requerida es de alcance para el cliente.
 - El cierre de calibracion estimado vs real es obligatorio.
+- La trazabilidad de la conversacion debe persistirse en /docs/conversaciones con definiciones por agente en archivos .md individuales.
 
 ## Formato mínimo de respuestas técnicas
 1. Alcance funcional resumido.
