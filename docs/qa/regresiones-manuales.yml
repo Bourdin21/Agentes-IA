@@ -1,0 +1,321 @@
+# Catalogo de regresiones reproducidas manualmente.
+# Cada item describe parametros suficientes para que un agente QA:
+#   1. Reproduzca el bug en una build candidata.
+#   2. Detecte automaticamente si reaparecio.
+#   3. Aplique (o sugiera) el fix conocido.
+#
+# Formato:
+#   id:           identificador estable (no renombrar).
+#   modulo:       area funcional / ruta principal.
+#   titulo:       resumen humano.
+#   severidad:    blocker | critical | major | minor.
+#   reproducido_en: rama o commit donde se reprodujo.
+#   pasos:        lista de acciones manuales para reproducir.
+#   sintoma:      lo que el usuario observa cuando el bug existe.
+#   expectativa:  comportamiento correcto esperado.
+#   causa_raiz:   descripcion tecnica.
+#   capa:         Domain | Application | Infrastructure | Web.
+#   archivos_fix: rutas tocadas en la solucion + breve motivo.
+#   migracion_ef: nombre de migracion si aplica, o null.
+#   deteccion_qa:
+#     tipo: ui | api | data | static.
+#     selector_o_endpoint: pista para automatizar.
+#     condicion_falla:    como decidir que el bug existe.
+#   criterio_aceptacion:  bullets verificables.
+#   pruebas_minimas:      lista de pruebas funcionales que el agente QA debe correr.
+
+version: 1
+proyecto: ShowroomGriffin
+ultima_actualizacion: 2026-04-29
+
+regresiones:
+
+  - id: REG-001
+    modulo: Variantes / Stock
+    titulo: "DbUpdateException al crear variante por RowVersion en MySQL"
+    severidad: blocker
+    reproducido_en: main
+    pasos:
+      - "Ir a Productos -> Detalle -> Crear Variante."
+      - "Completar campos minimos y guardar."
+    sintoma: "Microsoft.EntityFrameworkCore.DbUpdateException: Field 'RowVersion' doesn't have a default value."
+    expectativa: "La variante se crea y persiste correctamente."
+    causa_raiz: "MySQL no soporta rowversion store-generated como SQL Server."
+    capa: Infrastructure
+    archivos_fix:
+      - path: ShowroomGriffin.Infrastructure/Data/AppDbContext.cs
+        motivo: "Asignar RowVersion manualmente en SaveChanges/SaveChangesAsync."
+      - path: ShowroomGriffin.Infrastructure/Data/Configurations/Productos/VarianteProductoConfiguration.cs
+        motivo: "IsConcurrencyToken().ValueGeneratedNever().IsRequired()."
+    migracion_ef: "RowVersionVarianteManual"
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /Variantes/Crear/{productoId}"
+      condicion_falla: "respuesta 500 o ModelState con DbUpdateException sobre RowVersion."
+    criterio_aceptacion:
+      - "Crear variante NO lanza DbUpdateException."
+      - "VarianteProducto.RowVersion se persiste no nulo y unico por save."
+    pruebas_minimas:
+      - "Crear variante simple."
+      - "Editar variante (verificar concurrencia funcional)."
+
+  - id: REG-002
+    modulo: Variantes / Stock
+    titulo: "No se podia cargar stock inicial al crear/editar variante"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "Productos -> Detalle -> Crear Variante."
+      - "Buscar campo de stock inicial."
+    sintoma: "No existe input para cargar stock al crear la variante; obliga a usar otra pantalla."
+    expectativa: "Al crear o editar la variante, el usuario puede ingresar stock inicial y queda registrado en VarianteStock."
+    causa_raiz: "El VM y el service no exponian StockInicial."
+    capa: Application + Infrastructure + Web
+    archivos_fix:
+      - path: ShowroomGriffin.Application/DTOs/Productos/VarianteViewModel.cs
+        motivo: "Agregar StockInicial."
+      - path: ShowroomGriffin.Infrastructure/Services/VarianteService.cs
+        motivo: "Crear/actualizar VarianteStock con el valor inicial."
+      - path: ShowroomGriffin.Web/Views/Variantes/Crear.cshtml
+        motivo: "Input de stock inicial."
+      - path: ShowroomGriffin.Web/Views/Variantes/Editar.cshtml
+        motivo: "Input editable + carga de stock actual."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "input[name='StockInicial'] en /Variantes/Crear/* y /Variantes/Editar/*"
+      condicion_falla: "el input no existe o el valor enviado no actualiza VarianteStock.Cantidad."
+    criterio_aceptacion:
+      - "Al crear variante con StockInicial=N, VarianteStock.Cantidad == N."
+      - "Al editar variante con cambio de stock, queda registrado y auditable."
+    pruebas_minimas:
+      - "Crear variante con StockInicial=5 y verificar grilla de stock."
+      - "Editar variante y modificar stock."
+
+  - id: REG-003
+    modulo: Compras / Crear
+    titulo: "Autocomplete (proveedor / variantes) no devuelve resultados"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "Compras -> Crear."
+      - "Tipear en el combo Proveedor o Variantes."
+    sintoma: "El combo no muestra resultados aunque hay datos cargados."
+    expectativa: "Cada combo Select2 devuelve resultados legibles segun el termino escrito."
+    causa_raiz: "Endpoints faltantes y processResults mapeando campos inexistentes (v.descripcion)."
+    capa: Web
+    archivos_fix:
+      - path: ShowroomGriffin.Web/Views/Compras/Crear.cshtml
+        motivo: "Select2 con dataType:'json' y mapping a campos reales."
+      - path: ShowroomGriffin.Web/Controllers/ProveedoresController.cs
+        motivo: "Endpoint Buscar para autocomplete."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Select2 #selProveedor y #selVariante en /Compras/Crear"
+      condicion_falla: "Select2 no devuelve resultados o textos vacios al tipear 'a'."
+    criterio_aceptacion:
+      - "Al tipear letra en proveedor: devuelve >= 1 resultado con nombre y telefono visible."
+      - "Al tipear letra en variante: devuelve resultados con producto/talle/color."
+    pruebas_minimas:
+      - "Smoke autocomplete proveedor y variante."
+
+  - id: REG-004
+    modulo: Compras / Detalle
+    titulo: "Maquina de estados de Compra no respetaba el flujo funcional"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "Crear compra Borrador, intentar avanzar."
+    sintoma: "Botones permitian saltar estados o exponian acciones invalidas."
+    expectativa: "Borrador -> EnProceso -> Verificada -> Recibida con botones acordes."
+    causa_raiz: "UI desalineada con CambiarEstadoAsync; Recepcionar no validaba estado actual."
+    capa: Web + Infrastructure
+    archivos_fix:
+      - path: ShowroomGriffin.Web/Views/Compras/Detalle.cshtml
+        motivo: "Mapa de badges y handler .btn-avanzar segun estado."
+      - path: ShowroomGriffin.Web/Controllers/ComprasController.cs
+        motivo: "Recepcionar(int id) con guard de estado."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "/Compras/Detalle/{id} boton avanzar y /Compras/Recepcionar/{id}"
+      condicion_falla: "Aparecen botones para estados no validos o GET Recepcionar acepta cualquier estado."
+    criterio_aceptacion:
+      - "Borrador muestra 'Confirmar pedido' y no 'Recepcionar'."
+      - "EnProceso muestra 'Verificar remito'."
+      - "Verificada muestra 'Recepcionar'."
+      - "Recibida no muestra acciones de avance."
+    pruebas_minimas:
+      - "Recorrido completo Borrador -> Recibida."
+      - "Intento de saltar estados falla controladamente."
+
+  - id: REG-005
+    modulo: Ventas / Crear
+    titulo: "Autocomplete de variantes muestra resultados sin texto"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "Ventas -> Crear -> tipear en buscador de variante."
+    sintoma: "Resultados blancos o lista vacia."
+    expectativa: "Resultados con texto Producto - Talle - Color - Modelo - SKU."
+    causa_raiz: "processResults usaba v.descripcion (no existe en API)."
+    capa: Web
+    archivos_fix:
+      - path: ShowroomGriffin.Web/Views/Ventas/Crear.cshtml
+        motivo: "Select2 con campos reales y dataType:'json'."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Select2 #selVariante en /Ventas/Crear"
+      condicion_falla: "Resultados sin texto al tipear letra."
+    criterio_aceptacion:
+      - "Cada item del dropdown contiene al menos productoNombre o sku."
+    pruebas_minimas:
+      - "Smoke autocomplete variante en venta."
+
+  - id: REG-006
+    modulo: Ventas / Crear
+    titulo: "Medio de pago Cuotas no pedia cantidad ni % financiamiento"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "Ventas -> Crear, agregar pago, elegir Cuotas."
+    sintoma: "No solicitaba cantidad de cuotas (>=2) ni porcentaje de financiamiento."
+    expectativa: "Cuotas requiere CantidadCuotas (>=2) y PorcentajeFinanciamiento (>=0)."
+    causa_raiz: "Faltaba CantidadCuotas en domain/DTO/UI; sin validacion server-side."
+    capa: Domain + Application + Infrastructure + Web
+    archivos_fix:
+      - path: ShowroomGriffin.Domain/Entities/Ventas/VentaPago.cs
+        motivo: "Agregar CantidadCuotas (int?)."
+      - path: ShowroomGriffin.Application/DTOs/Ventas/VentasViewModels.cs
+        motivo: "Agregar CantidadCuotas en VentaPagoItem/LineaViewModel."
+      - path: ShowroomGriffin.Infrastructure/Services/VentaService.cs
+        motivo: "Validacion por medio + normalizacion (Cuotas conserva, otros limpian)."
+      - path: ShowroomGriffin.Infrastructure/Data/Configurations/Ventas/VentaPagoConfiguration.cs
+        motivo: "Mapping CantidadCuotas."
+      - path: ShowroomGriffin.Web/Views/Ventas/Crear.cshtml
+        motivo: "Inputs condicionales + payload + validacion cliente."
+      - path: ShowroomGriffin.Web/Views/Ventas/Detalle.cshtml
+        motivo: "Columna Cuotas en detalle."
+    migracion_ef: "AddCantidadCuotasToVentaPago"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Select medioPago=3 en /Ventas/Crear"
+      condicion_falla: "Inputs cuotas/% financiamiento no aparecen, o backend acepta CantidadCuotas<2 sin error."
+    criterio_aceptacion:
+      - "Medio Cuotas con CantidadCuotas<2 -> error 400 con mensaje claro."
+      - "Medio Cuotas sin PorcentajeFinanciamiento -> error 400."
+      - "Medio Cuotas valido se guarda y aparece en Detalle."
+    pruebas_minimas:
+      - "Pago Cuotas valido."
+      - "Pago Cuotas con cuotas=1 (debe fallar)."
+      - "Pago Cuotas sin %financ (debe fallar)."
+
+  - id: REG-007
+    modulo: Devoluciones / Crear
+    titulo: "Autocomplete 'Nueva variante' no carga en cambios"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "Devoluciones -> Crear, elegir Cambio Mismo Valor o Mayor Valor, tipear en Nueva variante."
+    sintoma: "Lista vacia o sin texto."
+    expectativa: "Mismos resultados que en Ventas/Crear."
+    causa_raiz: "processResults mapeaba v.descripcion (no existe)."
+    capa: Web
+    archivos_fix:
+      - path: ShowroomGriffin.Web/Views/Devoluciones/Crear.cshtml
+        motivo: "Select2 alineado a Ventas/Crear; validacion cliente y habilitacion condicional."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Select2 #selNuevaVariante en /Devoluciones/Crear"
+      condicion_falla: "Resultados sin texto al tipear letra."
+    criterio_aceptacion:
+      - "Cambio Mismo Valor: combo nueva variante funcional, diferencia bloqueada."
+      - "Cambio Mayor Valor: combo + diferencia + medio habilitados."
+    pruebas_minimas:
+      - "Devolucion dinero (sin combo)."
+      - "Cambio Mismo Valor."
+      - "Cambio Mayor Valor con diferencia."
+
+  - id: REG-008
+    modulo: Ventas / Crear (pagos)
+    titulo: "Input de importe pierde foco al tipear"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "Ventas -> Crear, agregar pago, tipear en Importe."
+    sintoma: "Tras cada caracter el cursor se sale del input."
+    expectativa: "Tipear el numero completo sin perder foco; recalc onchange/input."
+    causa_raiz: "renderPagos() rehacia el tbody en cada keystroke, destruyendo el input enfocado."
+    capa: Web
+    archivos_fix:
+      - path: ShowroomGriffin.Web/Views/Ventas/Crear.cshtml
+        motivo: "actualizarTotalFilaPago(idx) sin re-render; recalc preserva foco."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: ".inp-importe en /Ventas/Crear"
+      condicion_falla: "document.activeElement deja de ser el input tras cada keystroke."
+    criterio_aceptacion:
+      - "Tipear '12345.67' completo en un solo focus."
+      - "Total c/Financ y Diferencia se actualizan en vivo."
+    pruebas_minimas:
+      - "Tipear importe largo sin perder foco."
+      - "Cambiar % financiamiento sin perder foco."
+
+  - id: REG-009
+    modulo: AumentoMasivo
+    titulo: "Cascada Categoria -> Subgrupo no carga subgrupos"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "AumentoMasivo -> Alcance 'Por subgrupo' -> elegir Categoria 'Ropa'."
+    sintoma: "Subgrupo queda vacio."
+    expectativa: "Al elegir categoria, subgrupos se autopueblan."
+    causa_raiz: "Vista llamaba /Subgrupos/PorCategoria/{id} (segmento posicional) y la accion declara categoriaId, ligando 0."
+    capa: Web
+    archivos_fix:
+      - path: ShowroomGriffin.Web/Views/AumentoMasivo/Index.cshtml
+        motivo: "Querystring ?categoriaId=, dataType:'json', placeholders y allowClear."
+      - path: ShowroomGriffin.Web/Controllers/SubgruposController.cs
+        motivo: "PorCategoria(int categoriaId, int id=0) tolerante."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "GET /Subgrupos/PorCategoria?categoriaId={cat}"
+      condicion_falla: "Endpoint con parametro segmento devuelve 0 resultados."
+    criterio_aceptacion:
+      - "GET /Subgrupos/PorCategoria?categoriaId=X devuelve subgrupos correctos."
+      - "Combo subgrupo se popula al cambiar categoria."
+    pruebas_minimas:
+      - "Cascada Ropa -> subgrupos visibles."
+
+  - id: REG-010
+    modulo: Sidebar / Auditoria
+    titulo: "Menu Auditoria visible para Administrador, no solo SuperUsuario"
+    severidad: minor
+    reproducido_en: main
+    pasos:
+      - "Login como Administrador, ver sidebar."
+    sintoma: "Aparece item Auditoria."
+    expectativa: "Solo visible y accesible para SuperUsuario."
+    causa_raiz: "Link sin guard de rol; controller con policy de Administracion."
+    capa: Web
+    archivos_fix:
+      - path: ShowroomGriffin.Web/Views/Shared/_Layout.cshtml
+        motivo: "Envuelve link en @if(User.IsInRole('SuperUsuario'))."
+      - path: ShowroomGriffin.Web/Controllers/AuditController.cs
+        motivo: "[Authorize(Roles='SuperUsuario')] (defensa en profundidad)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "a[href='/Audit'] en _Layout y GET /Audit"
+      condicion_falla: "Admin ve link o GET /Audit retorna 200 para Admin."
+    criterio_aceptacion:
+      - "Admin: link oculto y GET /Audit -> 403."
+      - "SuperUsuario: link visible y GET /Audit -> 200."
+    pruebas_minimas:
+      - "Login Administrador y verificar sidebar + URL directa."
+      - "Login SuperUsuario y verificar acceso."
