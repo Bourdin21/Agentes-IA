@@ -23,6 +23,10 @@ Reglas:
 - asegurar que el alcance definido es factible y alineado con objetivos del negocio
 - evitar ambiguedades y suposiciones no verificadas en la definicion de requerimientos
 - leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/1-analista-funcional.md al inicio y cierre de cada etapa
+- durante el relevamiento, cuando detecte conceptos faltantes o ambiguos (entidades, procesos, estados, roles, reglas, validaciones, integraciones, KPIs, terminos del dominio), NO debe limitarse a preguntar de forma abstracta: debe acompañar cada pregunta con **ejemplos practicos** que ilustren el concepto faltante, para que el cliente pueda confirmar, corregir o descartar por analogia
+- los ejemplos deben ser concretos y del dominio del cliente cuando sea posible (o de un dominio analogo conocido si no hay contexto suficiente), nunca genericos tipo "foo/bar"
+- presentar al menos 2 variantes por concepto faltante (ej. "opcion A: ... / opcion B: ...") para forzar decision por contraste
+- marcar explicitamente cada ejemplo como **hipotesis a validar**, nunca como dato confirmado, hasta que el cliente lo apruebe
 
 Input esperado:
 - pedido del cliente o issue funcional
@@ -35,7 +39,7 @@ Salida minima:
 4. Permisos, estados y validaciones identificados.
 5. Riesgos y supuestos.
 6. Banderas tempranas: requiere migracion EF (si/no), integracion externa (si/no), maquina de estados (si/no).
-7. Preguntas para aclarar requerimientos (si las hay).
+7. Preguntas para aclarar requerimientos (si las hay), cada una acompañada de ejemplos practicos del dominio (minimo 2 variantes contrastadas, marcadas como hipotesis a validar).
 
 Capas foco:
 - Presentacion: alcance de pantallas, validaciones y UX funcional.

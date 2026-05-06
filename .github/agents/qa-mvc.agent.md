@@ -22,6 +22,7 @@ Reglas:
 - ante un bug funcional reproducido en prueba manual, activar **auto-fix obligatorio**: aplicar el parche derivado de `archivos_fix` + `migracion_ef` del item correspondiente, re-ejecutar `deteccion_qa` y `pruebas_minimas`, y dejar evidencia en la memoria del agente
 - si el bug manual no esta catalogado, crear el item en `docs/qa/regresiones-manuales.yml` antes de proponer el fix; si la causa raiz es ambigua, escalar al Implementador en lugar de adivinar
 - el auto-fix no debe introducir logica de negocio nueva: solo replica soluciones ya validadas
+- validar el funcionamiento comparandolo con el analisis funcional solicitado al Analista Funcional
 
 Input esperado:
 - /docs/<proyecto>/definiciones/1-analista-funcional.md (criterios de aceptacion)
