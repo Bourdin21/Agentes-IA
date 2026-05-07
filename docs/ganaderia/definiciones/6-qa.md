@@ -92,6 +92,8 @@ Build base: ✅ OK previo al inicio de QA.
 | BUG-G-004 | major | No se restringe un único movimiento `Inicial` por Grupo. | **FIXED** |
 | BUG-G-005 | major | Bandeja de Novedades in-app no implementada. | **FIXED** (notificación al acreditarse cuotas) |
 | BUG-G-006 | minor | Job de acreditación: cadencia podría no ser diaria (verificar HostedService). | **FIXED** (idempotente por día) |
+| BUG-G-007 | minor | Anular factura no soft-deleteaba movimientos de caja vinculados a cuotas (residuo Pendiente). | **FIXED** |
+| BUG-G-008 | major | Egresos: comprobante sin validación de MIME ni tamaño. | **FIXED** (PDF/JPG/PNG, máx 5 MB) |
 
 ### Pasos de reproducción (defectos abiertos)
 
@@ -139,4 +141,5 @@ Migración EF: no se requirió (ningún cambio de esquema).
 - [ ] Stock: único `Inicial` por Grupo (BUG-G-004).
 - [ ] Bandeja Novedades in-app (BUG-G-005).
 - [ ] Job diario verificado (BUG-G-006).
-- [ ] Pruebas manuales PF/PV ejecutadas y firmadas en `plan-qa-etapa7.md`.
+- [x] PF/PV white-box ejecutadas (recorrido sistemático de invariantes; ver tabla en sesión).
+- [ ] PF/PV interactivas con BD viva (requiere `dotnet ef database update` y servidor MySQL).

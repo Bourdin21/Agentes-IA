@@ -40,6 +40,12 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - El cierre de calibracion estimado vs real es obligatorio.
 - La trazabilidad de la conversacion debe persistirse en /docs/conversaciones con definiciones por agente en archivos .md individuales.
 
+## Bootstrap de proyectos nuevos
+- Al iniciar un proyecto nuevo, ademas de copiar la plantilla `/docs/templates/proyecto/` a `/docs/<proyecto>/`, copiar `/docs/templates/proyecto/copilot-instructions.md` al repositorio del sistema bajo `.github/copilot-instructions.md`.
+- Personalizar ese archivo con el nombre del proyecto, stack real, paleta y comandos de desarrollo del sistema (secciones marcadas `[Personalizar]` o con placeholders `<...>`).
+- Ese archivo es la guia operativa del agente IA dentro del repositorio del sistema y debe quedar consistente con las definiciones de los agentes `3-arquitecto-mvc` y `5-implementador` de ese proyecto.
+- Las reglas globales (etapas, fronteras por capa, presupuesto, QA) siguen viviendo aqui en `Agentes-IA/.github/instructions/*` y no se duplican en el repo del sistema.
+
 ## Formato mínimo de respuestas técnicas
 1. Alcance funcional resumido.
 2. Impacto técnico por capa.

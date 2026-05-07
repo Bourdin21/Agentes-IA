@@ -19,6 +19,7 @@ Reglas:
 - validar que la maquina de estados del diseno sea soportable por la arquitectura propuesta
 - no implementar codigo
 - leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/3-arquitecto-mvc.md al inicio y cierre de cada etapa
+- respetar criterio de arquitectura definido en README.md del proyecto
 
 Input esperado:
 - /docs/<proyecto>/definiciones/1-analista-funcional.md aprobado

@@ -17,6 +17,7 @@ Reglas:
 - indicar capas afectadas y por que
 - si hay migracion EF, explicitarla y describir impacto
 - aplicar el design system al implementar vistas
+- respetar criterio de arquitectura definido en README.md del proyecto
 - usar los checklists definidos en 26-checklists segun el tipo de modulo
 - leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/5-implementador.md al inicio y cierre de cada etapa
 
