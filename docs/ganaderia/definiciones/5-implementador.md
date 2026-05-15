@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: ganaderia
-## Ultima actualizacion: 2026-04-22
+## Ultima actualizacion: 2026-05-07
 
 ## Contexto inicial
 
@@ -218,3 +218,73 @@ Pulido transversal de UI y entrega del plan integral de QA para validacion funci
 - [x] Plan de QA documentado en docs/qa/plan-qa-etapa7.md
 - [ ] QA manual ejecutado y firmado
 - [ ] Despliegue a UAT
+
+## Etapa 8 - 2026-05-07 - cerrada (Refactor dominio + mejoras operativas)
+
+### Alcance
+Refactor del modelo de dominio post-QA: consolidacion de `OrganismoIntermediario` en `Proveedor`, renombrado fisico `Factura -> FacturaVenta`, implementacion de modulos faltantes (Stock, Egresos con FormaDePago, Notificaciones, Feature Flags) y deploy a produccion.
+
+### Cambios por capa
+
+**Domain:**
+- `FacturaVenta.cs` nueva entidad (renombra `Factura`); `FacturaVentaItem.cs`; `FacturaVentaCuota.cs`; `ContadorFacturaVenta.cs`.
+- `ComprobanteFacturaVenta.cs` entidad nueva para adjunto de factura.
+- `JobEjecucion.cs` entidad nueva para trazabilidad del job de acreditacion.
+- `MovimientoStock.cs`: `FacturaId` renombrado a `FacturaVentaId`.
+- `TasaImpuesto` enum ajustado.
+
+**Application:**
+- `IFacturaVentaService.cs` y `INumeradorFacturaVentaService.cs`: contratos actualizados post-rename.
+- `ICatalogoServices.cs`: removido `IOrganismoIntermediarioService` (absorbido en `IProveedorService`).
+- `ICuotaService.cs` ajustado al nuevo nombre de entidad.
+- `IStockService.cs` ajustado.
+
+**Infrastructure:**
+- `AppDbContext.cs`: 5 `DbSet` actualizados + `DbSet<JobEjecucion>` nuevo.
+- `FacturaVentaService.cs`: servicio reescrito para el nuevo modelo. `ProveedorId` reemplaza a `OrganismoIntermediarioId`.
+- `NumeradorFacturaVentaService.cs`: actualizado.
+- `CuotaService.cs`, `DashboardService.cs`, `CatalogoServices.cs`, `SeedData.cs`, `DependencyInjection.cs`: actualizados.
+- `AcreditacionCuotasHostedService.cs`: ahora persiste `JobEjecucion` por cada corrida.
+- 5 migraciones EF nuevas (ver abajo).
+
+**Web:**
+- `FacturasController.cs`: reescrito para `FacturaVenta` con `ProveedorId` en lugar de `OrganismoIntermediarioId`. Vistas `Index`, `Create`, `Details` actualizadas.
+- `FacturaViewModels.cs`, `CatalogoViewModels.cs`: actualizados.
+- `StockController.cs` + `StockViewModels.cs` + vistas `Stock/Index`, `Stock/Compra`, `Stock/Historial`, `Stock/Movimientos`.
+- `EgresosController.cs` + `EgresoViewModels.cs`: `FormaDePago` ahora incluido en el alta de egreso.
+- `CajaController.cs`: drill-down de navegacion.
+- `NotificationsController.cs` + vistas `Notifications/Index`, `Notifications/Details` + `wwwroot/js/notifications.js`.
+- `Cuotas/Index.cshtml`: actualizada.
+- `_Layout.cshtml`: menu actualizado (remover Organismos, agregar Stock con historial).
+- `AccountController.cs`: ajustes menores.
+- `Program.cs`: `FeatureFlags.cs` nuevo para control de modulos en preview.
+- `Filters/Etapa2OnlyAttribute.cs`: filtro de acceso por feature flag.
+- `appsettings.json` / `appsettings.Production.json`: flags de etapa configurados.
+- `web.config`: actualizado para produccion.
+- `Ganaderia.Web.csproj`: dependencias actualizadas.
+
+### Migraciones EF (5 nuevas, todas aplicadas en `ganaderia_dev`)
+
+| Migracion | Descripcion |
+|---|---|
+| `20260507144532_RenameFacturaToFacturaVenta` | Rename fisico `Facturas->FacturasVenta`, items, cuotas, contador y FK en stock |
+| `20260507152516_FacturaVenta_ItemKilosPrecioPorKilo_PlazoNullable` | Campos `Kilos`, `PrecioPorKilo` en item; `Plazo` nullable en cuota |
+| `20260507154402_Egreso_FormaDePago` | Campo `FormaDePago` (int) en tabla `Egresos` |
+| `20260507155158_MovimientoCaja_DrillDownNav` | FK de navegacion drill-down en `MovimientosCaja` |
+| `20260507163603_JobEjecucion` | Tabla `JobEjecuciones` para trazabilidad del job diario |
+| `20260507173610_FacturaVenta_Comprobante` | Tabla `ComprobantesFacturaVenta` para adjuntos de factura |
+
+### Decisiones tecnicas aplicadas
+- `OrganismoIntermediario` eliminado: los organismos migraron como `Proveedor` con `Ambito = Ingresos`. El controller `OrganismosController` y sus vistas fueron removidos.
+- `Factura` -> `FacturaVenta` end-to-end (entidad, tabla, indices, FK, servicios, controllers, vistas, menu). Migration Option B: no destructiva, preserva datos.
+- Feature Flags via `FeatureFlags.cs` + `Etapa2OnlyAttribute` para controlar visibilidad de modulos en etapa de UAT.
+- Job de acreditacion de cuotas ahora persiste `JobEjecucion` con timestamp, resultado y errores para auditoria operativa.
+
+### Build y evidencia
+- Build: OK tras todas las migraciones y refactors.
+- Migraciones aplicadas a `ganaderia_dev`.
+
+### Riesgos y supuestos
+- Pendiente aplicar migraciones en produccion (UAT no iniciado formalmente).
+- `appsettings.Production.json` configurado con flags de etapa para deploy controlado.
+- Tests funcionales end-to-end pendientes (QA Etapa 7 plan, ejecutar con datos reales).

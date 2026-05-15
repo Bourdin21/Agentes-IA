@@ -2,9 +2,12 @@
 
 - nombre: vinosefue
 - fecha_inicio: 2025-07-01
-- estado: cerrado
+- estado: activo
 - owner: OlvidataSoft
-- descripcion: Gestion Comercial de Vinos VinoSeFue. 16 modulos funcionales. Clean Architecture .NET 10 + MySQL.
+- descripcion: Gestion Comercial de Vinos VinoSeFue. 16 modulos funcionales + evoluciones post-cierre. Clean Architecture .NET 10 + MySQL.
+- repo: C:\Sistemas\vino-y-se-fue
+- docs_proyecto: C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue
+- produccion: olvidatasoft-002-site6
 - ruta_definiciones: /docs/vinosefue/definiciones
 
 ## Archivos de memoria por agente
