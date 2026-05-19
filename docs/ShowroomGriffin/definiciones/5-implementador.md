@@ -1,1004 +1,2083 @@
-# 5 — Implementador
-## Sistema de Gestión Comercial — Indumentaria y Calzado
-
-**Cliente:** Ulises  
-**Proveedor:** OlvidataSoft  
-**Versión:** 1.0  
-**Estado:** Plan de implementación cerrado — listo para ejecución por etapas  
-**Base:** `2-disenador-funcional.md` v1.0 + `3-arquitecto-mvc.md` v1.0 + `4-presupuestador.md` v1.0 (todos aprobados)
-
-> Memoria oficial del agente "implementador". Consolida el plan técnico por etapas, los cambios por capa, las migraciones EF, la evidencia de build inicial y la matriz de pruebas mínimas. La ejecución se realiza en modo Agente, una etapa por iteración, con build verde como gate por etapa.
+# 🛠️ Plan de Implementación Técnica - ShowroomGriffin
+**Proyecto:** ShowroomGriffin  
+**Agente:** Implementador  
+**Fecha creación:** 2026-04-23  
+**Última actualización:** 2026-04-23  
 
 ---
 
-## 1. Alcance funcional resumido
+## 📋 ALCANCE FUNCIONAL RESUMIDO
 
-Implementar 9 módulos + Dashboard sobre la solución existente de 4 capas (`Domain`, `Application`, `Infrastructure`, `Web`), preservando comportamiento legacy y respetando las decisiones D1–D6 del análisis y todas las decisiones técnicas resueltas en arquitectura. No hay integraciones externas. No se mueve lógica de negocio a Controllers.
+| # | Funcionalidad | Tipo | Prioridad | Riesgo |
+|---|---------------|------|-----------|--------|
+| **R1** | Campo **Anotaciones** en Venta | Dato simple | 🟢 Alta | 🟢 Bajo |
+| **R2** | **Modal Crear Cliente** desde Venta | Modal AJAX | 🟢 Alta | 🟢 Bajo |
+| **R4** | **Autocompletar importe** en Agregar Pago | UX simple | 🟢 Media | 🟢 Bajo |
+| **R11** | **Maestro Talles** predefinidos (Adultos/Niños) | Maestro | 🟢 Media | 🟢 Bajo |
+| **R3** | **Combos anidados** en Ventas (Marca→Modelo→Color→Talle) | UX compleja | 🟡 Alta | 🟡 Medio |
+| **R5** | **Combos anidados** en Compras | UX compleja | 🟡 Alta | 🟡 Medio |
+| **R6** | **Consulta Stock** rápida | Nueva vista | 🟡 Media | 🟢 Bajo |
+| **R8** | **Rol Empleado** (Ventas/Cambios/Stock) | Autorización | 🟡 Alta | 🟢 Bajo |
+| **R9** | **Importes editables** en Venta | UX sensible | 🔴 Alta | 🔴 Alto |
+| **R7** | **Cambio/Devolución** de Ventas | Flujo complejo | 🔴 Alta | 🔴 Alto |
+| **R10+R12** | **Refactor Modelo** (Marca/Modelo→Producto) | Migración EF | 🔴 **CRÍTICA** | 🔴 **MUY ALTO** |
 
-Drivers concretos a materializar (de arquitectura):
+**Estrategia de implementación:**  
+Dividir en **3 fases** por nivel de riesgo:
 
-- 5 enums + 20 entidades (todas `SoftDestroyable`).
-- 14 interfaces de service + 14 implementaciones + 14 registros DI.
-- 20 `IEntityTypeConfiguration` + `ApplyConfigurationsFromAssembly`.
-- 6 migraciones EF (M1–M6) en orden.
-- 13 controllers + ~35 ViewModels + ~30 vistas + 7 endpoints AJAX.
-- 2 policies + seed `RolVendedor` + sidebar dinámico.
-- 3 pantallas con JS complejo (Nueva Venta, Recepción Compra, Wizard Devolución).
+- **FASE 1 (Riesgo Bajo):** R1, R2, R4, R11 → 2-3 días.
+- **FASE 2 (Riesgo Medio):** R3, R5, R6, R8 → 4-5 días.
+- **FASE 3 (Riesgo Alto):** R9, R7, R10+R12 → 6-8 días.
 
----
-
-## 2. Plan de ejecución técnica por etapas
-
-Se sigue el orden funcional F0–F8 del diseño y el orden M1–M6 de migraciones del arquitecto. **Cada etapa exige build verde y checklist propio antes de avanzar.**
-
-| Etapa | Nombre | Migración | Salida principal | Gate |
-|---|---|---|---|---|
-| E0 | Seguridad y armado base | — | Seed `RolVendedor`, policies `RequireAdministrador` / `RequireVendedor`, sidebar dinámico, ajuste a `HomeController` | Build OK + login con los 3 roles |
-| E1 | Maestros comerciales | M1 `AddMaestrosComerciales` | 5 entidades, 5 configs, 5 services, 5 controllers + vistas CRUD + DataTables server-side | Build OK + smoke CRUD por maestro |
-| E2 | Productos y variantes | M2 `AddProductosVariantes` (incluye `RowVersion`) | `Producto` + `VarianteProducto`, formulario dinámico Ropa/Zapatilla, Sku/CodigoBarra únicos | Build OK + alta variante con índices únicos verificados |
-| E3 | Stock e inventario | M3 `AddStockInventario` | `Stock`, `MovimientoStock`, `AjusteStock`; `IStockService` con FKs polimórficas | Build OK + ajuste manual y consulta por variante |
-| E4 | Compras + recepción | M4 `AddCompras` | `Compra`, `CompraDetalle`, `CompraAdjunto`; máquina de estados + `RecepcionarAsync` transaccional (`Serializable`) | Build OK + flujo completo Pedida→Recepcionada |
-| E5 | Ventas ⭐ (núcleo crítico) | M5 `AddVentas` | `Venta`, `VentaDetalle`, `VentaPago`, `VentaAdjunto`, `Remito`; two-save D1, VentaPago único D2, anulación restringida, `Serializable` | Build OK + crear/anular venta + concurrencia stock |
-| E6 | Devoluciones / cambios | M6 `AddDevoluciones` | `DevolucionCambio`, `DevolucionCambioDetalle`; wizard 4 pasos | Build OK + cambio total / parcial con reingreso de stock |
-| E7 | Resumen semanal + Aumento masivo | — | `IResumenSemanalService` (query), `IAumentoMasivoService` con preview D4 + `RowVersion` D6 | Build OK + preview no persiste, segundo `Aplicar` falla con mensaje claro |
-| E8 | Dashboard + endurecimiento | — | Widgets por rol, revisión integral de policies, formato es-AR, hardening de payload por costos | Build OK + verificación final de policies |
-
-**Cierre por etapa:** ejecutar `dotnet build`, correr migración correspondiente, ejecutar pruebas mínimas asociadas, actualizar este documento y `trazabilidad.md` con el cierre de la etapa antes de iniciar la siguiente.
+**Total estimado:** 12-16 días de desarrollo (sin contar diseño/QA).
 
 ---
 
-## 3. Cambios por capa (qué se toca y por qué)
+## 🚀 FASE 1: FUNCIONALIDADES SIMPLES (Riesgo Bajo)
 
-### 3.1 Domain — `ShowroomGriffin.Domain`
+### ✅ R1: Campo Anotaciones en Venta
 
-| Carpeta / archivo | Tipo | Motivo |
-|---|---|---|
-| `Enums/EstadoCompra.cs`, `EstadoVenta.cs`, `MedioPago.cs`, `TipoMovimiento.cs`, `TipoDevolucion.cs` | Nuevo | Soportar máquina de estados y catálogo de pagos |
-| `Entities/Maestros/{Categoria,Subgrupo,Cliente,Proveedor,TipoPrecioZapatilla}.cs` | Nuevo | Módulo F1 |
-| `Entities/Productos/{Producto,VarianteProducto}.cs` | Nuevo | F2; `VarianteProducto` agrega `[Timestamp] byte[] RowVersion` (D6) |
-| `Entities/Stock/{Stock,MovimientoStock,AjusteStock}.cs` | Nuevo | F3 |
-| `Entities/Compras/{Compra,CompraDetalle,CompraAdjunto}.cs` | Nuevo | F4 |
-| `Entities/Ventas/{Venta,VentaDetalle,VentaPago,VentaAdjunto,Remito}.cs` | Nuevo / ya parcialmente existente (`VentaPago.cs`) | F5; `VentaPago` única fila para D2 |
-| `Entities/Postventa/{DevolucionCambio,DevolucionCambioDetalle}.cs` | Nuevo | F6 |
+**Objetivo:**  
+Agregar campo de texto libre `Anotaciones` en la entidad `Venta`.
 
-> Sin lógica de negocio en entidades. Solo factories opcionales y propiedades de navegación.
+#### Cambios por Capa
 
-### 3.2 Application — `ShowroomGriffin.Application`
+**1. Domain** (`ShowroomGriffin.Domain`)
+- Archivo: `Entities/Ventas/Venta.cs`
+- Cambio:
+  ```csharp
+  public string? Anotaciones { get; set; }
+  ```
 
-| Archivo | Tipo | Motivo |
-|---|---|---|
-| `Interfaces/I{Categoria,Subgrupo,Cliente,Proveedor,TipoPrecioZapatilla,Producto,Variante,Stock,Compra,Venta,Remito,Devolucion,ResumenSemanal,AumentoMasivo}Service.cs` | Nuevo (14) | Contratos basados en `ServiceResult<T>` / `DataTableResponse<T>` |
-| Métodos de venta/listados | Nuevo | Parámetro explícito `bool incluirCostos` (decisión arquitectura §3.3) |
+**2. Infrastructure** (`ShowroomGriffin.Infrastructure`)
+- **Migración:** crear `M2_AgregarAnotacionesVenta`
+  ```bash
+  dotnet ef migrations add M2_AgregarAnotacionesVenta --project ShowroomGriffin.Infrastructure --startup-project ShowroomGriffin.Web
+  ```
+- **Configuración (opcional):** en `VentaConfiguration.cs`:
+  ```csharp
+  builder.Property(v => v.Anotaciones)
+         .HasMaxLength(500)
+         .IsRequired(false);
+  ```
 
-> Sin referencia a Infrastructure ni Web. No se mueve lógica fuera de su frontera.
+**3. Application** (`ShowroomGriffin.Application`)
+- Archivo: `DTOs/Ventas/VentasViewModels.cs`
+- Cambio: agregar propiedad `Anotaciones` en:
+  - `VentaCrearViewModel`
+  - `VentaEditarViewModel`
+  - `VentaDetalleViewModel`
 
-### 3.3 Infrastructure — `ShowroomGriffin.Infrastructure`
+**4. Web** (`ShowroomGriffin.Web`)
+- **Vistas:**
+  - `Views/Ventas/Crear.cshtml`: agregar `<textarea>` para Anotaciones.
+  - `Views/Ventas/Editar.cshtml`: agregar `<textarea>` para Anotaciones.
+  - `Views/Ventas/Detalle.cshtml`: mostrar Anotaciones si tiene valor.
 
-| Archivo / cambio | Tipo | Motivo |
-|---|---|---|
-| `Data/Configurations/{Modulo}/*Configuration.cs` (20) | Nuevo | Una `IEntityTypeConfiguration` por entidad |
-| `Data/AppDbContext.cs` | Modificado | 20 `DbSet` + reemplazar configs inline por `ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly)` |
-| `Services/{Categoria…AumentoMasivo}Service.cs` (14) | Nuevo | Implementación de los 14 contratos |
-| `DependencyInjection.cs` (`AddInfrastructure`) | Modificado | 14 `AddScoped` |
-| `Data/SeedData.cs` (o equivalente) | Modificado | Constante y alta del rol `Vendedor` |
-| `Migrations/` | Nuevo | M1–M6 generadas en orden |
-| `wwwroot/uploads/{compras,ventas}/` | Nuevo (vía Web) | Adjuntos por GUID, ≤ 5 MB, .jpg/.jpeg/.png/.pdf |
+**Código de vista (ejemplo):**
+```html
+<div class="mb-3">
+    <label asp-for="Anotaciones" class="form-label">Anotaciones</label>
+    <textarea asp-for="Anotaciones" class="form-control" rows="3" maxlength="500" 
+              placeholder="Ej: Cliente pidió envío urgente"></textarea>
+    <span asp-validation-for="Anotaciones" class="text-danger"></span>
+</div>
+```
 
-Reglas críticas a respetar en Infrastructure:
+**Validación:**
+- Longitud máxima: 500 caracteres (validación client-side con `maxlength` y server-side en ViewModel).
 
-- `IsolationLevel.Serializable` en `IVentaService.CrearAsync` / `AnularAsync`, `ICompraService.RecepcionarAsync`, `IDevolucionService.CrearAsync`.
-- Two-save de `NroVenta = $"VTA-{Id:D5}"` dentro de la misma transacción.
-- Manejar `DbUpdateConcurrencyException` en `IAumentoMasivoService.AplicarAsync` (D6).
-- Índices únicos `Sku` / `CodigoBarra` con `HasFilter("…")`; fallback a unique normal + validación previa si MySQL no lo soporta.
-- Soft delete por código; nunca `OnDelete(Cascade)` cuando rompa el filtro global.
+**Pruebas mínimas:**
+- [ ] Crear venta con anotaciones → guardar → verificar en BD.
+- [ ] Editar anotaciones de venta existente → verificar actualización.
+- [ ] Ver detalle de venta → verificar que se muestran las anotaciones.
 
-### 3.4 Web — `ShowroomGriffin.Web`
-
-| Archivo / cambio | Tipo | Motivo |
-|---|---|---|
-| `Controllers/{Categorias,Subgrupos,Clientes,Proveedores,TiposPrecio,Productos,Variantes,Stock,Compras,Ventas,Devoluciones,ResumenSemanal,AumentoMasivo}Controller.cs` | Nuevo (13) | Orquestan request → service → view/json |
-| `Controllers/HomeController.cs` | Modificado | Quitar warning CS0114 (`StatusCode(int)` que oculta heredado) y CS9113 (`logger` no usado), ajustar dashboard por rol |
-| `Models/{Modulo}/*ViewModel.cs` | Nuevo (~35) | ViewModels por pantalla |
-| `Views/{Controller}/*.cshtml` | Nuevo (~30) | + partials de líneas dinámicas |
-| `Views/Shared/_Layout.cshtml` (sidebar) | Modificado | Visibilidad dinámica con `User.IsInRole()` |
-| `Program.cs` | Modificado | Registrar policies `RequireAdministrador` y `RequireVendedor` luego de `AddIdentity` |
-| `wwwroot/js/{ventas-nueva,compras-recepcion,devoluciones-wizard}.js` | Nuevo (3) | Pantallas con JS complejo |
-| Endpoints AJAX | Nuevo (7) | Subgrupos por categoría, búsqueda Clientes/Proveedores/Variantes, Stock por variante, Resumen semanal, Variantes para aumento |
-
-> Controllers nunca contienen lógica de negocio. El cálculo de `incluirCostos = User.IsInRole("Administrador") || User.IsInRole("SuperUsuario")` se resuelve en el controller y se pasa explícitamente al service.
+**Estimación:** 2 horas.
 
 ---
 
-## 4. Migraciones EF aplicadas
+### ✅ R2: Modal Crear Cliente desde Venta
 
-**Sí aplican. 6 migraciones en orden estricto** (idénticas a §5 de arquitectura):
+**Objetivo:**  
+Permitir crear cliente desde un modal en las vistas Crear/Editar Venta, sin salir de la pantalla.
 
-| # | Nombre | Etapa | Notas |
-|---|---|---|---|
-| M1 | `AddMaestrosComerciales` | E1 | Categoría, Subgrupo, Cliente, Proveedor, TipoPrecioZapatilla |
-| M2 | `AddProductosVariantes` | E2 | Incluye `RowVersion` y unique con filtro |
-| M3 | `AddStockInventario` | E3 | FKs opcionales en `MovimientoStock` |
-| M4 | `AddCompras` | E4 | Adjuntos por GUID |
-| M5 | `AddVentas` | E5 | `NroVenta` único; `VentaPago` única fila |
-| M6 | `AddDevoluciones` | E6 | FKs a `Venta` y `VarianteProducto` |
+#### Cambios por Capa
 
-Comandos por etapa (raíz de solución):
+**1. Web** (`ShowroomGriffin.Web`)
 
+**a) Crear Partial View `_CrearClienteModal.cshtml`**
+
+Ubicación: `Views/Clientes/_CrearClienteModal.cshtml`
+
+```html
+@model ShowroomGriffin.Application.DTOs.Maestros.ClienteCrearViewModel
+
+<div class="modal fade" id="crearClienteModal" tabindex="-1" aria-labelledby="crearClienteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="crearClienteModalLabel">Crear Cliente</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="formCrearCliente">
+                    <div class="mb-3">
+                        <label for="Nombre" class="form-label">Nombre *</label>
+                        <input type="text" class="form-control" id="Nombre" name="Nombre" required />
+                        <span class="text-danger" id="errorNombre"></span>
+                    </div>
+                    <div class="mb-3">
+                        <label for="Telefono" class="form-label">Teléfono</label>
+                        <input type="text" class="form-control" id="Telefono" name="Telefono" />
+                    </div>
+                    <div class="mb-3">
+                        <label for="WhatsApp" class="form-label">WhatsApp</label>
+                        <input type="text" class="form-control" id="WhatsApp" name="WhatsApp" />
+                    </div>
+                    <div class="mb-3">
+                        <label for="Direccion" class="form-label">Dirección</label>
+                        <input type="text" class="form-control" id="Direccion" name="Direccion" />
+                    </div>
+                    <div class="mb-3">
+                        <label for="Cuit" class="form-label">CUIT</label>
+                        <input type="text" class="form-control" id="Cuit" name="Cuit" />
+                        <span class="text-danger" id="errorCuit"></span>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnGuardarCliente">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
 ```
-dotnet ef migrations add <Nombre> -p ShowroomGriffin.Infrastructure -s ShowroomGriffin.Web
-dotnet ef database update         -p ShowroomGriffin.Infrastructure -s ShowroomGriffin.Web
+
+**b) Agregar endpoint AJAX en `ClientesController`**
+
+Archivo: `Controllers/ClientesController.cs`
+
+```csharp
+[HttpPost]
+public async Task<IActionResult> CrearDesdeVenta([FromBody] ClienteCrearViewModel model)
+{
+    if (!ModelState.IsValid)
+        return BadRequest(new { success = false, errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage) });
+
+    try
+    {
+        var clienteId = await _clienteService.CrearAsync(model);
+        var cliente = await _clienteService.ObtenerPorIdAsync(clienteId);
+
+        return Ok(new { 
+            success = true, 
+            clienteId = clienteId,
+            clienteNombre = cliente.Nombre 
+        });
+    }
+    catch (Exception ex)
+    {
+        return BadRequest(new { success = false, errors = new[] { ex.Message } });
+    }
+}
 ```
 
-Validación previa a producción:
+**c) JavaScript en Ventas**
 
-```
-dotnet ef migrations script -p ShowroomGriffin.Infrastructure -s ShowroomGriffin.Web
+Archivo: `Views/Ventas/Crear.cshtml` (y `Editar.cshtml`)
+
+```html
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+
+    <script>
+        // Abrir modal
+        $('#btnAbrirCrearCliente').click(function() {
+            $('#crearClienteModal').modal('show');
+        });
+
+        // Guardar cliente
+        $('#btnGuardarCliente').click(function() {
+            var data = {
+                nombre: $('#Nombre').val(),
+                telefono: $('#Telefono').val(),
+                whatsApp: $('#WhatsApp').val(),
+                direccion: $('#Direccion').val(),
+                cuit: $('#Cuit').val()
+            };
+
+            $.ajax({
+                url: '@Url.Action("CrearDesdeVenta", "Clientes")',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(data),
+                success: function(response) {
+                    if (response.success) {
+                        // Agregar nueva opción al combo
+                        $('#ClienteId').append($('<option>', {
+                            value: response.clienteId,
+                            text: response.clienteNombre,
+                            selected: true
+                        }));
+
+                        // Cerrar modal y limpiar form
+                        $('#crearClienteModal').modal('hide');
+                        $('#formCrearCliente')[0].reset();
+
+                        // Notificación (opcional)
+                        toastr.success('Cliente creado exitosamente');
+                    }
+                },
+                error: function(xhr) {
+                    var errors = xhr.responseJSON.errors;
+                    if (errors) {
+                        $('#errorNombre').text('');
+                        $('#errorCuit').text('');
+                        errors.forEach(function(err) {
+                            if (err.includes('Nombre')) $('#errorNombre').text(err);
+                            if (err.includes('CUIT')) $('#errorCuit').text(err);
+                        });
+                    }
+                }
+            });
+        });
+    </script>
+}
 ```
 
-Impacto: schema incremental, sin pérdida de datos existentes. **No** se modifican entidades ni tablas Identity preexistentes.
+**d) Botón en la vista de Venta**
+
+```html
+<div class="mb-3">
+    <label asp-for="ClienteId" class="form-label">Cliente</label>
+    <div class="input-group">
+        <select asp-for="ClienteId" class="form-select" asp-items="ViewBag.Clientes"></select>
+        <button type="button" class="btn btn-outline-primary" id="btnAbrirCrearCliente">
+            <i class="bi bi-plus-circle"></i> Crear Cliente
+        </button>
+    </div>
+</div>
+
+@await Html.PartialAsync("~/Views/Clientes/_CrearClienteModal.cshtml", new ClienteCrearViewModel())
+```
+
+**Pruebas mínimas:**
+- [ ] Abrir modal desde Crear Venta → llenar form → guardar → verificar que cliente se agrega al combo y queda seleccionado.
+- [ ] Validar error de CUIT duplicado → verificar que se muestra en modal sin cerrar.
+- [ ] Verificar que el cliente se guarda en BD.
+
+**Estimación:** 3 horas.
 
 ---
 
-## 5. Evidencia de build (estado inicial, pre-implementación)
+### ✅ R4: Autocompletar Importe de Pago
 
-Comando ejecutado en `C:\Sistemas\ShowroomGriffin`:
+**Objetivo:**  
+Al abrir el modal de "Agregar Pago", el campo "Importe" debe autocompletarse con el total pendiente de pago.
 
+#### Cambios por Capa
+
+**1. Web** (`ShowroomGriffin.Web`)
+
+Archivo: `Views/Ventas/_AgregarPagoModal.cshtml` (o donde esté el modal de pago)
+
+**JavaScript:**
+```html
+<script>
+    $('#btnAgregarPago').click(function() {
+        // Calcular total pendiente
+        var totalVenta = parseFloat($('#Total').val()) || 0;
+        var totalPagos = 0;
+
+        // Sumar pagos ya registrados (si existen en la tabla)
+        $('.pago-row').each(function() {
+            totalPagos += parseFloat($(this).data('importe')) || 0;
+        });
+
+        var totalPendiente = totalVenta - totalPagos;
+
+        // Autocompletar el campo Importe del modal
+        $('#ImportePago').val(totalPendiente.toFixed(2));
+
+        // Abrir modal
+        $('#agregarPagoModal').modal('show');
+    });
+</script>
 ```
-dotnet build -nologo
+
+**Alternativa (si el valor viene del servidor):**
+
+En `VentasController.Crear()` o `Editar()`, calcular el total pendiente:
+
+```csharp
+var totalPendiente = venta.Total - venta.Pagos.Sum(p => p.Importe);
+ViewBag.TotalPendiente = totalPendiente;
 ```
 
-Resultado:
-
+En la vista:
+```html
+<script>
+    $('#btnAbregarPago').click(function() {
+        var totalPendiente = @ViewBag.TotalPendiente;
+        $('#ImportePago').val(totalPendiente.toFixed(2));
+        $('#agregarPagoModal').modal('show');
+    });
+</script>
 ```
-Build succeeded.
-	8 Warning(s)
-	0 Error(s)
-Time Elapsed 00:00:04.61
-```
 
-Detalle de warnings (todos no bloqueantes):
+**Pruebas mínimas:**
+- [ ] Crear venta con total $10,000 → abrir modal de pago → verificar que Importe = $10,000.
+- [ ] Agregar pago parcial de $5,000 → abrir modal de nuevo pago → verificar que Importe = $5,000.
+- [ ] Venta totalmente paga → verificar que el botón "Agregar Pago" se deshabilita (opcional).
 
-| Tipo | Origen | Descripción | Acción |
-|---|---|---|---|
-| NU1902 | `MailKit 4.14.1` (Web + Infrastructure) | Vulnerabilidad moderada | Evaluar upgrade en E0 si hay versión segura compatible con .NET 10; en su defecto registrar como riesgo aceptado |
-| NU1902 | `MimeKit 4.14.0` (Web + Infrastructure) | Vulnerabilidad moderada | Idem |
-| NETSDK1057 | SDK .NET 10 preview | Aviso preview | Aceptado por la base del proyecto |
-| CS0114 | `HomeController.StatusCode(int)` | Oculta miembro heredado | **Corregir en E0** (agregar `override` o renombrar) |
-| CS9113 | `HomeController` parámetro `logger` no usado | Parámetro sin uso | **Corregir en E0** (usar o eliminar) |
-
-> Build de partida en verde. Las correcciones cosméticas en `HomeController` se incorporan a E0 (no es refactor cosmético gratuito: están listadas como deuda heredada y se cierran al tocar el controller para el sidebar dinámico).
+**Estimación:** 1 hora.
 
 ---
 
-## 6. Pruebas mínimas requeridas para QA
+### ✅ R11: Maestro de Talles Predefinidos
 
-### 6.1 Pruebas funcionales por etapa
+**Objetivo:**  
+Crear tabla `TalleZapatilla` con rangos predefinidos:
+- Adultos: 34-46
+- Niños: 22-33
 
-| Etapa | Caso mínimo | Resultado esperado |
-|---|---|---|
-| E0 | Login con `SuperUsuario`, `Administrador`, `Vendedor` | Cada rol ve solo sus opciones de sidebar |
-| E0 | `/Compras` con `Vendedor` | 403 (policy `RequireAdministrador`) |
-| E1 | CRUD por maestro + soft delete + reactivación | Lista respeta filtro global; reactivación visible solo a Admin |
-| E1 | Categoría con nombre duplicado | Validación previa rechaza, no llega a DB |
-| E2 | Crear `VarianteProducto` con `Sku` duplicado | Rechazo por índice único / validación service |
-| E2 | Aumento masivo preview (D4) | No persiste; recarga muestra precios anteriores |
-| E3 | Ajuste manual de stock | Genera `MovimientoStock` y `AjusteStock` |
-| E3 | Vendedor intenta `/Stock/Ajuste` | 403 |
-| E4 | Recepción de compra con `Rec+Dañ+Dev > Pedida` | Rechazo, no impacta stock |
-| E4 | Recepción válida | Stock incrementa, `UltimoPrecioCompra` se actualiza, estado pasa a Recepcionada |
-| E5 ⭐ | Crear venta: stock disponible | `NroVenta = VTA-00001`, stock decrementa, movimientos generados |
-| E5 ⭐ | Crear venta: stock insuficiente | Rollback total, sin cambios |
-| E5 ⭐ | Anular venta Confirmada | Stock repuesto |
-| E5 ⭐ | Anular venta Entregada | Bloqueada |
-| E5 ⭐ | Pago en cuotas (D2) | 1 sola fila `VentaPago` con `MedioPago=Cuotas`, importes correctos en remito |
-| E5 ⭐ | Vendedor obtiene detalle de venta | Payload sin `UltimoPrecioCompra`, `CostoTotal`, `GananciaTotal` |
-| E6 | Cambio parcial (Devolución) | Cantidades ≤ vendidas − previas; stock reingresa |
-| E7 | Resumen semanal | Totales coinciden con suma de ventas del rango |
-| E7 | Aumento masivo concurrente (D6) | Segundo `Aplicar` recibe error y mensaje "re-previsualice" |
-| E8 | Dashboard como Vendedor | Sin widgets de costos/ganancias |
+#### Cambios por Capa
 
-### 6.2 Pruebas técnicas mínimas (gate de calidad por etapa)
+**1. Domain** (`ShowroomGriffin.Domain`)
 
-- [ ] Build verde al cierre de cada etapa.
-- [ ] Migración correspondiente aplicada y `dotnet ef migrations script` válido.
-- [ ] Logs de auditoría (`AuditLog`) presentes en operaciones CUD.
-- [ ] Sin `try/catch` que oculten excepciones de transacción.
-- [ ] Sin lógica de negocio en controllers (revisión por checklist 26).
+Archivo: `Entities/Maestros/TalleZapatilla.cs` (nuevo)
+
+```csharp
+namespace ShowroomGriffin.Domain.Entities.Maestros;
+
+public enum RangoTipoTalle
+{
+    Adulto = 1,
+    Niño = 2
+}
+
+/// <summary>
+/// Catálogo de talles de zapatillas predefinidos.
+/// </summary>
+public class TalleZapatilla : SoftDestroyable
+{
+    public RangoTipoTalle RangoTipo { get; set; }
+    public int NumeroInicio { get; set; }
+    public int NumeroFin { get; set; }
+}
+```
+
+**2. Infrastructure** (`ShowroomGriffin.Infrastructure`)
+
+**a) Configuración**
+
+Archivo: `Data/Configurations/Maestros/TalleZapatillaConfiguration.cs` (nuevo)
+
+```csharp
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using ShowroomGriffin.Domain.Entities.Maestros;
+
+namespace ShowroomGriffin.Infrastructure.Data.Configurations.Maestros;
+
+public class TalleZapatillaConfiguration : IEntityTypeConfiguration<TalleZapatilla>
+{
+    public void Configure(EntityTypeBuilder<TalleZapatilla> builder)
+    {
+        builder.ToTable("TallesZapatilla");
+
+        builder.Property(t => t.RangoTipo)
+               .HasConversion<int>()
+               .IsRequired();
+
+        builder.Property(t => t.NumeroInicio).IsRequired();
+        builder.Property(t => t.NumeroFin).IsRequired();
+    }
+}
+```
+
+**b) Registrar en `AppDbContext`**
+
+```csharp
+public DbSet<TalleZapatilla> TallesZapatilla { get; set; } = null!;
+
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    // ...
+    modelBuilder.ApplyConfiguration(new TalleZapatillaConfiguration());
+}
+```
+
+**c) Migración + Seed**
+
+```bash
+dotnet ef migrations add M3_AgregarTalleZapatilla --project ShowroomGriffin.Infrastructure --startup-project ShowroomGriffin.Web
+```
+
+En el método `Up()` de la migración, agregar seed manual (o en `SeedData.cs`):
+
+```csharp
+// En SeedData.cs
+public static async Task SeedTallesZapatilla(AppDbContext context)
+{
+    if (await context.TallesZapatilla.AnyAsync()) return;
+
+    var talles = new List<TalleZapatilla>
+    {
+        new() { RangoTipo = RangoTipoTalle.Adulto, NumeroInicio = 34, NumeroFin = 46, CreatedAt = DateTime.UtcNow },
+        new() { RangoTipo = RangoTipoTalle.Niño, NumeroInicio = 22, NumeroFin = 33, CreatedAt = DateTime.UtcNow }
+    };
+
+    await context.TallesZapatilla.AddRangeAsync(talles);
+    await context.SaveChangesAsync();
+}
+
+// Llamar en Program.cs (dentro del scope de seed):
+await SeedData.SeedTallesZapatilla(context);
+```
+
+**3. Application** (opcional - si queremos CRUD)
+
+Archivo: `Interfaces/ITalleZapatillaService.cs`
+
+```csharp
+public interface ITalleZapatillaService
+{
+    Task<List<TalleZapatillaViewModel>> ObtenerTodosAsync();
+}
+```
+
+**4. Web** (opcional - CRUD para administrar talles)
+
+Controller: `TallesZapatillaController.cs`
+
+Vista: `Views/TallesZapatilla/Index.cshtml`
+
+**Pruebas mínimas:**
+- [ ] Ejecutar migración → verificar tabla `TallesZapatilla` creada.
+- [ ] Ejecutar seed → verificar 2 registros insertados (Adulto 34-46, Niño 22-33).
+- [ ] (Opcional) Acceder a `/TallesZapatilla` → verificar que se listan.
+
+**Estimación:** 2 horas.
 
 ---
 
-## 7. Riesgos y supuestos (vigentes desde arquitectura)
+## 🎯 RESUMEN FASE 1
 
-Se mantienen R1–R8 y S1–S5 de `3-arquitecto-mvc.md` §7. Riesgos con mayor exposición durante la implementación:
+| Requerimiento | Estimación | Archivos Nuevos | Archivos Modificados | Migraciones |
+|---------------|------------|-----------------|----------------------|-------------|
+| **R1** | 2h | 0 | 4 (Venta.cs, VentasViewModels.cs, Crear/Editar/Detalle.cshtml) | M2_AgregarAnotacionesVenta |
+| **R2** | 3h | 1 (_CrearClienteModal.cshtml) | 3 (ClientesController.cs, Crear/Editar.cshtml) | 0 |
+| **R4** | 1h | 0 | 1 (_AgregarPagoModal.cshtml o JS en vista) | 0 |
+| **R11** | 2h | 3 (TalleZapatilla.cs, Config, SeedData) | 2 (AppDbContext, Program.cs) | M3_AgregarTalleZapatilla |
 
-| # | Riesgo | Etapa más expuesta | Mitigación operativa |
-|---|---|---|---|
-| R1 | Orden estricto migraciones M1–M6 | E1–E6 | Generar y aplicar una por una; nunca saltear |
-| R2 | `HasFilter` no soportado en MySQL | E2 | Probar primero; si falla, fallback unique normal + validación previa |
-| R4 | Concurrencia stock en venta | E5 | `Serializable` + reintentos limitados ante deadlock |
-| R5 | Concurrencia aumento masivo | E7 | `RowVersion` + manejo `DbUpdateConcurrencyException` |
-| R6 | Two-save `NroVenta` | E5 | Ambos `SaveChanges` dentro de la misma transacción |
+**Total Fase 1:** 8 horas (~1 día de desarrollo).
 
-Supuesto operativo nuevo del implementador:
+**Bloqueadores:** Ninguno.
 
-- **S6 (Implementación):** las correcciones de warnings heredados en `HomeController` (CS0114, CS9113) y la evaluación de upgrade `MailKit/MimeKit` (NU1902) se hacen en E0 sin abrir un refactor adicional.
-
----
-
-## 8. Checklist de salida para merge (por etapa)
-
-```
-IMPLEMENTACIÓN — CHECKLIST DE MERGE (por etapa)
-────────────────────────────────────────────────────────────────────
-ALCANCE
-[ ] Etapa cerrada coincide con el plan (E0..E8)
-[ ] Sin scope creep ni refactors cosméticos no pedidos
-
-CAPAS
-[ ] Domain: solo entidades/enums; sin lógica de negocio
-[ ] Application: contratos con ServiceResult<T>; sin refs a Infra/Web
-[ ] Infrastructure: configs, services, DI, transacciones correctas
-[ ] Web: controllers delgados; ViewModels y vistas alineadas a design system
-
-EF / DATOS
-[ ] Migración generada y aplicada (si corresponde)
-[ ] dotnet ef migrations script válido para MySQL 8
-[ ] Soft delete respetado; sin CASCADE conflictivo
-
-SEGURIDAD
-[ ] Policies aplicadas a nivel controller/acción según matriz §4.3 arquitectura
-[ ] Vendedor no recibe campos de costos/ganancia
-[ ] Sidebar refleja rol
-
-PRUEBAS
-[ ] Casos mínimos de la etapa (§6.1) ejecutados OK
-[ ] Build verde (0 errores)
-[ ] Sin nuevos warnings críticos respecto al baseline
-
-DOCUMENTACIÓN
-[ ] 5-implementador.md actualizado con cierre de la etapa
-[ ] trazabilidad.md con entrada de la etapa
-[ ] Si cambia un contrato, regenerar diagramas/notas mínimas
-────────────────────────────────────────────────────────────────────
-```
+**Riesgo:** 🟢 Bajo.
 
 ---
 
-## 9. Estado actual del implementador
+## 🚀 FASE 2: FUNCIONALIDADES MEDIAS (Riesgo Medio)
 
-| Ítem | Estado |
-|---|---|
-| Plan técnico por etapas | ✅ Definido (E0–E8) |
-| Cambios por capa | ✅ Listados |
-| Migraciones EF | ✅ Plan M1–M6 confirmado |
-| Build inicial | ✅ Verde (0 errores, 8 warnings no bloqueantes) |
-| Pruebas mínimas | ✅ Matriz definida |
-| Etapas ejecutadas | ✅ 9 / 9 (E0, E1, E2, E3, E4, E5, E6, E7, E8 cerradas) |
+### 🟡 R10+R12: REFACTOR DEL MODELO (Marca/Modelo a Producto)
 
----
+**⚠️ ATENCIÓN:** Este es el cambio **MÁS CRÍTICO** y debe ejecutarse **ANTES** de R3 y R5 (combos anidados).
 
-## 10. Cierre etapa E0 — Seguridad y armado base
+**Objetivo:**  
+Mover las propiedades `Marca` y `Modelo` de `VarianteProducto` a `Producto`.
 
-### 10.1 Reconciliación con estado real del repo
+#### Por Qué Debe Ir Primero
 
-Al iniciar E0 se detectó que la mayor parte del armado de seguridad **ya estaba implementado** en el repositorio. Se respeta la regla de cambios mínimos: no se reescribe lo que ya está OK.
+Los combos anidados (R3, R5) dependen de la jerarquía: **Marca → Modelo → Color → Talle**.
 
-| Ítem planificado E0 | Estado real al inicio | Acción ejecutada |
-|---|---|---|
-| Seed `RolVendedor` | ✅ Existente en `SeedData.cs` (constante + alta de rol) | Ninguna |
-| Policy `RequireAdministrador` | ✅ Existente en `Program.cs` | Ninguna |
-| Policy `RequireVendedor` | ✅ Existente en `Program.cs` | Ninguna |
-| Sidebar dinámico por rol | ✅ Existente en `_Layout.cshtml` (`isAdmin` / `isVendedor` / `SuperUsuario`) | Ninguna |
-| Migración M1 `AddMaestrosComerciales` | ✅ Ya generada (`20260416154337_M1_AddMaestrosComerciales`) | Ninguna |
-| Warning CS0114 `HomeController.StatusCode(int)` | ❌ Pendiente | Agregado modificador `new` |
-| Warning CS9113 parámetro `logger` no usado | ❌ Pendiente | Asignado a campo `_logger` y usado en `Error()` |
-| Warnings NU1902 `MailKit 4.14.1` / `MimeKit 4.14.0` | ❌ Pendiente | Upgrade de `MailKit` a `4.16.0` (arrastra `MimeKit 4.16.0`) |
+Si `Marca` y `Modelo` están en `VarianteProducto`, el combo debe consultar:
+- `SELECT DISTINCT Marca FROM VarianteProducto` → lento, redundante.
+- `SELECT DISTINCT Modelo FROM VarianteProducto WHERE Marca = X` → idem.
 
-### 10.2 Cambios por capa en E0
+Si `Marca` y `Modelo` están en `Producto`:
+- `SELECT Marca FROM Producto GROUP BY Marca` → rápido, normalizado.
+- `SELECT Modelo FROM Producto WHERE Marca = X` → idem.
 
-| Capa | Archivo | Cambio | Motivo |
-|---|---|---|---|
-| Web | `ShowroomGriffin.Web\Controllers\HomeController.cs` | Campo `_logger` + uso en `Error()`; `public new IActionResult StatusCode(int code)` | Cerrar CS9113 y CS0114 sin alterar comportamiento |
-| Infrastructure | `ShowroomGriffin.Infrastructure\ShowroomGriffin.Infrastructure.csproj` | `MailKit` 4.14.1 → 4.16.0 | Cerrar NU1902; arrastra `MimeKit` 4.16.0 vía dependencia transitiva |
-
-No se tocaron Domain ni Application en E0.
-
-### 10.3 Migraciones EF en E0
-
-Ninguna migración nueva. M1 ya estaba generada antes de iniciar la implementación; queda en su lugar para la etapa E1.
-
-### 10.4 Evidencia de build E0
-
-Comando: `dotnet build -nologo` en `C:\Sistemas\ShowroomGriffin`.
-
-```
-Build succeeded.
-    0 Warning(s)
-    0 Error(s)
-Time Elapsed 00:00:30.63
-```
-
-Mejora vs baseline: 8 warnings → 0 warnings. 0 errores en ambos casos.
-
-### 10.5 Pruebas mínimas E0 (a ejecutar en QA)
-
-- [ ] Login con `SuperUsuario` → ve sidebar completo (Principal, Ventas, Catálogo, Administración, Reportes, Super Usuario).
-- [ ] Login con `Administrador` → ve todo excepto sección Super Usuario.
-- [ ] Login con `Vendedor` → ve solo Principal + Ventas + Catálogo.
-- [ ] `Vendedor` accede a `/Compras` → 403 (policy `RequireAdministrador` aplicada en E4 cuando se monte el controller; en E0 se valida solo el registro de la policy).
-- [ ] `/Home/Error` y `/Home/StatusCode?code=404` siguen devolviendo la vista Error con el `RequestId` correcto.
-- [ ] No hay regresión en login, logout, perfil ni cambio de password.
-
-### 10.6 Riesgos / supuestos confirmados en E0
-
-- S6 (implementación) confirmado: warnings heredados de `HomeController` cerrados sin abrir refactor adicional.
-- Riesgo nuevo R-E0-1: el upgrade de `MailKit`/`MimeKit` podría requerir validación funcional del envío de emails (`EmailService`, `ErrorEmailNotifierMiddleware`, `SmtpHealthCheck`). Mitigación: smoke test de envío en QA antes de cerrar el merge.
-
-### 10.7 Checklist de salida E0
-
-```
-E0 — CHECKLIST DE MERGE
-────────────────────────────────────────────────────────────────────
-[✓] Seed RolVendedor presente
-[✓] Policies RequireAdministrador y RequireVendedor registradas
-[✓] Sidebar dinámico por rol
-[✓] HomeController sin warnings CS0114 ni CS9113
-[✓] MailKit/MimeKit sin warnings NU1902
-[✓] Build verde (0 errores, 0 warnings)
-[ ] Smoke test de email en QA (R-E0-1)
-[ ] Pruebas mínimas §10.5 en QA
-────────────────────────────────────────────────────────────────────
-```
-
-**Gate E0: APROBADO técnicamente. Listo para iniciar E1 — Maestros comerciales tras confirmación.**
+**Decisión:** ejecutar R10+R12 al inicio de FASE 2, antes de R3/R5.
 
 ---
 
-## 11. Cierre etapa E1 — Maestros comerciales
+#### Cambios por Capa
 
-### 11.1 Reconciliación con estado real del repo
+**1. Domain** (`ShowroomGriffin.Domain`)
 
-5 entidades (Categoria, Subgrupo, Cliente, Proveedor, TipoPrecioZapatilla), 5 configs Fluent, 5 services, 5 controllers, vistas Index/Crear/Editar y migración M1 ya estaban en el repo. Auditoría CRUD comparada contra `analisis-funcional.md` v1.1 (D5) y `2-disenador-funcional.md` v1.0 (matriz de permisos).
+**a) Modificar `Producto.cs`**
 
-| Ítem planificado E1 | Estado real al inicio | Acción ejecutada |
-|---|---|---|
-| Entidades + configs (5) | ✅ Existentes | Ninguna |
-| Migración M1 `AddMaestrosComerciales` | ✅ Generada | Ninguna (queda lista para `database update`) |
-| Controllers + vistas | ✅ Existentes con policies correctas | Ninguna |
-| `CategoriaService` validación nombre duplicado + bloqueo si tiene productos | ✅ Existente (R-MAE-01 / R-MAE-05) | Ninguna |
-| `SubgrupoService.ObtenerPorCategoriaAsync` (AJAX) | ✅ Existente | Ninguna |
-| `ClienteService.BuscarAsync` (AJAX) | ✅ Existente | Ninguna |
-| `ClienteService.InactivarAsync` con guarda **D5** (no inactivar con ventas) | ❌ Soft delete sin guarda | **Fix aplicado** — `AnyAsync(v => v.ClienteId == id)` |
-| Políticas (`RequireAdministrador` / `RequireVendedor`) en controllers | ✅ Aplicadas según matriz §4.3 arquitectura | Ninguna |
+```csharp
+public class Producto : SoftDestroyable
+{
+    public string Nombre { get; set; } = string.Empty;
+    public string Marca { get; set; } = string.Empty;        // NUEVO
+    public string Modelo { get; set; } = string.Empty;       // NUEVO
+    public int CategoriaId { get; set; }
+    public int? SubgrupoId { get; set; }
 
-### 11.2 Cambios por capa en E1
-
-| Capa | Archivo | Cambio | Motivo |
-|---|---|---|---|
-| Infrastructure | `Services\ClienteService.cs` → `InactivarAsync` | Agregada guarda D5: si existe `Venta` con `ClienteId == id`, devuelve `ServiceResult.CreateError("No se puede inactivar un cliente con ventas registradas.")` antes del soft delete | Cumplimiento de D5 (análisis funcional v1.1) |
-
-No se tocaron Domain, Application ni Web en E1.
-
-### 11.3 Migraciones EF en E1
-
-Ninguna migración nueva. M1 ya estaba generada con todas las tablas requeridas (`Categorias`, `Clientes`, `Proveedores`, `TiposPrecioZapatilla`, `Subgrupos` con FK a `Categorias`). El comando `dotnet ef database update` queda como acción de despliegue, no de código.
-
-### 11.4 Evidencia de build E1
-
-```
-Build succeeded.
-    0 Warning(s)
-    0 Error(s)
-Time Elapsed 00:00:12.48
+    public Maestros.Categoria Categoria { get; set; } = null!;
+    public Maestros.Subgrupo? Subgrupo { get; set; }
+    public ICollection<VarianteProducto> Variantes { get; set; } = new List<VarianteProducto>();
+}
 ```
 
-### 11.5 Pruebas mínimas E1 (a ejecutar en QA)
+**b) Modificar `VarianteProducto.cs`**
 
-- [ ] Crear, editar y dar de baja Categoría, Subgrupo, Cliente, Proveedor, TipoPrecioZapatilla.
-- [ ] Categoría con nombre duplicado (case-insensitive) → rechazo con mensaje.
-- [ ] Inactivar Categoría que tiene productos → rechazo (R-MAE-05).
-- [ ] **Inactivar Cliente con ventas → rechazo (D5)**.
-- [ ] Inactivar Cliente sin ventas → OK, sale del listado por filtro global de soft delete.
-- [ ] `Vendedor` accede a `/Clientes/Index` y `/Clientes/Buscar` (AJAX) → 200.
-- [ ] `Vendedor` intenta `/Clientes/Crear` o `/Clientes/Editar` → 403.
-- [ ] `Vendedor` accede a `/Categorias`, `/Subgrupos`, `/Proveedores`, `/TiposPrecio` → 403.
-- [ ] `Subgrupos/PorCategoria?categoriaId=X` AJAX devuelve solo subgrupos de la categoría.
-- [ ] DataTables server-side: ordenamiento, búsqueda y paginación responden.
+```csharp
+public class VarianteProducto : SoftDestroyable
+{
+    public int ProductoId { get; set; }
+    public decimal PrecioVenta { get; set; }
+    public decimal? UltimoPrecioCompra { get; set; }
+    public int StockMinimo { get; set; }
+    public string? CodigoInterno { get; set; }
+    public string? Sku { get; set; }
+    public string? CodigoBarra { get; set; }
 
-### 11.6 Riesgos / supuestos confirmados en E1
+    // Atributos Ropa
+    public string? Talle { get; set; }
+    public string? Color { get; set; }
+    // ELIMINADOS: public string? Marca { get; set; }
+    // ELIMINADOS: public string? Modelo { get; set; }
+    public string? Genero { get; set; }
+    public string? Temporada { get; set; }
 
-- D5 cerrado en service (no en controller). Fronteras de capa respetadas.
-- R2 (índices únicos `HasFilter` MySQL) **no aplica en E1**: solo se usan validaciones case-insensitive en service, no índices con filtro. Queda vigente para E2 (`Sku`/`CodigoBarra`).
-- R7 (cascade vs soft delete) verificado: el filtro global de soft delete cubre la salida del listado; no hay `OnDelete(Cascade)` que rompa relaciones.
+    // Atributos Zapatillas
+    public string? Numero { get; set; }
+    // ELIMINADO: public int? TipoPrecioZapatillaId { get; set; }
 
-### 11.7 Checklist de salida E1
+    [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
+    public byte[] RowVersion { get; set; } = Guid.NewGuid().ToByteArray();
 
+    public Producto Producto { get; set; } = null!;
+    public Stock.Stock Stock { get; set; } = null!;
+    public ICollection<Compras.CompraDetalle> CompraDetalles { get; set; } = new List<Compras.CompraDetalle>();
+    public ICollection<Ventas.VentaDetalle> VentaDetalles { get; set; } = new List<Ventas.VentaDetalle>();
+}
 ```
-E1 — CHECKLIST DE MERGE
-────────────────────────────────────────────────────────────────────
-[✓] 5 entidades + 5 configs + 5 services + 5 controllers + vistas
-[✓] Migración M1 generada (despliegue: `dotnet ef database update`)
-[✓] Validaciones de negocio cerradas en service: nombre único (Categoría),
-     bloqueo si tiene productos (Categoría), D5 (Cliente con ventas)
-[✓] Policies según matriz §4.3 de arquitectura
-[✓] AJAX endpoints: Subgrupos por categoría, búsqueda de Clientes
-[✓] Build verde (0 errores, 0 warnings)
-[ ] Pruebas mínimas §11.5 en QA
-[ ] `dotnet ef database update` en entorno destino
-────────────────────────────────────────────────────────────────────
+
+**2. Infrastructure** (`ShowroomGriffin.Infrastructure`)
+
+**a) Migración de Datos (CRÍTICO)**
+
+```bash
+dotnet ef migrations add M4_RefactorProductoMarcaModelo --project ShowroomGriffin.Infrastructure --startup-project ShowroomGriffin.Web
 ```
 
-**Gate E1: APROBADO técnicamente. Listo para iniciar E2 — Productos y Variantes (M2 + RowVersion + índices únicos `Sku`/`CodigoBarra`) tras confirmación.**
+**Contenido del método `Up()`:**
+
+```csharp
+protected override void Up(MigrationBuilder migrationBuilder)
+{
+    // 1. Agregar columnas temporales en Producto
+    migrationBuilder.AddColumn<string>(
+        name: "Marca",
+        table: "Productos",
+        type: "varchar(100)",
+        maxLength: 100,
+        nullable: true);
+
+    migrationBuilder.AddColumn<string>(
+        name: "Modelo",
+        table: "Productos",
+        type: "varchar(100)",
+        maxLength: 100,
+        nullable: true);
+
+    // 2. Script de migración de datos: agrupar variantes por (Marca, Modelo) y actualizar/crear Productos
+    migrationBuilder.Sql(@"
+        -- Actualizar Productos existentes con la primera Marca/Modelo de sus variantes
+        UPDATE p
+        SET p.Marca = (SELECT v.Marca FROM VarianteProducto v WHERE v.ProductoId = p.Id AND v.IsDeleted = 0 LIMIT 1),
+            p.Modelo = (SELECT v.Modelo FROM VarianteProducto v WHERE v.ProductoId = p.Id AND v.IsDeleted = 0 LIMIT 1)
+        FROM Productos p
+        WHERE EXISTS (SELECT 1 FROM VarianteProducto v WHERE v.ProductoId = p.Id AND v.IsDeleted = 0);
+
+        -- Para variantes huérfanas o con combinaciones Marca+Modelo diferentes al Producto padre,
+        -- crear nuevos Productos agrupadores (REVISAR MANUALMENTE EN PRODUCCIÓN)
+        -- Este script es un ejemplo; debe ajustarse según la lógica de negocio real.
+    ");
+
+    // 3. Hacer NOT NULL las columnas (después de migrar datos)
+    migrationBuilder.AlterColumn<string>(
+        name: "Marca",
+        table: "Productos",
+        type: "varchar(100)",
+        maxLength: 100,
+        nullable: false);
+
+    migrationBuilder.AlterColumn<string>(
+        name: "Modelo",
+        table: "Productos",
+        type: "varchar(100)",
+        maxLength: 100,
+        nullable: false);
+
+    // 4. Eliminar columnas de VarianteProducto
+    migrationBuilder.DropColumn(name: "Marca", table: "VarianteProducto");
+    migrationBuilder.DropColumn(name: "Modelo", table: "VarianteProducto");
+    migrationBuilder.DropColumn(name: "TipoPrecioZapatillaId", table: "VarianteProducto");
+
+    // 5. Actualizar índices (si existen)
+    // Ejemplo: crear índice compuesto en Producto (Marca, Modelo)
+    migrationBuilder.CreateIndex(
+        name: "IX_Productos_Marca_Modelo",
+        table: "Productos",
+        columns: new[] { "Marca", "Modelo" });
+}
+```
+
+**⚠️ IMPORTANTE - Script de Validación Previa (ejecutar ANTES de aplicar la migración en producción):**
+
+```sql
+-- Verificar que no hay variantes sin Marca o Modelo
+SELECT COUNT(*) AS VariantesSinMarca FROM VarianteProducto WHERE Marca IS NULL OR Marca = '';
+SELECT COUNT(*) AS VariantesSinModelo FROM VarianteProducto WHERE Modelo IS NULL OR Modelo = '';
+
+-- Si el resultado es > 0, corregir manualmente antes de migrar.
+
+-- Verificar agrupaciones: cuántos productos se crearían por cada combinación Marca+Modelo
+SELECT Marca, Modelo, COUNT(*) AS CantidadVariantes
+FROM VarianteProducto
+WHERE IsDeleted = 0
+GROUP BY Marca, Modelo
+ORDER BY CantidadVariantes DESC;
+
+-- Verificar productos actuales vs combinaciones en variantes
+SELECT p.Id AS ProductoId, p.Nombre, 
+       COUNT(DISTINCT CONCAT(v.Marca, '|', v.Modelo)) AS CombinacionesMarcaModelo
+FROM Productos p
+INNER JOIN VarianteProducto v ON v.ProductoId = p.Id
+WHERE p.IsDeleted = 0 AND v.IsDeleted = 0
+GROUP BY p.Id, p.Nombre
+HAVING CombinacionesMarcaModelo > 1;
+
+-- Si hay productos con más de 1 combinación Marca+Modelo, revisar manualmente.
+```
+
+**b) Actualizar Configurations**
+
+`ProductoConfiguration.cs`:
+```csharp
+builder.Property(p => p.Marca)
+       .HasMaxLength(100)
+       .IsRequired();
+
+builder.Property(p => p.Modelo)
+       .HasMaxLength(100)
+       .IsRequired();
+
+builder.HasIndex(p => new { p.Marca, p.Modelo });
+```
+
+`VarianteProductoConfiguration.cs`:
+```csharp
+// ELIMINAR configuraciones de Marca, Modelo, TipoPrecioZapatillaId
+```
+
+**3. Application** (`ShowroomGriffin.Application`)
+
+**a) Actualizar ViewModels**
+
+`DTOs/Productos/ProductosViewModels.cs`:
+```csharp
+public class ProductoCrearViewModel
+{
+    [Required(ErrorMessage = "El nombre es obligatorio")]
+    public string Nombre { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "La marca es obligatoria")]  // NUEVO
+    public string Marca { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "El modelo es obligatorio")] // NUEVO
+    public string Modelo { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "La categoría es obligatoria")]
+    public int CategoriaId { get; set; }
+
+    public int? SubgrupoId { get; set; }
+}
+
+public class VarianteProductoCrearViewModel
+{
+    [Required]
+    public int ProductoId { get; set; }
+
+    // ELIMINADOS: Marca, Modelo
+
+    public string? Talle { get; set; }
+    public string? Color { get; set; }
+    public string? Numero { get; set; }
+    public string? Genero { get; set; }
+    public string? Temporada { get; set; }
+
+    [Required]
+    public decimal PrecioVenta { get; set; }
+
+    public int StockMinimo { get; set; }
+    public string? CodigoInterno { get; set; }
+    public string? Sku { get; set; }
+    public string? CodigoBarra { get; set; }
+}
+```
+
+**b) Actualizar Services**
+
+`IProductoService.cs`:
+```csharp
+Task<List<string>> ObtenerMarcasAsync();                                          // NUEVO
+Task<List<string>> ObtenerModelosPorMarcaAsync(string marca);                    // NUEVO
+Task<List<ProductoListViewModel>> ObtenerPorMarcaModeloAsync(string marca, string modelo); // NUEVO
+```
+
+`ProductoService.cs`:
+```csharp
+public async Task<List<string>> ObtenerMarcasAsync()
+{
+    return await _context.Productos
+        .Where(p => !p.IsDeleted)
+        .Select(p => p.Marca)
+        .Distinct()
+        .OrderBy(m => m)
+        .ToListAsync();
+}
+
+public async Task<List<string>> ObtenerModelosPorMarcaAsync(string marca)
+{
+    return await _context.Productos
+        .Where(p => !p.IsDeleted && p.Marca == marca)
+        .Select(p => p.Modelo)
+        .Distinct()
+        .OrderBy(m => m)
+        .ToListAsync();
+}
+```
+
+**4. Web** (`ShowroomGriffin.Web`)
+
+**a) Actualizar vistas de Producto**
+
+`Views/Productos/Crear.cshtml`:
+```html
+<div class="mb-3">
+    <label asp-for="Marca" class="form-label">Marca</label>
+    <input asp-for="Marca" class="form-control" />
+    <span asp-validation-for="Marca" class="text-danger"></span>
+</div>
+
+<div class="mb-3">
+    <label asp-for="Modelo" class="form-label">Modelo</label>
+    <input asp-for="Modelo" class="form-control" />
+    <span asp-validation-for="Modelo" class="text-danger"></span>
+</div>
+```
+
+`Views/Productos/Index.cshtml`:
+```html
+<table class="table">
+    <thead>
+        <tr>
+            <th>Nombre</th>
+            <th>Marca</th>        <!-- NUEVO -->
+            <th>Modelo</th>       <!-- NUEVO -->
+            <th>Categoría</th>
+            <th>Acciones</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model)
+        {
+            <tr>
+                <td>@item.Nombre</td>
+                <td>@item.Marca</td>
+                <td>@item.Modelo</td>
+                <td>@item.CategoriaNombre</td>
+                <td>...</td>
+            </tr>
+        }
+    </tbody>
+</table>
+```
+
+**b) Actualizar vistas de Variante**
+
+`Views/Variantes/Crear.cshtml`:
+```html
+<!-- ELIMINAR campos Marca y Modelo -->
+
+<div class="mb-3">
+    <label asp-for="ProductoId" class="form-label">Producto (Marca + Modelo)</label>
+    <select asp-for="ProductoId" class="form-select" asp-items="ViewBag.Productos">
+        <option value="">-- Seleccionar Producto --</option>
+    </select>
+    <span asp-validation-for="ProductoId" class="text-danger"></span>
+    <small class="text-muted">
+        Seleccionar el producto base. La marca y modelo ya están definidos en el producto.
+    </small>
+</div>
+```
+
+En el controller `VariantesController.Crear()`:
+```csharp
+ViewBag.Productos = await _context.Productos
+    .Where(p => !p.IsDeleted)
+    .Select(p => new SelectListItem
+    {
+        Value = p.Id.ToString(),
+        Text = $"{p.Marca} - {p.Modelo} ({p.Categoria.Nombre})"
+    })
+    .ToListAsync();
+```
+
+**Pruebas mínimas:**
+- [ ] **CRÍTICO:** Ejecutar script de validación previa en base de datos de desarrollo.
+- [ ] **CRÍTICO:** Hacer backup de la base de datos antes de aplicar la migración.
+- [ ] Aplicar migración M4 → verificar que no hay errores.
+- [ ] Verificar que todos los productos tienen Marca y Modelo (ninguno NULL).
+- [ ] Crear nuevo Producto con Marca/Modelo → verificar que se guarda.
+- [ ] Crear nueva Variante vinculada al producto → verificar que NO tiene campos Marca/Modelo.
+- [ ] Verificar que grilla de Productos muestra Marca y Modelo.
+- [ ] Verificar que filtros funcionan correctamente.
+
+**Estimación:** 8 horas (incluye validaciones, backup, rollback plan).
+
+**Riesgo:** 🔴 **MUY ALTO** (migración de datos).
+
+**Plan de Rollback:**
+1. Backup de BD antes de migración.
+2. Script `Down()` de la migración debe revertir cambios:
+   - Re-agregar columnas Marca/Modelo en VarianteProducto.
+   - Copiar valores desde Producto a cada Variante.
+   - Eliminar columnas de Producto.
 
 ---
 
-## 12. Cierre etapa E2 — Productos y Variantes
+### 🟡 R3 + R5: Combos Anidados en Ventas y Compras
 
-### 12.1 Reconciliación con estado real del repo
+**Objetivo:**  
+Reemplazar selector de variantes por combos en cascada: **Marca → Modelo → Color → Talle**.
 
-Al iniciar E2 se detectó que **M1 es monolítica**: además de los maestros comerciales, ya creó las tablas `Productos`, `VariantesProducto`, `Stocks`, `MovimientosStock`, `AjustesStock`, `ComprasDetalle`, `VentasDetalle` y `DevolucionesCambio` con sus FKs. Esto reinterpreta el plan original: **M2..M6 dejan de ser migraciones de creación de tablas y pasan a ser incrementales** sobre lo ya existente (nuevo supuesto **S7**).
+**Prerrequisito:** R10+R12 (Refactor Modelo) debe estar aplicado.
 
-| Ítem planificado E2 | Estado real al inicio | Acción ejecutada |
-|---|---|---|
-| Entidades `Producto`, `VarianteProducto` | ✅ Existentes | Ninguna |
-| `ProductoConfiguration` / `VarianteProductoConfiguration` | ✅ Existentes | Ninguna |
-| Índices únicos `Sku` / `CodigoBarra` (sin `HasFilter`) | ✅ Definidos en config (UNIQUE permite múltiples NULL en MySQL → R2 mitigado) | Ninguna |
-| `VarianteService` con validación SKU/CodigoBarra duplicados | ✅ Existente | Ninguna |
-| `VarianteService.InactivarAsync` con guarda stock>0 (R-PRD-08) | ✅ Existente | Ninguna |
-| `VarianteService.BuscarAsync` sin exponer costos (E-08) | ✅ Existente | Ninguna |
-| `AumentoMasivoService.AplicarAsync` con transacción explícita | ✅ Existente | Ninguna |
-| **D6 — RowVersion en `VarianteProducto`** | ❌ Ausente | **Fix aplicado** — `[Timestamp] byte[] RowVersion` |
-| **D6 — Mapeo EF `IsRowVersion()`** | ❌ Ausente | **Fix aplicado** — `builder.Property(e => e.RowVersion).IsRowVersion()` |
-| **D6 — Manejo `DbUpdateConcurrencyException` en `AumentoMasivoService`** | ❌ Ausente | **Fix aplicado** — catch con rollback y mensaje "Otro usuario modificó precios… re-previsualice" |
-| **Migración M2 — RowVersion** | ❌ No generada | **Generada** `20260428212244_M2_AddRowVersionToVariante` |
+#### Flujo de Usuario
 
-### 12.2 Cambios por capa en E2
+1. Usuario selecciona **Marca** (ej. "Nike").
+2. Se cargan dinámicamente los **Modelos** de Nike (ej. "Air Max", "Revolution").
+3. Usuario selecciona **Modelo** (ej. "Air Max").
+4. Se cargan dinámicamente los **Colores** disponibles para "Nike Air Max" (ej. "Negro", "Blanco").
+5. Usuario selecciona **Color** (ej. "Negro").
+6. Se cargan dinámicamente los **Talles** disponibles para "Nike Air Max Negro" **con stock > 0** (solo en Ventas).
+7. Usuario selecciona **Talle** (ej. "39") → se identifica la `VarianteProducto` y se agrega al detalle.
 
-| Capa | Archivo | Cambio | Motivo |
-|---|---|---|---|
-| Domain | `Entities\Productos\VarianteProducto.cs` | `[Timestamp] public byte[] RowVersion { get; set; } = Array.Empty<byte>();` | Token de concurrencia para D6 (first-write-wins) |
-| Infrastructure | `Data\Configurations\Productos\VarianteProductoConfiguration.cs` | `builder.Property(e => e.RowVersion).IsRowVersion();` | Mapeo EF del token de concurrencia |
-| Infrastructure | `Services\AumentoMasivoService.cs` → `AplicarAsync` | Catch `DbUpdateConcurrencyException` antes del catch genérico, con rollback y mensaje específico | Cierre técnico de D6 sobre el batch update |
-| Infrastructure | `Data\Migrations\20260428212244_M2_AddRowVersionToVariante.cs` (nueva) | `AddColumn<byte[]>("RowVersion", "VariantesProducto", "longblob", rowVersion: true)` con `MySQLValueGenerationStrategy.ComputedColumn` | Persistencia del token en MySQL 8 |
+#### Cambios por Capa
 
-No se tocaron Application ni Web en E2.
+**1. Application** (`ShowroomGriffin.Application`)
 
-### 12.3 Migraciones EF en E2
+**Nuevos métodos en `IProductoService`:**
 
-- **M2** `20260428212244_M2_AddRowVersionToVariante` generada limpiamente.
-- Despliegue: `dotnet ef database update` en entorno destino.
-- M3..M6 quedan disponibles solo si etapas posteriores requieren cambios incrementales reales (S7).
-
-### 12.4 Evidencia de build E2
-
-```
-Build succeeded.
-    0 Warning(s)
-    0 Error(s)
-Time Elapsed 00:00:11.03
+```csharp
+Task<List<string>> ObtenerMarcasAsync();
+Task<List<string>> ObtenerModelosPorMarcaAsync(string marca);
+Task<List<VarianteCombosViewModel>> ObtenerColoresPorMarcaModeloAsync(string marca, string modelo);
+Task<List<VarianteCombosViewModel>> ObtenerTallesPorMarcaModeloColorAsync(string marca, string modelo, string color, bool soloConStock = false);
 ```
 
-### 12.5 Pruebas mínimas E2 (a ejecutar en QA)
-
-- [ ] Crear variante con SKU duplicado → rechazo con mensaje.
-- [ ] Crear variante con CodigoBarra duplicado → rechazo con mensaje.
-- [ ] Crear varias variantes con `Sku` y `CodigoBarra` en NULL → permitido (UNIQUE MySQL acepta múltiples NULL, R2 mitigado).
-- [ ] Inactivar variante con `Stock > 0` → rechazo (R-PRD-08).
-- [ ] Inactivar variante con `Stock = 0` → OK, soft delete.
-- [ ] `Vendedor` invoca `Variantes/Buscar` → respuesta sin `UltimoPrecioCompra` ni `Ganancia`.
-- [ ] `Administrador` invoca `Variantes/Obtener` → respuesta con `UltimoPrecioCompra` y `Ganancia`.
-- [ ] **D6 concurrencia (aumento masivo)**: dos pestañas previsualizan; la primera aplica OK; la segunda aplica → mensaje "Otro usuario modificó precios… re-previsualice", sin actualización parcial (rollback).
-- [ ] Aumento masivo por categoría / por subgrupo / todos, con `BaseAumento.PrecioCompra` y `PrecioVenta` → precios actualizados con redondeo a 2 decimales.
-- [ ] Aumento masivo con `VariantesExcluidas` → esas variantes no cambian.
-
-### 12.6 Riesgos / supuestos confirmados en E2
-
-- **D6** cerrado en Domain + Infrastructure (token + mapeo + catch). Fronteras de capa respetadas.
-- **R2** (índices únicos `HasFilter` MySQL) cerrado: UNIQUE sin filtro funciona porque MySQL permite múltiples NULL en columnas UNIQUE.
-- **R5** (concurrencia en aumento masivo) cerrado vía RowVersion + manejo de `DbUpdateConcurrencyException`.
-- **S7** (nuevo supuesto): M2..M6 son incrementales, no creación de tablas, porque M1 es monolítica.
-
-### 12.7 Checklist de salida E2
-
-```
-E2 — CHECKLIST DE MERGE
-────────────────────────────────────────────────────────────────────
-[✓] Domain: VarianteProducto + RowVersion ([Timestamp])
-[✓] Infrastructure: IsRowVersion() en VarianteProductoConfiguration
-[✓] Infrastructure: DbUpdateConcurrencyException + rollback en AumentoMasivoService
-[✓] Migración M2 generada (despliegue: `dotnet ef database update`)
-[✓] Índices únicos Sku/CodigoBarra ya presentes en M1 (R2 mitigado)
-[✓] Vendedor sin costos en Buscar; Admin con costos en Obtener
-[✓] Build verde (0 errores, 0 warnings)
-[ ] Pruebas mínimas §12.5 en QA (incluye D6 con dos pestañas)
-[ ] `dotnet ef database update` en entorno destino
-────────────────────────────────────────────────────────────────────
+**DTO:**
+```csharp
+public class VarianteCombosViewModel
+{
+    public int VarianteId { get; set; }
+    public string? Color { get; set; }
+    public string? Talle { get; set; }
+    public string? Numero { get; set; }
+    public int Stock { get; set; }
+    public decimal PrecioVenta { get; set; }
+}
 ```
 
-**Gate E2: APROBADO técnicamente. Listo para iniciar E3 — Stock e inventario tras confirmación.**
+**Implementación en `ProductoService.cs`:**
+
+```csharp
+public async Task<List<VarianteCombosViewModel>> ObtenerColoresPorMarcaModeloAsync(string marca, string modelo)
+{
+    return await _context.Variantes
+        .Include(v => v.Producto)
+        .Include(v => v.Stock)
+        .Where(v => !v.IsDeleted 
+                 && v.Producto.Marca == marca 
+                 && v.Producto.Modelo == modelo
+                 && v.Color != null)
+        .Select(v => new VarianteCombosViewModel
+        {
+            VarianteId = v.Id,
+            Color = v.Color,
+            Stock = v.Stock.Cantidad,
+            PrecioVenta = v.PrecioVenta
+        })
+        .Distinct()
+        .OrderBy(v => v.Color)
+        .ToListAsync();
+}
+
+public async Task<List<VarianteCombosViewModel>> ObtenerTallesPorMarcaModeloColorAsync(
+    string marca, string modelo, string color, bool soloConStock = false)
+{
+    var query = _context.Variantes
+        .Include(v => v.Producto)
+        .Include(v => v.Stock)
+        .Where(v => !v.IsDeleted 
+                 && v.Producto.Marca == marca 
+                 && v.Producto.Modelo == modelo
+                 && v.Color == color);
+
+    if (soloConStock)
+        query = query.Where(v => v.Stock.Cantidad > 0);
+
+    return await query
+        .Select(v => new VarianteCombosViewModel
+        {
+            VarianteId = v.Id,
+            Talle = v.Talle,
+            Numero = v.Numero,
+            Stock = v.Stock.Cantidad,
+            PrecioVenta = v.PrecioVenta
+        })
+        .OrderBy(v => v.Talle ?? v.Numero)
+        .ToListAsync();
+}
+```
+
+**2. Web** (`ShowroomGriffin.Web`)
+
+**a) Endpoints AJAX en `ProductosController`:**
+
+```csharp
+[HttpGet]
+public async Task<IActionResult> GetMarcas()
+{
+    var marcas = await _productoService.ObtenerMarcasAsync();
+    return Json(marcas);
+}
+
+[HttpGet]
+public async Task<IActionResult> GetModelosPorMarca(string marca)
+{
+    var modelos = await _productoService.ObtenerModelosPorMarcaAsync(marca);
+    return Json(modelos);
+}
+
+[HttpGet]
+public async Task<IActionResult> GetColoresPorMarcaModelo(string marca, string modelo)
+{
+    var colores = await _productoService.ObtenerColoresPorMarcaModeloAsync(marca, modelo);
+    return Json(colores);
+}
+
+[HttpGet]
+public async Task<IActionResult> GetTallesPorMarcaModeloColor(string marca, string modelo, string color, bool soloConStock = false)
+{
+    var talles = await _productoService.ObtenerTallesPorMarcaModeloColorAsync(marca, modelo, color, soloConStock);
+    return Json(talles);
+}
+```
+
+**b) HTML en `Views/Ventas/Crear.cshtml`:**
+
+```html
+<div class="row">
+    <div class="col-md-3">
+        <label class="form-label">Marca</label>
+        <select id="cboMarca" class="form-select">
+            <option value="">-- Seleccionar --</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Modelo</label>
+        <select id="cboModelo" class="form-select" disabled>
+            <option value="">-- Seleccionar Marca --</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Color</label>
+        <select id="cboColor" class="form-select" disabled>
+            <option value="">-- Seleccionar Modelo --</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Talle/Número</label>
+        <select id="cboTalle" class="form-select" disabled>
+            <option value="">-- Seleccionar Color --</option>
+        </select>
+    </div>
+</div>
+<div class="mt-2">
+    <button type="button" id="btnAgregarDetalle" class="btn btn-primary" disabled>
+        <i class="bi bi-plus-circle"></i> Agregar Producto
+    </button>
+</div>
+```
+
+**c) JavaScript (en la misma vista o archivo separado):**
+
+```javascript
+// Cargar marcas al iniciar
+$(document).ready(function() {
+    cargarMarcas();
+});
+
+function cargarMarcas() {
+    $.get('@Url.Action("GetMarcas", "Productos")', function(data) {
+        $('#cboMarca').empty().append('<option value="">-- Seleccionar --</option>');
+        data.forEach(function(marca) {
+            $('#cboMarca').append($('<option>', { value: marca, text: marca }));
+        });
+    });
+}
+
+// Al cambiar Marca → cargar Modelos
+$('#cboMarca').change(function() {
+    var marca = $(this).val();
+    $('#cboModelo, #cboColor, #cboTalle').prop('disabled', true).empty();
+    $('#btnAgregarDetalle').prop('disabled', true);
+
+    if (!marca) return;
+
+    $.get('@Url.Action("GetModelosPorMarca", "Productos")', { marca: marca }, function(data) {
+        $('#cboModelo').prop('disabled', false).append('<option value="">-- Seleccionar --</option>');
+        data.forEach(function(modelo) {
+            $('#cboModelo').append($('<option>', { value: modelo, text: modelo }));
+        });
+    });
+});
+
+// Al cambiar Modelo → cargar Colores
+$('#cboModelo').change(function() {
+    var marca = $('#cboMarca').val();
+    var modelo = $(this).val();
+    $('#cboColor, #cboTalle').prop('disabled', true).empty();
+    $('#btnAgregarDetalle').prop('disabled', true);
+
+    if (!modelo) return;
+
+    $.get('@Url.Action("GetColoresPorMarcaModelo", "Productos")', 
+        { marca: marca, modelo: modelo }, 
+        function(data) {
+            $('#cboColor').prop('disabled', false).append('<option value="">-- Seleccionar --</option>');
+
+            // Agrupar por color (sin duplicados)
+            var coloresUnicos = [...new Set(data.map(item => item.color))];
+            coloresUnicos.forEach(function(color) {
+                $('#cboColor').append($('<option>', { value: color, text: color }));
+            });
+        });
+});
+
+// Al cambiar Color → cargar Talles (solo con stock en Ventas)
+$('#cboColor').change(function() {
+    var marca = $('#cboMarca').val();
+    var modelo = $('#cboModelo').val();
+    var color = $(this).val();
+    $('#cboTalle').prop('disabled', true).empty();
+    $('#btnAgregarDetalle').prop('disabled', true);
+
+    if (!color) return;
+
+    $.get('@Url.Action("GetTallesPorMarcaModeloColor", "Productos")', 
+        { marca: marca, modelo: modelo, color: color, soloConStock: true }, 
+        function(data) {
+            if (data.length === 0) {
+                $('#cboTalle').append('<option value="">Sin stock disponible</option>');
+                return;
+            }
+
+            $('#cboTalle').prop('disabled', false).append('<option value="">-- Seleccionar --</option>');
+            data.forEach(function(item) {
+                var displayText = (item.talle || item.numero) + ' (Stock: ' + item.stock + ')';
+                $('#cboTalle').append($('<option>', { 
+                    value: item.varianteId, 
+                    text: displayText,
+                    'data-precio': item.precioVenta
+                }));
+            });
+        });
+});
+
+// Al seleccionar Talle → habilitar botón Agregar
+$('#cboTalle').change(function() {
+    $('#btnAgregarDetalle').prop('disabled', $(this).val() === '');
+});
+
+// Al hacer clic en Agregar Producto
+$('#btnAgregarDetalle').click(function() {
+    var varianteId = $('#cboTalle').val();
+    var precio = $('#cboTalle option:selected').data('precio');
+    var marca = $('#cboMarca').val();
+    var modelo = $('#cboModelo').val();
+    var color = $('#cboColor').val();
+    var talle = $('#cboTalle option:selected').text().split(' (Stock')[0];
+
+    // Aquí agregar a la tabla de detalles (lógica existente de tu proyecto)
+    agregarDetalleATabla(varianteId, marca, modelo, color, talle, precio);
+
+    // Reset de combos
+    $('#cboMarca, #cboModelo, #cboColor, #cboTalle').val('');
+    $('#cboModelo, #cboColor, #cboTalle').prop('disabled', true);
+    $('#btnAgregarDetalle').prop('disabled', true);
+});
+
+function agregarDetalleATabla(varianteId, marca, modelo, color, talle, precio) {
+    // Implementar según la lógica actual del proyecto
+    // Ejemplo:
+    var row = `
+        <tr>
+            <td>${marca} ${modelo} - ${color} ${talle}</td>
+            <td><input type="number" class="form-control cantidad" value="1" min="1" /></td>
+            <td><input type="number" class="form-control precio" value="${precio}" step="0.01" /></td>
+            <td class="subtotal">${precio}</td>
+            <td><button type="button" class="btn btn-sm btn-danger eliminar-detalle">Eliminar</button></td>
+            <input type="hidden" name="Detalles[].VarianteProductoId" value="${varianteId}" />
+        </tr>
+    `;
+    $('#tbodyDetalles').append(row);
+    calcularTotales();
+}
+```
+
+**d) Para Compras:** exactamente igual, pero en `CompraCrear.cshtml` y con `soloConStock: false`.
+
+**Pruebas mínimas:**
+- [ ] Seleccionar Marca → verificar que se cargan Modelos.
+- [ ] Seleccionar Modelo → verificar que se cargan Colores.
+- [ ] Seleccionar Color → verificar que se cargan Talles con stock > 0 (en Ventas).
+- [ ] Seleccionar Talle → verificar que se habilita botón Agregar.
+- [ ] Agregar producto → verificar que se agrega a la tabla de detalles con datos correctos.
+- [ ] Verificar que en Compras se muestran todos los talles (sin filtro de stock).
+
+**Estimación:** 6 horas (R3 + R5 juntos).
 
 ---
 
-## 13. Cierre etapa E3 — Stock e inventario
+### 🟡 R6: Pantalla Consulta Stock Rápida
 
-### 13.1 Reconciliación con estado real del repo
+**Objetivo:**  
+Vista de solo lectura para consultar stock con filtros por Marca/Modelo/Talle.
 
-Al iniciar E3 se detectó que el grueso de stock ya está implementado: entidades `Stock`, `MovimientoStock`, `AjusteStock` con sus configs (FK 1:1 stock-variante, índices, FKs polimórficas opcionales en `MovimientoStock`), `IStockService` + `StockService`, `StockController` con políticas correctas (`Listado`/`Historial` para Vendedor, `CargaInicial`/`Ajuste` solo Admin) y vistas. Tablas creadas por la migración monolítica M1 (S7).
+#### Cambios por Capa
 
-| Ítem planificado E3 | Estado real al inicio | Acción ejecutada |
-|---|---|---|
-| Entidades Stock / MovimientoStock / AjusteStock + configs | ✅ Existentes | Ninguna |
-| Migración M3 (creación de tablas) | ✅ Ya creadas en M1 monolítica (S7) | Ninguna (no se genera M3) |
-| Listado con alerta `StockActual ≤ StockMinimo` | ✅ Existente | Ninguna |
-| Carga inicial — guarda `StockActual==0` y sin movimientos previos (R-STK-04) | ✅ Existente | Ninguna |
-| Ajuste manual con `UsuarioId` real desde Controller (E-09) | ✅ Existente | Ninguna |
-| Historial filtrable por variante | ✅ Existente | Ninguna |
-| Movimientos con FKs polimórficas opcionales (S3) | ✅ Existente | Ninguna |
-| Políticas `RequireAdministrador` en `CargaInicial`/`Ajuste`; `RequireVendedor` resto | ✅ Existente | Ninguna |
-| **Atomicidad: stock + movimiento en una sola transacción** | ❌ Dos `SaveChanges` separados sin tx | **Fix aplicado** — `BeginTransactionAsync` + commit/rollback |
-| **Atomicidad: ajuste + stock + movimiento en una sola transacción** | ❌ Dos `SaveChanges` separados sin tx | **Fix aplicado** — `BeginTransactionAsync` + commit/rollback |
+**1. Web** (`ShowroomGriffin.Web`)
 
-### 13.2 Cambios por capa en E3
+**a) Controller:**
 
-| Capa | Archivo | Cambio | Motivo |
-|---|---|---|---|
-| Infrastructure | `Services\StockService.cs` → `CargaInicialAsync` | `await using var tx = await _db.Database.BeginTransactionAsync();` envolviendo `SaveChanges` + `RegistrarMovimientoAsync` con commit/rollback | Atomicidad: evita stock cargado sin movimiento si falla el segundo save |
-| Infrastructure | `Services\StockService.cs` → `AjusteManualAsync` | Misma transacción explícita envolviendo creación de `AjusteStock`, actualización de `Stock` y `RegistrarMovimientoAsync` | Atomicidad: evita ajuste/stock sin movimiento si falla el segundo save (E-09 + R-STK trazabilidad) |
+```csharp
+public class StockController : Controller
+{
+    private readonly IStockService _stockService;
 
-No se tocaron Domain, Application ni Web en E3.
+    [Authorize(Policy = "RequireVendedor")] // Cambiar a RequireEmpleado después de R8
+    public async Task<IActionResult> ConsultaRapida(string? marca, string? modelo, string? talle)
+    {
+        var filtro = new StockFiltroViewModel
+        {
+            Marca = marca,
+            Modelo = modelo,
+            Talle = talle
+        };
 
-### 13.3 Migraciones EF en E3
+        var stock = await _stockService.ObtenerStockConFiltroAsync(filtro);
 
-Ninguna migración nueva. Las tablas `Stocks`, `MovimientosStock`, `AjustesStock` ya estaban creadas por M1 monolítica (S7). El plan original M3 `AddStockInventario` queda absorbido por M1.
+        ViewBag.Marcas = await _stockService.ObtenerMarcasAsync();
 
-### 13.4 Evidencia de build E3
-
-```
-Build succeeded.
-    0 Warning(s)
-    0 Error(s)
-Time Elapsed 00:00:12.53
+        return View(stock);
+    }
+}
 ```
 
-### 13.5 Pruebas mínimas E3 (a ejecutar en QA)
+**b) Vista `Views/Stock/ConsultaRapida.cshtml`:**
 
-- [ ] Listado con `soloAlertas=true` muestra solo variantes con `StockActual ≤ StockMinimo`.
-- [ ] Carga inicial con `cantidad ≤ 0` → rechazo.
-- [ ] Carga inicial sobre variante con `StockActual != 0` → rechazo.
-- [ ] Carga inicial sobre variante con movimientos previos → rechazo (R-STK-04).
-- [ ] Carga inicial OK genera movimiento `CargaInicial` con `StockResultante` correcto.
-- [ ] Ajuste manual con `CantidadNueva` distinta → genera `AjusteStock` con `UsuarioId` real (E-09) y movimiento `AjusteManual` con delta = nueva − anterior.
-- [ ] Historial filtrado por `varianteId` ordena por fecha descendente.
-- [ ] Vendedor accede a `/Stock/Index` y `/Stock/Historial` → 200.
-- [ ] Vendedor intenta `/Stock/CargaInicial` o `/Stock/Ajuste` → 403.
-- [ ] Atomicidad: forzar fallo en `RegistrarMovimientoAsync` (p.ej. variante sin stock) → no queda `Stock` modificado ni `AjusteStock` huérfano.
+```html
+@model List<ShowroomGriffin.Application.DTOs.Stock.StockViewModel>
 
-### 13.6 Riesgos / supuestos confirmados en E3
+<div class="container mt-4">
+    <h2>Consulta Rápida de Stock</h2>
 
-- **R-STK-04** cubierto en service (no en controller). Fronteras respetadas.
-- **E-09** cubierto: `UsuarioId` se setea en Controller desde `ClaimTypes.NameIdentifier`.
-- **S3** confirmado: `MovimientoStock` usa 4 FKs opcionales (`CompraId`, `VentaId`, `DevolucionCambioId`, `AjusteStockId`), no discriminador string.
-- **S7** ratificado: M3 absorbida por M1 monolítica.
-- **R4** (concurrencia stock en ventas) queda fuera de E3 — corresponde a E5 (Ventas) con `IsolationLevel.Serializable` + reintentos.
+    <form method="get" class="row g-3 mb-4">
+        <div class="col-md-3">
+            <label class="form-label">Marca</label>
+            <select name="marca" class="form-select">
+                <option value="">-- Todas --</option>
+                @foreach (var marca in ViewBag.Marcas)
+                {
+                    <option value="@marca" selected="@(marca == ViewBag.MarcaSeleccionada)">@marca</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Modelo</label>
+            <input type="text" name="modelo" class="form-control" value="@ViewBag.ModeloSeleccionado" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Talle/Número</label>
+            <input type="text" name="talle" class="form-control" value="@ViewBag.TalleSeleccionado" />
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+            <button type="submit" class="btn btn-primary w-100">
+                <i class="bi bi-search"></i> Buscar
+            </button>
+        </div>
+    </form>
 
-### 13.7 Checklist de salida E3
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>Marca</th>
+                <th>Modelo</th>
+                <th>Color</th>
+                <th>Talle/Número</th>
+                <th>Stock Actual</th>
+                <th>Stock Mínimo</th>
+                <th>Estado</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Model)
+            {
+                var cssClass = item.Cantidad < item.StockMinimo ? "table-danger" : "";
+                <tr class="@cssClass">
+                    <td>@item.Marca</td>
+                    <td>@item.Modelo</td>
+                    <td>@item.Color</td>
+                    <td>@item.Talle</td>
+                    <td><strong>@item.Cantidad</strong></td>
+                    <td>@item.StockMinimo</td>
+                    <td>
+                        @if (item.Cantidad < item.StockMinimo)
+                        {
+                            <span class="badge bg-danger">Bajo Stock</span>
+                        }
+                        else if (item.Cantidad == 0)
+                        {
+                            <span class="badge bg-secondary">Sin Stock</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-success">OK</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
 
+    @if (!Model.Any())
+    {
+        <div class="alert alert-info">
+            No se encontraron resultados con los filtros aplicados.
+        </div>
+    }
+</div>
 ```
-E3 — CHECKLIST DE MERGE
-────────────────────────────────────────────────────────────────────
-[✓] Domain/Configs: Stock, MovimientoStock, AjusteStock (preexistentes)
-[✓] StockService: CargaInicial y Ajuste con transacción explícita
-[✓] StockController: políticas correctas; UsuarioId desde claims
-[✓] Movimientos polimórficos (S3) consistentes
-[✓] Build verde (0 errores, 0 warnings)
-[ ] Pruebas mínimas §13.5 en QA (incluye atomicidad)
-[ ] Sin migración nueva (S7)
-────────────────────────────────────────────────────────────────────
-```
 
-**Gate E3: APROBADO técnicamente. Listo para iniciar E4 — Compras y recepción tras confirmación.**
+**Pruebas mínimas:**
+- [ ] Acceder sin filtros → verificar que muestra todo el stock.
+- [ ] Filtrar por Marca → verificar resultados.
+- [ ] Filtrar por Modelo → verificar resultados.
+- [ ] Verificar que filas con stock < mínimo se resaltan en rojo.
+
+**Estimación:** 3 horas.
 
 ---
 
-## 14. Cierre etapa E4 — Compras y recepción
+### 🟡 R8: Rol Empleado
 
-### 14.1 Reconciliación con estado real del repo
+**Objetivo:**  
+Crear rol `Empleado` con acceso solo a Ventas, Cambios y Stock (consulta).
 
-E4 ya estaba implementada en su mayor parte: entidades `Compra`, `CompraDetalle`, `CompraAdjunto` con configs y enum `EstadoCompra`; `CompraService` con CRUD, transición lineal de estados (R-COM-01), edición restringida a `Borrador`/`EnProceso` (R-COM-02, E-03), recepción con transacción `ReadCommitted`, validación `Rec+Dañ+Dev ≤ Pedida`, actualización de `Stock` y `UltimoPrecioCompra`, registro de movimientos `CompraRecepcion` y soporte de adjuntos. `ComprasController` con `RequireAdministrador`, validación de tamaño (5MB) y extensiones (`.jpg/.jpeg/.png/.pdf`) (G-06). Tablas creadas por M1 monolítica (S7).
+#### Cambios por Capa
 
-| Ítem planificado E4 | Estado real al inicio | Acción ejecutada |
-|---|---|---|
-| Entidades + configs Compra/Detalle/Adjunto | ✅ Existentes | Ninguna |
-| Migración M4 (creación de tablas) | ✅ Absorbida en M1 (S7) | Ninguna |
-| Crear/Editar borrador con detalles | ✅ Existente | Ninguna |
-| Edición solo en `Borrador`/`EnProceso` (R-COM-02, E-03) | ✅ Existente | Ninguna |
-| Transición lineal de estados (R-COM-01, E-02) | ✅ Existente — bloquea cambio directo a `Recibida` | Ninguna |
-| Recepción solo desde `Verificada` | ✅ Existente | Ninguna |
-| Validación `Rec+Dañ+Dev ≤ Pedida` | ✅ Existente, **pero** ejecutada después de mutar estado/detalles y sin `RollbackAsync` explícito en early-returns | **Fix aplicado** — validación previa de TODAS las líneas + rollback explícito |
-| Validación cantidades no negativas | ❌ Ausente (defensiva) | **Fix aplicado** — rechazo si alguna < 0 |
-| Update Stock + `UltimoPrecioCompra` + movimiento `CompraRecepcion` en transacción | ✅ Existente | Ninguna |
-| Adjuntos con validación (G-06) | ✅ Existente | Ninguna |
-| Política `RequireAdministrador` a nivel controller | ✅ Existente | Ninguna |
+**1. Infrastructure** (`ShowroomGriffin.Infrastructure`)
 
-### 14.2 Cambios por capa en E4
+Archivo: `Data/SeedData.cs`
 
-| Capa | Archivo | Cambio | Motivo |
-|---|---|---|---|
-| Infrastructure | `Services\CompraService.cs` → `RecepcionarAsync` | (1) `await using` en la transacción. (2) Validación previa de **todas** las líneas (no negativas + suma ≤ pedida) **antes** de mutar `Estado`/`FechaRecepcion`/detalles/stock. (3) `RollbackAsync` explícito en cada `return` de error. | Evita estado inconsistente si la validación falla recién en una línea posterior; cierra D-recepción atómica de forma defensiva. |
+```csharp
+public const string RolEmpleado = "Empleado";
 
-No se tocaron Domain, Application ni Web en E4.
+public static async Task SeedRoles(RoleManager<IdentityRole> roleManager)
+{
+    string[] roles = { RolSuperUsuario, RolAdministrador, RolVendedor, RolEmpleado };
 
-### 14.3 Migraciones EF en E4
-
-Ninguna migración nueva. Tablas `Compras`, `ComprasDetalle`, `ComprasAdjunto` ya creadas en M1 monolítica (S7).
-
-### 14.4 Evidencia de build E4
-
-```
-Build succeeded.
-    0 Warning(s)
-    0 Error(s)
-Time Elapsed 00:00:09.96
+    foreach (var roleName in roles)
+    {
+        if (!await roleManager.RoleExistsAsync(roleName))
+        {
+            await roleManager.CreateAsync(new IdentityRole(roleName));
+        }
+    }
+}
 ```
 
-### 14.5 Pruebas mínimas E4 (a ejecutar en QA)
+**2. Web** (`ShowroomGriffin.Web`)
 
-- [ ] Crear compra en `Borrador` con ≥1 detalle válido (cantidad>0, costo>0).
-- [ ] Editar compra en `Borrador` y `EnProceso` → OK; en `Verificada`/`Recibida` → rechazo (R-COM-02).
-- [ ] `CambiarEstado` con salto no lineal (p.ej. `Borrador`→`Verificada`) → rechazo (R-COM-01).
-- [ ] `CambiarEstado` directo a `Recibida` → rechazo con mensaje de usar Recepción.
-- [ ] Recepción desde estado distinto a `Verificada` → rechazo.
-- [ ] Recepción con `Rec+Dañ+Dev > Pedida` en alguna línea → rechazo y **sin cambios** en compra/stock/detalles.
-- [ ] Recepción con cantidades negativas → rechazo y sin cambios.
-- [ ] Recepción válida → `Estado=Recibida`, `FechaRecepcion` seteada, stock incrementado por `CantidadRecibida`, `UltimoPrecioCompra` actualizado, movimientos `CompraRecepcion` con `compraId` correcto.
-- [ ] Adjunto > 5MB → rechazo. Extensión fuera de `.jpg/.jpeg/.png/.pdf` → rechazo. Adjunto válido → guardado en `wwwroot/uploads/compras` y registrado.
-- [ ] Vendedor accede a `/Compras/*` → 403 (controller `RequireAdministrador`).
+**a) Program.cs:**
 
-### 14.6 Riesgos / supuestos confirmados en E4
+```csharp
+builder.Services.AddAuthorization(options =>
+{
+    // ... policies existentes
 
-- **R-COM-01** y **R-COM-02** cubiertos en service.
-- **E-02** (transición lineal) y **E-03** (edición restringida) cubiertos.
-- **G-06** (validación adjuntos) cubierto en controller.
-- **R7** (cascade vs soft delete): `CompraDetalle` se reemplaza con `RemoveRange` antes de re-insertar en edición; comportamiento preservado.
-- **S7** ratificado: M4 absorbida por M1.
-- Riesgo residual aceptado: `RecepcionarAsync` usa `ReadCommitted` (no `Serializable`) porque la operación es de **incremento** de stock (no compite con ventas que decrementan en la misma fila simultáneamente; la concurrencia crítica vive en E5 Ventas).
-
-### 14.7 Checklist de salida E4
-
-```
-E4 — CHECKLIST DE MERGE
-────────────────────────────────────────────────────────────────────
-[✓] Domain/Configs: Compra, CompraDetalle, CompraAdjunto (preexistentes)
-[✓] Service: CRUD, transición lineal, edición restringida
-[✓] Service: Recepción con validación previa + rollback explícito
-[✓] Service: Stock + UltimoPrecioCompra + Movimiento en transacción
-[✓] Controller: RequireAdministrador + validación adjuntos (G-06)
-[✓] Build verde (0 errores, 0 warnings)
-[ ] Pruebas mínimas §14.5 en QA
-[ ] Sin migración nueva (S7)
-────────────────────────────────────────────────────────────────────
+    options.AddPolicy("RequireEmpleado",
+        policy => policy.RequireRole(
+            SeedData.RolSuperUsuario, 
+            SeedData.RolAdministrador, 
+            SeedData.RolVendedor, 
+            SeedData.RolEmpleado));
+});
 ```
 
-**Gate E4: APROBADO técnicamente. Listo para iniciar E5 — Ventas (núcleo transaccional con `IsolationLevel.Serializable` + reintentos) tras confirmación.**
+**b) Decorar Controllers:**
+
+```csharp
+// VentasController
+[Authorize(Policy = "RequireEmpleado")]
+public class VentasController : Controller { ... }
+
+// VentaCambiosController (cuando se implemente R7)
+[Authorize(Policy = "RequireEmpleado")]
+public class VentaCambiosController : Controller { ... }
+
+// StockController (solo ConsultaRapida)
+[Authorize(Policy = "RequireEmpleado")]
+public IActionResult ConsultaRapida(...) { ... }
+
+// Ajustar los métodos de ajuste de stock para RequireAdministracion
+[Authorize(Policy = "RequireAdministracion")]
+public IActionResult Ajustar(...) { ... }
+```
+
+**c) Menú de navegación (`_Layout.cshtml`):**
+
+```html
+@if (User.IsInRole(SeedData.RolEmpleado) || User.IsInRole(SeedData.RolVendedor))
+{
+    <li class="nav-item">
+        <a class="nav-link" asp-controller="Ventas" asp-action="Index">Ventas</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" asp-controller="Stock" asp-action="ConsultaRapida">Consulta Stock</a>
+    </li>
+}
+
+@if (User.IsInRole(SeedData.RolAdministrador) || User.IsInRole(SeedData.RolSuperUsuario))
+{
+    <!-- Menús de Compras, Productos, Maestros, etc. -->
+}
+```
+
+**Pruebas mínimas:**
+- [ ] Crear usuario con rol Empleado.
+- [ ] Loguear como Empleado → verificar acceso a Ventas.
+- [ ] Verificar acceso a Consulta Stock.
+- [ ] Verificar denegación de acceso a Compras.
+- [ ] Verificar denegación de acceso a Productos/Variantes.
+- [ ] Verificar denegación de acceso a Maestros.
+
+**Estimación:** 2 horas.
 
 ---
 
-## 15. Cierre etapa E5 — Ventas (núcleo transaccional)
+## 🎯 RESUMEN FASE 2
 
-### 15.1 Reconciliación con estado real del repo
+| Requerimiento | Estimación | Riesgo | Bloqueantes |
+|---------------|------------|--------|-------------|
+| **R10+R12** | 8h | 🔴 Muy Alto | Ninguno (DEBE IR PRIMERO) |
+| **R3+R5** | 6h | 🟡 Medio | R10+R12 |
+| **R6** | 3h | 🟢 Bajo | Ninguno |
+| **R8** | 2h | 🟢 Bajo | Ninguno |
 
-E5 ya estaba implementada en su mayor parte: entidades `Venta`, `VentaDetalle`, `VentaPago`, `VentaAdjunto`, `Remito` con configs y enums; `VentaService` con creación atómica `Serializable`, validación de stock por línea, cálculo de subtotal/descuento/total con tolerancia 0,01, asignación de `NroVenta` post-insert, decremento de stock + movimientos `Venta`, anulación con reposición de stock + movimientos `AnulacionVenta`, marcado a `Entregada`, listado con filtro por vendedor (G-09), expansión de costos solo si Admin/SuperUsuario (E-08), adjuntos validados (G-06). Tablas creadas por M1 monolítica (S7).
+**Total Fase 2:** 19 horas (~2.5 días).
 
-| Ítem planificado E5 | Estado real al inicio | Acción ejecutada |
-|---|---|---|
-| Entidades + configs Venta/Detalle/Pago/Adjunto/Remito | ✅ Existentes | Ninguna |
-| Migración M5 (creación de tablas) | ✅ Absorbida en M1 (S7) | Ninguna |
-| `CrearAsync` con `IsolationLevel.Serializable` | ✅ Existente | Ninguna |
-| Validación stock por variante | ✅ Existente | Ninguna |
-| Validación suma de pagos = total (±0,01) | ✅ Existente | Ninguna |
-| `NroVenta` correlativo (`VTA-{Id:D5}`, D1) | ✅ Existente | Ninguna |
-| Decremento stock + movimientos `Venta` | ✅ Existente | Ninguna |
-| `AnularAsync` solo desde `Confirmada`, repone stock | ✅ Existente | Ninguna |
-| `MarcarEntregadaAsync` solo desde `Confirmada` | ✅ Existente | Ninguna |
-| Vendedor solo ve sus ventas (G-09) | ✅ Existente en controller | Ninguna |
-| Costos/ganancia solo a Admin (E-08) | ✅ Existente | Ninguna |
-| Adjuntos (G-06) | ✅ Existente | Ninguna |
-| **`await using` + `RollbackAsync` explícito en early-returns** (`CrearAsync` y `AnularAsync`) | ❌ `using` simple + `return` sin rollback | **Fix aplicado** |
-| **R4 — reintentos limitados ante deadlock** | ❌ Ausente | **Fix aplicado** — hasta 3 intentos con detach del ChangeTracker y backoff lineal |
-
-### 15.2 Cambios por capa en E5
-
-| Capa | Archivo | Cambio | Motivo |
-|---|---|---|---|
-| Infrastructure | `Services\VentaService.cs` → `CrearAsync` | (1) `await using` en la transacción. (2) `RollbackAsync` explícito ante stock insuficiente. (3) Bucle de reintentos `for (1..3)` que captura `DbUpdateException` cuando el mensaje indica deadlock/lock-wait (MySQL 1213/1205); detacha entidades y aplica backoff `50*intento` ms. (4) Helper privado `EsDeadlock(DbUpdateException)`. | R4 (concurrencia stock entre ventas simultáneas) cubierto sin alterar API; mantiene `Serializable` y degrada con mensaje "No se pudo confirmar la venta por contención de stock. Reintente." si los 3 intentos fallan. |
-| Infrastructure | `Services\VentaService.cs` → `AnularAsync` | `await using` + `RollbackAsync` explícito en early-returns (venta no encontrada / estado distinto a Confirmada). | Atomicidad defensiva consistente con E3/E4. |
-
-No se tocaron Domain, Application ni Web en E5.
-
-### 15.3 Migraciones EF en E5
-
-Ninguna migración nueva. Tablas `Ventas`, `VentasDetalle`, `VentasPago`, `VentasAdjunto`, `Remitos` ya creadas en M1 monolítica (S7).
-
-### 15.4 Evidencia de build E5
-
-```
-Build succeeded.
-    0 Warning(s)
-    0 Error(s)
-Time Elapsed 00:00:09.47
-```
-
-### 15.5 Pruebas mínimas E5 (a ejecutar en QA)
-
-- [ ] Crear venta con ≥1 ítem y ≥1 pago; suma de pagos = total ±0,01 → OK, `NroVenta` correlativo, stock decrementa, movimientos `Venta` generados.
-- [ ] Suma de pagos ≠ total → rechazo "La suma de pagos…".
-- [ ] Stock insuficiente en alguna variante → rechazo y rollback (sin venta creada, sin stock alterado, sin movimientos).
-- [ ] **R4 concurrencia**: dos ventas simultáneas sobre la misma variante con stock=1 → una commitea, la otra recibe rechazo (stock insuficiente o reintento agotado), nunca queda stock negativo.
-- [ ] `Anular` desde `Confirmada` → OK, stock repone, movimientos `AnulacionVenta`. Desde `Entregada` o `Anulada` → rechazo.
-- [ ] `MarcarEntregada` desde `Confirmada` → OK; desde otros estados → rechazo.
-- [ ] Vendedor en `Listar` → solo ve sus propias ventas (G-09). Admin/SuperUsuario → ve todas.
-- [ ] Vendedor en `Detalle` → sin `CostoTotal`/`GananciaTotal`/`CostoUnitario`. Admin → con esos campos (E-08).
-- [ ] Adjunto >5MB o extensión inválida → rechazo (G-06).
-
-### 15.6 Riesgos / supuestos confirmados en E5
-
-- **R4** cubierto en service: `Serializable` + reintentos hasta 3 con detach + backoff. Aceptado: detección de deadlock por mensaje (MySQL 1213/1205) en ausencia de tipo de excepción específico de Pomelo expuesto.
-- **D1** (correlativo) cubierto vía Id autoincremental + formateo `VTA-{Id:D5}` post-`SaveChanges`.
-- **D2** (cuotas) **fuera de alcance E5**: el modelo de pagos actual no contiene `CantidadCuotas`/`% recargo` por línea de pago; se deja documentado para una iteración posterior si el negocio lo confirma. Riesgo registrado.
-- **E-08** y **G-09** cubiertos en controller.
-- **S7** ratificado (M5 absorbida por M1).
-
-### 15.7 Checklist de salida E5
-
-```
-E5 — CHECKLIST DE MERGE
-────────────────────────────────────────────────────────────────────
-[✓] CrearAsync: Serializable + reintentos R4 + rollback explícito
-[✓] AnularAsync: rollback explícito en early-returns
-[✓] NroVenta correlativo (D1)
-[✓] Filtro por vendedor (G-09) + costos solo Admin (E-08)
-[✓] Adjuntos validados (G-06)
-[✓] Build verde (0 errores, 0 warnings)
-[ ] Pruebas mínimas §15.5 en QA (incluye R4 con dos pestañas)
-[ ] Sin migración nueva (S7)
-[ ] D2 (cuotas) registrado como riesgo abierto
-────────────────────────────────────────────────────────────────────
-```
-
-**Gate E5: APROBADO técnicamente. Listo para iniciar E6 — Postventa (devoluciones/cambios) tras confirmación.**
+**Orden de ejecución:**
+1. R10+R12 (CRÍTICO, bloquea R3/R5).
+2. R3+R5 (en paralelo después de R10+R12).
+3. R6 (en paralelo).
+4. R8 (al final).
 
 ---
 
-## 16. Cierre etapa E6 — Postventa (devoluciones / cambios)
+## 🚀 FASE 3: FUNCIONALIDADES COMPLEJAS (Riesgo Alto)
 
-### 16.1 Reconciliación con estado real del repo
+### 🔴 R9: Importes Editables en Venta
 
-E6 ya estaba implementada en lo grueso: entidades `DevolucionCambio`, `DevolucionCambioDetalle` con configs y enum `TipoDevolucion`; `DevolucionService` con validación de venta en `Confirmada`/`Entregada`, cálculo de cantidad disponible (`Cantidad − YaDevuelto`), reingreso de stock + movimientos `DevolucionCliente`, decremento de stock + movimiento `Venta` para el item de cambio, transacción explícita y `ObtenerVentaParaDevolucionAsync` que filtra solo líneas con disponible > 0. Tablas creadas por M1 monolítica (S7).
+**Objetivo:**  
+Permitir edición manual de `PrecioUnitario`, `Subtotal` y `Total`, aunque se calculen automáticamente.
 
-| Ítem planificado E6 | Estado real al inicio | Acción ejecutada |
-|---|---|---|
-| Entidades + configs DevolucionCambio/Detalle | ✅ Existentes | Ninguna |
-| Migración M6 (creación de tablas) | ✅ Absorbida en M1 (S7) | Ninguna |
-| Crear devolución solo desde `Confirmada`/`Entregada` | ✅ Existente | Ninguna |
-| Validar `CantidadDevolver ≤ Cantidad − YaDevuelto` | ✅ Existente | Ninguna |
-| Reingreso stock + movimientos `DevolucionCliente` | ✅ Existente | Ninguna |
-| Cambio: validar stock destino y decrementar con movimiento `Venta` (G-08) | ✅ Existente | Ninguna |
-| Listado, detalle, AJAX para `Items` por venta | ✅ Existentes | Ninguna |
-| **`await using` + `RollbackAsync` explícito en early-returns dentro del try** | ❌ `using` simple + `return` sin rollback | **Fix aplicado** |
-| **Validación cantidades no negativas** | ❌ Ausente (defensiva) | **Fix aplicado** |
+#### Cambios por Capa
 
-### 16.2 Cambios por capa en E6
+**1. Application** (`ShowroomGriffin.Application`)
 
-| Capa | Archivo | Cambio | Motivo |
-|---|---|---|---|
-| Infrastructure | `Services\DevolucionService.cs` → `CrearAsync` | (1) `await using` en la transacción. (2) `RollbackAsync` explícito en cada early-return dentro del try (detalle no encontrado, cantidad superior a disponible, stock destino insuficiente para cambio). (3) Rechazo si alguna `CantidadDevolver < 0`. | Atomicidad defensiva consistente con E3/E4/E5; cierra el riesgo de retornar antes de Commit/Rollback explícito en operación con efectos en stock y movimientos. |
+**a) ViewModel:**
 
-No se tocaron Domain, Application ni Web en E6.
+```csharp
+public class VentaDetalleViewModel
+{
+    public int VarianteProductoId { get; set; }
+    public int Cantidad { get; set; }
+    public decimal PrecioUnitario { get; set; }
+    public decimal Subtotal { get; set; }
 
-### 16.3 Migraciones EF en E6
+    // Nuevo flag para indicar si el precio fue editado manualmente
+    public bool PrecioEditadoManualmente { get; set; }
+}
 
-Ninguna migración nueva. Tablas `DevolucionesCambio` y `DevolucionesCambioDetalle` ya creadas en M1 monolítica (S7).
+public class VentaCrearViewModel
+{
+    // ...
+    public decimal Subtotal { get; set; }
+    public decimal Total { get; set; }
 
-### 16.4 Evidencia de build E6
-
-```
-Build succeeded.
-    0 Warning(s)
-    0 Error(s)
-Time Elapsed 00:00:05.32
+    // Flag para indicar si los importes fueron editados manualmente
+    public bool ImportesEditadosManualmente { get; set; }
+}
 ```
 
-### 16.5 Pruebas mínimas E6 (a ejecutar en QA)
+**b) Service:**
 
-- [ ] Devolución sobre venta `Borrador`/`Anulada` → rechazo.
-- [ ] Devolución sobre venta `Confirmada` o `Entregada` con cantidad válida → OK, stock reingresa, movimientos `DevolucionCliente` con `devolucionId` correcto.
-- [ ] `CantidadDevolver = 0` en todos los items → rechazo "Debe seleccionar al menos un item".
-- [ ] `CantidadDevolver < 0` → rechazo y rollback.
-- [ ] `CantidadDevolver > Cantidad − YaDevuelto` (incluyendo devolución previa parcial) → rechazo y rollback (sin reingreso de stock parcial).
-- [ ] Cambio con stock destino insuficiente para `totalCantidadDevuelta` → rechazo y rollback (la devolución original tampoco se persiste).
-- [ ] Cambio con stock destino OK → registra devolución, decrementa stock destino, movimiento `Venta` con `ventaId` correcto.
-- [ ] `DiferenciaCobrar` se persiste en cambios `CambioMayorValor` (verificación de modelo).
-- [ ] `ObtenerVentaParaDevolucionAsync` solo devuelve líneas con `disponible > 0`.
-- [ ] Permisos: vendedor accede a `Crear`/`Listar`/`Detalle` según política del controller.
+```csharp
+public async Task<int> CrearAsync(VentaCrearViewModel model)
+{
+    // Validar coherencia de importes
+    if (!ValidarCoherenciaImportes(model))
+    {
+        _logger.LogWarning("Usuario {UserId} creó venta con importes editados manualmente. Total: {Total}",
+            model.VendedorUserId, model.Total);
+    }
 
-### 16.6 Riesgos / supuestos confirmados en E6
+    // ... resto de la lógica
+}
 
-- **G-08** (cambio multi-item) cubierto: el decremento de stock destino usa `totalCantidadDevuelta`.
-- **Atomicidad** cubierta defensivamente: ningún early-return dentro del try queda sin `RollbackAsync`.
-- **R7** (cascade vs soft delete): `DevolucionCambioDetalle` no se borra; preserva trazabilidad histórica.
-- **S7** ratificado (M6 absorbida por M1).
-- Riesgo residual aceptado: la transacción usa el aislamiento por defecto (`ReadCommitted`) — la concurrencia crítica de stock vive en E5 (Ventas con `Serializable`); la devolución compite menos por filas activas.
+private bool ValidarCoherenciaImportes(VentaCrearViewModel model)
+{
+    var subtotalCalculado = model.Detalles.Sum(d => d.Cantidad * d.PrecioUnitario);
+    var totalCalculado = subtotalCalculado - model.DescuentoMonto;
 
-### 16.7 Checklist de salida E6
-
-```
-E6 — CHECKLIST DE MERGE
-────────────────────────────────────────────────────────────────────
-[✓] Domain/Configs: DevolucionCambio y Detalle (preexistentes)
-[✓] Service: validación venta + cantidad disponible + stock destino
-[✓] Service: await using + rollback explícito en early-returns
-[✓] Service: rechazo de cantidades negativas
-[✓] Movimientos: DevolucionCliente + Venta (en cambios)
-[✓] Build verde (0 errores, 0 warnings)
-[ ] Pruebas mínimas §16.5 en QA
-[ ] Sin migración nueva (S7)
-────────────────────────────────────────────────────────────────────
+    // Tolerancia de 0.01 por redondeos
+    return Math.Abs(model.Subtotal - subtotalCalculado) < 0.01 &&
+           Math.Abs(model.Total - totalCalculado) < 0.01;
+}
 ```
 
-**Gate E6: APROBADO técnicamente. Listo para iniciar E7 — Resumen semanal y AumentoMasivo (vista) tras confirmación.**
+**2. Web** (`ShowroomGriffin.Web`)
+
+**a) Vista `Crear/Editar.cshtml`:**
+
+```html
+<div class="mb-3">
+    <label class="form-label">Subtotal</label>
+    <div class="input-group">
+        <span class="input-group-text">$</span>
+        <input type="number" id="txtSubtotal" asp-for="Subtotal" class="form-control" step="0.01" />
+        <button type="button" class="btn btn-outline-secondary" id="btnRecalcularSubtotal">
+            <i class="bi bi-arrow-clockwise"></i> Recalcular
+        </button>
+    </div>
+    <div id="alertaSubtotal" class="alert alert-warning mt-2" style="display: none;">
+        ⚠️ Has editado manualmente el subtotal. Puede haber inconsistencias.
+    </div>
+</div>
+
+<div class="mb-3">
+    <label class="form-label">Total</label>
+    <div class="input-group">
+        <span class="input-group-text">$</span>
+        <input type="number" id="txtTotal" asp-for="Total" class="form-control" step="0.01" />
+        <button type="button" class="btn btn-outline-secondary" id="btnRecalcularTotal">
+            <i class="bi bi-arrow-clockwise"></i> Recalcular
+        </button>
+    </div>
+    <div id="alertaTotal" class="alert alert-warning mt-2" style="display: none;">
+        ⚠️ Has editado manualmente el total. Puede haber inconsistencias.
+    </div>
+</div>
+
+<input type="hidden" asp-for="ImportesEditadosManualmente" id="hdnImportesEditados" />
+```
+
+**b) JavaScript:**
+
+```javascript
+var subtotalAutomatico = true;
+var totalAutomatico = true;
+
+// Detectar edición manual de Subtotal
+$('#txtSubtotal').on('input', function() {
+    subtotalAutomatico = false;
+    $('#alertaSubtotal').show();
+    $('#hdnImportesEditados').val('true');
+});
+
+// Detectar edición manual de Total
+$('#txtTotal').on('input', function() {
+    totalAutomatico = false;
+    $('#alertaTotal').show();
+    $('#hdnImportesEditados').val('true');
+});
+
+// Recalcular Subtotal automáticamente
+$('#btnRecalcularSubtotal').click(function() {
+    calcularSubtotal();
+    subtotalAutomatico = true;
+    $('#alertaSubtotal').hide();
+});
+
+// Recalcular Total automáticamente
+$('#btnRecalcularTotal').click(function() {
+    calcularTotal();
+    totalAutomatico = true;
+    $('#alertaTotal').hide();
+});
+
+// Función de cálculo automático
+function calcularSubtotal() {
+    var subtotal = 0;
+    $('.detalle-row').each(function() {
+        var cantidad = parseFloat($(this).find('.cantidad').val()) || 0;
+        var precio = parseFloat($(this).find('.precio').val()) || 0;
+        subtotal += cantidad * precio;
+    });
+    $('#txtSubtotal').val(subtotal.toFixed(2));
+    calcularTotal();
+}
+
+function calcularTotal() {
+    var subtotal = parseFloat($('#txtSubtotal').val()) || 0;
+    var descuento = parseFloat($('#txtDescuento').val()) || 0;
+    var total = subtotal - descuento;
+    $('#txtTotal').val(total.toFixed(2));
+}
+
+// Recalcular automáticamente si los flags están activados
+$('.cantidad, .precio, #txtDescuento').on('input', function() {
+    if (subtotalAutomatico) calcularSubtotal();
+    if (totalAutomatico) calcularTotal();
+});
+```
+
+**Pruebas mínimas:**
+- [ ] Crear venta con cálculo automático → verificar que Subtotal y Total se calculan correctamente.
+- [ ] Editar manualmente el Precio Unitario → verificar advertencia.
+- [ ] Editar manualmente el Subtotal → verificar advertencia.
+- [ ] Hacer clic en "Recalcular" → verificar que se restauran valores automáticos.
+- [ ] Guardar venta con importes editados → verificar que se registra en log de Serilog.
+
+**Estimación:** 4 horas.
+
+**Riesgo:** 🔴 Alto (errores contables).
 
 ---
 
-## 17. Cierre etapa E7 — Resumen semanal y Aumento masivo (vista)
+### 🔴 R7: Cambio/Devolución de Ventas
 
-### 17.1 Reconciliación con estado real del repo
+**Objetivo:**  
+Buscar venta por fecha/cliente/producto y realizar cambio o devolución con ajuste de stock.
 
-E7 ya está completamente implementada. No se detectaron gaps reales. La parte transaccional de aumento masivo (D6/R5) se cerró en E2 con `RowVersion` + manejo de `DbUpdateConcurrencyException`; aquí solo se valida la vista/exportación.
+#### Cambios por Capa
 
-| Ítem planificado E7 | Estado real al inicio | Acción ejecutada |
-|---|---|---|
-| `ResumenSemanalService.ObtenerAsync(fechaReferencia)` con ventana lunes–domingo | ✅ Existente — usa `DayOfWeek` con offset y rango `[lunes, domingo+1)` excluyente | Ninguna |
-| Filtro `MedioPago.Transferencia` + `Estado` ∈ {Confirmada, Entregada} | ✅ Existente | Ninguna |
-| `ResumenSemanalDetalleViewModel` con NroVenta, Fecha, Cliente, Importe | ✅ Existente | Ninguna |
-| Export Excel con ClosedXML (G-05, R-RES-04) | ✅ Existente — encabezados, totales, formato `#,##0.00`, `AdjustToContents` | Ninguna |
-| `ResumenSemanalController` con `RequireAdministrador` y acción `ExportarExcel` | ✅ Existente | Ninguna |
-| `AumentoMasivoController` con `RequireAdministrador`, `Preview` (AJAX) y `Aplicar` | ✅ Existente | Ninguna |
-| `AumentoMasivoService` con D6 (RowVersion + `DbUpdateConcurrencyException`) | ✅ Cerrado en E2 | Ninguna |
-| Vistas `ResumenSemanal/Index.cshtml` y `AumentoMasivo/Index.cshtml` | ✅ Existentes | Ninguna |
+**1. Domain** (`ShowroomGriffin.Domain`)
 
-### 17.2 Cambios por capa en E7
+**a) Nueva entidad:**
 
-Sin cambios. Verificación pura.
+```csharp
+public enum EstadoVentaCambio
+{
+    Pendiente = 1,
+    Confirmado = 2,
+    Cancelado = 3
+}
 
-### 17.3 Migraciones EF en E7
+/// <summary>
+/// Registro de cambio o devolución de una venta.
+/// </summary>
+public class VentaCambio : SoftDestroyable
+{
+    public int VentaOrigenId { get; set; }
+    public int? VentaDestinoId { get; set; }   // null si es devolución pura
+    public EstadoVentaCambio Estado { get; set; } = EstadoVentaCambio.Confirmado;
+    public string Motivo { get; set; } = string.Empty;
+    public DateTime FechaCambio { get; set; }
+    public decimal? DiferenciaMonto { get; set; }  // positivo = cobro adicional, negativo = nota de crédito
 
-Ninguna migración nueva (S7).
-
-### 17.4 Evidencia de build E7
-
-```
-Build succeeded.
-    0 Warning(s)
-    0 Error(s)
-Time Elapsed 00:00:05.54
-```
-
-### 17.5 Pruebas mínimas E7 (a ejecutar en QA)
-
-- [ ] Resumen semanal con `fecha = lunes 00:00` → ventana `[lunes, domingo]` correcta.
-- [ ] Resumen semanal con fecha en miércoles → mismo período (lunes a domingo de la misma semana).
-- [ ] Solo se totalizan pagos con `MedioPago.Transferencia`.
-- [ ] Ventas `Borrador`/`Anulada` no aparecen en el resumen.
-- [ ] Export Excel descarga `.xlsx` con encabezado, período, total, cantidad de operaciones y detalle.
-- [ ] Vendedor accede a `/ResumenSemanal/*` y `/AumentoMasivo/*` → 403 (controllers `RequireAdministrador`).
-- [ ] AumentoMasivo `Preview` por categoría / por subgrupo / sin filtros → devuelve variantes esperadas.
-- [ ] AumentoMasivo `Aplicar` con dos pestañas concurrentes → la segunda recibe mensaje de re-previsualización (D6, ya validado en E2).
-
-### 17.6 Riesgos / supuestos confirmados en E7
-
-- **G-05** y **R-RES-04** cubiertos vía ClosedXML.
-- **D6 / R5** ya cerrados en E2.
-- Aceptado: el resumen no incluye otros medios de pago — alcance acotado a transferencias por requerimiento (R-RES-01).
-- Aceptado: la fecha por defecto usa `DateTimeHelper.ArgentinaNow()` para evitar problemas de zona horaria.
-
-### 17.7 Checklist de salida E7
-
-```
-E7 — CHECKLIST DE MERGE
-────────────────────────────────────────────────────────────────────
-[✓] ResumenSemanalService: ventana lunes-domingo + filtro transferencia/estado
-[✓] Export Excel ClosedXML (G-05)
-[✓] AumentoMasivoController + Service (D6 cerrado en E2)
-[✓] Vistas presentes
-[✓] RequireAdministrador en ambos controllers
-[✓] Build verde (0 errores, 0 warnings)
-[ ] Pruebas mínimas §17.5 en QA
-[ ] Sin migración nueva (S7)
-────────────────────────────────────────────────────────────────────
+    // Navegación
+    public Venta VentaOrigen { get; set; } = null!;
+    public Venta? VentaDestino { get; set; }
+}
 ```
 
-**Gate E7: APROBADO técnicamente. Listo para iniciar E8 — Hardening final (logging, manejo de errores, smoke tests) tras confirmación.**
+**b) Agregar estados a `EstadoVenta`:**
+
+```csharp
+public enum EstadoVenta
+{
+    Borrador = 1,
+    Confirmada = 2,
+    Cancelada = 3,
+    Devuelta = 4,      // NUEVO
+    Cambiada = 5       // NUEVO
+}
+```
+
+**2. Infrastructure** (`ShowroomGriffin.Infrastructure`)
+
+**a) Migración:**
+
+```bash
+dotnet ef migrations add M5_AgregarVentaCambio --project ShowroomGriffin.Infrastructure --startup-project ShowroomGriffin.Web
+```
+
+**b) Service:**
+
+```csharp
+public interface IVentaCambioService
+{
+    Task<int> RegistrarDevolucionAsync(int ventaId, List<int> variantesIds, string motivo);
+    Task<int> RegistrarCambioAsync(int ventaId, List<CambioDetalleDto> cambios, string motivo);
+}
+
+public class VentaCambioService : IVentaCambioService
+{
+    public async Task<int> RegistrarDevolucionAsync(int ventaId, List<int> variantesIds, string motivo)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync();
+
+        try
+        {
+            var venta = await _context.Ventas
+                .Include(v => v.Detalles)
+                .ThenInclude(d => d.VarianteProducto)
+                .ThenInclude(vp => vp.Stock)
+                .FirstOrDefaultAsync(v => v.Id == ventaId);
+
+            if (venta == null) throw new InvalidOperationException("Venta no encontrada");
+            if (venta.Estado != EstadoVenta.Confirmada) 
+                throw new InvalidOperationException("Solo se pueden devolver ventas confirmadas");
+
+            // 1. Reingresar stock de variantes devueltas
+            foreach (var varianteId in variantesIds)
+            {
+                var detalle = venta.Detalles.FirstOrDefault(d => d.VarianteProductoId == varianteId);
+                if (detalle == null) continue;
+
+                detalle.VarianteProducto.Stock.Cantidad += detalle.Cantidad;
+
+                // Registrar movimiento de stock
+                await _stockService.RegistrarMovimientoAsync(new MovimientoStock
+                {
+                    VarianteProductoId = varianteId,
+                    TipoMovimiento = TipoMovimiento.DevolucionVenta,
+                    Cantidad = detalle.Cantidad,
+                    Fecha = DateTime.UtcNow,
+                    Observaciones = $"Devolución de Venta #{venta.NroVenta}"
+                });
+            }
+
+            // 2. Crear registro de cambio
+            var cambio = new VentaCambio
+            {
+                VentaOrigenId = ventaId,
+                VentaDestinoId = null,
+                Estado = EstadoVentaCambio.Confirmado,
+                Motivo = motivo,
+                FechaCambio = DateTime.UtcNow,
+                DiferenciaMonto = 0,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.VentaCambios.Add(cambio);
+
+            // 3. Actualizar estado de venta
+            venta.Estado = EstadoVenta.Devuelta;
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            _logger.LogInformation("Devolución registrada: Venta {VentaId}, Variantes: {VariantesIds}", 
+                ventaId, string.Join(",", variantesIds));
+
+            return cambio.Id;
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
+    public async Task<int> RegistrarCambioAsync(int ventaId, List<CambioDetalleDto> cambios, string motivo)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync();
+
+        try
+        {
+            var ventaOrigen = await _context.Ventas
+                .Include(v => v.Detalles)
+                .ThenInclude(d => d.VarianteProducto)
+                .ThenInclude(vp => vp.Stock)
+                .FirstOrDefaultAsync(v => v.Id == ventaId);
+
+            if (ventaOrigen == null) throw new InvalidOperationException("Venta no encontrada");
+
+            decimal diferenciaMonto = 0;
+
+            // 1. Procesar cada cambio
+            foreach (var cambio in cambios)
+            {
+                // Reingresar producto devuelto
+                var detalleOrigen = ventaOrigen.Detalles.FirstOrDefault(d => d.VarianteProductoId == cambio.VarianteOrigenId);
+                if (detalleOrigen != null)
+                {
+                    detalleOrigen.VarianteProducto.Stock.Cantidad += cambio.Cantidad;
+                    await _stockService.RegistrarMovimientoAsync(new MovimientoStock
+                    {
+                        VarianteProductoId = cambio.VarianteOrigenId,
+                        TipoMovimiento = TipoMovimiento.Cambio,
+                        Cantidad = cambio.Cantidad,
+                        Fecha = DateTime.UtcNow
+                    });
+                }
+
+                // Egresar nuevo producto
+                var varianteNueva = await _context.Variantes
+                    .Include(v => v.Stock)
+                    .FirstOrDefaultAsync(v => v.Id == cambio.VarianteDestinoId);
+
+                if (varianteNueva == null) throw new InvalidOperationException("Variante destino no encontrada");
+                if (varianteNueva.Stock.Cantidad < cambio.Cantidad) 
+                    throw new InvalidOperationException("Stock insuficiente para el cambio");
+
+                varianteNueva.Stock.Cantidad -= cambio.Cantidad;
+
+                // Calcular diferencia de monto
+                diferenciaMonto += (varianteNueva.PrecioVenta - (detalleOrigen?.PrecioUnitario ?? 0)) * cambio.Cantidad;
+            }
+
+            // 2. Crear registro de cambio
+            var registroCambio = new VentaCambio
+            {
+                VentaOrigenId = ventaId,
+                VentaDestinoId = null,  // TODO: crear nueva venta si es un cambio completo
+                Estado = EstadoVentaCambio.Confirmado,
+                Motivo = motivo,
+                FechaCambio = DateTime.UtcNow,
+                DiferenciaMonto = diferenciaMonto,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.VentaCambios.Add(registroCambio);
+
+            // 3. Actualizar estado de venta
+            ventaOrigen.Estado = EstadoVenta.Cambiada;
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            _logger.LogInformation("Cambio registrado: Venta {VentaId}, Diferencia: {Diferencia}", 
+                ventaId, diferenciaMonto);
+
+            return registroCambio.Id;
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+}
+```
+
+**3. Web** (`ShowroomGriffin.Web`)
+
+**a) Controller:**
+
+```csharp
+[Authorize(Policy = "RequireEmpleado")]
+public class VentaCambiosController : Controller
+{
+    [HttpGet]
+    public IActionResult BuscarVenta()
+    {
+        return View();
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> BuscarVenta(DateTime? fechaDesde, DateTime? fechaHasta, string? cliente, string? producto)
+    {
+        var ventas = await _ventaService.BuscarParaCambioAsync(fechaDesde, fechaHasta, cliente, producto);
+        return View("ResultadosBusqueda", ventas);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> RegistrarDevolucion(int ventaId)
+    {
+        var venta = await _ventaService.ObtenerDetalleAsync(ventaId);
+        return View(venta);
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> RegistrarDevolucion(int ventaId, List<int> variantesIds, string motivo)
+    {
+        try
+        {
+            await _ventaCambioService.RegistrarDevolucionAsync(ventaId, variantesIds, motivo);
+            TempData["Success"] = "Devolución registrada exitosamente";
+            return RedirectToAction("Index", "Ventas");
+        }
+        catch (Exception ex)
+        {
+            ModelState.AddModelError("", ex.Message);
+            return View();
+        }
+    }
+}
+```
+
+**b) Vistas:**
+
+`Views/VentaCambios/BuscarVenta.cshtml`:
+```html
+<form method="post">
+    <div class="row g-3">
+        <div class="col-md-3">
+            <label class="form-label">Fecha Desde</label>
+            <input type="date" name="fechaDesde" class="form-control" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Fecha Hasta</label>
+            <input type="date" name="fechaHasta" class="form-control" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Cliente</label>
+            <input type="text" name="cliente" class="form-control" placeholder="Nombre del cliente" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Producto</label>
+            <input type="text" name="producto" class="form-control" placeholder="Marca o Modelo" />
+        </div>
+    </div>
+    <button type="submit" class="btn btn-primary mt-3">Buscar</button>
+</form>
+```
+
+**Pruebas mínimas:**
+- [ ] Buscar venta por fecha → verificar resultados.
+- [ ] Registrar devolución total → verificar que stock se reingresa.
+- [ ] Registrar cambio parcial → verificar swap de stock.
+- [ ] Verificar que estado de venta cambia a "Devuelta" o "Cambiada".
+- [ ] Verificar que se registra en tabla `VentaCambios`.
+- [ ] Verificar que la diferencia de monto se calcula correctamente.
+
+**Estimación:** 10 horas.
+
+**Riesgo:** 🔴 Muy Alto (lógica de negocio crítica, transacciones).
 
 ---
 
-## 18. Cierre etapa E8 — Hardening final (logging, errores, rate limiting, compression)
+## 🎯 RESUMEN FASE 3
 
-### 18.1 Reconciliación con estado real del repo
+| Requerimiento | Estimación | Riesgo | Bloqueantes |
+|---------------|------------|--------|-------------|
+| **R9** | 4h | 🔴 Alto | Ninguno |
+| **R7** | 10h | 🔴 Muy Alto | R8 (para policy RequireEmpleado) |
 
-E8 se cierra **por verificación**: al inspeccionar `Program.cs` y `appsettings.json` se confirma que todos los aspectos no funcionales planificados ya están implementados en el repositorio. No se requieren cambios de código.
+**Total Fase 3:** 14 horas (~2 días).
 
-| Ítem planificado E8 | Estado real al inicio | Acción ejecutada |
-|---|---|---|
-| Serilog bootstrap logger + `Host.UseSerilog` leyendo configuración | ✅ Existente (`Program.cs` líneas 17-27) | Ninguna |
-| `Serilog.MinimumLevel` configurado en `appsettings.json` | ✅ Existente (Default `Information`, `Microsoft.AspNetCore` `Warning`) | Ninguna |
-| `UseSerilogRequestLogging` en pipeline | ✅ Existente con plantilla custom (línea 182-185) | Ninguna |
-| `AddExceptionHandler<GlobalExceptionHandler>` + `AddProblemDetails` | ✅ Existente (líneas 76-77) | Ninguna |
-| `UseDeveloperExceptionPage` en Development / `UseExceptionHandler("/Home/Error")` + `UseHsts` en Production | ✅ Existente (líneas 160-172) | Ninguna |
-| `UseStatusCodePagesWithReExecute("/Home/StatusCode", "?code={0}")` | ✅ Existente (línea 179) | Ninguna |
-| Response Compression (Brotli + Gzip, MIME extendidos) | ✅ Existente (líneas 80-95) | Ninguna |
-| Rate limiting policies `general` (100/min) y `login` (10/min) por IP | ✅ Existente (líneas 98-125) | Ninguna |
-| `AddSession` + `AddDistributedMemoryCache` para filtros persistentes | ✅ Existente (líneas 128-134) | Ninguna |
-| `AddHttpsRedirection` + `AddHsts` (1 año, IncludeSubDomains, Preload) | ✅ Existente (líneas 137-147) | Ninguna |
-| `RequestLocalization` fija a `es-AR` | ✅ Existente (líneas 152-158) | Ninguna |
-| Authorization policies `RequireSuperUsuario` / `RequireAdministracion` / `RequireAdministrador` / `RequireVendedor` | ✅ Existente (líneas 57-71) | Ninguna |
-| Orden de middleware (Compression → StatusCodePages → SerilogRequestLogging → StaticFiles → Routing → Auth → RateLimiter → Session) | ✅ Correcto | Ninguna |
+---
 
-### 18.2 Cambios por capa en E8
+## 📊 RESUMEN GENERAL DEL PLAN
 
-Sin cambios. Verificación pura.
+### Tiempos Estimados
 
-### 18.3 Migraciones EF en E8
+| Fase | Requerimientos | Estimación | Riesgo |
+|------|----------------|------------|--------|
+| **FASE 1** | R1, R2, R4, R11 | 8h (~1 día) | 🟢 Bajo |
+| **FASE 2** | R10+R12, R3+R5, R6, R8 | 19h (~2.5 días) | 🟡 Medio-Alto |
+| **FASE 3** | R9, R7 | 14h (~2 días) | 🔴 Alto |
+| **QA + Ajustes** | Pruebas, regresiones, bugs | 8h (~1 día) | - |
 
-Ninguna migración nueva (S7).
+**Total:** 49 horas (~6.5 días de desarrollo).
 
-### 18.4 Evidencia de build E8
+---
 
-```
-Build succeeded.
-    0 Warning(s)
-    0 Error(s)
-Time Elapsed 00:00:05.67
-```
+### Migraciones EF
 
-### 18.5 Pruebas mínimas E8 (a ejecutar en QA)
+| # | Nombre | Descripción | Riesgo | Rollback |
+|---|--------|-------------|--------|----------|
+| **M2** | `AgregarAnotacionesVenta` | Agregar columna Anotaciones (nullable) | 🟢 Bajo | Drop column |
+| **M3** | `AgregarTalleZapatilla` | Crear tabla + seed | 🟢 Bajo | Drop table |
+| **M4** | `RefactorProductoMarcaModelo` | Mover Marca/Modelo + migrar datos | 🔴 **MUY ALTO** | Script manual |
+| **M5** | `AgregarVentaCambio` | Crear tabla + FK | 🟡 Medio | Drop table |
 
-- [ ] Forzar excepción no controlada en Development → se muestra `DeveloperExceptionPage`.
-- [ ] Forzar excepción no controlada en Production → log Serilog con stack + redirección a `/Home/Error` con `RequestId`.
-- [ ] Solicitud AJAX que falla → `GlobalExceptionHandler` devuelve JSON con `ProblemDetails`.
-- [ ] Acceso a URL inexistente → `/Home/StatusCode?code=404` con vista correcta.
-- [ ] Más de 10 intentos de login en 1 minuto desde la misma IP → HTTP 429.
-- [ ] Más de 100 requests en 1 minuto sobre rutas generales → HTTP 429.
-- [ ] Header `Content-Encoding: br` o `gzip` en respuestas dinámicas elegibles.
-- [ ] Header `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload` presente en producción.
-- [ ] Sesión: filtros aplicados en una vista persisten al volver a navegar (TTL 60 min).
-- [ ] Cultura: importes y fechas se muestran/parsean en formato `es-AR` en todas las vistas.
+**CRÍTICO:** M4 requiere backup de BD antes de aplicar.
 
-### 18.6 Riesgos / supuestos confirmados en E8
+---
 
-- Aceptado: rate limit por IP puede impactar accesos detrás de NAT corporativo; mitigación = ajustar `PermitLimit` por configuración si se detecta en QA.
-- Aceptado: sesión en memoria (`AddDistributedMemoryCache`) es suficiente mientras la app corra en una sola instancia. Si se escala horizontalmente debe migrarse a Redis/SQL.
-- Aceptado: Serilog actualmente sólo escribe a Console (bootstrap) + sinks definidos por configuración; la rotación a archivo/log-server queda como tarea de infraestructura.
-- Confirmado: no se requirieron cambios — la base ya cumple el alcance de E8.
+### Archivos Nuevos
 
-### 18.7 Checklist de salida E8
+| Archivo | Capa | Tipo |
+|---------|------|------|
+| `TalleZapatilla.cs` | Domain | Entidad |
+| `VentaCambio.cs` | Domain | Entidad |
+| `_CrearClienteModal.cshtml` | Web | Vista parcial |
+| `TallesZapatillaConfiguration.cs` | Infrastructure | EF Config |
+| `VentaCambioConfiguration.cs` | Infrastructure | EF Config |
+| `IVentaCambioService.cs` | Application | Interface |
+| `VentaCambioService.cs` | Infrastructure | Service |
+| `StockController.cs` | Web | Controller |
+| `VentaCambiosController.cs` | Web | Controller |
+| `Stock/ConsultaRapida.cshtml` | Web | Vista |
+| `VentaCambios/BuscarVenta.cshtml` | Web | Vista |
+| `VentaCambios/RegistrarDevolucion.cshtml` | Web | Vista |
 
-```
-E8 — CHECKLIST DE MERGE
-────────────────────────────────────────────────────────────────────
-[✓] Serilog bootstrap + UseSerilog + UseSerilogRequestLogging
-[✓] GlobalExceptionHandler + ProblemDetails
-[✓] DeveloperExceptionPage (Dev) / UseExceptionHandler + HSTS (Prod)
-[✓] StatusCodePagesWithReExecute → /Home/StatusCode
-[✓] Response Compression (Brotli + Gzip)
-[✓] Rate limiting general (100/min) y login (10/min) por IP
-[✓] Session + DistributedMemoryCache (60 min)
-[✓] HttpsRedirection + Hsts (1 año, IncludeSubDomains, Preload)
-[✓] RequestLocalization es-AR
-[✓] Policies RequireSuperUsuario / RequireAdministracion / RequireAdministrador / RequireVendedor
-[✓] Build verde (0 errores, 0 warnings)
-[ ] Pruebas mínimas §18.5 en QA
-[ ] Sin migración nueva (S7)
-────────────────────────────────────────────────────────────────────
-```
+**Total:** 12 archivos nuevos.
 
-**Gate E8: APROBADO técnicamente por verificación. Plan E0–E8 cerrado integralmente. Sistema listo para QA funcional y cierre de calibración estimado vs real.**
+---
+
+### Archivos Modificados (estimado)
+
+- **Domain:** 3 archivos (Producto, VarianteProducto, Venta, enums).
+- **Infrastructure:** 6 archivos (Configurations, SeedData, Services).
+- **Application:** 4 archivos (ViewModels, Services).
+- **Web:** 15 archivos (Controllers, Vistas, Program.cs).
+
+**Total:** ~28 archivos modificados.
+
+---
+
+## ✅ CHECKLIST DE SALIDA
+
+### Pre-implementación
+
+- [ ] Backup de base de datos de producción.
+- [ ] Crear branch `feature/refactor-modelo-combos-cambios`.
+- [ ] Validar que `1-analista-funcional.md` está aprobado.
+
+### Post-implementación (por fase)
+
+**FASE 1:**
+- [ ] Build exitoso (0 errores).
+- [ ] Migraciones M2, M3 aplicadas.
+- [ ] Pruebas mínimas de R1, R2, R4, R11 ejecutadas.
+- [ ] Commit con mensaje: "FASE 1: Anotaciones, Modal Cliente, Autocompletar Pago, Talles".
+
+**FASE 2:**
+- [ ] **CRÍTICO:** Script de validación de M4 ejecutado.
+- [ ] **CRÍTICO:** Backup pre-M4 realizado.
+- [ ] Migración M4 aplicada exitosamente.
+- [ ] Pruebas mínimas de R10+R12, R3, R5, R6, R8 ejecutadas.
+- [ ] Verificar que NO hay regresiones en módulos existentes.
+- [ ] Commit con mensaje: "FASE 2: Refactor Modelo, Combos Anidados, Consulta Stock, Rol Empleado".
+
+**FASE 3:**
+- [ ] Migración M5 aplicada.
+- [ ] Pruebas mínimas de R9, R7 ejecutadas.
+- [ ] Verificar logs de Serilog para edición manual de importes.
+- [ ] Verificar transacciones de cambios/devoluciones (rollback en caso de error).
+- [ ] Commit con mensaje: "FASE 3: Importes Editables, Cambios/Devoluciones".
+
+**QA:**
+- [ ] Suite de regresiones ejecutada (si existe en `/docs/qa/regresiones-manuales.yml`).
+- [ ] Casos de prueba de R7 (cambios/devoluciones) ejecutados exhaustivamente.
+- [ ] Build de Release exitoso.
+
+**Merge:**
+- [ ] Code review aprobado.
+- [ ] Merge Request a `main` aprobado.
+- [ ] Documentación actualizada en `/docs/ShowroomGriffin/definiciones/5-implementador.md`.
+
+---
+
+## 🚨 RIESGOS Y MITIGACIONES
+
+| Riesgo | Probabilidad | Impacto | Mitigación |
+|--------|--------------|---------|-----------|
+| **Migración M4 falla** por datos inconsistentes | Media | 🔴 Crítico | Script de validación previo + backup + rollback plan |
+| **Performance** de combos anidados con >1000 variantes | Media | 🟡 Medio | Caché de marcas/modelos + índices en BD |
+| **Edición manual de importes** genera errores contables | Alta | 🔴 Alto | Auditoría obligatoria (Serilog) + validaciones + advertencias UI |
+| **Lógica de cambios/devoluciones** descuadra stock | Media | 🔴 Crítico | Transacciones atómicas + casos de prueba exhaustivos + validación de stock antes de cambio |
+| **Autorización Empleado** incorrecta (acceso a módulos restringidos) | Baja | 🟡 Medio | Auditoría de todos los controllers + pruebas de roles |
+
+---
+
+## 📝 PRÓXIMOS PASOS
+
+1. **Usuario valida** este plan de implementación.
+2. **Crear branch** `feature/refactor-modelo-combos-cambios`.
+3. **Ejecutar FASE 1** (8 horas).
+4. **Ejecutar FASE 2** (19 horas) - **CRÍTICO: M4 requiere validación previa**.
+5. **Ejecutar FASE 3** (14 horas).
+6. **QA completo** (8 horas).
+7. **Merge a main** y deploy a staging.
+8. **Deploy a producción** (con runbook de `/docs/runbooks/migraciones-produccion.md`).
+
+---
+
+**¿Querés que inicie la FASE 1 inmediatamente o preferís validar primero este plan?** 🚀
+
+---
+
+## 📍 V1-E1.A — Bases aditivas (cerrada)
+**Fecha:** 2026-05-18 11:12  
+**Estado:** ✅ Implementada y compilando (migración no aplicada a DB todavía).
+
+### Alcance funcional resumido
+Bases estructurales sin breaking changes: nuevas entidades catálogo (Modelo, TalleConfig), enum TipoTalle, rol Empleado + policy RequireEmpleado, seed de talles.
+
+### Cambios por capa
+**Domain**
+- `Enums/TipoTalle.cs` (NUEVO): ZapatillaAdulto=1, ZapatillaNino=2, Indumentaria=3.
+- `Entities/Maestros/Modelo.cs` (NUEVO): SoftDestroyable + Nombre + MarcaId + nav Marca→Subgrupo.
+- `Entities/Maestros/TalleConfig.cs` (NUEVO): SoftDestroyable + Valor + Tipo.
+- `Entities/Maestros/Subgrupo.cs` (MOD): agregada colección Modelos (preparación para renombre a Marca en V1-E1.B).
+
+**Infrastructure**
+- `Data/Configurations/Maestros/ModeloConfiguration.cs` (NUEVO): tabla Modelos, FK Marca→Subgrupos (Restrict), índice único (MarcaId, Nombre).
+- `Data/Configurations/Maestros/TalleConfigConfiguration.cs` (NUEVO): tabla TallesConfig, índice único (Tipo, Valor).
+- `Data/AppDbContext.cs` (MOD): DbSets Modelos y TallesConfig.
+- `Data/SeedData.cs` (MOD): constante RolEmpleado + rol agregado al array de seed + método SeedTallesConfigAsync idempotente (31 registros: 13 adulto + 12 niño + 6 indumentaria).
+
+**Web**
+- `Program.cs` (MOD): policy `RequireEmpleado` (SuperUsuario + Administrador + Vendedor + Empleado).
+
+### Migración EF aplicada
+- `20260518141125_V2A_ModeloYTalleConfig` — **aditiva pura**, sin tocar tablas existentes.  
+  - CREATE TABLE Modelos (con FK a Subgrupos, índice único por marca+nombre).
+  - CREATE TABLE TallesConfig (índice único por tipo+valor).
+- **No aplicada a DB todavía**: se aplicará junto al seed automático al levantar la app.
+
+### Evidencia
+- `dotnet build` → **Build successful** (sin warnings nuevos).
+- `dotnet ef migrations add V2A_ModeloYTalleConfig` → OK.
+- Migración auditada: solo CREATE TABLE + índices, sin DROP/ALTER de tablas existentes. ✅
+
+### Riesgos y supuestos
+- 🟢 R1 (refactor Subgrupo→Marca y eliminación Marca/Modelo/Talle de VarianteProducto) NO se ejecutó en esta sub-etapa; se difiere a V1-E1.B/C donde se aplica refactor coordinado con script de datos y backup obligatorio.
+- 🟢 Migración reversible: `dotnet ef migrations remove` permite rollback sin pérdida de datos.
+
+### Pruebas mínimas requeridas (QA al aplicar migración)
+- [ ] Levantar app → migración aplicada automáticamente → tablas `Modelos` y `TallesConfig` creadas.
+- [ ] Seed automático crea rol `Empleado` + 31 registros en `TallesConfig`.
+- [ ] Re-ejecutar seed no duplica talles (idempotencia).
+- [ ] Asignar rol Empleado a un usuario y acceder a un controller con `[Authorize(Policy = "RequireEmpleado")]` debería retornar 200; un usuario sin rol Empleado/Vendedor/Admin debería retornar 403.
+
+### Checklist de salida para merge
+- [x] Compila sin errores.
+- [x] Migración generada y revisada (aditiva pura).
+- [x] Sin cambios en entidades preexistentes salvo agregar navegación opcional (Subgrupo.Modelos).
+- [x] Seed idempotente.
+- [x] Sin impacto en controllers/vistas existentes.
+- [x] Policy `RequireEmpleado` agregada sin afectar las demás.
+
+### Próximo paso (V1-E1.B)
+Renombre Subgrupo→Marca a nivel CLR + tabla (`ToTable("Marcas")` o RenameTable) + actualización de DI/Controller/Vista + redirect `/Subgrupos` → `/Marcas`. Pendiente decisión de implementación: refactor en bloque vs alias coexistente.
