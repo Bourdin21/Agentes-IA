@@ -1,7 +1,7 @@
 # 🏗️ Trazabilidad de Conversación - ShowroomGriffin
 **Proyecto:** ShowroomGriffin  
 **Fecha inicio:** 2026-04-23  
-**Última actualización:** 2026-04-23  
+**Última actualización:** 2026-05-20  
 
 ---
 
@@ -16,11 +16,30 @@ Este archivo registra la trazabilidad de las conversaciones con el usuario, deci
 | Agente | Archivo | Estado |
 |--------|---------|--------|
 | **Analista Funcional** | `1-analista-funcional.md` | ✅ Creado (2026-04-23) |
-| **Diseñador Funcional** | `2-disenador-funcional.md` | ⏳ Pendiente |
-| **Arquitecto MVC** | `3-arquitecto-mvc.md` | ⏳ Pendiente |
-| **Presupuestador** | `4-presupuestador.md` | ⏳ Pendiente |
-| **Implementador** | `5-implementador.md` | ⏳ Pendiente |
+| **Diseñador Funcional** | `2-disenador-funcional.md` | ✅ Completado |
+| **Arquitecto MVC** | `3-arquitecto-mvc.md` | ✅ Completado |
+| **Presupuestador** | `4-presupuestador.md` | ✅ Cerrado (2026-05-20) |
+| **Implementador** | `5-implementador.md` | ✅ Completado |
 | **QA** | `6-qa.md` | ⏳ Pendiente |
+
+---
+
+## 📋 Cierre de Sprint — Calibración Real
+
+### Entrada 2026-05-20 — Cierre presupuestador
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-05-20 |
+| **Agente / Etapa** | Presupuestador — Cierre de calibración |
+| **Horas estimadas** | 101,1 h (con contingencia variable) |
+| **Horas reales** | 25 h |
+| **Desvío total** | −75,2 % |
+| **Tasa recalibrada** | USD 40 / hora |
+| **Costo real facturado** | USD 1.000 (25 h × USD 40) |
+| **Motivo desvío** | Sobreestimación sistémica del M y P en los ítems PERT; el proyecto resultó significativamente más acotado en ejecución. Tracking granular por módulo no registrado. |
+| **Impacto** | Recalibrar `27-presupuesto-parametros.instructions.md`: reducir rangos M y P para proyectos similares (ABM + workflow MVC); revisar multiplicadores de contingencia alta. |
+| **Acción requerida** | Recalibrar dataset histórico con: base real = 25 h / 11 módulos ≈ 2,3 h/módulo promedio. |
 
 ---
 

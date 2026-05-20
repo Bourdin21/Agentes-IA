@@ -4,9 +4,9 @@
 **Cliente:** Ulises  
 **Proveedor:** OlvidataSoft  
 **Versión:** 1.0  
-**Estado:** Presupuesto inicial — listo para entrega al cliente  
+**Estado:** Cerrado — Sprint completado (Mayo 2026)  
 **Base:** `1-analista-funcional.md` v1.1 + `2-disenador-funcional.md` v1.0 + `3-arquitecto-mvc.md` v1.0 (todos aprobados)  
-**Tasa vigente:** USD 14 / hora (ref. 27-presupuesto-parametros, dataset Abril 2026)  
+**Tasa vigente:** USD 40 / hora (recalibrada al cierre; base: horas reales del sprint)  
 **Política de contingencia:** variable por riesgo (8% / 15% / 25%) — aplicada **una sola vez** por ítem.  
 **Cultura:** es-AR.
 
@@ -174,7 +174,7 @@ Dataset de referencia: `27-presupuesto-parametros.instructions.md` + proyectos c
 - **Forma de pago**: 50% al inicio, 50% a la entrega.
 - **Validez de la oferta**: 30 días.
 - **Plazo estimado**: a coordinar según disponibilidad (referencia: ≈ 3 a 4 sprints).
-- **Tasa**: USD 14 / hora (referencia confirmada en proyectos cerrados, dataset Abril 2026).
+- **Tasa**: USD 40 / hora (recalibrada al cierre del sprint, Mayo 2026; base: 25 h reales × USD 40 = USD 1.000).
 - **Moneda de facturación**: USD (o equivalente ARS al tipo de cambio del día de facturación).
 
 ---
@@ -225,17 +225,19 @@ PRESUPUESTO — CHECKLIST DE SALIDA
 
 | Módulo | Horas estimadas | Horas reales | Desvío % | Motivo |
 |---|---:|---:|---:|---|
-| Seguridad | 1,7 | — | — | — |
-| Maestros (5 ABMs) | 19,8 | — | — | — |
-| Productos+Variantes | 11,9 | — | — | — |
-| Stock | 9,4 | — | — | — |
-| Compras | 11,9 | — | — | — |
-| Ventas ⭐ | 22,9 | — | — | — |
-| Devoluciones | 10,2 | — | — | — |
-| Resumen Semanal | 2,2 | — | — | — |
-| Aumento Masivo | 5,2 | — | — | — |
-| Dashboard | 2,2 | — | — | — |
-| Infra transversal | 3,5 | — | — | — |
-| **Total** | **101,1** | — | — | — |
+| Seguridad | 1,7 | — | — | Tracking granular no registrado |
+| Maestros (5 ABMs) | 19,8 | — | — | Tracking granular no registrado |
+| Productos+Variantes | 11,9 | — | — | Tracking granular no registrado |
+| Stock | 9,4 | — | — | Tracking granular no registrado |
+| Compras | 11,9 | — | — | Tracking granular no registrado |
+| Ventas ⭐ | 22,9 | — | — | Tracking granular no registrado |
+| Devoluciones | 10,2 | — | — | Tracking granular no registrado |
+| Resumen Semanal | 2,2 | — | — | Tracking granular no registrado |
+| Aumento Masivo | 5,2 | — | — | Tracking granular no registrado |
+| Dashboard | 2,2 | — | — | Tracking granular no registrado |
+| Infra transversal | 3,5 | — | — | Tracking granular no registrado |
+| **Total** | **101,1** | **25,0** | **−75,2 %** | Solo total disponible; seguimiento por módulo no registrado |
 
-> Si el desvío promedio absoluto al cierre supera 20%, recalibrar `27-presupuesto-parametros.instructions.md` con los datos de este proyecto.
+> **Desvío total −75,2 %** — supera el umbral del 20%. **Pendiente:** recalibrar rangos en `27-presupuesto-parametros.instructions.md` con datos de este sprint.  
+> **Costo real facturado:** 25 h × USD 40 = **USD 1.000**  
+> **Ratio real/estimado:** 25 / 101,1 = 0,25 — indica sobreestimación sistemática; revisar M (más probable) y P (pesimista) del dataset histórico para proyectos similares.

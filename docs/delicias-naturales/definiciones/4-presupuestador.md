@@ -11,9 +11,10 @@
 - Horas estimadas base (sin contingencia): 95 h
 - Horas totales con contingencia 15%: 110 h
 - Costo total estimado: USD 1.540
-- Tasa efectiva: USD 14 / hora
+- Tasa efectiva presupuesto original: USD 14 / hora
+- Tasa vigente desde Junio 2026: USD 40 / hora
 - Fecha de presupuesto: Junio 2025
-- Estado: presupuestado. Estimacion retrospectiva validada por el cliente.
+- Estado: presupuestado. Estimacion retrospectiva validada por el cliente. Iteracion evolutiva Junio 2026 cerrada (4 h / USD 160).
 
 ## Perfil tecnico
 
@@ -38,6 +39,25 @@
 | ABM Ventas | ABM complejo | 10 h |
 | ABM Categorias | ABM simple | 2 h |
 
+## Cierre de calibracion - Iteracion evolutiva Junio 2026
+
+| Modulo | Tipo | Horas estimadas | Horas reales | Desvio | Motivo |
+|---|---|---|---|---|---|
+| Solicitudes Ingreso Stock (estados por item, verificacion deposito, filtro categoria, reemplazo stock) + Pedidos (estado Listo para Retirar + email cliente) | Workflow complejo con extensiones | 4 h | 4 h | 0% | Estimacion exacta. Alcance bien delimitado, sin sorpresas tecnicas. |
+
+- Tasa cobrada: USD 40 / hora
+- Total cobrado: USD 160
+- Ratio calibracion estimado/real: 1.0
+
+## Dataset de modulos reales - Actualizacion Junio 2026
+
+| Modulo | Tipo | Horas reales | Tasa | USD |
+|---|---|---|---|---|
+| Mejoras evolutivas workflow Solicitudes + Pedidos | Extensiones sobre workflow existente | 4 h | USD 40/h | USD 160 |
+
+Nota: los modulos historicos anteriores (columna "Horas finales con 30%") mantienen su valor en horas como referencia de esfuerzo. El costo debe recalcularse a USD 40/h para presupuestos nuevos.
+
 ## Historial de ajustes
 - 2025-06-01: presupuesto inicial registrado
 - 2026-04-22: datos de modulos incorporados al dataset de calibracion Abril 2026
+- 2026-06-xx: cierre iteracion evolutiva. 4 h reales, USD 160. Tasa actualizada a USD 40/h en parametros globales.

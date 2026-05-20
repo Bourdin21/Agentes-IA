@@ -24,18 +24,21 @@ Proyectos de referencia disponibles:
 
 ## Tasa vigente
 
-- Tasa base: USD 14 / hora (referencia confirmada en proyectos cerrados).
+- Tasa base: USD 40 / hora (actualizada Junio 2026 — desarrollo real confirmado).
+- Tasa anterior: USD 14 / hora (proyectos hasta Abril 2026 — quedan como referencia de horas, no de costo).
 - Aplicar a todos los presupuestos futuros salvo indicacion contraria del cliente.
-- Si el cliente negocia descuento, no bajar de USD 10/h sin aprobacion explicita.
+- Si el cliente negocia descuento, no bajar de USD 30/h sin aprobacion explicita.
 - La tasa es independiente de la complejidad: proyectos mas complejos se expresan en mas horas, no en mayor tarifa.
 
 ## Rangos de referencia por tipo de modulo
 
-- Ajuste puntual (campo, validacion, logica menor): 0.5 a 1 h - USD 7 a 14
-- ABM simple (sin relaciones, sin logica): 1 a 2 h - USD 14 a 28
-- ABM intermedio (con relaciones y validaciones): 2 a 4 h - USD 28 a 56
-- Modulo con workflow / estados: 4 a 6 h - USD 56 a 84
-- Modulo financiero o con logica compleja: 5 a 8 h - USD 70 a 112
+Horas sin cambio. Costos actualizados a tasa USD 40/h (Junio 2026):
+
+- Ajuste puntual (campo, validacion, logica menor): 0.5 a 1 h - USD 20 a 40
+- ABM simple (sin relaciones, sin logica): 1 a 2 h - USD 40 a 80
+- ABM intermedio (con relaciones y validaciones): 2 a 4 h - USD 80 a 160
+- Modulo con workflow / estados: 4 a 6 h - USD 160 a 240
+- Modulo financiero o con logica compleja: 5 a 8 h - USD 200 a 320
 
 ## Calibracion incremental Abril 2026 (dataset real compartido)
 
@@ -66,10 +69,10 @@ Reglas practicas de uso del dataset:
 - Si no hay modulo comparable claro, declarar incertidumbre y devolver rango por fase.
 
 ### Modificacion sobre modulo existente
-- Agregar campo simple: 0.5 h - USD 7
-- Agregar regla de negocio: 1 a 2 h - USD 14 a 28
-- Nuevo reporte o exportacion: 1 a 2 h - USD 14 a 28
-- Migracion EF requerida: sumar 0.5 h - USD 7 por cada migracion
+- Agregar campo simple: 0.5 h - USD 20
+- Agregar regla de negocio: 1 a 2 h - USD 40 a 80
+- Nuevo reporte o exportacion: 1 a 2 h - USD 40 a 80
+- Migracion EF requerida: sumar 0.5 h - USD 20 por cada migracion
 
 ## Formato de entrega al cliente
 
@@ -92,10 +95,12 @@ Reglas practicas de uso del dataset:
 ## Notas de calibracion
 
 - Parametros calibrados en base a tres proyectos reales / presupuestados en 2025.
-- Total combinado base: 175 horas - USD 2.450 - tasa efectiva confirmada USD 14/h.
+- Total combinado base: 175 horas - USD 2.450 - tasa efectiva historica USD 14/h.
 - Total combinado con contingencias: 190 horas - USD 2.660.
+- **Junio 2026: tasa actualizada a USD 40/h.** Primer desarrollo real confirmado: iteracion evolutiva Delicias Naturales (mejoras Solicitudes de Ingreso de Stock + estado pedido), 4 h reales, USD 160 cobrados. Ratio estimado/real: 1.0 (estimacion exacta).
+- Al referenciar historicos anteriores a Junio 2026, usar las horas como referencia de esfuerzo pero recalcular el costo con la tasa vigente de USD 40/h.
 - Revisar y actualizar la tasa cada 6 meses o ante cambio de contexto economico.
-- La contingencia se aplica una unica vez segun la politica vigente (variable por riesgo 8/15/25 por defecto, o fija del cliente cuando aplique). No sumar 15% adicional por encima de proyectos >50h: ese efecto ya esta absorbido en la contingencia por riesgo.
-- Para proyectos que incluyan migracion de datos, agregar entre 20% y 30% al total como riesgo declarado, no como contingencia adicional sobre otra contingencia.
-- Facturacion AFIP es exclusion estandar salvo excepcion documentada (ver Proyecto 3 Delicias Naturales).
+- La contingencia se aplica una unica vez segun la politica vigente (variable por riesgo 8/15/25 por defecto, o fija del cliente cuando aplique).
+- Para proyectos que incluyan migracion de datos, agregar entre 20% y 30% al total como riesgo declarado.
+- Facturacion AFIP es exclusion estandar salvo excepcion documentada.
 - Integraciones externas tipo Web Service se estiman entre 2 y 4 h por integracion segun complejidad.
