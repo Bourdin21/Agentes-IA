@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: meta-ads
-## Ultima actualizacion: 2026-05-14
+## Ultima actualizacion: 2026-05-28
 
 ## Features completadas
 
@@ -35,3 +35,28 @@
 - Monitorear metricas de las campanas creadas via Meta Ads Manager.
 - Evaluar integracion del cliente .NET con un sistema MVC existente (ej. dashboard de campanas en vinosefue o ShowroomGriffin).
 - Renovar token de acceso cuando expire (tipicamente 60 dias para tokens de larga duracion).
+
+---
+
+### 2026-05-28 — Modulo WhatsApp Bot outbound (Olvidata.WhatsApp)
+
+Proyecto standalone .NET Console en `C:\Sistemas\BotPublicitario\WhatsApp\`.
+
+**Objetivo:** bot de contacto directo outbound para captura de PYMEs (La Plata → AMBA), complementando las campanas Meta Ads activas en Instagram.
+
+**Servicios implementados:**
+- `WhatsAppClient`: cliente HTTP a Meta Graph API (WhatsApp Business).
+- `MessagingService`: envio de plantillas, mensajes libres y follow-ups.
+- `OutboundCampaignService`: orquestador batch diario + seguimiento de estado de prospectos.
+- `TemplateCreationService`: creacion y consulta de plantillas en Meta Business.
+- `CatalogService`: gestion de catalogo de servicios Olvidata vinculado a la WABA.
+- `ExcelTrackerService`: lectura/escritura de `contactos.xlsx` como fuente de prospectos.
+- `GoogleMapsService`: busqueda de PYMEs en Google Maps segun mes del plan.
+
+**Comandos CLI:** setup-profile, setup-templates, setup-catalog, check-templates, check-catalog, search-maps, test-send, run, stats, load-prospects, mark.
+
+**Persistencia:** `outbound_state.json` (estado de campana); `contactos.xlsx` (prospectos).
+
+**Config (vars de entorno):** `META_ACCESS_TOKEN`, `META_WHATSAPP_NUMBER_ID`, `META_WHATSAPP_ACCOUNT_ID`, `META_BUSINESS_ID`.
+
+**Riesgos:** plantillas deben ser aprobadas por Meta antes de ejecutar campana real (24-48hs). Limite de mensajes/dia segun nivel de calidad WABA.

@@ -2,7 +2,7 @@
 **Proyecto:** ShowroomGriffin  
 **Agente:** Implementador  
 **Fecha creación:** 2026-04-23  
-**Última actualización:** 2026-04-23  
+**Última actualización:** 2026-05-18  
 
 ---
 
@@ -2081,3 +2081,50 @@ Bases estructurales sin breaking changes: nuevas entidades catálogo (Modelo, Ta
 
 ### Próximo paso (V1-E1.B)
 Renombre Subgrupo→Marca a nivel CLR + tabla (`ToTable("Marcas")` o RenameTable) + actualización de DI/Controller/Vista + redirect `/Subgrupos` → `/Marcas`. Pendiente decisión de implementación: refactor en bloque vs alias coexistente.
+
+---
+
+## V6 — Refactor modelo: Producto como entidad base (2026-05-18)
+
+### Alcance
+- `Producto` elimina `MarcaId` (la marca se resuelve via `Modelo.MarcaId`).
+- `Producto.ModeloId` pasa a NOT NULL requerido.
+- `VarianteProducto` elimina campos redundantes (Marca, Modelo, Numero, Talle texto libre, Temporada); reemplazados por `TalleConfigId` (FK catalogo) + Color + Genero ya existentes.
+- Servicios actualizados: AumentoMasivoService, CategoriaService, CompraService, DevolucionService, ProductoService, StockService, VarianteService, VentaService.
+- Vistas actualizadas: `Productos/Crear`, `Productos/Detalle`, `Productos/Editar`, `Variantes/Crear`, `Variantes/Editar`.
+
+### Cambios por capa
+- **Domain**: `Producto.cs` sin `MarcaId`; `Modelo.cs` ajustado; `VarianteProducto.cs` sin campos redundantes.
+- **Infrastructure**: `ProductoConfiguration.cs` y `VarianteProductoConfiguration.cs` actualizados; EF Migration `V6_RemoveRedundantFields`; scripts SQL idempotentes en `Migrations/Scripts/v6_prod.sql`, `v6_prod_idempotent.sql`, `v6_fix_local.sql`.
+- **Application**: DTOs `ProductosViewModels.cs` refactorizados.
+- **Web**: vistas y controllers de Productos y Variantes actualizados.
+
+### Migracion EF
+`20260518161036_V6_RemoveRedundantFields` — aplicada en local. Script `v6_prod_idempotent.sql` para produccion.
+
+### Build
+OK — 0 errores.
+
+---
+
+## V7 — Modelo con TipoTalle y TipoPrecio (2026-05-18)
+
+### Alcance
+- `Modelo` agrega `TipoTalle` (enum `TipoTalle`) y `TipoPrecioZapatillaId` (FK a `TipoPrecioZapatilla`).
+- `IModeloService` ampliado con nuevas operaciones de consulta.
+- `ModeloConfiguration` con indices adicionales.
+- `Cliente.cs` con campo adicional.
+- `VarianteProducto` agrega `RowVersion` (byte[]) para concurrencia optimista.
+- Vistas `Modelos/Crear.cshtml` y `Modelos/Editar.cshtml` creadas.
+- `ModelosController` ampliado.
+
+### Cambios por capa
+- **Domain**: `Modelo.cs`, `VarianteProducto.cs` (RowVersion), `Cliente.cs`, `TipoPrecioZapatilla.cs`.
+- **Infrastructure**: `ModeloConfiguration.cs`, migracion `V7_ModeloTipoTalleYPrecio`, `ModeloService.cs` actualizado, `VarianteService.cs`, `ClienteService.cs`, `MarcaService.cs`, `StockService.cs`.
+- **Web**: `ModelosController.cs`, `VariantesController.cs`, `MarcasController.cs`, vistas Modelos, Clientes (Crear/Editar), Compras, Devoluciones, Stock.
+
+### Migracion EF
+`20260518171243_V7_ModeloTipoTalleYPrecio` — aplicada en local. Script `v6_prod_precheck.sql` para validacion previa en prod.
+
+### Build
+OK — 0 errores.

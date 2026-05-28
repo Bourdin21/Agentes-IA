@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: vinosefue
-## Ultima actualizacion: 2026-05-15
+## Ultima actualizacion: 2026-05-22
 
 > Documento de referencia rapida. La memoria detallada por feature con cambios por capa, migraciones y checklists vive en:
 > `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\5-implementador.md`
@@ -9,6 +9,18 @@
 ---
 
 ## Features completadas (cronologia inversa)
+
+### 2026-05-22 — Mejoras varias (pedidos y compras)
+- Ajuste en `PedidoService`; `ComprasController` y `PedidosController` con nuevas acciones.
+- Vistas `Compras/Detalle.cshtml` y `Pedidos/Detalle.cshtml` expandidas con nueva funcionalidad.
+- Adicion de `.github/copilot-instructions.md` al repositorio del sistema.
+- Build: OK. Sin migracion EF.
+
+### 2026-05-18 — Baja de pedidos (soft delete)
+- `IPedidoService` + `PedidoService` con metodo `EliminarAsync`.
+- `PedidosController` con accion Delete; vistas `Index.cshtml` y `Detalle.cshtml` con boton de baja.
+- Reglas de negocio: solo Borrador o Cancelado, sin pagos activos, sin compra avanzada, sin concesion activa.
+- Build: OK. Sin migracion EF.
 
 ### 2026-05-15 — Reversion estados pedido (ajuste Web final)
 - `ReversionDtos.cs` actualizado; `PedidosController` endpoints `RevertirCancelacion` y `RevertirFinalizacionConcesion`; `Detalle.cshtml` con card de reversion, modales de confirmacion (motivo 15-500 + RowVersion), tabla de historial.

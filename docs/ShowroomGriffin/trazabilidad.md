@@ -1,7 +1,7 @@
 # 🏗️ Trazabilidad de Conversación - ShowroomGriffin
 **Proyecto:** ShowroomGriffin  
 **Fecha inicio:** 2026-04-23  
-**Última actualización:** 2026-05-20  
+**Última actualización:** 2026-05-18  
 
 ---
 
@@ -20,7 +20,7 @@ Este archivo registra la trazabilidad de las conversaciones con el usuario, deci
 | **Arquitecto MVC** | `3-arquitecto-mvc.md` | ✅ Completado |
 | **Presupuestador** | `4-presupuestador.md` | ✅ Cerrado (2026-05-20) |
 | **Implementador** | `5-implementador.md` | ✅ Completado |
-| **QA** | `6-qa.md` | ⏳ Pendiente |
+| **QA** | `6-qa.md` | ✅ Completado (2026-05-18, BLOCKED items pendientes smoke manual) |
 
 ---
 
@@ -183,31 +183,32 @@ Si no existen, **detener implementación** y solicitar al usuario que active los
 
 ---
 
-## 🚦 Próximas Acciones Requeridas
+## 🚦 Estado al Cierre (2026-05-18)
 
-### ⚠️ Bloqueador Actual
+**Proyecto entregado a producción.** Ciclo completo completado:
 
-**ETAPA 0 completada**, pero antes de continuar con ETAPA 1 (implementación técnica), se requiere:
+1. ✅ Análisis funcional — `1-analista-funcional.md`
+2. ✅ Diseño funcional — `2-disenador-funcional.md`
+3. ✅ Arquitectura MVC — `3-arquitecto-mvc.md`
+4. ✅ Presupuesto + calibración — `4-presupuestador.md` (cerrado 2026-05-20)
+5. ✅ Implementación E0-E8 — `5-implementador.md` (incluye V6 + V7)
+6. ✅ QA — `6-qa.md` (completado, items BLOCKED pendientes smoke manual en producción)
 
-1. ✅ **Análisis funcional aprobado** → `1-analista-funcional.md` creado.
-2. ❌ **Diseño funcional aprobado** → `2-disenador-funcional.md` **NO EXISTE**.
-3. ❌ **Arquitectura técnica aprobada** → `3-arquitecto-mvc.md` **NO EXISTE**.
-4. ❌ **Presupuesto aprobado** → `4-presupuestador.md` **NO EXISTE**.
+### Entradas post-entrega (2026-05-18)
 
-**Recomendación:**
+#### V6 — Refactor modelo: Producto como entidad base (2026-05-18)
+- `Producto` pierde `MarcaId`; la marca se resuelve via `Modelo.MarcaId`.
+- `ModeloId` en `Producto` pasa a NOT NULL requerido.
+- `VarianteProducto` elimina campos redundantes (Marca, Modelo, Numero, Talle, Temporada texto libre); reemplazados por `TalleConfigId` (FK catalogo), Color, Genero.
+- Servicios actualizados: Aumento/Stock/Venta/Compra/Devolucion.
+- EF Migration: `V6_RemoveRedundantFields`. Scripts SQL idempotentes para prod en `Migrations/Scripts/`.
 
-🛑 **DETENER IMPLEMENTACIÓN** hasta que:
-
-- El **Diseñador Funcional** genere mockups y flujos de pantallas (`2-disenador-funcional.md`).
-- El **Arquitecto MVC** defina decisiones técnicas de implementación (`3-arquitecto-mvc.md`).
-- El **Presupuestador** estime horas y riesgos (`4-presupuestador.md`).
-
-**Alternativa:**
-
-Si el usuario prefiere **avanzar directo a implementación** sin diseño/arquitectura previos, se asume el riesgo de:
-- Retrabajo si el diseño cambia.
-- Decisiones técnicas subóptimas.
-- Estimación de esfuerzo imprecisa.
+#### V7 — Modelo con TipoTalle y TipoPrecio (2026-05-18)
+- `Modelo` define `TipoTalle` (enum) y `TipoPrecioZapatillaId` (FK).
+- `IModeloService` ampliado. `ModeloConfiguration` actualizado con indices.
+- EF Migration: `V7_ModeloTipoTalleYPrecio`.
+- Vistas `Modelos/Crear` y `Modelos/Editar` nuevas.
+- `Cliente` con campo adicional. `VarianteProducto` con `RowVersion` (concurrencia optimista).
 
 ---
 

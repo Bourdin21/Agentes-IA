@@ -1,6 +1,35 @@
 # 5 - Implementador (memoria acumulativa)
 
-## Etapa actual: mejoras dashboard (M-04, M-05, M-06, M-07)
+## Etapa actual: dolar historico (2026-05-11)
+
+### Alcance
+Nueva seccion "Dolar Historico" que permite ver la cotizacion del dolar en la fecha de cada movimiento y convertir automaticamente importes en pesos a dolares al registrar movimientos.
+
+### Cambios por capa
+- **Application**: `ICotizacionService.cs` nuevo con contratos `GetCotizacionAsync(DateOnly)`, `GetUltimaCotizacionAsync()`.
+- **Infrastructure**: `CotizacionService.cs` implementacion completa (146 lineas) con consulta a API de cotizacion, cache y fallback.
+- **Web Controllers**: `DolarController.cs` nuevo con accion `Historico`; `MovimientosController.cs` actualizado (84 lineas nuevas) con integracion de cotizacion en Create/Edit.
+- **Web Models**: `DolarHistoricoViewModel.cs` nuevo; `AbmViewModels.cs` actualizado.
+- **Web Views**: `Views/Dolar/Historico.cshtml` nueva (129 lineas) con tabla de historial; `Movimientos/Create.cshtml` y `Movimientos/Edit.cshtml` actualizados; `_Layout.cshtml` con nuevo item de menu.
+
+### Migraciones EF
+Ninguna nueva en esta etapa.
+
+### Build
+OK.
+
+### Riesgos
+- `ICotizacionService` llama API externa; si la API no esta disponible se usa fallback.
+- `ProvinciaVisaResumenParser.cs.new` dejado como archivo temporal (sin uso activo).
+
+### Checklist de salida
+- [x] Build OK.
+- [x] Sin migraciones EF.
+- [ ] QA manual: convertir monto en Create con cotizacion del dia; ver historial de cotizaciones.
+
+---
+
+## Etapa anterior: mejoras dashboard (M-04, M-05, M-06, M-07)
 
 ### Alcance
 - M-04: marcar movimientos `Pendiente` en el Top 10 con badge y resaltar fila.

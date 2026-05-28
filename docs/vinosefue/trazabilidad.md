@@ -6,6 +6,20 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 > Nota: la documentacion detallada por feature vive en `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\`. Este archivo registra el log cronologico de alto nivel.
 
+### 2026-05-22 - implementador
+- Etapa: Implementacion — Mejoras varias (pedidos y compras)
+- Cambio: ajuste en `PedidoService`; `ComprasController` y `PedidosController` con nuevas acciones; vistas `Compras/Detalle.cshtml` y `Pedidos/Detalle.cshtml` expandidas (~75 lineas nuevas cada una). Adicion de `.github/copilot-instructions.md` al repositorio del sistema.
+- Motivo: correcciones y mejoras post-entrega solicitadas por el cliente.
+- Impacto en capas: Infrastructure (service), Presentacion (controllers + vistas).
+- Riesgos/supuestos: sin migracion EF. Build OK.
+
+### 2026-05-18 - implementador
+- Etapa: Implementacion — Baja de pedidos (soft delete)
+- Cambio: `IPedidoService` + `PedidoService` con `EliminarAsync`; `PedidosController` con accion Delete; vistas `Index.cshtml` y `Detalle.cshtml` actualizadas con boton de baja. Regla: solo pedidos en estado Borrador o Cancelado, sin pagos activos, sin compra avanzada, sin concesion activa.
+- Motivo: cliente necesitaba poder eliminar pedidos erroneos en estados tempranos.
+- Impacto en capas: Application (interface), Infrastructure (service), Presentacion (controller + vistas).
+- Riesgos/supuestos: soft delete via `DeletedAt`. Sin migracion EF. Build OK.
+
 ### 2026-05-15 - implementador
 - Etapa: Implementacion — Feature Reversion estados pedido (ajuste final)
 - Cambio: `ReversionDtos.cs` actualizado; `PedidosController` y `PedidoService` ajustados; `Detalle.cshtml` actualizado con card de reversion y tabla de historial.
