@@ -21,13 +21,14 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - El cierre de calibracion estimado vs real es obligatorio para mejorar la asertividad del presupuesto.
 
 # Trazabilidad documental obligatoria en /docs
+- Toda referencia a rutas /docs corresponde a la ruta absoluta C:/Sistemas/Agentes-IA/docs. Siempre usar esa ruta completa al leer o escribir archivos de documentacion.
 - Este repositorio (Agentes-IA) centraliza la memoria de trabajo de todos los proyectos.
-- Cada proyecto tiene su carpeta propia en /docs/<proyecto>/.
-- Cada agente tiene un unico archivo de memoria por proyecto en /docs/<proyecto>/definiciones/.
+- Cada proyecto tiene su carpeta propia en C:/Sistemas/Agentes-IA/docs/<proyecto>/.
+- Cada agente tiene un unico archivo de memoria por proyecto en C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/.
 - Al trabajar sobre un proyecto, leer primero la version vigente del agente y luego editar ese mismo archivo.
 - No crear archivos nuevos para el mismo agente y proyecto: siempre editar el existente.
-- Cada ajuste relevante debe registrarse en /docs/<proyecto>/trazabilidad.md.
-- El indice consolidado de proyectos vive en /docs/indice.md.
+- Cada ajuste relevante debe registrarse en C:/Sistemas/Agentes-IA/docs/<proyecto>/trazabilidad.md.
+- El indice consolidado de proyectos vive en C:/Sistemas/Agentes-IA/docs/indice.md.
 
 # Definicion minima por etapa
 - Discovery/Relevamiento: alcance inicial, supuestos, exclusiones y dependencias.
@@ -45,7 +46,7 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - Agent mode: Implementacion, pruebas funcionales, correccion de build, documentacion de alcance y cierre de calibracion.
 
 # Gates de aprobacion entre etapas
-- Cada etapa debe cerrar su archivo en /docs/<proyecto>/definiciones/ antes de pasar a la siguiente.
+- Cada etapa debe cerrar su archivo en C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/ antes de pasar a la siguiente.
 - No iniciar Diseno sin Analisis aprobado.
 - No iniciar Arquitectura sin Diseno aprobado.
 - No iniciar Presupuesto sin Arquitectura aprobada.

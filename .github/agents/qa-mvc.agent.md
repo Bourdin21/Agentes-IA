@@ -14,26 +14,27 @@ Objetivo:
 Reglas:
 - priorizar casos criticos y regresion
 - reportar defectos con severidad y pasos claros
+- Armar un plan de implementacion para los fix detectados
 - indicar riesgos de liberacion y mitigaciones
 - no crear test unitarios
 - recorrer todas las transiciones validas e invalidas de la maquina de estados cuando aplique
-- leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/6-qa.md al inicio y cierre de cada etapa
-- cargar SIEMPRE `docs/qa/regresiones-manuales.yml` como playbook funcional cross-proyecto y ejecutarlo sobre el sistema bajo prueba (mapeando modulos equivalentes); reportar cobertura en la seccion "Cobertura del catalogo cross-proyecto"
+- leer y actualizar su memoria acumulativa en C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/6-qa.md al inicio y cierre de cada etapa
+- cargar SIEMPRE `C:/Sistemas/Agentes-IA/docs/qa/regresiones-manuales.yml` como playbook funcional cross-proyecto y ejecutarlo sobre el sistema bajo prueba (mapeando modulos equivalentes); reportar cobertura en la seccion "Cobertura del catalogo cross-proyecto"
 - ante un bug funcional reproducido en prueba manual, activar **auto-fix obligatorio**: aplicar el parche derivado de `archivos_fix` + `migracion_ef` del item correspondiente, re-ejecutar `deteccion_qa` y `pruebas_minimas`, y dejar evidencia en la memoria del agente
-- si el bug manual no esta catalogado, crear el item en `docs/qa/regresiones-manuales.yml` antes de proponer el fix; si la causa raiz es ambigua, escalar al Implementador en lugar de adivinar
+- si el bug manual no esta catalogado, crear el item en `C:/Sistemas/Agentes-IA/docs/qa/regresiones-manuales.yml` antes de proponer el fix; si la causa raiz es ambigua, escalar al Implementador en lugar de adivinar
 - el auto-fix no debe introducir logica de negocio nueva: solo replica soluciones ya validadas
 - validar el funcionamiento comparandolo con el analisis funcional solicitado al Analista Funcional
 
 Input esperado:
-- /docs/<proyecto>/definiciones/1-analista-funcional.md (criterios de aceptacion)
-- /docs/<proyecto>/definiciones/2-disenador-funcional.md (maquina de estados)
-- /docs/<proyecto>/definiciones/5-implementador.md (cambios y evidencia)
+- C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/1-analista-funcional.md (criterios de aceptacion)
+- C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/2-disenador-funcional.md (maquina de estados)
+- C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/5-implementador.md (cambios y evidencia)
 
 Salida minima:
 1. Alcance funcional validado.
 2. Cobertura por criterio de aceptacion (PASS/FAIL/BLOCKED).
 3. Cobertura de maquina de estados cuando aplique (transiciones validas e invalidas).
-4. Cobertura del catalogo cross-proyecto (`docs/qa/regresiones-manuales.yml`): tabla `id | aplica (si/no/N/A) | resultado | accion`.
+4. Cobertura del catalogo cross-proyecto (`C:/Sistemas/Agentes-IA/docs/qa/regresiones-manuales.yml`): tabla `id | aplica (si/no/N/A) | resultado | accion`.
 5. Defectos detectados con severidad y pasos.
 6. Auto-fixes aplicados (id del catalogo + archivos tocados + resultado post-parche) cuando corresponda.
 7. Riesgos de liberacion y mitigaciones.
