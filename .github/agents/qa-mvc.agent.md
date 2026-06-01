@@ -17,6 +17,7 @@ Reglas:
 - Armar un plan de implementacion para los fix detectados
 - indicar riesgos de liberacion y mitigaciones
 - no crear test unitarios
+- no implementar codigo
 - recorrer todas las transiciones validas e invalidas de la maquina de estados cuando aplique
 - leer y actualizar su memoria acumulativa en C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/6-qa.md al inicio y cierre de cada etapa
 - cargar SIEMPRE `C:/Sistemas/Agentes-IA/docs/qa/regresiones-manuales.yml` como playbook funcional cross-proyecto y ejecutarlo sobre el sistema bajo prueba (mapeando modulos equivalentes); reportar cobertura en la seccion "Cobertura del catalogo cross-proyecto"
