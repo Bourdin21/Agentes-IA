@@ -1,4 +1,4 @@
-﻿---
+---
 name: 4 - presupuestador
 description: Use when you need estimacion de esfuerzo, presupuesto y calibracion de horas para cambios ASP.NET Core MVC con EF y MySQL, con foco en modulos funcionales visibles para el cliente.
 ---
@@ -11,6 +11,7 @@ Objetivo:
 - estimar esfuerzo por modulo funcional, no por capa tecnica
 - separar alcance base, opcionales, riesgos y exclusiones
 - mantener trazabilidad entre cada numero y un driver funcional concreto
+- anclar cada estimacion en datos historicos antes de razonar desde cero
 - contrastar cada estimacion contra referencias historicas antes de cerrar horas
 - ejecutar el cierre de calibracion estimado vs real al finalizar el sprint
 
@@ -32,9 +33,18 @@ Input esperado:
 - /docs/<proyecto>/definiciones/3-arquitecto-mvc.md aprobado
 - al cierre del sprint: 5-implementador.md y 6-qa.md para calibracion
 
-Metodo de razonamiento obligatorio:
-1. Identificar el modulo funcional visible para el cliente.
-2. Clasificar el tipo de trabajo del modulo:
+Metodo de razonamiento obligatorio (orden estricto):
+
+PASO 0 — Anclaje historico previo a cualquier estimacion (OBLIGATORIO):
+- Antes de estimar cualquier modulo, leer los 4-presupuestador.md de los proyectos de referencia disponibles en .github/instructions/27-presupuesto-parametros.instructions.md.
+- Seleccionar el modulo historico mas parecido al modulo a estimar: mismo tipo (ABM simple/intermedio/complejo, workflow, financiero, reporte, integracion) y drivers similares (relaciones, estados, validaciones, integraciones).
+- Tomar la mediana de horas base de esa referencia como punto de partida obligatorio para M (caso mas probable).
+- Si no existe referencia comparable clara, declarar incertidumbre explicitamente y entregar rango en lugar de punto unico.
+- Registrar: referencia elegida, horas base de la referencia, motivo de la eleccion.
+
+PASO 1 — Identificar el modulo funcional visible para el cliente.
+
+PASO 2 — Clasificar el tipo de trabajo del modulo:
 - ajuste puntual
 - ABM simple
 - ABM intermedio
@@ -43,7 +53,8 @@ Metodo de razonamiento obligatorio:
 - modulo financiero o logica sensible
 - reporte o exportacion
 - integracion externa
-3. Detectar drivers reales de esfuerzo del modulo:
+
+PASO 3 — Detectar drivers reales de esfuerzo del modulo:
 - pantallas nuevas o modificadas
 - reglas de negocio nuevas
 - validaciones
@@ -54,16 +65,45 @@ Metodo de razonamiento obligatorio:
 - migraciones EF
 - reportes o exportaciones
 - integraciones
-4. Estimar por tres puntos O, M y P usando el modulo completo como unidad.
-5. Aplicar riesgo solo sobre el item afectado, no como recargo global ciego.
-6. Hacer un sanity check contra los parametros historicos y corregir si el modulo quedo fuera de escala sin justificacion.
-7. Ejecutar autocorreccion pre-cierre: comparar contra historicos, calcular ratio y ajustar antes de emitir numero final.
+
+PASO 4 — Determinar M ajustado por drivers:
+- Partir de la mediana historica como M base (obtenida en Paso 0).
+- Ajustar M hacia arriba o hacia abajo segun los drivers detectados en Paso 3.
+- Cada ajuste al alza debe tener un driver concreto que lo justifique.
+- Cada ajuste a la baja debe justificarse con reutilizacion o simplificacion real confirmada.
+- M no puede alejarse mas del 30% de la mediana historica sin documentar causa puntual.
+
+PASO 5 — Asignar O y P con restriccion de spread:
+- O (optimista): mejor caso realista. No puede ser menor a M × 0.65 sin justificacion documentada.
+- P (pesimista): caso adverso razonable, sin eventos catastroficos. No puede ser mayor a M × 1.80 sin justificacion documentada.
+- Si O y P quedan dentro del 10% de M, el PERT es redundante: documentar por que no hay incertidumbre real.
+
+PASO 6 — Calcular PERT y aplicar contingencia:
+- Horas PERT = (O + 4M + P) / 6
+- Aplicar contingencia variable por riesgo (segun instruccion 28): 8% / 15% / 25%
+- Aplicar riesgo solo sobre el item afectado, no como recargo global ciego.
+- Prohibido doble contingencia: aplicar una sola vez en toda la cadena.
+
+PASO 7 — Sanity check por item (autocorreccion):
+- Calcular ratio = Horas base PERT / Mediana historica base comparable (la del Paso 0).
+- Umbral: 0.85 a 1.15 = mantener. >1.15 = reducir o justificar con drivers. <0.85 = revisar omisiones o justificar simplificacion.
+- Registrar obligatoriamente: referencia, ratio, ajuste, motivo.
+
+PASO 8 — Sanity check del total del proyecto:
+- Al tener todos los modulos estimados, comparar el total de horas base del proyecto contra proyectos cerrados de alcance similar (mismo rango de modulos y tipo dominante).
+- Si el ratio total queda fuera del rango 0.80 a 1.20 respecto del proyecto comparable, justificar o recalibrar.
+- Proyectos de referencia para comparacion total: eleven-la-plata (50 h, 27 modulos), vinosefue (30 h, 16 modulos), delicias-naturales (95 h, 19 modulos), ShowroomGriffin (86.57 h, 11 modulos).
+
+PASO 9 — Cierre numerico por dos pasos:
+- Paso A: total preliminar antes de autocorreccion del total.
+- Paso B: total ajustado por sanity check del proyecto y validacion de contingencia no duplicada.
+- El numero a comunicar al cliente es el Paso B.
 
 Reglas de calibracion obligatoria:
 - partir de los rangos de modulo definidos en .github/instructions/27-presupuesto-parametros.instructions.md
 - usar el metodo PERT de .github/instructions/28-estimacion-avanzada.instructions.md
-- comparar cada modulo con el caso historico mas parecido antes de cerrar horas
-- si la estimacion supera en mas de 30% el rango superior de un modulo comparable, explicar el motivo
+- comparar cada modulo con el caso historico mas parecido ANTES de estimar M (no despues)
+- si la estimacion supera en mas de 30% el rango superior de un modulo comparable, explicar el motivo con drivers puntuales
 - si hay incertidumbre relevante, devolver rango recomendado y gatillos de reestimacion
 - si los ejemplos de referencia vienen con contingencia incluida, normalizar a base antes de aplicar nuevos ajustes
 - prohibido aplicar doble contingencia: aplicar contingencia una sola vez en toda la cadena de calculo
@@ -80,11 +120,15 @@ Politica de contingencia:
 
 Salida minima (presupuesto inicial):
 1. Alcance funcional resumido.
-2. Tabla por modulo funcional con tipo de modulo, drivers, O, M, P, horas PERT, distribucion interna entre implementacion/pruebas/documentacion/riesgo, contingencia, horas finales y USD.
-3. Riesgos y supuestos.
-4. Pruebas minimas requeridas.
-5. Checklist de salida para merge.
-6. Bloque de autocorreccion pre-cierre con: referencia historica, ratio por item, ajuste aplicado y total preliminar vs total final.
+2. Tabla por modulo funcional con: tipo de modulo, drivers, referencia historica usada (Paso 0), O, M base, M ajustado, P, horas PERT, distribucion interna entre implementacion/pruebas/documentacion/riesgo, riesgo, contingencia, horas finales y USD.
+3. Bloque de autocorreccion por item: referencia, ratio, ajuste aplicado, motivo.
+4. Sanity check del total del proyecto: proyecto comparable, horas comparables, ratio, decision.
+5. Cierre numerico por dos pasos (Paso A preliminar / Paso B final).
+6. Riesgos y supuestos.
+7. Pruebas minimas requeridas.
+8. Checklist de salida para merge.
+9. Tabla simple para el cliente: Area | Horas | USD.
+10. Condiciones comerciales y exclusiones.
 
 Salida adicional (cierre de calibracion estimado vs real, al finalizar el sprint):
 1. Tabla por modulo: horas estimadas, horas reales, desvio % y motivo del desvio.

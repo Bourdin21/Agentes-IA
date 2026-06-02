@@ -92,12 +92,28 @@ Reglas practicas de uso del dataset:
 - Integracion con hardware externo
 - Cambios de alcance posteriores al inicio (se presupuestan por separado)
 
+## Alerta de sobreestimacion sistematica confirmada (Junio 2026)
+
+Dos proyectos cerrados muestran el mismo patron: las estimaciones PERT sin anclaje historico previo producen entre 3x y 4x las horas reales.
+
+| Proyecto | Horas estimadas | Horas reales | Ratio estimado/real |
+|---|---:|---:|---:|
+| ShowroomGriffin | 101.1 h | 25 h | 4.0x |
+| Ganaderia | 101.0 h | ~30 h (max) | ~3.4x |
+
+Regla de recalibracion obligatoria derivada de este patron:
+- El M (caso mas probable) debe anclarse en la mediana historica de proyectos similares ANTES de estimar.
+- Los proyectos de 8-11 modulos de complejidad media-alta cierran en el rango de 25 a 30 horas reales totales.
+- Para proyectos de 16-27 modulos de complejidad media, el rango real historico es 30-50 horas totales.
+- No proyectar horas basandose unicamente en la suma de O/M/P sin comparar primero el total proyectado contra estos cierres reales.
+
 ## Notas de calibracion
 
 - Parametros calibrados en base a tres proyectos reales / presupuestados en 2025.
 - Total combinado base: 175 horas - USD 2.450 - tasa efectiva historica USD 14/h.
 - Total combinado con contingencias: 190 horas - USD 2.660.
 - **Junio 2026: tasa actualizada a USD 40/h.** Primer desarrollo real confirmado: iteracion evolutiva Delicias Naturales (mejoras Solicitudes de Ingreso de Stock + estado pedido), 4 h reales, USD 160 cobrados. Ratio estimado/real: 1.0 (estimacion exacta).
+- **Junio 2026: sobreestimacion sistematica confirmada en ShowroomGriffin (4x) y Ganaderia (3.4x).** Ver seccion "Alerta de sobreestimacion sistematica" arriba.
 - Al referenciar historicos anteriores a Junio 2026, usar las horas como referencia de esfuerzo pero recalcular el costo con la tasa vigente de USD 40/h.
 - Revisar y actualizar la tasa cada 6 meses o ante cambio de contexto economico.
 - La contingencia se aplica una unica vez segun la politica vigente (variable por riesgo 8/15/25 por defecto, o fija del cliente cuando aplique).
