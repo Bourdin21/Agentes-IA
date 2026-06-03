@@ -24,21 +24,22 @@ Proyectos de referencia disponibles:
 
 ## Tasa vigente
 
-- Tasa base: USD 40 / hora (actualizada Junio 2026 — desarrollo real confirmado).
-- Tasa anterior: USD 14 / hora (proyectos hasta Abril 2026 — quedan como referencia de horas, no de costo).
+- Tasa base: USD 45 / hora (actualizada Junio 2026 — segunda actualizacion).
+- Tasa anterior inmediata: USD 40 / hora (Junio 2026, primer ciclo real confirmado).
+- Tasa anterior historica: USD 14 / hora (proyectos hasta Abril 2026 — quedan como referencia de horas, no de costo).
 - Aplicar a todos los presupuestos futuros salvo indicacion contraria del cliente.
-- Si el cliente negocia descuento, no bajar de USD 30/h sin aprobacion explicita.
+- Si el cliente negocia descuento, no bajar de USD 35/h sin aprobacion explicita.
 - La tasa es independiente de la complejidad: proyectos mas complejos se expresan en mas horas, no en mayor tarifa.
 
 ## Rangos de referencia por tipo de modulo
 
-Horas sin cambio. Costos actualizados a tasa USD 40/h (Junio 2026):
+Horas sin cambio. Costos actualizados a tasa USD 45/h (Junio 2026):
 
-- Ajuste puntual (campo, validacion, logica menor): 0.5 a 1 h - USD 20 a 40
-- ABM simple (sin relaciones, sin logica): 1 a 2 h - USD 40 a 80
-- ABM intermedio (con relaciones y validaciones): 2 a 4 h - USD 80 a 160
-- Modulo con workflow / estados: 4 a 6 h - USD 160 a 240
-- Modulo financiero o con logica compleja: 5 a 8 h - USD 200 a 320
+- Ajuste puntual (campo, validacion, logica menor): 0.5 a 1 h - USD 23 a 45
+- ABM simple (sin relaciones, sin logica): 1 a 2 h - USD 45 a 90
+- ABM intermedio (con relaciones y validaciones): 4 a 7 h - USD 180 a 315
+- Modulo con workflow / estados: 4 a 6 h - USD 180 a 270
+- Modulo financiero o con logica compleja: 5 a 8 h - USD 225 a 360
 
 ## Calibracion incremental Abril 2026 (dataset real compartido)
 
@@ -51,14 +52,14 @@ Regla de normalizacion obligatoria:
 
 Resumen de rangos observados (horas finales con 30% incluida):
 - ABM simple: 2 a 4 h (moda observada: 2 h).
-- ABM intermedio: 5 a 7 h (moda observada: 6.5 h).
+- ABM intermedio: 5 a 7 h (moda observada: 6 h — dataset: 5h, 5.5h, 6.5h, 7h).
 - ABM complejo: 10 a 15 h.
 - ABM complejo con padre/hijos detalle: 10 h como referencia inicial.
 - Notificaciones SignalR acotadas: 4.5 h como referencia inicial.
 
 Resumen de rangos base equivalentes (sin contingencia):
 - ABM simple: 1.5 a 3.1 h.
-- ABM intermedio: 3.8 a 5.4 h.
+- ABM intermedio: 3.1 a 5.4 h.
 - ABM complejo: 7.7 a 11.5 h.
 - ABM complejo con padre/hijos detalle: 7.7 h.
 - Notificaciones SignalR acotadas: 3.5 h.
@@ -69,16 +70,16 @@ Reglas practicas de uso del dataset:
 - Si no hay modulo comparable claro, declarar incertidumbre y devolver rango por fase.
 
 ### Modificacion sobre modulo existente
-- Agregar campo simple: 0.5 h - USD 20
-- Agregar regla de negocio: 1 a 2 h - USD 40 a 80
-- Nuevo reporte o exportacion: 1 a 2 h - USD 40 a 80
-- Migracion EF requerida: sumar 0.5 h - USD 20 por cada migracion
+- Agregar campo simple: 0.5 h - USD 23
+- Agregar regla de negocio: 1 a 2 h - USD 45 a 90
+- Nuevo reporte o exportacion: 1 a 2 h - USD 45 a 90
+- Migracion EF requerida: sumar 0.5 h - USD 23 por cada migracion
 
 ## Formato de entrega al cliente
 
 - Documento simple, sin jerga tecnica
 - Agrupado por area funcional (no por capa tecnica)
-- Incluir tabla: Area | Horas | USD
+- Incluir tabla: Area | USD (las horas son internas — no se exponen al cliente)
 - Incluir seccion Que esta incluido y Que NO esta incluido
 - Condiciones estandar: 50% al inicio / 50% a la entrega
 - Validez de oferta: 30 dias
@@ -99,7 +100,7 @@ Dos proyectos cerrados muestran el mismo patron: las estimaciones PERT sin ancla
 | Proyecto | Horas estimadas | Horas reales | Ratio estimado/real |
 |---|---:|---:|---:|
 | ShowroomGriffin | 101.1 h | 25 h | 4.0x |
-| Ganaderia | 101.0 h | ~30 h (max) | ~3.4x |
+| Ganaderia | 101.0 h | 12 h (MVP Etapa 1, en curso) | >6x parcial |
 
 Regla de recalibracion obligatoria derivada de este patron:
 - El M (caso mas probable) debe anclarse en la mediana historica de proyectos similares ANTES de estimar.
@@ -112,7 +113,9 @@ Regla de recalibracion obligatoria derivada de este patron:
 - Parametros calibrados en base a tres proyectos reales / presupuestados en 2025.
 - Total combinado base: 175 horas - USD 2.450 - tasa efectiva historica USD 14/h.
 - Total combinado con contingencias: 190 horas - USD 2.660.
-- **Junio 2026: tasa actualizada a USD 40/h.** Primer desarrollo real confirmado: iteracion evolutiva Delicias Naturales (mejoras Solicitudes de Ingreso de Stock + estado pedido), 4 h reales, USD 160 cobrados. Ratio estimado/real: 1.0 (estimacion exacta).
+- **Junio 2026: tasa actualizada a USD 40/h.** Primer desarrollo real confirmado: iteracion evolutiva Delicias Naturales (mejoras Solicitudes de Ingreso de Stock + estado pedido), 4 h reales, USD 160 cobrados a USD 40/h. Ratio estimado/real: 1.0 (estimacion exacta).
+- **2026-06-03:** Modulo Relevamiento de Stock (Delicias Naturales), ABM intermedio. Horas reales: 5.5 h. USD 220 cobrados a tasa USD 40/h. Dataset ABM intermedio ampliado: 5h, 5.5h, 6.5h, 7h. Rango confirmado 5-7h, mediana 6h.
+- **2026-06-03:** Tasa actualizada a USD 45/h. Las horas ya no se exponen al cliente en el documento de presupuesto (solo USD por area funcional).
 - **Junio 2026: sobreestimacion sistematica confirmada en ShowroomGriffin (4x) y Ganaderia (3.4x).** Ver seccion "Alerta de sobreestimacion sistematica" arriba.
 - Al referenciar historicos anteriores a Junio 2026, usar las horas como referencia de esfuerzo pero recalcular el costo con la tasa vigente de USD 40/h.
 - Revisar y actualizar la tasa cada 6 meses o ante cambio de contexto economico.

@@ -53,7 +53,8 @@ applyTo: "**/*.{md,prompt.md,agent.md,instructions.md}"
 - El numero a comunicar al cliente debe ser el Paso B.
 
 # Formato de entrega de presupuesto
-- Mostrar por item funcional: O, M, P, horas PERT, riesgo, horas finales, USD.
+- El calculo interno usa: O, M, P, horas PERT, riesgo, horas finales, USD.
+- El documento entregado al cliente muestra: Area funcional | USD. Las horas NO se exponen al cliente.
 - Incluir explicitamente:
 - Supuestos.
 - Exclusiones.

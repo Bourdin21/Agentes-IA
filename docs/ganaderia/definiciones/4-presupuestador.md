@@ -127,18 +127,18 @@ Resumen de autocorreccion:
 
 | Entrega | Horas estimadas (base) | Horas reales | Desvio % | Motivo |
 |---|---:|---:|---:|---|
-| Primera entrega | 81.5 h | 15 h | −81.6% | Sobreestimacion sistematica. Ver nota. |
-| Total proyectado | 101.0 h | ~30 h (max) | ~−70.3% | Segunda entrega en curso. |
+| Primera entrega (MVP Etapa 1) | 81.5 h | 12 h | −85.3% | Sobreestimacion sistematica. Ver nota. |
+| Total proyectado | 101.0 h | en curso | — | Segunda entrega pendiente. |
 
 - Tasa cobrada: USD 12 / hora
-- Costo primera entrega real: USD 180 (15 h × USD 12)
-- Costo total proyectado real: USD 360 (30 h × USD 12) vs USD 1.212 presupuestado
+- Costo primera entrega real: USD 144 (12 h × USD 12)
 - Precio presupuestado al cliente: USD 1.212 (cerrado, no variable por horas)
-- Estado: primera entrega completada. Proyecto estimado a cerrarse en 30 h reales totales.
+- Estado: primera entrega (MVP Etapa 1) completada en 12 h reales. Segunda entrega en curso.
 
-Nota de calibracion: la estimacion fue 3.4x las horas reales proyectadas al cierre. Patron consistente con ShowroomGriffin (101 h estimadas / 25 h reales = 4x). Ambos casos confirman sobreestimacion sistematica del metodo anterior. El rediseno del agente con anclaje historico obligatorio (Paso 0) busca corregir este patron.
+Nota de calibracion: la estimacion fue mas de 6x las horas reales de la primera entrega. Patron consistente con ShowroomGriffin (101 h estimadas / 25 h reales = 4x). Ambos casos confirman sobreestimacion sistematica del metodo anterior. El rediseno del agente con anclaje historico obligatorio (Paso 0) busca corregir este patron.
 
 ## Historial de ajustes
 
 - 2026-04-22: presupuesto inicial ejecutado sobre analisis funcional v10, diseno funcional v1 y arquitectura tecnica v1, con calibracion contra datasets Abril 2026 y estructura de trazabilidad creada para el proyecto.
-- 2026-06-02: cierre parcial registrado. Primera entrega: 15 h reales. Total proyectado al 100%: 30 h maximas. Desvio confirmado: ~−70%. Patron de sobreestimacion sistematica registrado.
+- 2026-06-02: cierre parcial registrado. Primera entrega: 15 h reales (valor provisional). Total proyectado al 100%: 30 h maximas. Desvio confirmado: ~−70%. Patron de sobreestimacion sistematica registrado.
+- 2026-06-03: primera entrega corregida a 12 h reales definitivas (MVP Etapa 1). Costo: USD 144 a tasa USD 12/h. Desvio vs estimado base: −85.3%.
