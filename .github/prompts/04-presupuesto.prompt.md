@@ -81,9 +81,10 @@ Generar un presupuesto defendible, calibrado y comercialmente entendible en base
 9. Exclusiones
 10. Dependencias del cliente
 11. Criterios de aceptacion minimos
-12. Tabla simple para cliente: Area | Horas | USD
-13. Condiciones comerciales (50/50, validez 30 dias)
-14. Nota de contingencia aplicada
+12. Tabla simple para cliente: Area | USD (sin horas — son internas)
+13. Plan de mantenimiento anual recomendado segun cantidad de tablas del sistema (ver 27-presupuesto-parametros). Presentar como linea separada: "Mantenimiento anual — Plan X: USD Y/año".
+14. Condiciones comerciales (50/50, validez 30 dias)
+15. Nota de contingencia aplicada
 
 # Restricciones
 - No estimar M desde cero: siempre anclar en historico antes de ajustar.

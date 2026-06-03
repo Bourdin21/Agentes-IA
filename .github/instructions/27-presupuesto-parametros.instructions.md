@@ -75,6 +75,36 @@ Reglas practicas de uso del dataset:
 - Nuevo reporte o exportacion: 1 a 2 h - USD 45 a 90
 - Migracion EF requerida: sumar 0.5 h - USD 23 por cada migracion
 
+## Planes de mantenimiento anual (OlvidataSoft — servidor a cargo del proveedor)
+
+Incluir siempre en el presupuesto como linea separada post-desarrollo. El plan corresponde al servicio continuo del servidor y soporte, NO es parte del costo de desarrollo.
+
+| Plan     | Tablas BD        | USD/año | Incluye                                                  |
+|----------|------------------|---------|----------------------------------------------------------|
+| STARTER  | 1 – 5            | 250     | 1 admin, soporte email, actualizaciones de seguridad     |
+| PRO      | 6 – 15           | 300     | Hasta 2 usuarios, soporte WhatsApp, 1 ronda de ajuste    |
+| PREMIUM  | 16 – 30          | 400     | Hasta 3 usuarios, soporte prioritario, 2 rondas ajuste   |
+| SCALE    | 31+              | 750     | Hasta 10 sesiones, usuarios ilimitados, 3 rondas ajuste  |
+
+Reglas de aplicacion:
+- Determinar el plan según la cantidad de tablas del sistema entregado.
+- Presentar el costo de desarrollo y el mantenimiento anual como dos lineas separadas en el presupuesto.
+- Aclarar al cliente que el mantenimiento cubre hosting, seguridad y soporte — no cubre cambios funcionales nuevos.
+- Los extras (usuario adicional, módulo nuevo, etc.) se cotizan aparte y se suman al plan base si el cliente los requiere.
+
+## Extras opcionales (vigente 2026)
+
+Referencia para validar coherencia con tasa USD 45/h:
+
+| Extra                        | Precio    | Horas equiv. | Validez calibracion                                       |
+|------------------------------|-----------|--------------|-----------------------------------------------------------|
+| Usuario adicional            | USD 100/año | —          | Costo de servicio, no de desarrollo. OK.                  |
+| Módulo nuevo                 | USD 200+  | 4 h+         | ABM intermedio mínimo: 4-7 h = USD 180-315. **Desde USD 200, cotizar por complejidad.** |
+| UI personalizada             | USD 100   | ~2.2 h       | CSS/theming básico. Justo en el limite bajo.              |
+| Optimización de performance  | USD 150   | ~3.3 h       | Aceptable para un pase acotado de queries + carga.        |
+| Ronda de ajuste extra        | USD 80    | ~1.8 h       | Cubre hasta 3 ajustes puntuales (0.5h c/u). Justo.        |
+| Backup automatizado mensual  | USD 80/año | —          | Costo de infraestructura. OK.                             |
+
 ## Formato de entrega al cliente
 
 - Documento simple, sin jerga tecnica

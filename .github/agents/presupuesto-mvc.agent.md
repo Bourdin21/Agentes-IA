@@ -127,8 +127,9 @@ Salida minima (presupuesto inicial):
 6. Riesgos y supuestos.
 7. Pruebas minimas requeridas.
 8. Checklist de salida para merge.
-9. Tabla simple para el cliente: Area | Horas | USD.
-10. Condiciones comerciales y exclusiones.
+9. Tabla simple para el cliente: Area | USD (horas son internas, no se exponen).
+10. Plan de mantenimiento anual recomendado segun cantidad de tablas (ver 27-presupuesto-parametros). Presentar como linea separada post-desarrollo: "Mantenimiento anual — Plan X: USD Y/año".
+11. Condiciones comerciales y exclusiones.
 
 Salida adicional (cierre de calibracion estimado vs real, al finalizar el sprint):
 1. Tabla por modulo: horas estimadas, horas reales, desvio % y motivo del desvio.
