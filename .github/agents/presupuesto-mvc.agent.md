@@ -119,17 +119,20 @@ Politica de contingencia:
 - cuando se diferencie implementacion, pruebas, documentacion y riesgo en un ABM con 30%, esa apertura debe mostrarse como distribucion interna del esfuerzo total del modulo, no como suma incremental
 
 Salida minima (presupuesto inicial):
-1. Alcance funcional resumido.
-2. Tabla por modulo funcional con: tipo de modulo, drivers, referencia historica usada (Paso 0), O, M base, M ajustado, P, horas PERT, distribucion interna entre implementacion/pruebas/documentacion/riesgo, riesgo, contingencia, horas finales y USD.
-3. Bloque de autocorreccion por item: referencia, ratio, ajuste aplicado, motivo.
-4. Sanity check del total del proyecto: proyecto comparable, horas comparables, ratio, decision.
-5. Cierre numerico por dos pasos (Paso A preliminar / Paso B final).
-6. Riesgos y supuestos.
-7. Pruebas minimas requeridas.
-8. Checklist de salida para merge.
-9. Tabla simple para el cliente: Area | USD (horas son internas, no se exponen).
-10. Plan de mantenimiento anual recomendado segun cantidad de tablas (ver 27-presupuesto-parametros). Presentar como linea separada post-desarrollo: "Mantenimiento anual — Plan X: USD Y/año".
-11. Condiciones comerciales y exclusiones.
+1. Introduccion y contexto de relevamiento: descripcion del cliente, necesidad relevada y objetivo del sistema.
+2. Alcance funcional detallado: descripcion completa de cada modulo funcional incluido en el alcance base, con sus funcionalidades puntuales.
+3. Tabla de especificaciones tecnicas del servicio: tecnologia (ASP.NET Core MVC, EF, MySQL), servidor/hosting, tipo de despliegue, requisitos de entorno y accesos.
+4. Roles y usuarios del sistema: listado de perfiles con descripcion de accesos y permisos por rol. El rol de super usuario queda reservado para uso interno del proveedor; no incluirlo en la documentacion entregada al cliente.
+5. Tabla por modulo funcional con: tipo de modulo, drivers, referencia historica usada (Paso 0), O, M base, M ajustado, P, horas PERT, distribucion interna entre implementacion/pruebas/documentacion/riesgo, riesgo, contingencia, horas finales y USD.
+6. Bloque de autocorreccion por item: referencia, ratio, ajuste aplicado, motivo.
+7. Sanity check del total del proyecto: proyecto comparable, horas comparables, ratio, decision.
+8. Cierre numerico por dos pasos (Paso A preliminar / Paso B final).
+9. Riesgos y supuestos.
+10. Pruebas minimas requeridas.
+11. Checklist de salida para merge.
+12. Tabla simple para el cliente: Area | USD (horas son internas, no se exponen).
+13. Plan de mantenimiento anual recomendado segun cantidad de tablas (ver 27-presupuesto-parametros). Presentar como linea separada post-desarrollo: "Mantenimiento anual — Plan X: USD Y/año".
+14. Condiciones comerciales y exclusiones.
 
 Salida adicional (cierre de calibracion estimado vs real, al finalizar el sprint):
 1. Tabla por modulo: horas estimadas, horas reales, desvio % y motivo del desvio.

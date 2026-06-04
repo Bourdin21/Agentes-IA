@@ -45,7 +45,7 @@ Generar un presupuesto defendible, calibrado y comercialmente entendible en base
 7. Asignar O y P con restriccion de spread: O >= M × 0.65 y P <= M × 1.80 salvo justificacion documentada.
 8. Calcular horas PERT por item: (O + 4M + P) / 6.
 9. Asignar nivel de riesgo por item y contingencia variable (8/15/25%).
-10. Consolidar horas finales y costo final con tasa vigente (USD 40/h).
+10. Consolidar horas finales y costo final con tasa vigente (USD 30/h).
 
 ## Paso 3 — Calibracion y cierre
 11. Calcular ratio por item = Horas base PERT / Mediana historica base (del Paso 0). Ajustar si ratio > 1.15 o < 0.85.
@@ -55,8 +55,11 @@ Generar un presupuesto defendible, calibrado y comercialmente entendible en base
 15. Cierre numerico en dos pasos: Paso A (total preliminar) y Paso B (total ajustado). Comunicar Paso B al cliente.
 
 # Salida
-1. Resumen del alcance
-2. Tabla por item funcional con columnas:
+1. Introduccion y contexto de relevamiento: descripcion del cliente, necesidad relevada y objetivo del sistema.
+2. Alcance funcional detallado: descripcion completa de cada modulo funcional incluido en el alcance base, con sus funcionalidades puntuales.
+3. Tabla de especificaciones tecnicas del servicio: tecnologia (ASP.NET Core MVC, EF, MySQL), servidor/hosting, tipo de despliegue, requisitos de entorno y accesos.
+4. Roles y usuarios del sistema: listado de perfiles con descripcion de accesos y permisos por rol. El rol de super usuario queda reservado para uso interno del proveedor; no incluirlo en la documentacion entregada al cliente.
+5. Tabla por item funcional con columnas:
    - Item
    - Tipo de modulo
    - Referencia historica usada (proyecto, modulo, horas base)
@@ -72,19 +75,19 @@ Generar un presupuesto defendible, calibrado y comercialmente entendible en base
    - USD finales
    - Ratio de calibracion
    - Ajuste de autocorreccion aplicado
-3. Bloque de autocorreccion por item: referencia, ratio, ajuste, motivo
-4. Sanity check del total: proyecto comparable, horas comparables, ratio, decision
-5. Cierre numerico por dos pasos (Paso A / Paso B)
-6. Desglose tecnico por capa (uso interno)
-7. Riesgos
-8. Supuestos
-9. Exclusiones
-10. Dependencias del cliente
-11. Criterios de aceptacion minimos
-12. Tabla simple para cliente: Area | USD (sin horas — son internas)
-13. Plan de mantenimiento anual recomendado segun cantidad de tablas del sistema (ver 27-presupuesto-parametros). Presentar como linea separada: "Mantenimiento anual — Plan X: USD Y/año".
-14. Condiciones comerciales (50/50, validez 30 dias)
-15. Nota de contingencia aplicada
+6. Bloque de autocorreccion por item: referencia, ratio, ajuste, motivo
+7. Sanity check del total: proyecto comparable, horas comparables, ratio, decision
+8. Cierre numerico por dos pasos (Paso A / Paso B)
+9. Desglose tecnico por capa (uso interno)
+10. Riesgos
+11. Supuestos
+12. Exclusiones
+13. Dependencias del cliente
+14. Criterios de aceptacion minimos
+15. Tabla simple para cliente: Area | USD (sin horas — son internas)
+16. Plan de mantenimiento anual recomendado segun cantidad de tablas del sistema (ver 27-presupuesto-parametros). Presentar como linea separada: "Mantenimiento anual — Plan X: USD Y/año".
+17. Condiciones comerciales (50/50, validez 30 dias)
+18. Nota de contingencia aplicada
 
 # Restricciones
 - No estimar M desde cero: siempre anclar en historico antes de ajustar.

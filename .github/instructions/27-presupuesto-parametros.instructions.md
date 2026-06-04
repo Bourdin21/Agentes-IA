@@ -24,22 +24,23 @@ Proyectos de referencia disponibles:
 
 ## Tasa vigente
 
-- Tasa base: USD 45 / hora (actualizada Junio 2026 — segunda actualizacion).
-- Tasa anterior inmediata: USD 40 / hora (Junio 2026, primer ciclo real confirmado).
+- Tasa base: USD 30 / hora (actualizada Junio 2026 — tercera actualizacion).
+- Tasa anterior inmediata: USD 45 / hora (Junio 2026, segunda actualizacion).
+- Tasa anterior: USD 40 / hora (Junio 2026, primer ciclo real confirmado).
 - Tasa anterior historica: USD 14 / hora (proyectos hasta Abril 2026 — quedan como referencia de horas, no de costo).
 - Aplicar a todos los presupuestos futuros salvo indicacion contraria del cliente.
-- Si el cliente negocia descuento, no bajar de USD 35/h sin aprobacion explicita.
+- Si el cliente negocia descuento, no bajar de USD 25/h sin aprobacion explicita.
 - La tasa es independiente de la complejidad: proyectos mas complejos se expresan en mas horas, no en mayor tarifa.
 
 ## Rangos de referencia por tipo de modulo
 
-Horas sin cambio. Costos actualizados a tasa USD 45/h (Junio 2026):
+Horas sin cambio. Costos actualizados a tasa USD 30/h (Junio 2026):
 
-- Ajuste puntual (campo, validacion, logica menor): 0.5 a 1 h - USD 23 a 45
-- ABM simple (sin relaciones, sin logica): 1 a 2 h - USD 45 a 90
-- ABM intermedio (con relaciones y validaciones): 4 a 7 h - USD 180 a 315
-- Modulo con workflow / estados: 4 a 6 h - USD 180 a 270
-- Modulo financiero o con logica compleja: 5 a 8 h - USD 225 a 360
+- Ajuste puntual (campo, validacion, logica menor): 0.5 a 1 h - USD 15 a 30
+- ABM simple (sin relaciones, sin logica): 1 a 2 h - USD 30 a 60
+- ABM intermedio (con relaciones y validaciones): 4 a 7 h - USD 120 a 210
+- Modulo con workflow / estados: 4 a 6 h - USD 120 a 180
+- Modulo financiero o con logica compleja: 5 a 8 h - USD 150 a 240
 
 ## Calibracion incremental Abril 2026 (dataset real compartido)
 
@@ -70,10 +71,10 @@ Reglas practicas de uso del dataset:
 - Si no hay modulo comparable claro, declarar incertidumbre y devolver rango por fase.
 
 ### Modificacion sobre modulo existente
-- Agregar campo simple: 0.5 h - USD 23
-- Agregar regla de negocio: 1 a 2 h - USD 45 a 90
-- Nuevo reporte o exportacion: 1 a 2 h - USD 45 a 90
-- Migracion EF requerida: sumar 0.5 h - USD 23 por cada migracion
+- Agregar campo simple: 0.5 h - USD 15
+- Agregar regla de negocio: 1 a 2 h - USD 30 a 60
+- Nuevo reporte o exportacion: 1 a 2 h - USD 30 a 60
+- Migracion EF requerida: sumar 0.5 h - USD 15 por cada migracion
 
 ## Planes de mantenimiento anual (OlvidataSoft — servidor a cargo del proveedor)
 
@@ -146,6 +147,7 @@ Regla de recalibracion obligatoria derivada de este patron:
 - **Junio 2026: tasa actualizada a USD 40/h.** Primer desarrollo real confirmado: iteracion evolutiva Delicias Naturales (mejoras Solicitudes de Ingreso de Stock + estado pedido), 4 h reales, USD 160 cobrados a USD 40/h. Ratio estimado/real: 1.0 (estimacion exacta).
 - **2026-06-03:** Modulo Relevamiento de Stock (Delicias Naturales), ABM intermedio. Horas reales: 5.5 h. USD 220 cobrados a tasa USD 40/h. Dataset ABM intermedio ampliado: 5h, 5.5h, 6.5h, 7h. Rango confirmado 5-7h, mediana 6h.
 - **2026-06-03:** Tasa actualizada a USD 45/h. Las horas ya no se exponen al cliente en el documento de presupuesto (solo USD por area funcional).
+- **2026-06-04:** Tasa actualizada a USD 30/h (tercera actualizacion). Presupuestos incluyen ahora: introduccion/contexto de relevamiento, alcance funcional detallado, tabla de especificaciones tecnicas del servicio y definicion de roles/usuarios del sistema.
 - **Junio 2026: sobreestimacion sistematica confirmada en ShowroomGriffin (4x) y Ganaderia (3.4x).** Ver seccion "Alerta de sobreestimacion sistematica" arriba.
 - Al referenciar historicos anteriores a Junio 2026, usar las horas como referencia de esfuerzo pero recalcular el costo con la tasa vigente de USD 40/h.
 - Revisar y actualizar la tasa cada 6 meses o ante cambio de contexto economico.
