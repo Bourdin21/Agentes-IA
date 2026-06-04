@@ -25,6 +25,7 @@ Convertir el analisis aprobado en diseno implementable sin romper reglas de capa
 3. Definir ViewModels y contratos de entrada/salida.
 4. Identificar eventos de negocio relevantes.
 5. Explicitar impacto por capa y dependencias.
+6. Redactar todas las historias de usuario derivadas del analisis y diseno funcional establecido. Cada historia debe seguir el formato: "Como <rol>, quiero <accion> para <beneficio>", con criterios de aceptacion verificables asociados. Cubrir todos los flujos, estados, permisos y casos de borde relevantes.
 
 # Salida
 1. Propuesta de pantallas/acciones
@@ -32,3 +33,4 @@ Convertir el analisis aprobado en diseno implementable sin romper reglas de capa
 3. ViewModels propuestos
 4. Impacto por capa
 5. Riesgos de implementacion
+6. Historias de usuario completas con criterios de aceptacion

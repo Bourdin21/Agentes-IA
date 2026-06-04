@@ -5,6 +5,13 @@
 
 ## Definiciones vigentes
 
+### Cobertura de historias de usuario
+<!--
+Tabla: Historia de usuario | Criterios validados | Resultado (cumple / no cumple / parcial)
+Completar luego de ejecutar pruebas contra las historias definidas por el disenador funcional.
+-->
+<completar>
+
 ### Casos de prueba acordados
 <completar>
 

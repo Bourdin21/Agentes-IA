@@ -45,15 +45,15 @@ Ejecutar la secuencia obligatoria sin saltos, garantizando trazabilidad, consist
 - Entrada de Analisis: discovery cerrado sin bloqueos criticos.
 - Salida de Analisis: criterios de aceptacion y alcance incluido/excluido.
 - Entrada de Diseno: analisis aprobado.
-- Salida de Diseno: propuesta funcional y validaciones.
+- Salida de Diseno: propuesta funcional, validaciones e historias de usuario con criterios de aceptacion.
 - Entrada de Arquitectura: diseno aprobado.
 - Salida de Arquitectura: mapa por capa e impacto en datos/migraciones.
 - Entrada de Presupuesto: arquitectura aprobada y alcance estable.
 - Salida de Presupuesto: WBS + O/M/P + riesgo + rango + costo.
 - Entrada de Implementacion: presupuesto aprobado.
 - Salida de Implementacion: cambios aplicados con trazabilidad por capa.
-- Entrada de Pruebas: implementacion finalizada.
-- Salida de Pruebas: evidencia funcional y riesgos residuales.
+- Entrada de Pruebas: implementacion finalizada e historias de usuario del disenador funcional.
+- Salida de Pruebas: tabla de cobertura de historias de usuario, evidencia funcional y riesgos residuales.
 - Entrada de Documentacion: pruebas funcionales concluidas.
 - Salida de Documentacion: alcance entregado para cliente.
 - Entrada de Cierre de calibracion: presupuesto y horas reales.

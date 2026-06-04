@@ -4,6 +4,14 @@
 - fecha: <YYYY-MM-DD>
 - estado: vigente
 
+## Historias de usuario
+<!--
+Formato: "Como <rol>, quiero <accion> para <beneficio>"
+Cada historia incluye sus criterios de aceptacion verificables.
+Esta seccion es fuente de verdad para la validacion QA.
+-->
+<completar>
+
 ## Definicion
 <completar>
 
