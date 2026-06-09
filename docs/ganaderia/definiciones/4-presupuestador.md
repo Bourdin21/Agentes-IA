@@ -127,18 +127,28 @@ Resumen de autocorreccion:
 
 | Entrega | Horas estimadas (base) | Horas reales | Desvio % | Motivo |
 |---|---:|---:|---:|---|
-| Primera entrega (MVP Etapa 1) | 81.5 h | 12 h | −85.3% | Sobreestimacion sistematica. Ver nota. |
-| Total proyectado | 101.0 h | en curso | — | Segunda entrega pendiente. |
+| Etapa 1 — primera entrega | 81.5 h (base total) | 12 h | −85.3% | Sobreestimacion sistematica. |
+| Etapa 1 — total con reentrega | 81.5 h (base total) | ~15 h | −81.6% | Reentrega incluida. Dato confirmado Junio 2026. |
+| Total proyectado (Etapa 1 + Etapa 2) | 101.0 h (con contingencia) | ~30 h | −70.3% | Proyeccion: Etapa 2 = ~15 h adicionales. |
 
 - Tasa cobrada: USD 12 / hora
-- Costo primera entrega real: USD 144 (12 h × USD 12)
-- Precio presupuestado al cliente: USD 1.212 (cerrado, no variable por horas)
-- Estado: primera entrega (MVP Etapa 1) completada en 12 h reales. Segunda entrega en curso.
+- Costo Etapa 1 real (con reentrega): ~15 h × USD 12 = USD 180
+- Precio presupuestado al cliente: USD 1.212 (cerrado, precio fijo)
+- Tasa efectiva real sobre proyecto completo proyectado: USD 1.212 / 30 h = USD 40.4/h
+- Tasa efectiva real con nueva tasa USD 35/h sobre horas reales: 30 h × USD 35 = USD 1.050
+- Diferencia economica original vs nuevo modelo: USD 1.212 vs USD 1.050 = USD 162 mas con modelo original
+- Estado: Etapa 1 completada (~15 h con reentrega). Etapa 2 en curso (~15 h proyectadas).
 
-Nota de calibracion: la estimacion fue mas de 6x las horas reales de la primera entrega. Patron consistente con ShowroomGriffin (101 h estimadas / 25 h reales = 4x). Ambos casos confirman sobreestimacion sistematica del metodo anterior. El rediseno del agente con anclaje historico obligatorio (Paso 0) busca corregir este patron.
+Comparativa por escenario (ver analisis completo en 27-presupuesto-parametros):
+- Precio fijo original: USD 1.212 | Tasa efectiva: USD 40.4/h sobre horas reales
+- Modelo nuevo (real × USD 35/h): USD 1.050 | Diferencia: USD 162 menos
+- PERT × USD 35/h (si no se recalibra): USD 3.535 | Inaceptable para el cliente (3.4x lo justo)
+
+Nota de calibracion: ratio PERT/real de 6.7x es el mayor registrado en el dataset. Supera a ShowroomGriffin (4x). Confirma que el PERT sin anclaje en horas reales IA es inapropiado para proyectos con IA asistida. El modelo de precio fijo original resulto rentable (USD 40.4/h efectivo > objetivo USD 35/h), pero no es reproducible ni transparente.
 
 ## Historial de ajustes
 
 - 2026-04-22: presupuesto inicial ejecutado sobre analisis funcional v10, diseno funcional v1 y arquitectura tecnica v1, con calibracion contra datasets Abril 2026 y estructura de trazabilidad creada para el proyecto.
 - 2026-06-02: cierre parcial registrado. Primera entrega: 15 h reales (valor provisional). Total proyectado al 100%: 30 h maximas. Desvio confirmado: ~−70%. Patron de sobreestimacion sistematica registrado.
 - 2026-06-03: primera entrega corregida a 12 h reales definitivas (MVP Etapa 1). Costo: USD 144 a tasa USD 12/h. Desvio vs estimado base: −85.3%.
+- 2026-06-08: Etapa 1 total con reentrega actualizada a ~15 h reales. Total proyecto proyectado: ~30 h. Analisis economico comparativo incorporado. Tasa efectiva real: USD 40.4/h (precio fijo) vs USD 35/h objetivo nuevo modelo.

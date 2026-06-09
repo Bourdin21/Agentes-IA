@@ -118,12 +118,22 @@ Politica de contingencia:
 - para ABM con contingencia fija del 30%, pruebas, documentacion y riesgo ordinario quedan absorbidos dentro de ese 30%; no deben presupuestarse como recargos separados
 - cuando se diferencie implementacion, pruebas, documentacion y riesgo en un ABM con 30%, esa apertura debe mostrarse como distribucion interna del esfuerzo total del modulo, no como suma incremental
 
+Politica de facturacion al cliente (OBLIGATORIO — no usar otro calculo):
+- El precio por modulo se calcula sobre M (caso mas probable), NO sobre las horas PERT finales con contingencia.
+- Formula vigente: Costo modulo = M / 2.5 x 1.20 x $35 = M x $16.80
+- El factor 2.5 es la eficiencia IA calibrada sobre cierres reales (ShowroomGriffin, Ganaderia).
+- El 20% es la contingencia temporal: cubre reentregas y desvios menores; no aplica contingencia adicional.
+- Las horas PERT con contingencia son el techo interno de esfuerzo, no la base del precio.
+- Las horas facturables internas (M / 2.5 x 1.20) no se exponen al cliente.
+- Al cliente se presenta solo USD por area funcional agrupada.
+- Verificar tasa vigente y formula en .github/instructions/27-presupuesto-parametros.instructions.md antes de cada presupuesto.
+
 Salida minima (presupuesto inicial):
 1. Introduccion y contexto de relevamiento: descripcion del cliente, necesidad relevada y objetivo del sistema.
 2. Alcance funcional detallado: descripcion completa de cada modulo funcional incluido en el alcance base, con sus funcionalidades puntuales.
 3. Tabla de especificaciones tecnicas del servicio: tecnologia (ASP.NET Core MVC, EF, MySQL), servidor/hosting, tipo de despliegue, requisitos de entorno y accesos.
 4. Roles y usuarios del sistema: listado de perfiles con descripcion de accesos y permisos por rol. El rol de super usuario queda reservado para uso interno del proveedor; no incluirlo en la documentacion entregada al cliente.
-5. Tabla por modulo funcional con: tipo de modulo, drivers, referencia historica usada (Paso 0), O, M base, M ajustado, P, horas PERT, distribucion interna entre implementacion/pruebas/documentacion/riesgo, riesgo, contingencia, horas finales y USD.
+5. Tabla por modulo funcional con: tipo de modulo, drivers, referencia historica usada (Paso 0), O, M base, M ajustado, P, horas PERT, distribucion interna entre implementacion/pruebas/documentacion/riesgo, riesgo, contingencia, horas finales, horas facturables (M/2.5x1.20) y USD (M x $16.80 — segun politica de facturacion vigente, NO horas PERT x tasa).
 6. Bloque de autocorreccion por item: referencia, ratio, ajuste aplicado, motivo.
 7. Sanity check del total del proyecto: proyecto comparable, horas comparables, ratio, decision.
 8. Cierre numerico por dos pasos (Paso A preliminar / Paso B final).

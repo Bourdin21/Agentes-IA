@@ -15,32 +15,43 @@ Proyectos de referencia disponibles:
 - /docs/recotrack/definiciones/4-presupuestador.md (dataset ABM simple/intermedio con 30% incluido)
 - /docs/lumitrack/definiciones/4-presupuestador.md (dataset ABM intermedio/complejo con 30% incluido)
 - /docs/piapartments/definiciones/4-presupuestador.md (ABM intermedio con 30% incluido)
+- /docs/energy-nutrition/definiciones/4-presupuestador.md (138 h estimadas, 14 modulos + 4 integraciones, referencia metodologica v4.0 — SIN CIERRE REAL, usar solo para integraciones externas y metodo)
 
 ## Conclusion de calibracion
 
-- Los proyectos cerrados confirman la tasa de USD 14 / hora como referencia solida.
+- Los proyectos historicos cerrados (Eleven, Vinosefue) confirman sus horas como referencia solida de esfuerzo. El costo se recalcula a la tasa vigente USD 35/h.
 - La tasa es independiente de la complejidad: proyectos mas complejos se expresan en mas horas, no en mayor tarifa.
 - La contingencia del 15% se aplica correctamente desde los 50h de base en adelante.
+- Con IA asistida, las horas reales son aprox. 1/3 de las horas PERT estimadas (patron confirmado en ShowroomGriffin y Ganaderia).
 
 ## Tasa vigente
 
-- Tasa base: USD 30 / hora (actualizada Junio 2026 — tercera actualizacion).
-- Tasa anterior inmediata: USD 45 / hora (Junio 2026, segunda actualizacion).
-- Tasa anterior: USD 40 / hora (Junio 2026, primer ciclo real confirmado).
+- Tasa base: USD 35 / hora (Junio 2026 — horas reales con contingencia temporal 20%).
+- Tasa anterior: USD 40 / hora (Junio 2026 — probada con contingencia 20%, revertida por ajuste de precio).
+- Tasa anterior: USD 30 / hora (Junio 2026 — usada en Energy Nutrition v4.0 como excepcion negociada).
 - Tasa anterior historica: USD 14 / hora (proyectos hasta Abril 2026 — quedan como referencia de horas, no de costo).
 - Aplicar a todos los presupuestos futuros salvo indicacion contraria del cliente.
-- Si el cliente negocia descuento, no bajar de USD 25/h sin aprobacion explicita.
+- Si el cliente negocia descuento, no bajar de USD 30/h sin aprobacion explicita.
+- La tasa aplica sobre horas reales con contingencia (ver formula en "Modelo de facturacion"), no sobre horas PERT.
 - La tasa es independiente de la complejidad: proyectos mas complejos se expresan en mas horas, no en mayor tarifa.
 
 ## Rangos de referencia por tipo de modulo
 
-Horas sin cambio. Costos actualizados a tasa USD 30/h (Junio 2026):
+Horas M (PERT caso probable) sin cambio. Costos calculados con formula vigente: M x $16.80 (= M/2.5 x 1.20 x $35).
+Las "horas facturables" son M/2.5 x 1.20 — no se exponen al cliente (solo USD por area funcional).
 
-- Ajuste puntual (campo, validacion, logica menor): 0.5 a 1 h - USD 15 a 30
-- ABM simple (sin relaciones, sin logica): 1 a 2 h - USD 30 a 60
-- ABM intermedio (con relaciones y validaciones): 4 a 7 h - USD 120 a 210
-- Modulo con workflow / estados: 4 a 6 h - USD 120 a 180
-- Modulo financiero o con logica compleja: 5 a 8 h - USD 150 a 240
+| Tipo de modulo | Rango M (h) | Horas facturables | USD (a $35/h con 20% cont.) |
+|---|---|---|---|
+| Ajuste puntual (campo, validacion, logica menor) | 0.5 – 1 h | 0.2 – 0.5 h | USD 8 – 17 |
+| ABM simple (sin relaciones, sin logica) | 1 – 2 h | 0.5 – 1.0 h | USD 17 – 34 |
+| ABM intermedio (con relaciones y validaciones) | 4 – 7 h | 1.9 – 3.4 h | USD 67 – 118 |
+| Modulo con workflow / estados | 4 – 6 h | 1.9 – 2.9 h | USD 67 – 100 |
+| Modulo financiero o con logica compleja | 5 – 8 h | 2.4 – 3.8 h | USD 84 – 134 |
+| ABM complejo (padre/hijos, trazabilidad) | 7.7 – 11.5 h | 3.7 – 5.5 h | USD 129 – 193 |
+| Integracion WS simple (OAuth + mapeo) | 3 – 4 h | 1.4 – 1.9 h | USD 50 – 67 |
+| Integracion webhook (BackgroundService + HMAC) | 8 – 10 h | 3.8 – 4.8 h | USD 134 – 168 |
+| Integracion ARCA/AFIP (codigo + cert + homologacion) | 7 – 9 h | 3.4 – 4.3 h | USD 118 – 151 |
+| Integracion batch doble (rate limit + token refresh) | 15 – 18 h | 7.2 – 8.6 h | USD 252 – 302 |
 
 ## Calibracion incremental Abril 2026 (dataset real compartido)
 
@@ -58,6 +69,13 @@ Resumen de rangos observados (horas finales con 30% incluida):
 - ABM complejo con padre/hijos detalle: 10 h como referencia inicial.
 - Notificaciones SignalR acotadas: 4.5 h como referencia inicial.
 
+Rangos de integraciones externas (horas base PERT, contingencia separada) — fuente: Energy Nutrition v4.0 (estimacion, sin cierre real):
+- Integracion WS simple (OAuth + mapeo): 3 – 4 h base.
+- Integracion webhook con BackgroundService (HMAC, async): 8 – 10 h base.
+- Integracion batch doble con rate limit y token refresh: 15 – 18 h base.
+- Integracion ARCA/AFIP (migracion codigo + cert .p12 + homologacion): 7 – 9 h base.
+Nota: estas referencias son estimaciones metodologicas (no cierres reales). Recalibrar cuando EN tenga cierre.
+
 Resumen de rangos base equivalentes (sin contingencia):
 - ABM simple: 1.5 a 3.1 h.
 - ABM intermedio: 3.1 a 5.4 h.
@@ -71,10 +89,10 @@ Reglas practicas de uso del dataset:
 - Si no hay modulo comparable claro, declarar incertidumbre y devolver rango por fase.
 
 ### Modificacion sobre modulo existente
-- Agregar campo simple: 0.5 h - USD 15
-- Agregar regla de negocio: 1 a 2 h - USD 30 a 60
-- Nuevo reporte o exportacion: 1 a 2 h - USD 30 a 60
-- Migracion EF requerida: sumar 0.5 h - USD 15 por cada migracion
+- Agregar campo simple: M ~0.5 h → USD 10
+- Agregar regla de negocio: M ~1 a 2 h → USD 20 a 40
+- Nuevo reporte o exportacion: M ~1 a 2 h → USD 20 a 40
+- Migracion EF requerida: M ~0.5 h → USD 10 por cada migracion
 
 ## Planes de mantenimiento anual (OlvidataSoft — servidor a cargo del proveedor)
 
@@ -95,16 +113,16 @@ Reglas de aplicacion:
 
 ## Extras opcionales (vigente 2026)
 
-Referencia para validar coherencia con tasa USD 45/h:
+Precios calculados con formula vigente (M x $16.80). Referencia a tasa USD 35/h con contingencia 20%:
 
-| Extra                        | Precio    | Horas equiv. | Validez calibracion                                       |
-|------------------------------|-----------|--------------|-----------------------------------------------------------|
-| Usuario adicional            | USD 100/año | —          | Costo de servicio, no de desarrollo. OK.                  |
-| Módulo nuevo                 | USD 200+  | 4 h+         | ABM intermedio mínimo: 4-7 h = USD 180-315. **Desde USD 200, cotizar por complejidad.** |
-| UI personalizada             | USD 100   | ~2.2 h       | CSS/theming básico. Justo en el limite bajo.              |
-| Optimización de performance  | USD 150   | ~3.3 h       | Aceptable para un pase acotado de queries + carga.        |
-| Ronda de ajuste extra        | USD 80    | ~1.8 h       | Cubre hasta 3 ajustes puntuales (0.5h c/u). Justo.        |
-| Backup automatizado mensual  | USD 80/año | —          | Costo de infraestructura. OK.                             |
+| Extra                        | Precio    | M equiv. | Validez calibracion                                       |
+|------------------------------|-----------|----------|-----------------------------------------------------------|
+| Usuario adicional            | USD 100/año | —      | Costo de servicio, no de desarrollo. OK.                  |
+| Modulo nuevo                 | USD 75+   | 4 h+     | ABM intermedio minimo M=4-7h = USD 75-135. Cotizar por complejidad. |
+| UI personalizada             | USD 40    | ~2 h     | CSS/theming basico. Razonable.                            |
+| Optimizacion de performance  | USD 60    | ~3 h     | Aceptable para un pase acotado de queries + carga.        |
+| Ronda de ajuste extra        | USD 40    | ~2 h     | Cubre hasta 4 ajustes puntuales (0.5h c/u). Justo.        |
+| Backup automatizado mensual  | USD 80/año | —      | Costo de infraestructura. OK.                             |
 
 ## Formato de entrega al cliente
 
@@ -124,6 +142,32 @@ Referencia para validar coherencia con tasa USD 45/h:
 - Integracion con hardware externo
 - Cambios de alcance posteriores al inicio (se presupuestan por separado)
 
+## Modelo de facturacion (Junio 2026)
+
+Objetivo: cobrar USD 35/h sobre horas reales de desarrollo con IA asistida, con contingencia temporal del 20%.
+
+Formula vigente:
+  Horas facturables por modulo = (M / 2.5) x 1.20
+  Costo modulo = Horas facturables x USD 35
+  Simplificado: Costo = M x 0.48 x $35 = M x $16.80
+
+- M es el valor "caso mas probable" del PERT (no el PERT calculado, no el P).
+- El factor 2.5 representa la eficiencia IA calibrada sobre cierres reales (ShowroomGriffin, Ganaderia).
+- El 20% de contingencia cubre reentregas, iteraciones menores y desvios de estimacion.
+- No aplicar contingencia adicional sobre la formula: el 20% ya la absorbe.
+- Excepcion: riesgo extremo documentado (integracion sin precedente, migracion de datos) puede sumarse justificado.
+
+Patron confirmado de ratio PERT / real en proyectos con IA asistida:
+
+| Proyecto | Horas PERT | Horas reales | Ratio PERT/real | Horas formula (M/2.5x1.2) | Ratio formula/real |
+|---|---:|---:|---:|---:|---:|
+| ShowroomGriffin | 101.1 h | 25 h | 4.0x | ~40.6 h | 1.6x |
+| Ganaderia | 101.0 h | ~30 h total | 3.4x | ~38.6 h | 1.3x |
+
+El ratio formula/real de 1.3x-1.6x confirma que la contingencia del 20% es un buffer razonable: protege sin inflar exageradamente.
+
+Factor de calibracion 2.5: fijo hasta que Energy Nutrition cierre. Recalibrar con ese cierre.
+
 ## Alerta de sobreestimacion sistematica confirmada (Junio 2026)
 
 Dos proyectos cerrados muestran el mismo patron: las estimaciones PERT sin anclaje historico previo producen entre 3x y 4x las horas reales.
@@ -131,7 +175,7 @@ Dos proyectos cerrados muestran el mismo patron: las estimaciones PERT sin ancla
 | Proyecto | Horas estimadas | Horas reales | Ratio estimado/real |
 |---|---:|---:|---:|
 | ShowroomGriffin | 101.1 h | 25 h | 4.0x |
-| Ganaderia | 101.0 h | 12 h (MVP Etapa 1, en curso) | >6x parcial |
+| Ganaderia | 101.0 h | ~15 h (Etapa 1 con reentrega) / ~30 h (proyecto completo proyectado) | 6.7x Etapa 1 / 3.4x total |
 
 Regla de recalibracion obligatoria derivada de este patron:
 - El M (caso mas probable) debe anclarse en la mediana historica de proyectos similares ANTES de estimar.
@@ -141,17 +185,30 @@ Regla de recalibracion obligatoria derivada de este patron:
 
 ## Notas de calibracion
 
-- Parametros calibrados en base a tres proyectos reales / presupuestados en 2025.
-- Total combinado base: 175 horas - USD 2.450 - tasa efectiva historica USD 14/h.
-- Total combinado con contingencias: 190 horas - USD 2.660.
-- **Junio 2026: tasa actualizada a USD 40/h.** Primer desarrollo real confirmado: iteracion evolutiva Delicias Naturales (mejoras Solicitudes de Ingreso de Stock + estado pedido), 4 h reales, USD 160 cobrados a USD 40/h. Ratio estimado/real: 1.0 (estimacion exacta).
-- **2026-06-03:** Modulo Relevamiento de Stock (Delicias Naturales), ABM intermedio. Horas reales: 5.5 h. USD 220 cobrados a tasa USD 40/h. Dataset ABM intermedio ampliado: 5h, 5.5h, 6.5h, 7h. Rango confirmado 5-7h, mediana 6h.
-- **2026-06-03:** Tasa actualizada a USD 45/h. Las horas ya no se exponen al cliente en el documento de presupuesto (solo USD por area funcional).
-- **2026-06-04:** Tasa actualizada a USD 30/h (tercera actualizacion). Presupuestos incluyen ahora: introduccion/contexto de relevamiento, alcance funcional detallado, tabla de especificaciones tecnicas del servicio y definicion de roles/usuarios del sistema.
-- **Junio 2026: sobreestimacion sistematica confirmada en ShowroomGriffin (4x) y Ganaderia (3.4x).** Ver seccion "Alerta de sobreestimacion sistematica" arriba.
-- Al referenciar historicos anteriores a Junio 2026, usar las horas como referencia de esfuerzo pero recalcular el costo con la tasa vigente de USD 40/h.
+- Parametros calibrados en base a proyectos reales cerrados y presupuestados desde 2025.
+- Total combinado historico base: 175 horas - USD 2.450 - tasa efectiva historica USD 14/h.
+- **Junio 2026 — primer ciclo real a tasa nueva:** iteracion evolutiva Delicias Naturales, 4 h reales, USD 160 a USD 40/h. Ratio estimado/real: 1.0 (estimacion exacta).
+- **2026-06-03:** Relevamiento de Stock (Delicias Naturales), ABM intermedio. 5.5 h reales a USD 40/h. Dataset ABM intermedio: 5h, 5.5h, 6.5h, 7h. Rango confirmado 5-7h, mediana 6h.
+- **2026-06-08:** Contingencia temporal del 20% incorporada a la formula. Tasa ajustada a USD 35/h (definitiva). Formula vigente: M/2.5 x 1.20 x $35 = M x $16.80. Energy Nutrition v6.1 calculado bajo esta formula.
+- Al referenciar historicos anteriores a Junio 2026, usar las horas como referencia de esfuerzo y recalcular el costo con la tasa vigente de USD 35/h.
 - Revisar y actualizar la tasa cada 6 meses o ante cambio de contexto economico.
 - La contingencia se aplica una unica vez segun la politica vigente (variable por riesgo 8/15/25 por defecto, o fija del cliente cuando aplique).
 - Para proyectos que incluyan migracion de datos, agregar entre 20% y 30% al total como riesgo declarado.
-- Facturacion AFIP es exclusion estandar salvo excepcion documentada.
-- Integraciones externas tipo Web Service se estiman entre 2 y 4 h por integracion segun complejidad.
+- Facturacion AFIP/ARCA es exclusion estandar salvo excepcion documentada.
+- Integraciones externas: ver rangos por tipo en seccion "Rangos de referencia por tipo de modulo".
+
+## Auditoria de inconsistencias — Junio 2026
+
+Detectadas al incorporar Energy Nutrition y definir objetivo USD 35/h. Estado de cada una:
+
+| # | Inconsistencia | Causa | Estado |
+|---|---|---|---|
+| I-1 | Tasa vigente USD 30/h estaba POR DEBAJO del piso declarado USD 35/h en Energy Nutrition 4b | Tasa bajo de 45→30 sin actualizar el piso | CORREGIDO — tasa vigente = USD 35/h, piso = USD 30/h |
+| I-2 | Extras opcionales referenciaban USD 45/h como tasa de validacion | No se actualizo la tabla al bajar la tasa | CORREGIDO — tabla recalculada a USD 35/h |
+| I-3 | Rangos de costo por modulo calculados a USD 30/h | Tercera actualizacion de tasa no los sincronizo | CORREGIDO — rangos actualizados a USD 35/h |
+| I-4 | Integraciones externas sin rango de referencia en dataset | Ningun proyecto anterior las incluia | CORREGIDO — 4 nuevos tipos de integracion agregados (fuente: EN v4.0, pendiente cierre real) |
+| I-5 | Sobreestimacion sistematica detectada pero sin guia de uso para modelo de horas reales | La alerta existia pero no decia que hacer si se cobra por hora real | CORREGIDO — seccion "Modelo de facturacion" con regla de division por 2.5 |
+| I-6 | Historial de tasa confuso (14→40→45→30 en mismo mes) sin razon explicita | Calibraciones rapidas sin documentar motivacion | CORREGIDO — historial simplificado en notas de calibracion |
+| I-7 | Ganaderia en dataset con tasa USD 12/h, inconsistente con tasas actuales | El documento de ganaderia usa tasa historica del contrato | PENDIENTE — al usar ganaderia como referencia de horas, ignorar la columna USD; recalcular a USD 35/h |
+| I-8 | Energy Nutrition sin cierre real, riesgo de usar sus horas como verdad | Proyecto en estado BORRADOR | MITIGADO — EN marcado explicitamente como "sin cierre real" en lista de proyectos y en su memoria |
+| I-9 | Metodo PERT no diferencia entre precio fijo y horas reales | El PERT siempre produjo estimaciones de "precio fijo maximo" | MITIGADO — seccion "Modelo de facturacion" documenta la diferencia y la regla de ajuste |
