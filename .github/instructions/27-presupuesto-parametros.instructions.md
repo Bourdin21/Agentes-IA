@@ -129,6 +129,7 @@ Precios calculados con formula vigente (M x $16.80). Referencia a tasa USD 35/h 
 - Documento simple, sin jerga tecnica
 - Agrupado por area funcional (no por capa tecnica)
 - Incluir tabla: Area | USD (las horas son internas — no se exponen al cliente)
+- Incluir siempre la linea "Uso de infraestructura IA (tokens): USD 100" dentro del total de desarrollo
 - Incluir seccion Que esta incluido y Que NO esta incluido
 - Condiciones estandar: 50% al inicio / 50% a la entrega
 - Validez de oferta: 30 dias
@@ -156,6 +157,11 @@ Formula vigente:
 - El 20% de contingencia cubre reentregas, iteraciones menores y desvios de estimacion.
 - No aplicar contingencia adicional sobre la formula: el 20% ya la absorbe.
 - Excepcion: riesgo extremo documentado (integracion sin precedente, migracion de datos) puede sumarse justificado.
+
+Cargo fijo por uso de tokens IA (vigente Junio 2026):
+- Todo presupuesto de proyecto suma USD 100 fijos en concepto de uso de tokens IA (costo de infraestructura de desarrollo IA asistida).
+- Se presenta como linea separada dentro del total de desarrollo (no se prorratea por modulo ni se mezcla con el mantenimiento anual).
+- No aplica a iteraciones evolutivas menores a 4 h facturables, salvo indicacion contraria.
 
 Patron confirmado de ratio PERT / real en proyectos con IA asistida:
 
