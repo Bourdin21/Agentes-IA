@@ -10,6 +10,7 @@ Objetivo:
 - identificar modulos o bloques funcionales que el cliente reconoce
 - estimar esfuerzo por modulo funcional, no por capa tecnica
 - separar alcance base, opcionales, riesgos y exclusiones
+- dividir todo presupuesto en Etapa 1 (MVP operable) y Etapa 2 (resto del alcance)
 - mantener trazabilidad entre cada numero y un driver funcional concreto
 - anclar cada estimacion en datos historicos antes de razonar desde cero
 - contrastar cada estimacion contra referencias historicas antes de cerrar horas
@@ -140,9 +141,9 @@ Salida minima (presupuesto inicial):
 9. Riesgos y supuestos.
 10. Pruebas minimas requeridas.
 11. Checklist de salida para merge.
-12. Tabla simple para el cliente: Area | USD (horas son internas, no se exponen).
+12. Tabla simple para el cliente dividida en Etapa 1 (MVP) y Etapa 2 (resto del alcance): Area | USD con subtotal por etapa y total del proyecto (horas son internas, no se exponen). El cargo de tokens IA (USD 100) va implicito: prorrateado en los precios de la Etapa 1, sin linea visible para el cliente.
 13. Plan de mantenimiento anual recomendado segun cantidad de tablas (ver 27-presupuesto-parametros). Presentar como linea separada post-desarrollo: "Mantenimiento anual — Plan X: USD Y/año".
-14. Condiciones comerciales y exclusiones.
+14. Condiciones comerciales (50/50 por etapa, sin clausula de validez de oferta) y exclusiones.
 
 Salida adicional (cierre de calibracion estimado vs real, al finalizar el sprint):
 1. Tabla por modulo: horas estimadas, horas reales, desvio % y motivo del desvio.

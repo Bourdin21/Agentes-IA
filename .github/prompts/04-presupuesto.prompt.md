@@ -51,7 +51,7 @@ Generar un presupuesto defendible, calibrado y comercialmente entendible en base
 11. Calcular ratio por item = Horas base PERT / Mediana historica base (del Paso 0). Ajustar si ratio > 1.15 o < 0.85.
 12. Verificar que no exista doble contingencia.
 13. Sanity check del total del proyecto: comparar el total de horas base contra proyectos cerrados de alcance similar. Si el ratio queda fuera de 0.80-1.20, justificar o recalibrar.
-14. Preparar salida al cliente agrupada por modulo funcional, no por capa.
+14. Preparar salida al cliente agrupada por modulo funcional, no por capa, dividida en Etapa 1 (MVP operable) y Etapa 2 (resto del alcance).
 15. Cierre numerico en dos pasos: Paso A (total preliminar) y Paso B (total ajustado). Comunicar Paso B al cliente.
 
 # Salida
@@ -84,9 +84,9 @@ Generar un presupuesto defendible, calibrado y comercialmente entendible en base
 12. Exclusiones
 13. Dependencias del cliente
 14. Criterios de aceptacion minimos
-15. Tabla simple para cliente: Area | USD (sin horas — son internas)
+15. Tabla simple para cliente dividida en Etapa 1 (MVP) y Etapa 2 (resto): Area | USD con subtotal por etapa y total del proyecto (sin horas — son internas). El cargo de tokens IA (USD 100) va implicito: prorrateado en los precios de la Etapa 1, sin linea visible para el cliente.
 16. Plan de mantenimiento anual recomendado segun cantidad de tablas del sistema (ver 27-presupuesto-parametros). Presentar como linea separada: "Mantenimiento anual — Plan X: USD Y/año".
-17. Condiciones comerciales (50/50, validez 30 dias)
+17. Condiciones comerciales (50/50 por etapa; sin clausula de validez de oferta)
 18. Nota de contingencia aplicada
 
 # Restricciones

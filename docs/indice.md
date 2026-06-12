@@ -14,3 +14,4 @@ Registrar una fila por cada proyecto con memoria activa en /docs.
 | ShowroomGriffin | 2026-04-28 | abierto | /docs/ShowroomGriffin |
 | virtualwallet | 2026-04-28 | abierto | /docs/virtualwallet |
 | meta-ads | 2026-05-13 | activo | /docs/meta-ads |
+| labipac | 2026-06-12 | activo | /docs/labipac |

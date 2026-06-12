@@ -129,10 +129,11 @@ Precios calculados con formula vigente (M x $16.80). Referencia a tasa USD 35/h 
 - Documento simple, sin jerga tecnica
 - Agrupado por area funcional (no por capa tecnica)
 - Incluir tabla: Area | USD (las horas son internas — no se exponen al cliente)
-- Incluir siempre la linea "Uso de infraestructura IA (tokens): USD 100" dentro del total de desarrollo
 - Incluir seccion Que esta incluido y Que NO esta incluido
-- Condiciones estandar: 50% al inicio / 50% a la entrega
-- Validez de oferta: 30 dias
+- Dividir todo presupuesto en dos etapas: Etapa 1 (MVP — el minimo que permite al cliente operar el negocio) y Etapa 2 (resto del alcance). Cada etapa con su tabla Area | USD y subtotal; el total del proyecto es la suma de ambas.
+- El cargo fijo de tokens IA (USD 100) va IMPLICITO en el presupuesto (regla vigente Junio 2026, reemplaza la linea separada usada hasta KOI): se prorratea proporcionalmente dentro de los precios por area de la Etapa 1 y NO se muestra como linea ni concepto al cliente. El prorrateo queda explicitado solo en la memoria interna 4-presupuestador.md.
+- Condiciones estandar: 50% al inicio / 50% a la entrega de cada etapa
+- No incluir clausula de validez de la oferta (regla vigente Junio 2026; reemplaza la "validez 30 dias" usada hasta KOI)
 
 ## Exclusiones fijas (siempre aplicar salvo excepcion documentada)
 
@@ -160,7 +161,7 @@ Formula vigente:
 
 Cargo fijo por uso de tokens IA (vigente Junio 2026):
 - Todo presupuesto de proyecto suma USD 100 fijos en concepto de uso de tokens IA (costo de infraestructura de desarrollo IA asistida).
-- Se presenta como linea separada dentro del total de desarrollo (no se prorratea por modulo ni se mezcla con el mantenimiento anual).
+- Va IMPLICITO en el presupuesto al cliente: se prorratea proporcionalmente dentro de los precios por area de la Etapa 1 (MVP). No se muestra como linea ni concepto al cliente, ni se mezcla con el mantenimiento anual. El detalle del prorrateo queda en la memoria interna 4-presupuestador.md. (Regla actualizada 2026-06-12; hasta KOI se mostraba como linea separada.)
 - No aplica a iteraciones evolutivas menores a 4 h facturables, salvo indicacion contraria.
 
 Patron confirmado de ratio PERT / real en proyectos con IA asistida:
