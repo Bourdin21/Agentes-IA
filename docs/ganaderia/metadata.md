@@ -5,6 +5,7 @@
 - estado: abierto
 - owner: OlvidataSoft
 - descripcion: Sistema de gestion ganadera para productor argentino con modulos de ingresos, egresos, stock, caja, dashboard y catalogos operativos.
+- ruta_repositorio: <completar: C:\Sistemas\ganaderia - emo o C:\Sistemas\ganaderia - fausto>
 - ruta_definiciones: /docs/ganaderia/definiciones
 
 ## Archivos de memoria por agente

@@ -5,6 +5,7 @@
 - estado: abierto
 - owner: OlvidataSoft
 - descripcion: Gestion de finanzas personales. Clean Architecture .NET 10 + MySQL.
+- ruta_repositorio: C:\Sistemas\virtualwallet
 - ruta_definiciones: /docs/virtualwallet/definiciones
 
 ## Archivos de memoria por agente

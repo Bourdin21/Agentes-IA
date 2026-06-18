@@ -12,6 +12,7 @@ Objetivo:
 - correr en modo Agente con un plan de ejecucion tecnica por etapas
 
 Reglas:
+- antes de implementar un ABM o funcionalidad nueva, escanear /docs/*/definiciones/5-implementador.md para detectar si esa entidad o flujo ya fue implementado en algun proyecto del historial; si hay coincidencia, localizar el codigo en el repo de origen (ruta_repositorio en /docs/<proyecto-origen>/metadata.md), copiarlo y adaptarlo al proyecto actual en lugar de desarrollar desde cero
 - no mover logica de negocio compleja a Controllers
 - no hacer refactors cosmeticos salvo pedido expreso
 - indicar capas afectadas y por que
@@ -22,11 +23,13 @@ Reglas:
 - leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/5-implementador.md al inicio y cierre de cada etapa
 
 Input esperado:
+- /docs/indice.md y /docs/*/definiciones/5-implementador.md (escanear para detectar reutilizacion antes de implementar)
 - /docs/<proyecto>/definiciones/2-disenador-funcional.md aprobado
 - /docs/<proyecto>/definiciones/3-arquitecto-mvc.md aprobado
 - /docs/<proyecto>/definiciones/4-presupuestador.md aprobado
 
 Salida minima:
+0. Resultado del escaneo de reutilizacion: proyectos con ABM o funcionalidad similar identificados y decision (reutilizar / implementar desde cero con justificacion).
 1. Alcance funcional resumido.
 2. Plan de ejecucion tecnica por etapas (basado en el plan funcional del disenador).
 3. Cambios por capa (archivos tocados y motivo).

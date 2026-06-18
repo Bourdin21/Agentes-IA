@@ -5,7 +5,7 @@
 - estado: activo
 - owner: OlvidataSoft
 - descripcion: Automatizacion de campanas publicitarias en Meta (Facebook/Instagram Ads) para Olvidata Soft. Python + .NET. Script de creacion de campanas via Meta Marketing API.
-- repo: C:\Sistemas\Meta Ads
+- ruta_repositorio: C:\Sistemas\Meta Ads
 - stack: Python 3.12 + .NET 10 (C#) + Meta Marketing API v21
 - ruta_definiciones: /docs/meta-ads/definiciones
 

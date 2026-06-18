@@ -5,6 +5,7 @@
 - estado: cerrado
 - owner: OlvidataSoft
 - descripcion: Gestion Integral Eleven La Plata. 27 modulos funcionales. Clean Architecture .NET 10 + MySQL.
+- ruta_repositorio: C:\Sistemas\elevenlaplata
 - ruta_definiciones: /docs/eleven-la-plata/definiciones
 
 ## Archivos de memoria por agente

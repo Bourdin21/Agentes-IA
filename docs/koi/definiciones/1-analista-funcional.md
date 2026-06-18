@@ -1,8 +1,8 @@
-# 1 - Analista funcional — Proyecto KOI
+﻿# 1 - Analista funcional — Proyecto KOI
 
 > Memoria acumulativa del agente analista funcional.
-> Etapa: Discovery + Análisis funcional. Estado: CERRADO (aprobado para diseño).
-> Fecha: 2026-06-11.
+> Etapa: Discovery + Análisis + Sesión de definición. Estado: 🟡 PARCIALMENTE ACTUALIZADO — 31 decisiones confirmadas en reunión · 7 nuevas preguntas abiertas derivadas de cambios de alcance · cascada a diseño, arquitectura y presupuesto pendiente.
+> Fecha: 2026-06-11. Última actualización: 2026-06-11 — Sesión de definición procesada.
 
 ## 1. Contexto del cliente
 
@@ -151,15 +151,93 @@ Necesidad: un sistema web que reemplace ambos Excel y dé a cada inversor un **d
 | Máquina de estados | **Sí, acotada** | Ciclo del período mensual (Abierto/Cerrado/Reabierto) y de la liquidación (Pendiente/Pagada). |
 | Migración de datos | **Sí (excepción acordada)** | Carga inicial 2024–2026 de ambos Excel. |
 
-## 8. Preguntas pendientes (hipótesis a validar con el cliente)
+## 8. Preguntas pendientes — ESTADO AL CIERRE DE SESIÓN DE DEFINICIÓN
 
-Las decisiones de cámaras (embebido Hik-Connect), históricos (incluidos) e integración Ayres (etapa 2) ya fueron confirmadas por el cliente. Quedan abiertas, sin bloquear el presupuesto:
+### Hipótesis originales: CERRADAS
+| # | Hipótesis original | Resolución |
+|---|---|---|
+| H-01 | ¿Utilidad a repartir admite ajuste manual? | ✅ **Opción B confirmada** — Admin puede ajustar el monto con motivo obligatorio |
+| H-02 | ¿Inversores ven Ventas B discriminadas? | ✅ **Opción B confirmada** — Dashboard muestra solo total. **Nueva categorización: Salón / Delivery** |
 
-1. **¿La utilidad a repartir admite ajustes manuales antes de liquidar?**
-   - Opción A (hipótesis): se reparte exactamente el Resultado Ejercicio del mes, como el Excel.
-   - Opción B (hipótesis): el Admin puede ajustar el monto a repartir (ej. retener una reserva extra un mes puntual) dejando registro del ajuste.
-   - Se presupuesta con la opción A (comportamiento actual del Excel).
-2. **¿Los inversores deben ver las Ventas "B" identificadas como tales?**
-   - Opción A (hipótesis): el dashboard muestra ventas A y B discriminadas, como el Excel que hoy circula entre inversores.
-   - Opción B (hipótesis): el dashboard muestra solo el total de ventas, sin discriminar.
-   - Se presupuesta con la opción A (réplica del Excel actual).
+### Preguntas nuevas abiertas — derivadas de la sesión
+
+| ID | Pregunta | Módulo impactado | Urgencia |
+|---|---|---|---|
+| P-A01 | **¿"Cantidad de comensales" se carga manualmente o viene de Ayres POS (etapa 2)?** Si es manual: va en M6 (Indicadores de Venta). Si es de Ayres: fuera de alcance base. | M6 (Indicadores) + Dashboard | 🔴 Bloqueante para M6 |
+| P-A02 | **¿"Ventas Salón" y "Ventas Delivery" reemplazan completamente a "Ventas A/B (facturadas/no facturadas)" o se suman?** Si reemplazan: la base de cálculo de comisiones/IIBB/débitos (antes: Ventas A) ahora es ¿Salón? ¿Delivery? ¿Total? Si conviven: ¿hay 4 campos (VentasASalón, VentasBSalón, VentasADelivery, VentasBDelivery)? | M4 (Estado de Resultados) + `VentaMensual` + cálculos porcentuales | 🔴 Bloqueante para M4 |
+| P-A03 | **¿Qué API de cotización del dólar y cuál cotización?** Hipótesis A: DolarAPI (blue / MEP / CCL / oficial). Hipótesis B: BCRA API oficial. Hipótesis C: Bluelytics. La cotización elegida afecta significativamente los valores USD de los inversores. | M3 (TC) + nueva integración | 🔴 Alto |
+| P-A04 | **Con el período no reabreble: si hay un error en un gasto después de cerrar, ¿qué hace el Admin?** Hipótesis A: el error queda registrado, se admite una "nota de corrección" sin recalcular. Hipótesis B: hay un mecanismo de ajuste (nuevo concepto "Ajuste de corrección") que recalcula el resultado. | M10 (Liquidaciones) + máquina de estados | 🟡 Medio |
+| P-A05 | **Dashboard "actual": ¿muestra datos del mes Abierto (con datos parciales) o solo del último Cerrado?** El cliente dice "datos del mes actual". Hipótesis A: muestra el último mes Cerrado siempre (más consistente). Hipótesis B: muestra el mes en curso Abierto con lo que se haya cargado hasta ahora (más dinámico, pero puede confundir con datos incompletos). | M7 (Dashboard) + P-02 rediseño | 🟡 Medio |
+| P-A06 | **¿Las notificaciones in-app tienen expiración o se acumulan?** Hipótesis A: el inversor las marca como leídas; se archivan pero no desaparecen. Hipótesis B: expiran a los N días (ej.: 30 días). Hipótesis C: el Admin puede eliminarlas manualmente. | Módulo nuevo Notificaciones | 🟡 Medio |
+| P-A07 | **Preview antes de cerrar: ¿el Admin puede modificar consumos en el preview o solo ver y confirmar?** Hipótesis A: el preview es solo informativo (ver calculado → confirmar). Hipótesis B: el preview es editable (muestra las liquidaciones y permite editar consumos antes de confirmar el cierre). | M10 (Liquidaciones) + UX de cierre | 🟡 Medio |
+
+---
+
+## 9. Sesión de definición — Junio 2026
+
+> Respuestas recibidas en reunión presencial. 31 decisiones confirmadas y 7 nuevas preguntas abiertas.
+
+### 9.1 Decisiones confirmadas
+
+| # | Punto | Decisión confirmada | Impacto en alcance |
+|---|---|---|---|
+| D-01 | Ajuste de monto a repartir (H-01) | **Opción B**: Admin ajusta el monto con motivo obligatorio antes de generar liquidaciones | ➕ Expansión M10; nuevo campo `MontoAjustado` + `MotivoAjuste` |
+| D-02 | Categorías de venta (H-02) | **Opción B** + redefinición: sin A/B en dashboard; categorías: **Salón / Delivery** | 🔴 Redefinición de `VentaMensual`; bases de cálculo porcentuales A CONFIRMAR (P-A02) |
+| D-03 | Rubros obligatorios para cerrar | Solo Ventas (Salón + Delivery) y TC son obligatorios; gastos pueden quedar en $0 | Simplifica validación de cierre |
+| D-04 | Estado Reabierto | **Eliminado**: período no puede reabrirse una vez cerrado (una vez que hay liquidaciones) | ➖ Simplifica máquina de estados → solo Abierto → Cerrado |
+| D-05 | Consumos: momento de carga | Se cargan **antes** de cerrar el período; editables mientras liquidación en `Pendiente` (⚠️ P-A07 a confirmar si aplica en preview) | Impacta P-08 y flujo de cierre |
+| D-06 | Pago masivo de liquidaciones | **Hipótesis C confirmada**: selección múltiple (checkboxes) + botón "Pagar seleccionadas" con fecha única | Impacta P-08 UI |
+| D-07 | Resultado negativo del mes | Liquidación con monto **$0** si el resultado es negativo; el inversor no pierde plata | Regla de negocio: `Max(0, utilidad × puntos)` |
+| D-08 | Consumos: granularidad | Monto único mensual por inversor (S-4 confirmado); sin detalle de ítems | Sin cambio |
+| D-09 | Capital del inversor | Fijo, sin historial de cambios (Hipótesis A confirmada) | Sin cambio |
+| D-10 | Tipo de cambio | **Nueva integración**: API de cotización del dólar para pre-cargar TC automáticamente | ➕ Nuevo módulo/expansión M3; bandera integración → Sí (SMTP + API dólar) |
+| D-11 | Dashboard por defecto | Último período **Cerrado** disponible al abrir | Sin cambio de entidades |
+| D-12 | Tema por defecto | **Oscuro** para usuarios nuevos | Solo UI |
+| D-13 | Admin sin "Mi inversión" | Admin NO tiene pantalla "Mi inversión" personal (Hipótesis B confirmada) | Simplifica P-10 |
+| D-14 | CMV siempre manual | Confirmado | Sin cambio |
+| D-15 | Grilla liquidaciones | P-08 muestra todos los inversores; select múltiple para filtrar | Impacta P-08 UI |
+| D-16 | Nota libre en liquidación | **Hipótesis B confirmada**: campo `Observaciones` libre por inversor | Nuevo campo `LiquidacionInversor.Observaciones` |
+| D-17 | Barra progreso recupero | Hitos 25/50/75/100% con celebración visual al 100% | Solo UI P-10 |
+| D-18 | Dashboard: dos pantallas | **(1)** Dashboard del mes actual / liquidación corriente; **(2)** Histórico / evolución mes a mes | ➕ Expansión M7 → puede requerir pantalla nueva |
+| D-19 | KPIs del Dashboard | Ventas total (torta Salón/Delivery), Resultado vs. mes anterior (barras), Rentabilidad%, Utilidad por punto, Valores USD, Ticket/cubierto/**comensales** | Nuevo KPI "comensales" → depende de P-A01 |
+| D-20 | Cámaras | iframe preferido con fallback a pestaña nueva | Sin cambio |
+| D-21 | Correo de cierre — contenido | **Simplificado**: solo aviso de que la liquidación está disponible + botón de acceso. Sin resumen del mes en el email | ➖ Simplifica M15 (`NotificacionService`) |
+| D-22 | Excel fuente | Ambos Excel listos para entregar ✅ | Sin riesgo de demora en M14 |
+| D-23 | Validación migración | El SuperAdmin (proveedor) valida internamente los totales | Sin cambio de proceso |
+| D-24 | Migración de históricos | Se migran todos los datos hasta el último mes con datos en el Excel (incluyendo meses 2026 parciales) | Acota el alcance de M14 |
+| D-25 | Exportación Excel | **Eliminada** del alcance (P-04 solo lectura, sin export) | ➖ Simplifica M5; reduce precio |
+| D-26 | Puntos de inversión | Los 100 puntos ya están definidos y **no van a cambiar**; gestión de puntos = ABM de solo lectura / asignaciones históricas | ➖ Simplifica M9 significativamente |
+| D-27 | Configuración SMTP | Se configura desde el código por el proveedor, no hay pantalla de configuración en la UI | ➖ Elimina P-14 de config SMTP; simplifica M15 |
+| D-28 | Preview antes de cerrar | **Nueva UX**: modal/pantalla de preview con liquidaciones calculadas antes de confirmar el cierre del período | ➕ Expande M10 (flujo de cierre) |
+| D-29 | Panel de notificaciones in-app | **Nueva funcionalidad**: Admin crea notificaciones dirigidas; select múltiple destinatarios (todos o algunos inversores); visible en navbar de todos los roles | ➕ Nuevo módulo; usa `INotificationService` BlankProject |
+| D-30 | Reabrir liquidación individual | Solo Admin puede reabrir liquidación individual (`Pagada → Pendiente`) con motivo obligatorio; el período global no se puede reabrir | Sin cambio de entidades (ya estaba en D-04) |
+| D-31 | "Cantidad de comensales" | Nuevo KPI declarado por el cliente para el Dashboard | Depende de P-A01 (manual → expande M6 / Ayres → etapa 2) |
+
+### 9.2 Cambios netos en alcance
+
+| Tipo | Cambio | Módulo | Impacto en precio |
+|---|---|---|---|
+| ➕ Adición | Ajuste manual del monto a repartir + motivo | M10 | Sube |
+| ➕ Adición | Integración API dólar para TC automático | M3 (expansión) | Sube |
+| ➕ Adición | Segunda pantalla Dashboard (Histórico) | M7 (expansión) | Sube |
+| ➕ Adición | Panel de notificaciones in-app con targeting por usuario | Módulo nuevo | Sube |
+| ➕ Adición | Preview de liquidaciones antes de confirmar el cierre | M10 | Sube leve |
+| ➕ Adición | Campo `Observaciones` en liquidación del inversor | M10 | Sube leve |
+| ➕ Adición | "Cantidad de comensales" (si es manual) | M6 | Sube leve |
+| ➖ Eliminación | Exportación Excel del estado de resultados | M5 | Baja |
+| ➖ Eliminación | Estado Reabierto del período | M10 | Baja |
+| ➖ Eliminación | Pantalla de configuración SMTP | M15 | Baja |
+| ➖ Simplificación | Contenido del correo de cierre (solo aviso + botón) | M15 | Baja |
+| ➖ Simplificación | Puntos de inversión fijos (sin gestión dinámica) | M9 | Baja |
+| 🔄 Redefinición | Ventas A/B → Ventas Salón/Delivery + bases de cálculo porcentuales | M4, `VentaMensual` | A resolver en P-A02 |
+
+> ⚠️ **El presupuesto v3 (USD 1.301) requiere recálculo** una vez respondidas P-A01 y P-A02. Los cambios positivos y negativos son similares en magnitud; se estima que el total se mantiene en un rango cercano al original. La cascada completa se documenta en `4-presupuestador.md` tras cerrar las nuevas preguntas.
+
+### 9.3 Banderas tempranas actualizadas
+
+| Bandera | Valor anterior | Valor actualizado | Nota |
+|---|---|---|---|
+| Migración EF | Sí | **Sí** | Sin cambio |
+| Integración externa | Sí, acotada (SMTP) | **Sí — 2 integraciones**: SMTP (correo de cierre) + API cotización dólar (TC automático) | API dólar es nueva |
+| Máquina de estados | Sí, acotada | **Sí, simplificada** | Período: solo Abierto→Cerrado (eliminado Reabierto); Liquidación: Pendiente↔Pagada sin cambios |
+| Migración de datos | Sí (excepción acordada) | **Sí** | Sin cambio |

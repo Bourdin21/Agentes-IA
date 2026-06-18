@@ -5,6 +5,7 @@
 - estado: cerrado
 - owner: OlvidataSoft
 - descripcion: Sistema de gestion de servicios de recoleccion. Dataset de calibracion Abril 2026.
+- ruta_repositorio: C:\Sistemas\recotrack
 - ruta_definiciones: /docs/recotrack/definiciones
 
 ## Archivos de memoria por agente

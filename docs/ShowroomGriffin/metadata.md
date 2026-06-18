@@ -17,6 +17,7 @@
 | **Logging** | Serilog |
 | **PDF** | QuestPDF |
 | **Arquitectura** | Clean Architecture (Domain, Application, Infrastructure, Web) |
+| **ruta_repositorio** | C:\Sistemas\ShowroomGriffin |
 | **Repositorio** | https://gitlab.com/olvidata/ShowroomGriffin |
 | **Branch principal** | main |
 

@@ -22,6 +22,7 @@ Aplicar los cambios aprobados con trazabilidad por capa y sin romper comportamie
 - Codigo fuente actual
 
 # Tareas
+0. Escanear /docs/*/definiciones/5-implementador.md de todos los proyectos para detectar si el ABM o funcionalidad ya fue implementado; si hay coincidencia, copiar el codigo del repo de origen (ruta_repositorio en metadata.md del proyecto origen) y adaptarlo.
 1. Enumerar archivos y capas a modificar antes de editar.
 2. Implementar en orden: Datos -> Negocio -> Presentacion.
 3. Mantener cambios acotados al alcance aprobado.

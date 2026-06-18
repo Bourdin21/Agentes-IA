@@ -5,6 +5,7 @@
 - estado: cerrado
 - owner: OlvidataSoft
 - descripcion: Sistema de gestion de reclamos y cuadrillas. Dataset de calibracion Abril 2026.
+- ruta_repositorio: C:\Sistemas\LumiTrack
 - ruta_definiciones: /docs/lumitrack/definiciones
 
 ## Archivos de memoria por agente

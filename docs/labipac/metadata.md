@@ -5,6 +5,7 @@
 - estado: activo
 - owner: Usuario unico
 - descripcion: Calculadora web de monto a cobrar para estudios medicos y practicas.
+- ruta_repositorio: C:\Sistemas\labipac
 - ruta_definiciones: /docs/labipac/definiciones
 
 ## Archivos de memoria por agente

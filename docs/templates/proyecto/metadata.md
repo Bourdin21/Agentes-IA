@@ -6,6 +6,7 @@
 - owner: <completar>
 - descripcion: <completar>
 - ruta_definiciones: /docs/<proyecto>/definiciones
+- ruta_repositorio: <ruta absoluta al repo del sistema, ej: C:\Sistemas\NombreProyecto>
 
 ## Archivos de memoria por agente
 - analista-funcional: /docs/<proyecto>/definiciones/1-analista-funcional.md

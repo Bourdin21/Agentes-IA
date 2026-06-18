@@ -5,6 +5,7 @@
 - estado: cerrado
 - owner: OlvidataSoft
 - descripcion: Gestion Comercial Delicias Naturales. 19 modulos funcionales. ASP.NET MVC 5 + .NET Framework 4.7.2 + EF6 + MySQL.
+- ruta_repositorio: C:\Sistemas\delicias-naturales
 - ruta_definiciones: /docs/delicias-naturales/definiciones
 
 ## Archivos de memoria por agente
