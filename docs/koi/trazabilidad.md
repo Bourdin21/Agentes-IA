@@ -1,4 +1,4 @@
-# Trazabilidad del proyecto
+﻿# Trazabilidad del proyecto
 
 Registro acumulativo de decisiones y ajustes por etapa y agente.
 
@@ -52,3 +52,25 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Motivo: pedido del cliente posterior al presupuesto v2; bandera de integración externa pasa a "Sí, acotada (SMTP)".
 - Impacto en capas: Presentacion (P-14, plantilla), Negocio (NotificacionService, idempotencia por período), Datos (2 entidades nuevas).
 - Riesgos/supuestos: entregabilidad del correo depende del servicio SMTP del cliente; fallos de envío no bloquean el cierre; re-cierre no duplica correos sin confirmación.
+
+### 2026-06-11 15:00 - analista-funcional / disenador-funcional / arquitecto-mvc / presupuestador
+- Etapa: Análisis → Presupuesto (cascada por sesión de definición — cierre P-A01 a P-A07)
+- Cambio: 7 preguntas abiertas cerradas en sesión con el cliente. Cambios incorporados a los 4 documentos:
+  - **P-A01** (comensales): campo `CantidadComensales` agregado a `IndicadorVenta` y a P-06; Ayres en etapa 2.
+  - **P-A02** (ventas 4 campos): `VentaMensual` pasa a `VentasASalon / VentasBSalon / VentasADelivery / VentasBDelivery`. Agregados calculados: VentasA, VentasTotales, VentasSalon, VentasDelivery. Nueva torta Salón/Delivery en Dashboard. Riesgo M14 elevado: históricos pueden no tener apertura Salón/Delivery desagregada.
+  - **P-A03** (TC con selector): integración `ICotizacionService` copiada de VirtualWallet (ArgentinaDatos histórico + DolarApi hoy, cache 30min/6h). UX: tabla de cotizaciones por casa + default blue promedio + edición manual antes de guardar.
+  - **P-A04** (error post-cierre): sin mecanismo técnico. Estado Reabierto del período **eliminado**. Admin + SuperUsuario operan fuera del sistema.
+  - **P-A05** (dashboard mes abierto): Dashboard muestra mes abierto con datos parciales; TC pendiente → valores USD como "pendiente".
+  - **P-A06** (notificaciones sin expiración): confirmado, sin cambio de arquitectura.
+  - **P-A07** (preview editable): P-08 opera en dos modos — Modo A (preview antes del cierre, consumos editables, botón "Confirmar y cerrar") y Modo B (gestión post-cierre). Nuevo ViewModel `LiquidacionPreviewVM`. Nueva entidad `AjusteLiquidacion` para auditar ajuste manual de monto a repartir.
+- Motivo: sesión de definición con el cliente — cierre de todas las hipótesis abiertas.
+- Impacto en capas: Presentacion (P-03 4 campos, P-06 comensales, P-08 preview dual, Dashboard parcial+torta), Negocio (CotizacionService, eliminación Reabierto, flujo preview→cierre), Datos (VentaMensual 4 campos, AjusteLiquidacion nueva, IndicadorVenta+comensales, ~24 tablas).
+- Presupuesto: v3 → **v4 = USD 1.411** (+USD 110 por P-A01/02/03/05/07; ahorro eliminación Reabierto absorbido por complejidad M14 y CotizacionService). Tabla de precios actualizada en presupuesto.md.
+- Riesgos/supuestos: riesgo M14 re-elevado y luego **CERRADO en la misma sesión** — ver entrada siguiente.
+
+### 2026-06-11 15:30 - analista-funcional
+- Etapa: Análisis (cierre de riesgo M14)
+- Cambio: confirmado por el cliente que los Excel históricos **no traen apertura Salón/Delivery** (solo A/B). Estrategia de migración M14 cerrada: `VentasADelivery = VentasBDelivery = 0`; `VentasASalon = VentasA`, `VentasBSalon = VentasB`. Cada período migrado recibe observación automática `"Desglose Salón/Delivery no disponible en datos fuente"`. El Dashboard mostrará 100 % Salón en los períodos históricos hasta el primer mes con datos reales. Delta USD 17 en M14 confirmado y justificado.
+- Motivo: respuesta del cliente a la pregunta abierta de M14.
+- Impacto en capas: Datos (ImportacionInicialService: lógica de mapeo definida). Sin cambio en entidades ni en el resto del modelo.
+- Riesgos/supuestos: R-A2 del arquitecto cerrado. No quedan preguntas abiertas en el análisis funcional de KOI.

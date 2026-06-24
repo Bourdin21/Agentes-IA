@@ -4,6 +4,20 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-06-23 19:05 - presupuestador — TOKEN IA EXPLICITO
+- Etapa: Presupuesto / Estandarizacion de formato
+- Cambio: Se adopta presentacion de Tokens IA como item individual y visible (sin prorrateo visible por modulo) en la memoria de presupuesto y en la plantilla de presupuesto cliente para futuros proyectos.
+- Motivo: Mejor transparencia comercial y comunicacion del valor agregado de desarrollo asistido por IA.
+- Impacto en capas: Documentacion comercial y memoria interna del agente presupuestador.
+- Riesgos/supuestos: Mantener consistencia entre subtotal desarrollo, Tokens IA y total cliente para evitar doble conteo en cierres futuros.
+
+### 2026-06-23 18:40 - presupuestador — ACTUALIZACION POST-IMPLEMENTACION
+- Etapa: Presupuesto / Cierre de calibracion estimado vs real
+- Cambio: Se actualizo el presupuesto para incorporar alcance implementado adicional: ABM de Pacientes + integracion parcial con web service de FABA (analitos, mutuales y consulta de pacientes). Se recalcularon tablas O/M/P, PERT, contingencia y totales economicos. Se registro hora real total informada: 12h.
+- Motivo: Ajustar memoria presupuestaria al alcance finalmente implementado y cerrar calibracion con dato real.
+- Impacto en capas: Web (ABM Pacientes y pantallas de consulta), Application (servicios/DTOs de pacientes e integracion parcial), Infrastructure (consumo de endpoints FABA y mapeo de catalogos), Datos (persistencia/normalizacion de datos sincronizados si aplica).
+- Riesgos/supuestos: Integracion FABA asumida como parcial (sin sincronizacion bidireccional ni workflow de estados complejos). Desvio observado por sobreestimacion inicial para este tipo de modulos; se propone recalibrar banda M/P en futuros presupuestos comparables.
+
 ### 2026-06-12 13:58 - analista-funcional
 - Etapa: Discovery/Analisis
 - Cambio: Se creó la carpeta documental del proyecto y se definio el alcance funcional inicial de labipac.

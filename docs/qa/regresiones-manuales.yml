@@ -1,4 +1,4 @@
-# Catalogo de regresiones reproducidas manualmente.
+﻿# Catalogo de regresiones reproducidas manualmente.
 # Cada item describe parametros suficientes para que un agente QA:
 #   1. Reproduzca el bug en una build candidata.
 #   2. Detecte automaticamente si reaparecio.
@@ -319,3 +319,118 @@ regresiones:
     pruebas_minimas:
       - "Login Administrador y verificar sidebar + URL directa."
       - "Login SuperUsuario y verificar acceso."
+
+  # ── Entradas específicas del proyecto KOI ─────────────────────────────────
+
+  - id: KOI-001
+    modulo: Configuracion / Parametros / Rubros / Subgrupos / Camaras
+    titulo: "Botones eliminar (btn-swal-confirm fuera del form) no ejecutan el delete"
+    severidad: critical
+    reproducido_en: main
+    pasos:
+      - "Ir a Configuracion -> Rubros (o Subgrupos, Parametros, Camaras/Index)."
+      - "Hacer clic en el icono de eliminar de cualquier fila."
+      - "Confirmar en el dialogo SweetAlert2."
+    sintoma: "No ocurre nada. El form DELETE no se envía."
+    expectativa: "Al confirmar el SweetAlert2 se ejecuta el submit del form de eliminacion asociado."
+    causa_raiz: "site.js usa btn.closest('form') que retorna null cuando el boton esta FUERA del <form> referenciado por data-form / data-form-id / data-action."
+    capa: Web
+    archivos_fix:
+      - path: KoiDumplings.Web/wwwroot/js/site.js
+        motivo: "Extender handler swal-confirm: resolver data-form-id, data-form y data-action como fallback a closest('form')."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: ".btn-swal-confirm con data-form o data-form-id en /Configuracion/Rubros"
+      condicion_falla: "Confirmar SweetAlert2 no dispara ningún submit ni navegacion."
+    criterio_aceptacion:
+      - "Eliminar Rubro muestra SweetAlert2; al confirmar ejecuta el DELETE y redirige con mensaje."
+      - "Idem Subgrupos, Parametros y Camaras."
+    pruebas_minimas:
+      - "Eliminar un rubro desde Configuracion -> Rubros."
+      - "Eliminar una camara desde Camaras -> Index (Admin)."
+
+  - id: KOI-002
+    modulo: P-04 Estado de Resultados Anual
+    titulo: "Falta boton y accion Export Excel en vista Anual ER"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "Ir a EstadoResultados -> Vista Anual ER."
+      - "Buscar boton de exportar a Excel."
+    sintoma: "No existe boton de exportacion ni endpoint ExportarAnualExcel."
+    expectativa: "Boton 'Exportar Excel' que descarga la grilla anual en .xlsx (spec P-04)."
+    causa_raiz: "Funcionalidad no implementada. IExportService disponible pero no conectado."
+    capa: Web
+    archivos_fix:
+      - path: KoiDumplings.Web/Views/EstadoResultados/Anual.cshtml
+        motivo: "Agregar boton Export Excel en cabecera."
+      - path: KoiDumplings.Web/Controllers/EstadoResultadosController.cs
+        motivo: "Agregar accion ExportarAnualExcel(int anio) con IExportService."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "GET /EstadoResultados/ExportarAnualExcel?anio=X"
+      condicion_falla: "GET retorna 404 o no existe el boton en la vista."
+    criterio_aceptacion:
+      - "Click en 'Exportar Excel' descarga .xlsx con la grilla rubro x mes."
+      - "El archivo incluye los 12 meses + total anual."
+    pruebas_minimas:
+      - "Exportar Excel del año con al menos 1 mes de datos."
+
+  - id: KOI-003
+    modulo: Sidebar / P-04 Vista Anual ER
+    titulo: "Inversor no ve link 'Vista Anual ER' en el sidebar"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "Iniciar sesion como usuario con rol Inversor."
+      - "Verificar el sidebar."
+    sintoma: "El link 'Vista Anual ER' no aparece para el rol Inversor."
+    expectativa: "Inversor ve y puede acceder a Vista Anual ER (spec P-04: Admin e Inversor — consulta)."
+    causa_raiz: "Link en _Layout.cshtml dentro de bloque @if (Admin || SuperUsuario); no duplicado para Inversor."
+    capa: Web
+    archivos_fix:
+      - path: KoiDumplings.Web/Views/Shared/_Layout.cshtml
+        motivo: "Agregar link 'Vista Anual ER' en el bloque @if (Inversor)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "a[href*='EstadoResultados/Anual'] en sidebar con sesion Inversor"
+      condicion_falla: "Link no visible en sidebar para Inversor."
+    criterio_aceptacion:
+      - "Inversor ve 'Vista Anual ER' en el sidebar."
+      - "GET /EstadoResultados/Anual retorna 200 para Inversor."
+    pruebas_minimas:
+      - "Login Inversor -> verificar link en sidebar."
+      - "Navegar a /EstadoResultados/Anual directamente -> debe cargar sin 403."
+
+  - id: KOI-004
+    modulo: P-08 Cierre de periodo / PreviewCierre
+    titulo: "Consumos del inversor pueden superar el bruto sin validacion bloqueante"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "Como Admin ir a Estado de Resultados -> Cerrar periodo."
+      - "En la pantalla de preview ingresar consumos mayores al bruto de cualquier inversor."
+      - "Confirmar cierre."
+    sintoma: "El sistema permite neto negativo. No hay error en UI ni en backend."
+    expectativa: "Validacion bloqueante: 'Los consumos de [inversor] superan su liquidacion bruta'."
+    causa_raiz: "Input consumo sin max; JS recalcula neto sin bloquear submit; CerrarPeriodoAsync no valida consumos <= bruto."
+    capa: Web + Infrastructure
+    archivos_fix:
+      - path: KoiDumplings.Web/Views/EstadoResultados/PreviewCierre.cshtml
+        motivo: "Validacion JS en submit: si algun neto < 0 -> Swal.fire error y preventDefault."
+      - path: KoiDumplings.Infrastructure/Services/EstadoResultadosService.cs
+        motivo: "En CerrarPeriodoAsync: validar consumos <= bruto por inversor antes de persistir."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "input.consumo-input en /EstadoResultados/PreviewCierre"
+      condicion_falla: "Submit con consumo > bruto no muestra error y genera liquidacion con neto negativo."
+    criterio_aceptacion:
+      - "Consumo > bruto: UI muestra Swal error bloqueante y no envia el form."
+      - "Si se manipula la request: backend rechaza con ServiceResult.Error."
+    pruebas_minimas:
+      - "Ingresar consumo = bruto + 0.01 -> debe mostrar error y bloquear submit."
+      - "Ingresar consumo = bruto -> debe permitir el cierre."

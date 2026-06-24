@@ -1,12 +1,12 @@
-# 3 - Arquitecto MVC — Proyecto KOI
+﻿# 3 - Arquitecto MVC — Proyecto KOI
 
 > Memoria acumulativa del agente arquitecto.
-> Etapa: Arquitectura. Estado: CERRADO (gate aprobado para presupuesto).
-> Fecha: 2026-06-11. Inputs: 1-analista-funcional.md y 2-disenador-funcional.md aprobados.
+> Etapa: Arquitectura. Estado: 🟡 ACTUALIZADO — P-A01→P-A07 incorporadas. Gate de presupuesto requiere recalculación.
+> Fecha: 2026-06-11. Inputs: 1-analista-funcional.md v2 + 2-disenador-funcional.md v2.
 
 ## 1. Alcance resumido
 
-Sistema nuevo sobre la base blankproject de OlvidataSoft: **ASP.NET Core MVC (.NET 10) + EF Core + MySQL 8**, tres capas (Domain / Application / Infrastructure / Web). Se reutiliza todo lo ya resuelto en la base: autenticación Identity, layout Olvidata, pipeline, DataTables/Select2/SweetAlert2, configuración y convenciones. Sin servicios en background ni integraciones API en el alcance base.
+Sistema nuevo sobre la base blankproject de OlvidataSoft: **ASP.NET Core MVC (.NET 10) + EF Core + MySQL 8**, tres capas (Domain / Application / Infrastructure / Web). Se reutiliza todo lo ya resuelto en la base: autenticación Identity, layout Olvidata, pipeline, DataTables/Select2/SweetAlert2, configuración y convenciones. **2 integraciones externas**: SMTP saliente (notificación de cierre) + API de cotización del dólar (ArgentinaDatos + DolarApi, mismo esquema que VirtualWallet). Sin servicios en background.
 
 ## 2. Impacto técnico por capa
 
@@ -15,13 +15,13 @@ Sistema nuevo sobre la base blankproject de OlvidataSoft: **ASP.NET Core MVC (.N
 | # | Entidad | Notas |
 |---|---|---|
 | 1 | `Inversor` | Nombre, capital aportado USD, usuario vinculado. |
-| 2 | `PeriodoMensual` | Año, mes, estado (Abierto/Cerrado/Reabierto), TC del mes. |
-| 3 | `VentaMensual` | Período, ventas A, ventas B (1:1 con período). |
+| 2 | `PeriodoMensual` | Año, mes, estado (Abierto/**Cerrado** — Reabierto eliminado), TC del mes. |
+| 3 | `VentaMensual` | Período, **VentasASalon, VentasBSalon, VentasADelivery, VentasBDelivery** (1:1 con período). Agregados (VentasA, VentasTotales, VentasSalon, VentasDelivery) calculados al vuelo, no persistidos. |
 | 4 | `Rubro` | Catálogo (CMV, Fee Franquicia, Sueldos, Gastos Varios, Alquiler, Servicios, Impuestos, Previsión, Extras), orden, baja lógica. |
 | 5 | `Subgrupo` | Rubro padre, nombre, tipo (manual / calculado por %), baja lógica. |
 | 6 | `MovimientoGasto` | Período × subgrupo, importe (manual o calculado), snapshot del % aplicado. |
 | 7 | `ParametroPorcentaje` | Concepto, %, base (VentasA / VentasTotales), vigencia desde. |
-| 8 | `IndicadorVenta` | Período: ticket promedio, ítems por ticket, cubierto promedio. |
+| 8 | `IndicadorVenta` | Período: **cantidad de comensales (manual)**, ticket promedio, ítems por ticket, cubierto promedio. |
 | 9 | `PuntoInversion` | Número 1–100, valor de aporte, bonificado. |
 | 10 | `AsignacionPunto` | Punto × inversor con vigencia (desde/hasta) — historial de cambios. |
 | 11 | `Liquidacion` | Cabecera por período: utilidad por punto, TC, fecha generación. |
@@ -31,13 +31,15 @@ Sistema nuevo sobre la base blankproject de OlvidataSoft: **ASP.NET Core MVC (.N
 | 15 | `AuditoriaEvento` | Reaperturas de período/liquidación con motivo y usuario. |
 | 16 | `NotificacionConfig` | Servidor SMTP, casilla emisora, nombre remitente, credencial (protegida). |
 | 17 | `NotificacionEnvio` | Log por período × inversor: email, fecha/hora, estado (Enviado/Fallido), detalle de error. |
+| 18 | `AjusteLiquidacion` | Motivo + monto ajustado + usuario cuando el Admin modifica el monto a repartir en preview (auditoría del ajuste manual). |
 
-Más las tablas de Identity de la base (~6). **Total estimado del esquema entregado: ~23 tablas** → rango 16–30 (relevante para plan de mantenimiento PREMIUM).
+Más las tablas de Identity de la base (~6). **Total estimado del esquema entregado: ~24 tablas** → rango 16–30 (relevante para plan de mantenimiento PREMIUM).
 
 ### Application (servicios)
 
-- `EstadoResultadosService`: carga/edición del período, cálculo de conceptos porcentuales según base configurada (comisiones/IIBB/débitos/tasa → Ventas A; regalías/canon/previsiones → ventas totales), totalizadores, rentabilidad, conversión USD. **Snapshot de % aplicado por movimiento**: los meses cerrados no se recalculan al cambiar parámetros.
-- `CierrePeriodoService`: máquina de estados del período; al cerrar genera `Liquidacion` + `LiquidacionInversor` desde las asignaciones vigentes (Σ puntos ≤ 100); reapertura recalcula solo liquidaciones no pagadas y audita motivo. Tras confirmar el cierre dispara `NotificacionService` (post-commit: el envío nunca participa de la transacción del cierre).
+- `EstadoResultadosService`: carga/edición del período, cálculo de conceptos porcentuales según base configurada (comisiones/IIBB/débitos/tasa → VentasA; regalías/canon/previsiones → VentasTotales), totalizadores, rentabilidad, conversión USD. **Snapshot de % aplicado por movimiento**: los meses cerrados no se recalculan al cambiar parámetros.
+- `CierrePeriodoService`: máquina de estados del período (**solo Abierto→Cerrado**; Reabierto eliminado). Al cerrar genera `Liquidacion` + `LiquidacionInversor` desde las asignaciones vigentes (Σ puntos ≤ 100); acepta consumos y ajuste de monto a repartir (con motivo) desde el preview. Tras confirmar el cierre dispara `NotificacionService` (post-commit: el envío nunca participa de la transacción del cierre). Re-apertura de liquidación **individual** conservada (Pagada→Pendiente, solo Admin, con motivo).
+- `CotizacionService` (**nuevo, copiar de VirtualWallet**): `ICotizacionService` con `ObtenerCotizacionesPorCasaParaFecha`, `ObtenerPromedioBlue`, etc. Fuentes: DolarApi (hoy) + ArgentinaDatos (histórico). Cache 30 min (hoy) / 6 h (histórico). Registro en `IHttpClientFactory`.
 - `NotificacionService`: arma el resumen del mes + liquidación personalizada por inversor, renderiza la plantilla HTML y despacha por SMTP; registra cada envío en `NotificacionEnvio`; reenvío manual individual; idempotencia por período (re-cierre no reenvía sin confirmación).
 - `DashboardService`: agregaciones por mes/año/multi-año (ventas, gastos por rubro, resultado, rentabilidad, USD, indicadores) para los charts; tolerante a períodos sin datos.
 - `InversionService`: puntos, asignaciones con vigencia, "Mi inversión" (dividendos, recupero, renta promedio) con aislamiento por inversor.
@@ -76,7 +78,7 @@ Más las tablas de Identity de la base (~6). **Total estimado del esquema entreg
 ## 6. Riesgos y supuestos
 
 - R-A1: iframe de Hik-Connect puede ser bloqueado por política del proveedor → la pantalla ya prevé fallback "abrir en pestaña nueva". Riesgo bajo, sin impacto de arquitectura.
-- R-A2: la migración de históricos depende de la prolijidad de los Excel (celdas pisadas a mano) → esfuerzo de normalización acotado al módulo de importación; riesgo declarado en presupuesto.
+- R-A2 ✅ CERRADO: los Excel históricos solo traen A/B sin apertura Salón/Delivery. Estrategia confirmada: `VentasADelivery = VentasBDelivery = 0`; `VentasASalon = VentasA`, `VentasBSalon = VentasB`. Cada período migrado recibe observación automática. Sin impacto en el modelo de entidades.
 - R-A3: asignaciones de puntos con vigencia retroactiva (historial 2024–2026) deben reconstruirse al migrar → se valida contra hojas por inversor.
 - S-A1: un solo entorno productivo, hosting del proveedor (plan de mantenimiento).
 - S-A2: volumen bajo (12 períodos/año, 16 usuarios): sin requisitos especiales de performance ni caching.
@@ -84,10 +86,11 @@ Más las tablas de Identity de la base (~6). **Total estimado del esquema entreg
 
 ## 7. Gate de aprobación para presupuesto
 
-- [x] Entidades y migración EF declaradas.
+- [x] Entidades y migración EF declaradas (24 tablas, incluye `AjusteLiquidacion` nuevo).
 - [x] Permisos por rol y policies definidos.
-- [x] Máquina de estados del diseño soportada (estados como enum + transiciones en `CierrePeriodoService` + auditoría).
-- [x] Integración externa acotada: SMTP saliente para notificación de cierre (sin colas, fallos no bloqueantes). Ayres etapa 2 documentada.
-- [x] Reutilización de la base blankproject confirmada (Identity, layout, librerías UI, pipeline).
+- [x] Máquina de estados simplificada (solo Abierto→Cerrado para período; liquidación individual Pendiente↔Pagada).
+- [x] Integraciones externas: SMTP saliente + **API dólar (ArgentinaDatos + DolarApi, sin colas)**. Ayres etapa 2 documentada.
+- [x] `CotizacionService` copiado de VirtualWallet, misma interfaz, mismos endpoints, mismo cache.
+- [x] Reutilización de la base blankproject confirmada.
 
-**APROBADO para pasar a presupuesto.**
+**⚠️ Requiere recalculación de presupuesto** por adición de `CotizacionService`, 4 campos de ventas, dashboard mes abierto, `AjusteLiquidacion` y eliminación del Reabierto. Ver `4-presupuestador.md`.

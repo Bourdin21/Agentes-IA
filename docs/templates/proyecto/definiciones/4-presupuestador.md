@@ -14,6 +14,11 @@
 ### Tasa vigente y contingencia aplicada
 <completar>
 
+### Resumen economico (con Tokens IA como item individual)
+- Subtotal desarrollo (sin Tokens IA): <USD>
+- Tokens IA (item individual): <USD>
+- Total cliente: <USD>
+
 ### Calibraciones historicas usadas
 <completar>
 

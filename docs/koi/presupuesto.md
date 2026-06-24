@@ -1,4 +1,4 @@
-# Propuesta de desarrollo — Sistema de Gestión para Inversores KOI
+﻿# Propuesta de desarrollo — Sistema de Gestión para Inversores KOI
 **OlvidataSoft · Junio 2026**
 
 ---
@@ -50,16 +50,16 @@ El sistema se entrega **con todo el historial 2024–2026 ya cargado**, tomado d
 - Si un porcentaje cambia (por ejemplo, sube una alícuota), el cambio rige desde ese momento hacia adelante: **los meses ya cerrados conservan sus valores originales**.
 
 **Tipo de cambio mensual**
-- Carga de un tipo de cambio por mes, usado para todos los valores en dólares del sistema (dashboard, liquidaciones y vistas del inversor).
+- El Administrador carga el tipo de cambio del mes desde una **pantalla con las cotizaciones del día** (dólar oficial, blue, MEP, CCL y otros), que el sistema obtiene automáticamente de fuentes públicas. El campo se pre-carga con el **promedio blue del día** (la referencia habitual) y el Administrador puede seleccionar otra cotización o editar el valor a mano antes de guardar.
+- El TC registrado es único por mes y se usa para todos los valores en dólares del sistema.
 
 ### 3.3 Estado de resultados mensual
 
 - Pantalla de carga mensual organizada en secciones, en el mismo orden que la planilla actual.
-- Carga de **Ventas "A"** (facturadas) y **Ventas "B"**; el total de ventas se calcula solo.
+- Carga de ventas separada en **cuatro campos**: Ventas A Salón, Ventas A Delivery, Ventas B Salón y Ventas B Delivery. Los totales (Ventas A, Ventas B, Ventas Salón, Ventas Delivery y Ventas Totales) se calculan solos en tiempo real.
 - Carga de los gastos de cada subgrupo. Los conceptos porcentuales (regalías, canon, comisiones, impuestos, previsiones) **se calculan automáticamente** y se muestran como solo lectura; el IVA y los demás importes fijos se cargan a mano como hasta ahora.
 - Panel de totales en tiempo real mientras se carga: total de gastos, **resultado del ejercicio**, **rentabilidad (%)** y los equivalentes en dólares según el tipo de cambio del mes.
-- **Cierre de mes**: al cerrar un período se congelan los números, el sistema genera automáticamente las liquidaciones de los inversores y **envía la notificación por correo a cada inversor** (ver 3.12). Para cerrar, el sistema exige que estén cargados las ventas, el tipo de cambio y los rubros obligatorios.
-- Un mes cerrado solo puede reabrirlo el Administrador, dejando registrado el motivo. Al reabrir, las liquidaciones que ya fueron pagadas no se modifican.
+- **Cierre de mes**: antes de confirmar el cierre, el sistema muestra una pantalla de **preview** con las liquidaciones calculadas para todos los inversores. El Administrador puede revisar y ajustar los consumos de cada uno, y desde esa misma pantalla confirma el cierre. Una vez confirmado, el sistema congela los números, genera las liquidaciones y **envía la notificación por correo a cada inversor** (ver 3.12). Para cerrar, el sistema exige que estén cargados las ventas, el tipo de cambio y los rubros obligatorios.
 
 ### 3.4 Estado de resultados anual
 
@@ -68,17 +68,18 @@ El sistema se entrega **con todo el historial 2024–2026 ya cargado**, tomado d
 
 ### 3.5 Indicadores de venta del local
 
-- Carga mensual de los indicadores del sistema de ventas Ayres: **ticket promedio, ítems por ticket y cubierto promedio**.
+- Carga mensual de los indicadores del sistema de ventas Ayres: **cantidad de comensales, ticket promedio, ítems por ticket y cubierto promedio** (ingreso manual desde los totalizadores de Ayres).
 - Estos indicadores se muestran a los inversores en el dashboard, junto a las métricas económicas.
 
 ### 3.6 Dashboard de métricas (núcleo de la aplicación)
 
 Tablero organizado en **tarjetas por módulos**, con diseño cuidado y selector de mes/año:
 
-- **Tarjetas de indicadores del mes**: ventas (con desglose A/B), total de gastos, resultado del ejercicio, rentabilidad (%), valores en dólares (ventas, gastos y resultado al tipo de cambio del mes) e indicadores de venta del local.
+- **Tarjetas de indicadores del mes**: ventas totales con desglose por facturado/no facturado, desglose Salón/Delivery, total de gastos, resultado del ejercicio, rentabilidad (%), valores en dólares e indicadores de venta (incluye cantidad de comensales).
+- **Gestión del mes en curso**: el dashboard muestra el **mes abierto con los datos parciales ya cargados**; si falta el tipo de cambio, los valores en dólares aparecen como "TC pendiente" sin bloquear el resto de la vista.
 - **Gráficos analíticos**:
   - Evolución mensual de ventas, gastos y resultado, con comparación entre años.
-  - Composición de los gastos por rubro del mes (gráfico de torta).
+  - Composición de ventas Salón vs. Delivery (nuevo, P-A02) y composición de gastos por rubro del mes.
   - Rentabilidad histórica mes a mes.
   - Resultado del ejercicio en dólares, histórico completo.
 - **Tabla resumen** del año en curso (mini estado de resultados mes a mes).
@@ -145,20 +146,22 @@ La pantalla con la que cada inversor sigue su inversión de manera profesional:
 
 ## 5. Precio por área funcional
 
-| Área | Precio |
-|---|---:|
-| Acceso y gestión de usuarios inversores | USD 84 |
-| Configuración del sistema (rubros, porcentajes, tipo de cambio) | USD 143 |
-| Estado de resultados mensual y anual | USD 202 |
-| Indicadores de venta del local | USD 25 |
-| Dashboard de métricas con tema claro/oscuro | USD 134 |
-| Inversiones: puntos, liquidaciones y reparto | USD 269 |
-| Mi inversión (vista del inversor) | USD 67 |
-| Cámaras del local | USD 42 |
-| Carga inicial de datos históricos 2024–2026 | USD 168 |
-| Notificación por correo al cierre del mes | USD 67 |
-| Uso de infraestructura IA (tokens) | USD 100 |
-| **Total del proyecto** | **USD 1.301** |
+| Área | Precio | Δ respecto a v3 |
+|---|---:|:---:|
+| Acceso y gestión de usuarios inversores | USD 84 | — |
+| Configuración del sistema (rubros, porcentajes, tipo de cambio + **selector cotización dólar**) | USD 168 | +USD 25 (TC P-A03) |
+| Estado de resultados mensual y anual (**4 campos ventas, preview editable**) | USD 235 | +USD 33 (P-A02+P-A07) |
+| Indicadores de venta del local (**+ cantidad de comensales**) | USD 34 | +USD 9 (P-A01) |
+| Dashboard de métricas con tema claro/oscuro (**mes abierto parcial + torta Salón/Delivery**) | USD 160 | +USD 26 (P-A05+P-A02) |
+| Inversiones: puntos, liquidaciones y reparto | USD 269 | — |
+| Mi inversión (vista del inversor) | USD 67 | — |
+| Cámaras del local | USD 42 | — |
+| Carga inicial de datos históricos 2024–2026 (**riesgo M14 elevado — ver nota**) | USD 185 | +USD 17 (P-A02 migración) |
+| Notificación por correo al cierre del mes | USD 67 | — |
+| Uso de infraestructura IA (tokens) | USD 100 | — |
+| **Total del proyecto** | **USD 1.411** | **+USD 110 respecto a v3** |
+
+> **Nota carga inicial (M14):** los Excel históricos no traen la apertura Salón/Delivery (solo tienen A/B). Los períodos 2024–2026 se migrarán con `VentasADelivery = VentasBDelivery = 0`; cada tipo queda íntegro en Salón. Cada período migrado lleva la observación `"Desglose Salón/Delivery no disponible en datos fuente"`. La torta Salón/Delivery del Dashboard mostrará 100 % Salón hasta el primer mes con datos reales. El esfuerzo extra de validación y marcado justifica el delta de USD 17.
 
 **Mantenimiento anual — Plan PREMIUM: USD 400/año.** Incluye servidor (hosting), actualizaciones de seguridad, soporte prioritario y 2 rondas de ajuste por año. Es un servicio continuo posterior al desarrollo; no cubre cambios funcionales nuevos.
 

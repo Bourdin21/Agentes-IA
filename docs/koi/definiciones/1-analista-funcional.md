@@ -1,8 +1,8 @@
 ﻿# 1 - Analista funcional — Proyecto KOI
 
 > Memoria acumulativa del agente analista funcional.
-> Etapa: Discovery + Análisis + Sesión de definición. Estado: 🟡 PARCIALMENTE ACTUALIZADO — 31 decisiones confirmadas en reunión · 7 nuevas preguntas abiertas derivadas de cambios de alcance · cascada a diseño, arquitectura y presupuesto pendiente.
-> Fecha: 2026-06-11. Última actualización: 2026-06-11 — Sesión de definición procesada.
+> Etapa: Discovery + Análisis + Sesión de definición + Cierre P-A01→P-A07. Estado: ✅ ANÁLISIS FUNCIONAL CERRADO — todas las hipótesis y preguntas respondidas · cascada a diseño, arquitectura y presupuesto habilitada.
+> Fecha: 2026-06-11. Última actualización: 2026-06-11 — P-A01 a P-A07 confirmadas. Supuesto S-3 revisado.
 
 ## 1. Contexto del cliente
 
@@ -138,7 +138,7 @@ Necesidad: un sistema web que reemplace ambos Excel y dé a cada inversor un **d
 **Supuestos**
 - S1 — Un solo local (la franquicia KOI); multi-local fuera de alcance.
 - S2 — Moneda de carga: pesos argentinos; USD solo como conversión por TC mensual.
-- S3 — La utilidad a repartir es el Resultado Ejercicio del estado de resultados (mismo número, sin ajustes intermedios), como hace hoy el Excel.
+- S3 — ~~La utilidad a repartir es el Resultado Ejercicio sin ajustes~~ **REVISADO**: el Admin puede ajustar el monto a repartir con motivo (D-01 confirmado).
 - S4 — El descuento de consumos se carga como monto mensual por inversor (el detalle de cada consumo no se registra).
 - S5 — Hasta 16 usuarios (1 admin + 15 inversores); pueden crecer con el plan de mantenimiento.
 
@@ -159,10 +159,21 @@ Necesidad: un sistema web que reemplace ambos Excel y dé a cada inversor un **d
 | H-01 | ¿Utilidad a repartir admite ajuste manual? | ✅ **Opción B confirmada** — Admin puede ajustar el monto con motivo obligatorio |
 | H-02 | ¿Inversores ven Ventas B discriminadas? | ✅ **Opción B confirmada** — Dashboard muestra solo total. **Nueva categorización: Salón / Delivery** |
 
-### Preguntas nuevas abiertas — derivadas de la sesión
+### Preguntas nuevas derivadas de sesión — ✅ TODAS CERRADAS
 
-| ID | Pregunta | Módulo impactado | Urgencia |
-|---|---|---|---|
+| ID | Pregunta | ✅ Respuesta confirmada |
+|---|---|---|
+| P-A01 | ¿"Cantidad de comensales" manual o Ayres? | **Manual** — dato de Ayres cargado a mano. En el futuro se integrará (etapa 2). Agrega `CantidadComensales` a `IndicadorVenta`. |
+| P-A02 | ¿Salón/Delivery reemplazan A/B o conviven? | **Conviven como 2 dimensiones** — `VentaMensual` pasa a 4 campos: `VentasASalon`, `VentasBSalon`, `VentasADelivery`, `VentasBDelivery`. Bases porcentuales: "Ventas A" = ASalon+ADelivery; "Ventas Totales" = suma de los 4. |
+| P-A03 | ¿Qué API de dólar y qué cotización? | **ArgentinaDatos + DolarApi** (mismo esquema que VirtualWallet · `ICotizacionService`). UX: Admin ve cotizaciones del día por casa (oficial/blue/MEP/CCL), selecciona una como base (default: blue promedio), puede editarla antes de guardar como TC del mes. |
+| P-A04 | ¿Mecanismo para error post-cierre? | **No hay mecanismo técnico** — error post-cierre lo gestiona el Admin + SuperUsuario del sistema operativamente. Simplifica el alcance. |
+| P-A05 | ¿Dashboard "actual" muestra mes Abierto o solo Cerrado? | **Mes Abierto con datos parciales** — P-02a muestra lo cargado hasta el momento; si falta TC, los valores USD se muestran como "pendiente". |
+| P-A06 | ¿Notificaciones in-app con expiración? | **No** — no expiran. El usuario las marca como leídas; se acumulan. Compatible con `INotificationService` de BlankProject. |
+| P-A07 | ¿Preview editable o solo informativo? | **Editable y con cierre desde el preview** — el Admin edita consumos por inversor en el preview y confirma el cierre desde ahí mismo. El botón "Confirmar cierre" está en el preview. |
+
+---
+
+## 9. Sesión de definición — Junio 2026
 | P-A01 | **¿"Cantidad de comensales" se carga manualmente o viene de Ayres POS (etapa 2)?** Si es manual: va en M6 (Indicadores de Venta). Si es de Ayres: fuera de alcance base. | M6 (Indicadores) + Dashboard | 🔴 Bloqueante para M6 |
 | P-A02 | **¿"Ventas Salón" y "Ventas Delivery" reemplazan completamente a "Ventas A/B (facturadas/no facturadas)" o se suman?** Si reemplazan: la base de cálculo de comisiones/IIBB/débitos (antes: Ventas A) ahora es ¿Salón? ¿Delivery? ¿Total? Si conviven: ¿hay 4 campos (VentasASalón, VentasBSalón, VentasADelivery, VentasBDelivery)? | M4 (Estado de Resultados) + `VentaMensual` + cálculos porcentuales | 🔴 Bloqueante para M4 |
 | P-A03 | **¿Qué API de cotización del dólar y cuál cotización?** Hipótesis A: DolarAPI (blue / MEP / CCL / oficial). Hipótesis B: BCRA API oficial. Hipótesis C: Bluelytics. La cotización elegida afecta significativamente los valores USD de los inversores. | M3 (TC) + nueva integración | 🔴 Alto |
@@ -229,9 +240,10 @@ Necesidad: un sistema web que reemplace ambos Excel y dé a cada inversor un **d
 | ➖ Eliminación | Pantalla de configuración SMTP | M15 | Baja |
 | ➖ Simplificación | Contenido del correo de cierre (solo aviso + botón) | M15 | Baja |
 | ➖ Simplificación | Puntos de inversión fijos (sin gestión dinámica) | M9 | Baja |
-| 🔄 Redefinición | Ventas A/B → Ventas Salón/Delivery + bases de cálculo porcentuales | M4, `VentaMensual` | A resolver en P-A02 |
+| 🔄 Redefinición | Ventas A/B → 4 propiedades: `VentasASalon`, `VentasBSalon`, `VentasADelivery`, `VentasBDelivery` | M4, `VentaMensual` | Sube leve (4 campos) |
+| ➕ Adición | Estrategia M14 confirmada: históricos migran con Delivery=0; Salón=A+B completo; badge "sin desglose" por período | M14 migración | ✅ Cerrado |
 
-> ⚠️ **El presupuesto v3 (USD 1.301) requiere recálculo** una vez respondidas P-A01 y P-A02. Los cambios positivos y negativos son similares en magnitud; se estima que el total se mantiene en un rango cercano al original. La cascada completa se documenta en `4-presupuestador.md` tras cerrar las nuevas preguntas.
+> ✅ **Análisis funcional cerrado.** P-A01→P-A07 confirmadas. Presupuesto v3 requiere recálculo → ver `4-presupuestador.md`.
 
 ### 9.3 Banderas tempranas actualizadas
 
@@ -241,3 +253,83 @@ Necesidad: un sistema web que reemplace ambos Excel y dé a cada inversor un **d
 | Integración externa | Sí, acotada (SMTP) | **Sí — 2 integraciones**: SMTP (correo de cierre) + API cotización dólar (TC automático) | API dólar es nueva |
 | Máquina de estados | Sí, acotada | **Sí, simplificada** | Período: solo Abierto→Cerrado (eliminado Reabierto); Liquidación: Pendiente↔Pagada sin cambios |
 | Migración de datos | Sí (excepción acordada) | **Sí** | Sin cambio |
+
+---
+
+## 9.4 Cierre de preguntas P-A01 a P-A07 — Junio 2026
+
+### Modelo de ventas redefinido (P-A02)
+
+La entidad `VentaMensual` pasa de 2 a **4 campos de entrada** organizados como una matriz 2×2:
+
+| | Facturado (A) | Sin factura (B) |
+|---|---|---|
+| **Salón** | `VentasASalon` | `VentasBSalon` |
+| **Delivery** | `VentasADelivery` | `VentasBDelivery` |
+
+Agregados calculados (no persistidos, derivados al vuelo):
+
+| Agregado | Fórmula | Uso |
+|---|---|---|
+| `VentasA` | ASalon + ADelivery | Base de cálculo porcentual — comisiones, IIBB, débitos, tasa municipal |
+| `VentasTotales` | ASalon + BSalon + ADelivery + BDelivery | Base de cálculo porcentual — regalías, canon, previsiones |
+| `VentasSalon` | ASalon + BSalon | Torta del Dashboard (eje de canal) |
+| `VentasDelivery` | ADelivery + BDelivery | Torta del Dashboard (eje de canal) |
+
+Pantalla P-03 de carga: 4 inputs de ventas + totales calculados en tiempo real.
+**Estrategia de migración M14 confirmada ✅**: los Excel históricos solo tienen A/B sin apertura Salón/Delivery. Los períodos históricos se migran con `VentasADelivery = 0` y `VentasBDelivery = 0`; la totalidad de cada tipo queda en Salón (`VentasASalon = VentasA`, `VentasBSalon = VentasB`). Cada período migrado recibirá una observación `"Desglose Salón/Delivery no disponible en datos fuente"`. La torta Salón/Delivery del Dashboard mostrará 100 % Salón para períodos históricos hasta que el Admin cargue el primer mes real con los 4 campos.
+
+### TC con selección de cotización (P-A03)
+
+Flujo UX al cargar el TC del mes:
+1. Admin abre la pantalla de TC del mes.
+2. El sistema consulta `ICotizacionService.ObtenerCotizacionesPorCasaParaFecha(hoy)` (ArgentinaDatos + DolarApi, mismo esquema que VirtualWallet).
+3. Se muestra una tabla con las casas disponibles: Oficial, Blue (compra/venta/promedio), MEP, CCL, Cripto, etc.
+4. El campo TC pre-carga con **blue promedio del día** (`ObtenerPromedioBlue`).
+5. Admin puede seleccionar otra casa haciendo clic en la fila correspondiente (actualiza el campo).
+6. Admin puede editar el valor numérico antes de guardar.
+7. Al guardar, el TC queda registrado en `PeriodoMensual.TipoCambio`.
+
+Referencia de implementación: copiar `ICotizacionService` + `CotizacionService` de `C:\Sistemas\virtualwallet`.
+Apis: `https://dolarapi.com/v1/dolares` (hoy) + `https://api.argentinadatos.com/v1/cotizaciones/dolares` (histórico).
+Cache: 30 min para hoy, 6 h para histórico.
+
+### Preview de cierre — flujo definitivo (P-A07)
+
+El preview ES la pantalla de edición de consumos antes del cierre. Flujo:
+
+```
+Admin en P-03 (Estado de resultados abierto)
+        ↓
+   [Botón “Cerrar período”]
+        ↓
+   P-08 (Preview/Liquidaciones)
+   ┌──────────────────────────────────────────────────┐
+   │ Monto a repartir: [Resultado Ejercicio] [editable + motivo] │
+   │ Utilidad por punto: $X.XXX                               │
+   │                                                          │
+   │ Inversor     Puntos  Bruto   Consumos [edit]  Neto   USD  │
+   │ García         10   $X.XXX  [    0   ]      $X.XXX $XXX  │
+   │ López          8   $X.XXX  [  500   ]      $X.XXX $XXX  │
+   │ ...                                                      │
+   │                                                          │
+   │         [Cancelar]  [Confirmar y cerrar período]          │
+   └──────────────────────────────────────────────────┘
+        ↓ [Confirmar y cerrar período]
+   Período pasa a Cerrado
+   Liquidaciones generadas (Pendiente)
+   Email de aviso enviado a inversores activos
+```
+
+El preview es la pantalla P-08 reutilizada como paso de confirmación. Los consumos son editables en este paso. Una vez que el Admin confirma, ya no hay vuelta atrás sin reabrir la liquidación individual.
+
+### Nueva regla de negocio (P-A04)
+
+No existe mecanismo técnico de corrección post-cierre. Si el Admin detecta un error en un gasto después del cierre:
+- El error queda registrado en el período cerrado tal como está.
+- El Admin y el SuperUsuario del sistema lo resuelven operativamente (fuera del sistema).
+- **No se agrega ningún módulo de ajuste** — esto simplifica el alcance.
+
+### Nuevo supuesto actualizado
+
+- S-3 revisado: la utilidad a repartir **puede ajustarse manualmente** por el Admin antes del cierre, con motivo obligatorio. El default es el Resultado del Ejercicio.
