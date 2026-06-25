@@ -74,3 +74,10 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Motivo: respuesta del cliente a la pregunta abierta de M14.
 - Impacto en capas: Datos (ImportacionInicialService: lógica de mapeo definida). Sin cambio en entidades ni en el resto del modelo.
 - Riesgos/supuestos: R-A2 del arquitecto cerrado. No quedan preguntas abiertas en el análisis funcional de KOI.
+
+### 2026-06-24 — analista-funcional
+- Etapa: Relevamiento Etapa 2
+- Cambio: recepción del informe de relevamiento técnico de integraciones del local (Ayres, Fichador ZKTeco/QuickPass, Cámaras HikConnect). Las tres áreas quedan **fuera del alcance de la Etapa 1** y se definen como candidatos a **Etapa 2** (ver sección 10 del documento analista-funcional).
+- Motivo: el cliente solicita que los ingresos mensuales se completen desde el sistema de ventas Ayres y que se agregue una pantalla de fichador de empleados. Se recibió informe técnico de Olvidata Soft con arquitectura relevada de cada módulo.
+- Impacto en capas: ninguno en Etapa 1. El alcance base queda intacto.
+- Riesgos/supuestos: múltiples pendientes de resolución (credenciales MySQL/API Ayres, token QuickPass, credenciales cámaras). Hasta que se resuelvan, no es posible estimar ni iniciar Etapa 2.

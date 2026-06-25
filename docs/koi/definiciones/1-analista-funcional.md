@@ -2,7 +2,7 @@
 
 > Memoria acumulativa del agente analista funcional.
 > Etapa: Discovery + Análisis + Sesión de definición + Cierre P-A01→P-A07. Estado: ✅ ANÁLISIS FUNCIONAL CERRADO — todas las hipótesis y preguntas respondidas · cascada a diseño, arquitectura y presupuesto habilitada.
-> Fecha: 2026-06-11. Última actualización: 2026-06-11 — P-A01 a P-A07 confirmadas. Supuesto S-3 revisado.
+> Fecha: 2026-06-11. Última actualización: 2026-06-24 — Informe de relevamiento Etapa 2 incorporado (Ayres, Fichador QuickPass, Cámaras pendiente).
 
 ## 1. Contexto del cliente
 
@@ -333,3 +333,141 @@ No existe mecanismo técnico de corrección post-cierre. Si el Admin detecta un 
 ### Nuevo supuesto actualizado
 
 - S-3 revisado: la utilidad a repartir **puede ajustarse manualmente** por el Admin antes del cierre, con motivo obligatorio. El default es el Resultado del Ejercicio.
+
+---
+
+## 10. Etapa 2 — Relevamiento de integraciones del local
+
+> Fecha de relevamiento: 2026-06-24. Responsable: Olvidata Soft. Estado: **⏳ PENDIENTE DE RESOLUCIÓN** — múltiples credenciales y decisiones técnicas abiertas.
+
+Este bloque documenta los tres módulos relevados para la Etapa 2. **No forman parte del alcance de la Etapa 1 actualmente en producción.** Ninguno impacta el código ni las entidades existentes.
+
+---
+
+### 10.1 Módulo E2-01 — Integración con sistema de ventas Ayres
+
+#### Necesidad del cliente
+El cliente quiere que los **ingresos mensuales del período** (ventas A salón, B salón, A delivery, B delivery y cantidad de comensales) se completen automáticamente desde Ayres, eliminando la carga manual que hoy hace el Administrador.
+
+#### Arquitectura relevada
+- **Proveedor**: MaxiSistemas S.R.L.
+- **Tipo**: API REST propia sobre ASP.NET Core, puerto **8510**.
+- **Autenticación**: JWT (key conocida: `EstaEsUnaClaveSuperSecretaDeJWT1234567890`, expiración 999 h).
+- **Base de datos**: MySQL 8.0.21 Community, puerto **3320** (no estándar), bases `koisucursal9` y `koicentral`. No accesible directamente desde red externa; solo el proceso servidor Ayres la consume internamente.
+- **Documentación API**: sin Swagger habilitado — `/swagger` devuelve 404. Requiere análisis de tráfico o documentación de MaxiSistemas.
+
+#### Opciones de integración
+
+| Opción | Descripción | Ventajas | Riesgos |
+|---|---|---|---|
+| **A — API REST Ayres** *(recomendada)* | Consumir la API en puerto 8510 con JWT | No depende de credenciales de BD; más estable ante actualizaciones | Endpoints sin mapear; requiere documentación de MaxiSistemas |
+| **B — Acceso directo MySQL 3320** | Conectar el sistema web a MySQL con credenciales del usuario `pop10` | Acceso total a datos; consultas personalizadas | Contraseña pendiente; requiere acceso remoto al puerto 3320; rompe encapsulamiento del proveedor |
+
+#### Alcance funcional propuesto para E2-01
+- **CU-E2-01**: al abrir el período mensual, el sistema consulta la API de Ayres (o MySQL) y pre-carga automáticamente los totalizadores de ventas (A/B Salón + A/B Delivery) y la cantidad de comensales del mes.
+- El Administrador puede revisar y corregir los valores antes de guardarlos.
+- Los datos se importan por mes completo (no en tiempo real).
+- **Pantalla afectada**: P-03 Estado de resultados — agrega botón "Importar desde Ayres" junto a los inputs de ventas.
+
+#### Capas afectadas (estimación)
+- **Presentación**: botón "Importar desde Ayres" en P-03 con feedback de resultado (SweetAlert2).
+- **Negocio**: nuevo servicio `IAyresService` con método `ObtenerVentasMesAsync(int anio, int mes)`.
+- **Datos**: sin nuevas entidades; usa `VentaMensual` y `PeriodoMensual` existentes.
+- **Infraestructura**: `HttpClient` hacia API Ayres (o conexión MySQL secundaria). Requiere configuración de URL, puerto y JWT en `appsettings`.
+
+#### Banderas
+- ⚠️ **Integración externa**: Sí (nueva — API Ayres o MySQL directo).
+- ⚠️ **Migración EF**: No (no hay nuevas tablas).
+- ⚠️ **Máquina de estados**: No.
+- ⚠️ **Infraestructura de red**: si el sistema web es externo (internet), se requiere port forwarding del router local para exponer el puerto 8510 o 3320. Debe coordinarse con el técnico de red del local.
+
+#### Pendientes bloqueantes
+| Pendiente | Responsable | Estado |
+|---|---|---|
+| Documentación/mapeo de endpoints API Ayres | Desarrollador → MaxiSistemas | ⏳ |
+| Decisión: Opción A (API) vs Opción B (MySQL directo) | Desarrollador + cliente | ⏳ |
+| Contraseña MySQL usuario `pop10` o `root` | Desarrollador → MaxiSistemas | ⏳ |
+| Acceso remoto al puerto 8510 o 3320 desde sistema web externo | Técnico de red del local | ⏳ |
+
+---
+
+### 10.2 Módulo E2-02 — Fichador de empleados (QuickPass / ZKTeco)
+
+#### Necesidad del cliente
+El cliente quiere una **pantalla en el sistema web** donde pueda ver los registros de asistencia de los empleados del local: fichadas de entrada/salida, horas trabajadas y estado de presentismo.
+
+#### Arquitectura relevada
+- **Hardware**: reloj biométrico ZKTeco MB360 (huella + reconocimiento facial, Ethernet/WiFi). Protocolo ADMS — push hacia servidor cloud.
+- **Software**: QuickPass versión 4 — SaaS cloud, hosting AWS (EE.UU.).
+- **URL**: `https://qpv4.quickpassweb.com`
+- **API**: ✅ REST disponible, autenticación Bearer Token.
+- **Contacto técnico**: `desarrollo@quickpassweb.com`
+
+#### Ventaja clave
+Al ser SaaS cloud, la integración **no requiere acceso a la red local del cliente**. Funciona desde cualquier lugar con el token de API. No hay dependencia de que la PC del local esté encendida.
+
+#### Alcance funcional propuesto para E2-02
+- **CU-E2-02a — Ver asistencia del día**: pantalla que muestra las fichadas del día actual (entrada/salida por empleado).
+- **CU-E2-02b — Consultar rango de fechas**: filtro por empleado y rango de fechas con resumen de horas trabajadas.
+- **CU-E2-02c — Ver empleados registrados**: listado de empleados activos con su estado en QuickPass.
+- Actor: solo **Administrador** (los inversores no tienen acceso a datos del personal).
+
+#### Capas afectadas (estimación)
+- **Presentación**: nueva pantalla P-E2-02 "Fichador" con filtros de fecha (daterangepicker) y DataTable. Nuevo link en sidebar (solo Admin).
+- **Negocio**: nuevo servicio `IQuickPassService` con métodos `ObtenerFichadasAsync(rango)`, `ObtenerEmpleadosAsync()`.
+- **Datos**: sin nuevas tablas. Datos traídos en tiempo real desde QuickPass (no se persisten localmente en esta etapa).
+- **Infraestructura**: `HttpClient` hacia `https://qpv4.quickpassweb.com`. Token Bearer configurado en `appsettings`.
+
+#### Banderas
+- ⚠️ **Integración externa**: Sí (nueva — API QuickPass REST).
+- ⚠️ **Migración EF**: No.
+- ⚠️ **Máquina de estados**: No.
+
+#### Pendientes bloqueantes
+| Pendiente | Responsable | Estado |
+|---|---|---|
+| Credenciales admin del local en QuickPass | Encargado del local | ⏳ |
+| Token de API de QuickPass | Desarrollador (desde panel o vía `desarrollo@quickpassweb.com`) | ⏳ |
+| Documentación de endpoints disponibles (asistencia, empleados) | Desarrollador → QuickPass | ⏳ |
+
+---
+
+### 10.3 Módulo E2-03 — Cámaras IP (HikConnect / Hikvision)
+
+> ❌ **No relevado** — módulo bloqueado en la visita del 2026-06-24.
+
+Las credenciales de HikConnect y del NVR/DVR deben solicitarse al propietario o administrador responsable. La pantalla de cámaras de la Etapa 1 ya existe como **iframe de HikConnect** embebido (P-06 / CU-13 / CU-14), configurable por el Admin desde la pantalla de Configuración → Cámaras.
+
+Si en la Etapa 2 se requiere ampliar la funcionalidad (acceso RTSP nativo, múltiples feeds, grabación en la nube), se relevarán los datos pendientes en una nueva visita.
+
+#### Datos pendientes de relevar
+| Campo | Estado |
+|---|---|
+| Cantidad de cámaras | ⏳ |
+| Tipo de acceso (RTSP/ISAPI local o HikConnect cloud) | ⏳ |
+| Usuario y contraseña HikConnect | ⏳ |
+| N° de serie del NVR | ⏳ |
+| IP del NVR en LAN | ⏳ |
+| Usuario y contraseña admin del NVR | ⏳ |
+| Port forwarding para acceso externo | ⏳ |
+
+---
+
+### 10.4 Resumen de alcance y pendientes Etapa 2
+
+| Módulo | Necesidad cliente | Estado relevamiento | Bloqueante principal |
+|---|---|---|---|
+| **E2-01** Ventas Ayres | Carga automática de ventas desde POS | ✅ Relevado | Credenciales + decisión opción A/B |
+| **E2-02** Fichador QuickPass | Pantalla de asistencia de empleados | ✅ Relevado | Token de API QuickPass |
+| **E2-03** Cámaras HikConnect | Ampliar funcionalidad de cámaras | ❌ Sin relevar | Credenciales propietario |
+
+> **Condición para iniciar Etapa 2**: resolver los pendientes bloqueantes de al menos uno de los módulos para poder presupuestar y diseñar. Hasta entonces, la Etapa 2 queda en espera.
+
+#### Contactos relevados
+| Entidad | Contacto | Para |
+|---|---|---|
+| MaxiSistemas S.R.L (Ayres) | Sin dato aún | Credenciales MySQL + documentación API |
+| QuickPass | `desarrollo@quickpassweb.com` | Documentación API + token del cliente |
+| Encargado del local | — | Credenciales admin QuickPass + cámaras |
+| Propietario del local | — | Credenciales NVR + HikConnect |
+
