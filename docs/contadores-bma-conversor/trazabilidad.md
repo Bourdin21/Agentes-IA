@@ -8,3 +8,5 @@
 | 2026-06-25 | UI/UX | implementador-php | UI drag-and-drop. Footer patrón nav-logo OlvidataSoft (isotipo-color.svg + texto HTML). Logo fuente de verdad: C:\Sistemas\olvidatasoft-new. | app/index.php, app/static/ |
 | 2026-06-25 | Documentación | documentador | Manual de usuario .md generado para entrega al cliente. | Docs/Manual de Usuario.md |
 | 2026-06-25 | DevOps | implementador-php | Repo GitLab creado: gitlab.com/olvidata/conversor-bma.git. Commit inicial pusheado. .gitignore excluye vendor/, deploy.env, archivos de datos. | — |
+| 2026-06-29 | Presupuesto | presupuestador | Presupuesto retroactivo ajustado. 3 módulos cobrables, 8h reales. Deploy elevado a 3h. Descuento referido 15%. Total USD 199 (bruto USD 234 − USD 35 descuento). Hosting sin cargo (servidor existente contadoresbma.com.ar). | Ver definiciones/4-presupuestador.md |
+| 2026-06-29 | Documento funcional | documentador | Documento funcional del sistema generado. Flujo, archivos de entrada/salida, reglas de negocio, UI, specs técnicas, presupuesto cliente. | Ver documento-funcional.md |

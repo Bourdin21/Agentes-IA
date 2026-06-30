@@ -17,6 +17,9 @@
 - Hosting: Ferozo shared hosting (LiteSpeed), subdominio conversor.contadoresbma.com.ar
 - Deploy: deploy.py — FTPS + vendor.zip extraído via PHP ZipArchive
 
+## Documentación técnica
+- [mapeo-archivos.md](mapeo-archivos.md) — estructura completa de columnas de cada input/output, columnas labeled, casos edge
+
 ## Archivos de referencia Excel (en Docs/, no versionados)
 - `STR ENCABEZADO VALIDO.xlsx` — template de estructura de columnas (versionado en app/)
 - `Cubo Informe de Liquidación.xlsx` — referencia histórica (reemplazado por Grilla)

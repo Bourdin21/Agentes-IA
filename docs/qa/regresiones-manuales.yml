@@ -434,3 +434,59 @@ regresiones:
     pruebas_minimas:
       - "Ingresar consumo = bruto + 0.01 -> debe mostrar error y bloquear submit."
       - "Ingresar consumo = bruto -> debe permitir el cierre."
+
+
+  - id: KOI-005
+    modulo: Camaras / Sidebar global
+    titulo: "CamarasController no existe — sidebar genera 404 para todos los usuarios"
+    severidad: blocker
+    reproducido_en: main
+    pasos:
+      - "Iniciar sesion con cualquier rol."
+      - "Hacer click en el link 'Cámaras' del sidebar (seccion Local)."
+    sintoma: "Error 404 / 500 — No se encuentra el controlador CamarasController."
+    expectativa: "La vista Camaras/Ver carga con el embed de Hik-Connect si está configurado."
+    causa_raiz: "CamarasController fue eliminado o nunca se creó; vistas, DTOs, ICamaraService y CamaraService sí existen."
+    capa: Web
+    archivos_fix:
+      - path: KoiDumplings.Web/Controllers/CamarasController.cs
+        motivo: "Crear el controller con acciones Ver (todos los roles), Index/Create/Edit/Delete (solo Admin)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "GET /Camaras/Ver"
+      condicion_falla: "Respuesta 404 o 500."
+    criterio_aceptacion:
+      - "GET /Camaras/Ver retorna 200 para cualquier usuario autenticado."
+      - "GET /Camaras/Index retorna 200 solo para Admin/SuperUsuario."
+      - "Crear, editar y eliminar configuración de cámara funciona para Admin."
+    pruebas_minimas:
+      - "Login como Inversor -> click en Cámaras -> debe mostrar vista Ver."
+      - "Login como Admin -> click en Config. Cámaras -> debe mostrar Index."
+      - "Crear nueva configuración de cámara y verificar persistencia."
+
+  - id: KOI-006
+    modulo: Sidebar / Notificaciones Config
+    titulo: "NotificacionesConfigController no existe — link en sidebar genera 404 para Admin"
+    severidad: major
+    reproducido_en: main
+    pasos:
+      - "Iniciar sesion como Administrador o SuperUsuario."
+      - "Hacer click en 'Notificaciones' del sidebar (seccion Sistema)."
+    sintoma: "Error 404 — No se encuentra el controlador NotificacionesConfigController."
+    expectativa: "El link navega a una sección funcional de configuración de notificaciones."
+    causa_raiz: "NotificacionesConfigController no existe. El sidebar referencia asp-controller='NotificacionesConfig'."
+    capa: Web
+    archivos_fix:
+      - path: KoiDumplings.Web/Views/Shared/_Layout.cshtml
+        motivo: "Corregir el link para apuntar al SystemController (Test Email) o implementar el controller faltante."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "GET /NotificacionesConfig/Index"
+      condicion_falla: "Respuesta 404."
+    criterio_aceptacion:
+      - "El link 'Notificaciones' en el sidebar no produce 404."
+      - "Si se redirige a SystemController: la página de Sistema carga correctamente."
+    pruebas_minimas:
+      - "Login Admin -> click en 'Notificaciones' en sidebar -> no debe dar 404."

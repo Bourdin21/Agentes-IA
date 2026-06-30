@@ -88,5 +88,6 @@ Leer según el agente activo:
 | virtualwallet | abierto | `C:\Sistemas\virtualwallet` |
 | ganaderia | QA pendiente | `C:\Sistemas\ganaderia` |
 | contadores-bma-conversor | activo | `C:\Sistemas\Contadores BMA - Conversor` |
+| century-21 | activo | `C:\Sistemas\Century 21` |
 
 Ver `.github/copilot-instructions.md` para el detalle completo de items pendientes por proyecto.

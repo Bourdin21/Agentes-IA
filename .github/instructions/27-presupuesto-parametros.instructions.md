@@ -16,6 +16,7 @@ Proyectos de referencia disponibles:
 - /docs/lumitrack/definiciones/4-presupuestador.md (dataset ABM intermedio/complejo con 30% incluido)
 - /docs/piapartments/definiciones/4-presupuestador.md (ABM intermedio con 30% incluido)
 - /docs/energy-nutrition/definiciones/4-presupuestador.md (138 h estimadas, 14 modulos + 4 integraciones, referencia metodologica v4.0 — SIN CIERRE REAL, usar solo para integraciones externas y metodo)
+- /docs/contadores-bma-conversor/definiciones/4-presupuestador.md (8 h reales, 3 modulos, PHP + parser Excel propietario — CIERRE REAL 2026-06-29)
 
 ## Conclusion de calibracion
 
@@ -43,10 +44,13 @@ Las "horas facturables" son M/2.5 x 1.20 — no se exponen al cliente (solo USD 
 | Tipo de modulo | Rango M (h) | Horas facturables | USD (a $35/h con 20% cont.) |
 |---|---|---|---|
 | Ajuste puntual (campo, validacion, logica menor) | 0.5 – 1 h | 0.2 – 0.5 h | USD 8 – 17 |
+| Deploy inicial hosting compartido (subdominio + vendor + .htaccess) | 2 – 3 h | 0.96 – 1.44 h | USD 34 – 50 |
 | ABM simple (sin relaciones, sin logica) | 1 – 2 h | 0.5 – 1.0 h | USD 17 – 34 |
+| UI pantalla unica sin BD (drag-and-drop, sin framework) | 1 h | 0.48 h | USD 17 |
 | ABM intermedio (con relaciones y validaciones) | 4 – 7 h | 1.9 – 3.4 h | USD 67 – 118 |
 | Modulo con workflow / estados | 4 – 6 h | 1.9 – 2.9 h | USD 67 – 100 |
 | Modulo financiero o con logica compleja | 5 – 8 h | 2.4 – 3.8 h | USD 84 – 134 |
+| Parser Excel propietario (formato jerarquico, pivot, multi-input) | 4 – 6 h | 1.9 – 2.9 h | USD 67 – 100 |
 | ABM complejo (padre/hijos, trazabilidad) | 7.7 – 11.5 h | 3.7 – 5.5 h | USD 129 – 193 |
 | Integracion WS simple (OAuth + mapeo) | 3 – 4 h | 1.4 – 1.9 h | USD 50 – 67 |
 | Integracion webhook (BackgroundService + HMAC) | 8 – 10 h | 3.8 – 4.8 h | USD 134 – 168 |
@@ -68,6 +72,17 @@ Resumen de rangos observados (horas finales con 30% incluida):
 - ABM complejo: 10 a 15 h.
 - ABM complejo con padre/hijos detalle: 10 h como referencia inicial.
 - Notificaciones SignalR acotadas: 4.5 h como referencia inicial.
+
+Dataset PHP / parser Excel propietario (horas reales sin contingencia — fuente: contadores-bma-conversor, cierre real 2026-06-29):
+- Parser Excel jerarquico multi-input (pivot tall→wide, ~200 cols, 14 columnas calculadas): 4 h reales.
+- UI pantalla unica sin BD (3 drop-zones, spinner, branding): 1 h real.
+- Deploy inicial hosting compartido Ferozo (subdominio + vendor.zip + .htaccess + iteraciones): 3 h reales.
+- Total proyecto (3 modulos): 8 h reales. M estimado original: 11 h. Ratio estimado/real: 1.375x.
+
+Patron de desvio confirmado (contadores-bma-conversor):
+- Motor de conversion (parser propietario): M estimado 7 h → real 4 h → ratio 1.75x (sobreestimado por IA efficiency).
+- UI pantalla unica: M estimado 2 h → real 1 h → ratio 2.0x (sobreestimado — IA muy eficiente en pantallas sin BD).
+- Deploy inicial: M estimado 1 h → real 3 h → ratio 0.33x (SUBESTIMADO 3x — primer deploy siempre subestimado).
 
 Rangos de integraciones externas (horas base PERT, contingencia separada) — fuente: Energy Nutrition v4.0 (estimacion, sin cierre real):
 - Integracion WS simple (OAuth + mapeo): 3 – 4 h base.
@@ -170,10 +185,28 @@ Patron confirmado de ratio PERT / real en proyectos con IA asistida:
 |---|---:|---:|---:|---:|---:|
 | ShowroomGriffin | 101.1 h | 25 h | 4.0x | ~40.6 h | 1.6x |
 | Ganaderia | 101.0 h | ~30 h total | 3.4x | ~38.6 h | 1.3x |
+| contadores-bma-conversor | ~13.1 h (PERT) | 8 h | 1.6x | ~5.3 h (formula) | 0.66x |
 
 El ratio formula/real de 1.3x-1.6x confirma que la contingencia del 20% es un buffer razonable: protege sin inflar exageradamente.
 
+Excepcion observada (contadores-bma-conversor): ratio formula/real = 0.66x. En este proyecto
+la formula subbilo porque el real (8 h) superó las horas facturables calculadas (5.3 h).
+Causa: el deploy inicial fue subestimado (1 h estimado → 3 h real) y el proyecto se cobró
+sobre horas reales retroactivas, no sobre M estimado. No afecta la validez de la formula para
+proyectos futuros donde se aplica correctamente desde el inicio con M real.
+
 Factor de calibracion 2.5: fijo hasta que Energy Nutrition cierre. Recalibrar con ese cierre.
+
+## Alerta de subestimacion sistematica en deploy inicial (Junio 2026 — contadores-bma-conversor)
+
+El deploy inicial en hosting compartido (Ferozo) fue subestimado en 3x: M estimado 1 h, real 3 h.
+Causas: configuracion de subdominio en panel del hosting, mecanismo FTPS + vendor.zip no estandar,
+iteraciones de .htaccess para PHP 8.3 en LiteSpeed, verificacion end-to-end en produccion.
+
+Regla derivada: para cualquier primer deploy en hosting compartido (Ferozo u otro panel), usar
+M minimo = 2 h. Si el mecanismo de deploy es no estandar (FTP + zip extraction, Passenger WSGI,
+configuraciones PHP especificas), usar M = 3 h. El rango "Ajuste puntual 0.5-1 h" NO aplica
+a primer deploy en servidor nuevo — usar la fila "Deploy inicial hosting compartido" de la tabla.
 
 ## Alerta de sobreestimacion sistematica confirmada (Junio 2026)
 
@@ -197,6 +230,7 @@ Regla de recalibracion obligatoria derivada de este patron:
 - **Junio 2026 — primer ciclo real a tasa nueva:** iteracion evolutiva Delicias Naturales, 4 h reales, USD 160 a USD 40/h. Ratio estimado/real: 1.0 (estimacion exacta).
 - **2026-06-03:** Relevamiento de Stock (Delicias Naturales), ABM intermedio. 5.5 h reales a USD 40/h. Dataset ABM intermedio: 5h, 5.5h, 6.5h, 7h. Rango confirmado 5-7h, mediana 6h.
 - **2026-06-08:** Contingencia temporal del 20% incorporada a la formula. Tasa ajustada a USD 35/h (definitiva). Formula vigente: M/2.5 x 1.20 x $35 = M x $16.80. Energy Nutrition v6.1 calculado bajo esta formula.
+- **2026-06-29:** contadores-bma-conversor cerrado. 8 h reales, 3 modulos (PHP + parser Excel + deploy). Datos incorporados al dataset. Desvio critico: deploy inicial 1 h estimado → 3 h real. Nueva fila en tabla de rangos: "Deploy inicial hosting compartido M=2-3 h". Nueva fila: "Parser Excel propietario M=4-6 h". UI pantalla unica: confirma M=1 h (piso de ABM simple). Proyecto cobrado sobre horas reales retroactivas con descuento referido 15% → USD 199.
 - Al referenciar historicos anteriores a Junio 2026, usar las horas como referencia de esfuerzo y recalcular el costo con la tasa vigente de USD 35/h.
 - Revisar y actualizar la tasa cada 6 meses o ante cambio de contexto economico.
 - La contingencia se aplica una unica vez segun la politica vigente (variable por riesgo 8/15/25 por defecto, o fija del cliente cuando aplique).

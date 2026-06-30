@@ -16,3 +16,5 @@ Registrar una fila por cada proyecto con memoria activa en /docs.
 | meta-ads | 2026-05-13 | activo | /docs/meta-ads |
 | labipac | 2026-06-12 | activo | /docs/labipac |
 | contadores-bma-conversor | 2026-06-24 | activo | /docs/contadores-bma-conversor |
+| century-21 | 2026-06-25 | activo | /docs/century-21 |
+| decorhogar | 2026-06-29 | activo | /docs/decorhogar |

@@ -74,6 +74,7 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 | ShowroomGriffin | activo | .NET 10 + EF Core + MySQL + QuestPDF | si (v1) | `C:\Sistemas\ShowroomGriffin` |
 | vinosefue | activo | .NET 10 + EF Core + MySQL | si (olvidatasoft-002-site6) | `C:\Sistemas\vino-y-se-fue` |
 | virtualwallet | abierto | .NET 10 + EF Core + MySQL | no (dev) | `C:\Sistemas\virtualwallet` |
+| century-21 | activo | .NET 10 + EF Core + MySQL | no | `C:\Sistemas\Century 21` |
 
 ### Docs por proyecto
 - **Agentes-IA** (`docs/<proyecto>/definiciones/*.md`): memoria de cada agente (1-analista-funcional, 2-disenador-funcional, 3-arquitecto-mvc, 4-presupuestador, 5-implementador, 6-qa, 7-documentador).
