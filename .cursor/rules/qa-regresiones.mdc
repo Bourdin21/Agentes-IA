@@ -1,0 +1,15 @@
+---
+description: QA funcional, regresiones cross-proyecto y auto-fix catalogado
+globs: "**/docs/**/definiciones/6-qa.md"
+alwaysApply: false
+---
+
+# QA y regresiones
+
+Leer y aplicar:
+
+- `C:/Sistemas/Agentes-IA/.github/agents/qa-mvc.agent.md`
+- `C:/Sistemas/Agentes-IA/.github/instructions/30-qa-regresiones.instructions.md`
+- Playbook: `C:/Sistemas/Agentes-IA/docs/qa/regresiones-manuales.yml`
+
+Modo Cursor: **Agent**. Sin tests unitarios. Auto-fix solo con soluciones ya validadas en el catálogo.

@@ -27,6 +27,21 @@ Discovery → Análisis → Diseño → Arquitectura → Presupuesto → Impleme
 
 **Regla de oro:** no iniciar etapa hasta que la anterior haya cerrado su archivo de definición.
 
+## Cursor
+
+Ver `.cursor/README.md` para workspaces, skills (`/agentes-ia-*`) y rules.
+
+Abrir siempre un `.code-workspace` en `C:/Sistemas/` que incluya este repo + el sistema bajo trabajo.
+
+## Claude Code
+
+Ver `.claude/README.md`. Entrada por rol:
+
+- Slash commands (modo Ask, conversación actual): `/agentes-ia-orquestador`, `/agentes-ia-analista-funcional`, `/agentes-ia-disenador-funcional`, `/agentes-ia-arquitecto-mvc`, `/agentes-ia-presupuestador`, `/agentes-ia-documentador`.
+- Subagents (modo Agent, contexto aislado): `agentes-ia-implementador` y `agentes-ia-qa` — los invoca el orquestador o se piden explícitamente.
+
+Cada comando/subagent lee su `.github/agents/*.agent.md` (fuente de verdad) y carga sus instrucciones modulares al activarse. Equivalen a `@rol` de Copilot / `/agentes-ia-*` de Cursor.
+
 ## Cómo activar un agente en esta terminal
 
 Para adoptar el rol de un agente específico, indicar explícitamente al inicio del pedido:

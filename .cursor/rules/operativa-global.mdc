@@ -1,0 +1,44 @@
+---
+description: Reglas globales del estudio — secuencia de etapas, trazabilidad documental y gates entre agentes
+alwaysApply: true
+---
+
+# Agentes-IA — operativa global
+
+Base: `C:/Sistemas/Agentes-IA/`
+
+## Secuencia obligatoria
+
+Discovery → Análisis → Diseño → Arquitectura → Presupuesto → Implementación → QA → Documentación (cliente) → Cierre calibración
+
+No avanzar de etapa sin archivo cerrado en `docs/<proyecto>/definiciones/`.
+
+## Rutas canónicas
+
+- Índice de proyectos: `C:/Sistemas/Agentes-IA/docs/indice.md`
+- Memoria por agente: `C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/<n>-<rol>.md` — **editar el existente, nunca crear duplicados**
+- Trazabilidad: `C:/Sistemas/Agentes-IA/docs/<proyecto>/trazabilidad.md`
+- Marco técnico: `C:/Sistemas/Agentes-IA/.github/copilot-instructions.md`
+- Instrucciones modulares: `C:/Sistemas/Agentes-IA/.github/instructions/`
+
+Leer siempre `00-operativa-global.instructions.md` y `01-fronteras-por-capa.instructions.md`.
+
+## Reglas base
+
+- Lógica de negocio en Services, no en Controllers
+- Acceso a datos en DbContext/repositorios/infraestructura
+- Indicar capas afectadas, migraciones EF, permisos y validaciones
+- Sin refactors cosméticos salvo pedido expreso
+- UI: SweetAlert2, DataTables, daterangepicker (ver `25-frontend-design-system.instructions.md`)
+- Stack activo: .NET 10, EF Core 10, **MySql.EntityFrameworkCore** (Oracle, no Pomelo)
+
+## Modos Cursor
+
+| Etapas | Modo |
+|---|---|
+| Analista, diseñador, arquitecto, presupuestador, documentador | Ask |
+| Implementador, QA | Agent |
+
+## Activación de agentes
+
+Al invocar un rol (`/agentes-ia-*` o `@rol`), leer el `.github/agents/<nombre>.agent.md` correspondiente y adoptar rol, input, salida mínima e instrucciones modulares listadas ahí.

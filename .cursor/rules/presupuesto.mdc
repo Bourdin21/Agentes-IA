@@ -1,0 +1,14 @@
+---
+description: Estimación PERT, presupuesto al cliente y calibración histórica — activar en etapa de presupuesto o cierre de sprint
+alwaysApply: false
+---
+
+# Presupuesto y calibración
+
+Leer y aplicar en orden:
+
+1. `C:/Sistemas/Agentes-IA/.github/agents/presupuesto-mvc.agent.md`
+2. `C:/Sistemas/Agentes-IA/.github/instructions/27-presupuesto-parametros.instructions.md`
+3. `C:/Sistemas/Agentes-IA/.github/instructions/28-estimacion-avanzada.instructions.md`
+
+Anclar estimaciones en referencias históricas antes de razonar desde cero. Precio al cliente sobre **M**, no sobre horas PERT finales (ver agente presupuestador).

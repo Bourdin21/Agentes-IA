@@ -1,0 +1,19 @@
+---
+description: Reglas Domain, Application e Infrastructure — entidades, DTOs, EF Core, repositorios y servicios
+globs: "**/{Domain,Application,Infrastructure}/**/*.cs"
+alwaysApply: false
+---
+
+# Capas Domain / Application / Infrastructure
+
+Leer y aplicar según la carpeta abierta:
+
+- Domain → `20-domain.instructions.md`
+- Application → `21-application.instructions.md`
+- Infrastructure → `22-infrastructure.instructions.md`
+- Paquetes/config → `24-config-paquetes.instructions.md`
+- Base del stack → `10-blankproject-base.instructions.md`
+
+Ruta base: `C:/Sistemas/Agentes-IA/.github/instructions/`
+
+Migraciones EF: explicitar impacto. Soft delete y auditoría según convenciones del estudio.
