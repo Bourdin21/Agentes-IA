@@ -4,7 +4,7 @@
 - fecha_inicio: 2026-06-25
 - estado: activo
 - owner: Olvidata Soft
-- descripcion: Sistema de gestión inmobiliaria para Century 21
+- descripcion: Plataforma SaaS multi-agencia de gestión inmobiliaria (CRM + Chatbot WhatsApp + Agregador de portales), piloto Century 21 La Plata, pensada para reventa a otras agencias
 - ruta_definiciones: /docs/century-21/definiciones
 - ruta_repositorio: C:\Sistemas\Century 21
 

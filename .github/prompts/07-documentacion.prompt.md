@@ -13,6 +13,7 @@ Comunicar en forma simple y resumida que se entrego en el sprint y que valor apo
 - .github/instructions/01-fronteras-por-capa.instructions.md
 - .github/instructions/10-blankproject-base.instructions.md
 - .github/instructions/26-checklists.instructions.md
+- .github/instructions/31-formato-documento-cliente.instructions.md
 
 # Entrada
 - Alcance aprobado
@@ -27,6 +28,7 @@ Comunicar en forma simple y resumida que se entrego en el sprint y que valor apo
 5. Mencionar riesgos o consideraciones de negocio (si aplica).
 
 # Salida
+Envuelto en el formato de `31-formato-documento-cliente.instructions.md` (encabezado con marca, `## Sobre el proyecto` breve, pie de firma):
 1. Resumen del sprint (3 a 5 lineas)
 2. Cambios entregados (bullets breves)
 3. Beneficio para negocio/usuario

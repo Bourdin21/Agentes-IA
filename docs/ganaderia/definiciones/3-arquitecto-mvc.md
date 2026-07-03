@@ -1,10 +1,13 @@
 # Arquitectura Técnica — Sistema de Gestión Ganadera
 
-Versión: **v1**
+Versión: **v3**
 Agente: `3 - arquitecto-mvc`
 Entradas:
-- `docs/ganaderia/definiciones/1-analista-funcional.md` v10
-- `docs/ganaderia/definiciones/2-disenador-funcional.md` v1
+- `docs/ganaderia/definiciones/1-analista-funcional.md` v12
+- `docs/ganaderia/definiciones/2-disenador-funcional.md` v3
+Repositorio de v2/v3: **`C:\Sistemas\ganaderia - emo`** (exclusivo; NO aplica a `ganaderia - fausto`). **Sistema en producción** — las migraciones deben preservar los datos ya cargados (`Egreso` en v2, `FacturaVenta.Motivo` en v3).
+
+> Nota: §1–§12 documentan el diseño arquitectónico **original** (v1, previo a implementación) y quedan como referencia histórica; la implementación real ya diverge en nomenclatura (`Egreso` no `Gasto`, `FacturaVenta` no `Factura`, `JobEjecucion` no `Novedad` para idempotencia, `AcreditacionCuotasHostedService` no `AcreditacionDiariaHostedService`). El diseño técnico de v2 (§13) está grounded directamente en el código real de `ganaderia - emo`.
 
 Proyecto: BlankProject (ASP.NET Core **MVC**, .NET 10, EF Core 10, MySQL 8, Identity, Serilog)
 Solución base (existente):
@@ -490,6 +493,250 @@ Con este documento, el desarrollador puede arrancar por:
 
 ---
 
-## 12. Historial de versiones
+## 13. Arquitectura v2 — Pagos múltiples de Egreso (`ganaderia - emo`)
+
+Grounded directamente en el código real: `Egreso.cs`, `EgresoService.cs`, `MovimientoCaja.cs`, `FacturaVentaCuota.cs`/`CuotaService.cs` (patrón de referencia), `AppDbContext.cs`, `AcreditacionCuotasHostedService.cs`.
+
+### 13.1 Domain — cambios
+
+**`Egreso.cs`** — se quita el campo `FormaDePago`; se agrega navegación:
+```csharp
+public class Egreso : SoftDestroyable
+{
+    public DateOnly Fecha { get; set; }
+    public int RubroId { get; set; }
+    public Rubro? Rubro { get; set; }
+    public int ProveedorId { get; set; }
+    public Proveedor? Proveedor { get; set; }
+    public string Detalle { get; set; } = string.Empty;
+    public decimal Importe { get; set; }
+    public ComprobanteEgreso? Comprobante { get; set; }
+
+    public ICollection<EgresoPago> Pagos { get; set; } = new List<EgresoPago>();
+}
+```
+
+**`EgresoPago.cs`** (nueva entidad, calcada de `FacturaVentaCuota` + campos propios de cheque):
+```csharp
+public class EgresoPago : SoftDestroyable
+{
+    public int EgresoId { get; set; }
+    public Egreso? Egreso { get; set; }
+
+    public FormaDePago FormaDePago { get; set; }
+    public decimal Importe { get; set; }
+    public DateOnly FechaEfectiva { get; set; }
+    public DateOnly? FechaVencimiento { get; set; } // obligatoria solo si FormaDePago == Cheque
+    public EstadoPagoEgreso Estado { get; set; } = EstadoPagoEgreso.Pendiente;
+
+    public DateOnly? FechaRechazo { get; set; }
+    public string? MotivoRechazo { get; set; }
+    public OpcionRegularizacion? OpcionRegularizacion { get; set; }
+    public DateOnly? FechaRegularizacion { get; set; }
+
+    // Trazabilidad al movimiento de caja generado al acreditar (mismo patron que FacturaVentaCuota.MovimientoCajaIngresoId).
+    public int? MovimientoCajaEgresoId { get; set; }
+}
+```
+
+**`EstadoPagoEgreso.cs`** (enum nuevo):
+```csharp
+public enum EstadoPagoEgreso { Pendiente = 1, Acreditado = 2, Rechazado = 3 }
+```
+
+`OpcionRegularizacion` y `FormaDePago` se **reutilizan** tal cual existen hoy (ya usados por `FacturaVentaCuota`).
+
+**`MovimientoCaja.cs`** — reemplaza la FK directa a `Egreso` por FK al pago:
+```csharp
+// antes: public int? EgresoId { get; set; }  public Egreso? Egreso { get; set; }
+public int? EgresoPagoId { get; set; }
+public EgresoPago? EgresoPago { get; set; }
+```
+
+### 13.2 Application — cambios
+
+**`ICajaEgresoServices.cs`**:
+```csharp
+public record EgresoPagoInput(FormaDePago FormaDePago, decimal Importe, DateOnly FechaEfectiva, DateOnly? FechaVencimiento);
+
+public record EgresoCreateInput(
+    DateOnly Fecha, int RubroId, int ProveedorId, string Detalle, decimal Importe,
+    List<EgresoPagoInput> Pagos);   // reemplaza el parametro FormaDePago suelto
+
+public interface IEgresoService
+{
+    Task<List<Egreso>> ListAsync(DateOnly? desde = null, DateOnly? hasta = null);
+    Task<Egreso?> GetAsync(int id);
+    Task<ServiceResult<Egreso>> CreateAsync(EgresoCreateInput input, Stream? comprobante, string? nombreArchivo, string? contentType);
+    Task<ServiceResult> AnularAsync(int egresoId);
+    Task<List<string>> SugerenciasDetalleAsync(string? term, int top = 10);
+}
+
+public interface IEgresoPagoService   // nuevo, calcado de ICuotaService
+{
+    Task<ServiceResult> RechazarAsync(int egresoPagoId, DateOnly fechaRechazo, string motivo);
+    Task<ServiceResult> RegularizarAsync(int egresoPagoId, OpcionRegularizacion opcion, DateOnly fechaRegularizacion, FormaDePago? formaPagoReal = null);
+    Task<int> AcreditarChequesVencidosAsync(DateOnly hoy);   // invocado por el job diario
+}
+```
+
+### 13.3 Infrastructure — cambios
+
+**`EgresoService.CreateAsync`** — validaciones nuevas antes de abrir transacción:
+- `input.Pagos.Count >= 1` (PV15).
+- Cada `Importe > 0`.
+- Cheque ⇒ `FechaVencimiento.HasValue && FechaVencimiento >= FechaEfectiva` (PV13/PV14).
+- `Math.Round(input.Pagos.Sum(p => p.Importe), 2) == Math.Round(input.Importe, 2)` (PF56, RD6).
+
+Dentro de la transacción: persiste `Egreso`, agrega un `EgresoPago` por cada línea; para `Efectivo`/`Transferencia` marca `Estado = Acreditado` y agrega su `MovimientoCaja` (igual que hoy, `Estado = Acreditado`, `EgresoPagoId` en vez de `EgresoId`); para `Cheque` deja `Estado = Pendiente` **sin** crear `MovimientoCaja` (PF53/PF54/PF55).
+
+**`EgresoService.AnularAsync`** — extiende el soft-delete: además del `Egreso`, itera `_db.EgresoPagos.Where(p => p.EgresoId == egresoId)` y `_db.MovimientosCaja.Where(m => m.EgresoPago!.EgresoId == egresoId)`, marcando `DeletedAt` en todos (análisis v11 §4.6).
+
+**`EgresoPagoService.cs`** (nueva, implementación calcada 1:1 del patrón de `CuotaService.cs`):
+- `RechazarAsync`: sólo desde `Pendiente`/`Acreditado`, sólo `FormaDePago == Cheque` (PV16); si tenía `MovimientoCajaEgresoId`, ese movimiento → `Pendiente` (`IgnoreQueryFilters()` + `DeletedAt = null`, mismo patrón que `CuotaService.RechazarAsync`).
+- `RegularizarAsync`: sólo desde `Rechazado`; 3a (`ErrorDeCarga`) restaura el movimiento original a `Acreditado`; 3b (`CobroPosterior`) crea un `MovimientoCaja` nuevo `Acreditado` con fecha/forma reales, movimiento original queda `Pendiente`.
+- `AcreditarChequesVencidosAsync(hoy)`: `WHERE FormaDePago == Cheque AND Estado == Pendiente AND FechaVencimiento <= hoy`, crea `MovimientoCaja` (`EsIngreso = false`, `Estado = Acreditado`, `Fecha = FechaVencimiento`, `EgresoPagoId`), setea `EgresoPago.Estado = Acreditado`, `MovimientoCajaEgresoId`. Misma idempotencia que `CuotaService.AcreditarCuotasVencidasAsync` (query re-ejecutable sin duplicar: sólo toma pagos aún `Pendiente`).
+
+**`AcreditacionCuotasHostedService.cs`** — se extiende `EjecutarSiCorrespondeAsync` (no se crea un segundo `IHostedService`): después de `cuotaSvc.AcreditarCuotasVencidasAsync(hoyArt)`, agrega:
+```csharp
+var egresoPagoSvc = scope.ServiceProvider.GetRequiredService<IEgresoPagoService>();
+var chequesProcesados = await egresoPagoSvc.AcreditarChequesVencidosAsync(hoyArt);
+```
+`JobEjecucion` gana columna `ChequesEgresoProcesados` (int) para el mismo registro diario; `registro.Detalle` incluye ambos totales; `NotificarAdministradoresAsync` recibe el total combinado para la notificación in-app consolidada (mismo mensaje, no dos notificaciones separadas).
+
+**`AppDbContext.cs`** — fluent config nueva:
+```csharp
+modelBuilder.Entity<EgresoPago>(e =>
+{
+    e.Property(p => p.FormaDePago).HasConversion<int>();
+    e.Property(p => p.Estado).HasConversion<int>();
+    e.Property(p => p.OpcionRegularizacion).HasConversion<int>();
+    e.Property(p => p.Importe).HasPrecision(18, 2);
+    e.Property(p => p.MotivoRechazo).HasMaxLength(500);
+    e.HasOne(p => p.Egreso).WithMany(g => g.Pagos).HasForeignKey(p => p.EgresoId).OnDelete(DeleteBehavior.Restrict);
+    e.HasIndex(p => new { p.Estado, p.FormaDePago, p.FechaVencimiento }); // para el job (igual patron que FacturaVentaCuota)
+});
+```
+En `ConfigureGanaderia`, el bloque `MovimientoCaja` reemplaza `e.HasOne(p => p.Egreso)...HasForeignKey(p => p.EgresoId)` por `e.HasOne(p => p.EgresoPago).WithMany().HasForeignKey(p => p.EgresoPagoId).OnDelete(DeleteBehavior.Restrict).IsRequired(false)`. El bloque `Egreso` pierde `e.Property(p => p.FormaDePago).HasConversion<int>()`.
+
+### 13.4 Migración EF — **con datos existentes (riesgo crítico)**
+
+`ganaderia - emo` está **en producción** con `Egreso` ya cargados (1 `FormaDePago` + 1 `MovimientoCaja` vía `EgresoId` cada uno). La migración debe preservar esa historia. Se propone **una migración con `Up()` en 3 fases** (schema → backfill de datos → drop de columnas viejas):
+
+1. **Fase A (schema aditivo)**: crear tabla `EgresoPagos` (sin FK todavía desde `MovimientoCaja`); agregar columna nullable `MovimientosCaja.EgresoPagoId`; agregar `JobEjecuciones.ChequesEgresoProcesados` (nullable/default 0).
+2. **Fase B (backfill, SQL dentro de la misma migración vía `migrationBuilder.Sql(...)`)**:
+   ```sql
+   INSERT INTO EgresoPagos (EgresoId, FormaDePago, Importe, FechaEfectiva, FechaVencimiento, Estado,
+                             MovimientoCajaEgresoId, CreatedAt, CreatedByUserId)
+   SELECT Id, FormaDePago, Importe, Fecha, NULL, 2 /*Acreditado*/,
+          (SELECT Id FROM MovimientosCaja mc WHERE mc.EgresoId = Egresos.Id LIMIT 1),
+          CreatedAt, CreatedByUserId
+   FROM Egresos;
+
+   UPDATE MovimientosCaja mc
+   JOIN EgresoPagos ep ON ep.MovimientoCajaEgresoId = mc.Id
+   SET mc.EgresoPagoId = ep.Id;
+   ```
+   Los `Egreso` con `DeletedAt` no nulo (anulados) también migran su pago (queda igualmente de baja lógica, mismo `DeletedAt`); si el `Egreso` anulado no tenía `MovimientoCaja` vigente, `MovimientoCajaEgresoId` queda `NULL`.
+3. **Fase C (schema destructivo)**: `DROP COLUMN Egresos.FormaDePago`; `DROP COLUMN MovimientosCaja.EgresoId` (+ su FK); agregar FK real `MovimientosCaja.EgresoPagoId → EgresoPagos.Id`.
+
+**RT9 (nuevo, crítico)** — la Fase C es irreversible sin backup: si el backfill de Fase B falla silenciosamente (0 filas por mismatch de tipos/FK), se pierde la trazabilidad de pagos históricos al dropear las columnas. **Mitigación obligatoria**: correr la migración completa primero contra una copia de la base de producción (o snapshot), validar `COUNT(EgresoPagos) == COUNT(Egresos)` y `COUNT(MovimientosCaja WHERE EgresoPagoId IS NOT NULL) == COUNT(MovimientosCaja WHERE EgresoId IS NOT NULL era antes)` **antes** de aplicar en producción. Tomar backup de `Egresos` y `MovimientosCaja` inmediatamente antes del deploy.
+
+### 13.5 Riesgos técnicos v2
+
+| ID | Riesgo | Mitigación |
+|---|---|---|
+| RT9 | Pérdida de trazabilidad histórica de pagos al migrar datos de producción (§13.4) | Backfill validado contra copia de producción + backup previo al deploy; smoke test post-migración que compara conteos |
+| RT10 | `EgresoPagoService` diverge del comportamiento ya probado de `CuotaService` si se reimplementa desde cero | Copiar el patrón línea por línea (transacción, `IgnoreQueryFilters()`, mutación sin contramovimiento) en vez de rediseñar |
+| RT11 | Job diario extendido: si `AcreditarChequesVencidosAsync` lanza excepción, no debe impedir que `AcreditarCuotasVencidasAsync` ya corrido quede confirmado (evitar rollback cruzado entre ambas colecciones) | Cada `AcreditarXVencidosAsync` abre su propia transacción por ítem (ya es el patrón actual de `CuotaService`); no envolver ambas llamadas en una transacción común |
+| RT12 | Grilla dinámica de pagos en `Egresos/Create` sin JS robusto puede romper el binding de `List<EgresoPagoViewModel>` en POST | Usar índices secuenciales `Pagos[0].Importe`, `Pagos[1].Importe`... regenerados al agregar/quitar filas (patrón estándar MVC), cubrir con smoke test manual antes de QA |
+
+### 13.6 Checklist adicional v2
+
+- [ ] `EgresoPago` creada, hereda `SoftDestroyable`, configurada en `AppDbContext` con índice `(Estado, FormaDePago, FechaVencimiento)`.
+- [ ] `MovimientoCaja.EgresoId` reemplazado por `EgresoPagoId` (FK + navegación).
+- [ ] Migración con backfill de datos ejecutada y validada contra copia de producción (RT9) **antes** de aplicar en el ambiente real.
+- [ ] `IEgresoPagoService`/`EgresoPagoService` implementados calcando el patrón de `ICuotaService`/`CuotaService`.
+- [ ] `EgresoService.CreateAsync` valida suma exacta de pagos + reglas de cheque (servidor, autoridad).
+- [ ] `EgresoService.AnularAsync` propaga baja lógica a `EgresoPago` y `MovimientoCaja` asociados.
+- [ ] `AcreditacionCuotasHostedService` extendido para procesar `EgresoPago` sin crear un segundo `IHostedService`.
+- [ ] `EgresosController.Create` con grilla dinámica de pagos (binding `List<EgresoPagoViewModel>`); `EgresoPagosController` con `Rechazar`/`Regularizar`.
+- [ ] Backup de `Egresos`/`MovimientosCaja` tomado inmediatamente antes del deploy a producción.
+
+---
+
+## 15. Arquitectura v3 — Autocomplete Select2 (Concepto de Egreso, Motivo de Factura de venta)
+
+Grounded en código real: `EgresosController.SugerenciasDetalle` (ya existente, patrón a replicar), `IFacturaVentaService`/`FacturaVentaService`/`FacturasController`, `FacturaVentaCreateVm`, `FacturaVenta.cs`, `AppDbContext.ConfigureGanaderia` (bloque `FacturaVenta`).
+
+### 15.1 Domain
+`FacturaVenta.cs`:
+```csharp
+// antes: public MotivoVenta Motivo { get; set; }
+public string Motivo { get; set; } = string.Empty;
+```
+Se **elimina** `Enums/Ganaderia/MotivoVenta.cs` (sin más referencias tras el cambio; verificado que no participa en ninguna lógica de negocio, sólo en persistencia y visualización — análisis v12 S37).
+
+### 15.2 Application
+`IFacturaVentaService.cs`:
+- `FacturaVentaCreateInput.Motivo` cambia de `MotivoVenta` a `string`.
+- Nuevo método: `Task<List<string>> SugerenciasMotivoAsync(string? term, int top = 10);` — misma firma que `IEgresoService.SugerenciasDetalleAsync`.
+
+### 15.3 Infrastructure
+**`FacturaVentaService.SugerenciasMotivoAsync`** — calcado 1:1 de `EgresoService.SugerenciasDetalleAsync` (mismo patrón: `Where(!string.IsNullOrEmpty)`, filtro `EF.Functions.Like` si hay término, `GroupBy` + `OrderByDescending(Max(Id))` + `Take(top)`), pero sobre `_db.FacturasVenta` y la propiedad `Motivo`.
+
+**`AppDbContext.cs`** — en el bloque `modelBuilder.Entity<FacturaVenta>(e => { ... })`:
+```csharp
+// antes: e.Property(p => p.Motivo).HasConversion<int>();
+e.Property(p => p.Motivo).HasMaxLength(200).IsRequired();
+```
+
+**Migración EF** (una sola, sin las 3 fases de v2 porque no hay reestructuración relacional, sólo cambio de tipo de columna + backfill de valores):
+```csharp
+protected override void Up(MigrationBuilder migrationBuilder)
+{
+    // Fase A: columna nueva nullable
+    migrationBuilder.AddColumn<string>(name: "MotivoTexto", table: "FacturasVenta", type: "varchar(200)", maxLength: 200, nullable: true);
+
+    // Fase B: backfill — mapea los 3 valores historicos del enum (1/2/3) a su texto equivalente.
+    migrationBuilder.Sql(@"
+        UPDATE FacturasVenta SET MotivoTexto = CASE Motivo
+            WHEN 1 THEN 'Faena'
+            WHEN 2 THEN 'Vacía'
+            WHEN 3 THEN 'Enfermedad'
+            ELSE 'Faena' /* red de seguridad; no deberia ocurrir, Motivo es NOT NULL con esos 3 valores */
+        END;
+    ");
+
+    // Fase C: dropear columna vieja, renombrar la nueva, marcar NOT NULL.
+    migrationBuilder.DropColumn(name: "Motivo", table: "FacturasVenta");
+    migrationBuilder.RenameColumn(name: "MotivoTexto", table: "FacturasVenta", newName: "Motivo");
+    migrationBuilder.AlterColumn<string>(name: "Motivo", table: "FacturasVenta", type: "varchar(200)", maxLength: 200, nullable: false);
+}
+```
+`Down()`: recrea la columna `int` e intenta mapear de vuelta por texto exacto (`'Faena'→1`, `'Vacía'→2`, `'Enfermedad'→3`, cualquier otro valor libre cargado después de v3 no tiene representación en el enum viejo y se mapea a `1` con nota en release notes — mismo criterio que el `Down()` de la migración v2, rollback de datos operativos nuevos no es lossless).
+
+**RT13 (nuevo, v3)** — riesgo bajo (a diferencia de RT9): esta migración no reestructura relaciones ni puede perder trazabilidad histórica (los 3 valores mapean 1:1, sin ambigüedad). Igual se recomienda correrla primero contra una copia de desarrollo/staging antes de producción, como buena práctica general, pero no requiere el nivel de validación obligatoria de RT9.
+
+### 15.4 Web
+- `FacturaVentaCreateVm.Motivo`: `MotivoVenta` → `string`, `[Required, StringLength(200)]`.
+- `FacturasController`: agregar acción `SugerenciasMotivo(string? term, int top = 10)` — calcada de `EgresosController.SugerenciasDetalle`.
+- `Facturas/Create.cshtml`: reemplazar `<select asp-for="Motivo" asp-items="Html.GetEnumSelectList<MotivoVenta>()">` por `<input asp-for="Motivo" type="hidden" class="js-select2-motivo" />` (o `<select>` vacío) + inicialización Select2 (diseño §8.1).
+- `Egresos/Create.cshtml`: reemplazar el `<input list="DetalleSugerencias"> + <datalist>` y su JS de `fetch` manual (agregado en el bugfix post-v11) por el mismo patrón Select2, apuntando a `Egresos/SugerenciasDetalle` (endpoint sin cambios).
+- Script Select2 reutilizable: se propone un único archivo `wwwroot/js/ov-autocomplete-select2.js` con una función `initAutocompleteSelect2(selector, url)` invocada desde ambas vistas, para no duplicar el snippet del diseño §8.1 en 2 archivos `.cshtml`.
+
+### 15.5 Checklist adicional v3
+- [ ] `MotivoVenta` enum eliminado del Domain, sin referencias colgantes.
+- [ ] `FacturaVenta.Motivo` es `string(200)` NOT NULL en DB, con backfill validado (los 3 valores históricos migran correctamente).
+- [ ] `IFacturaVentaService.SugerenciasMotivoAsync` implementado, calcado de `SugerenciasDetalleAsync`.
+- [ ] `FacturasController.SugerenciasMotivo` acción nueva, misma forma de contrato JSON que `Egresos/SugerenciasDetalle`.
+- [ ] Select2 inicializado en `Egresos/Create` y `Facturas/Create` vía función JS reutilizable (`ov-autocomplete-select2.js`), sin código muerto del `<datalist>`/fetch manual anterior.
+- [ ] Build 0 errores; smoke test de navegador real (Playwright o similar) del autocomplete en ambas pantallas antes de cerrar QA — lección explícita del bugfix post-v11 (`6-qa.md` §12.4).
+
+---
+
+## 16. Historial de versiones
 
 - **v1** — Primera consolidación arquitectónica sobre el blankproject real. Reutiliza `SoftDestroyable`, `ServiceResult`, `IRepository<T>`, `AppDbContext` con query filter global de soft delete, `NotificationService` y convenciones de enums con `HasConversion<int>`. Define estructura de carpetas, dos migraciones EF separadas, estrategia de correlativo con tabla contador + transacción, job diario vía `IHostedService`, almacenamiento local de comprobantes servido por controller autenticado, riesgos técnicos RT1–RT8 y pruebas arquitectónicas PA1–PA6. Deja 3 preguntas abiertas para el diseñador funcional.
+- **v2** — Diseño técnico de pagos múltiples de Egreso (§13), grounded en el código real de `ganaderia - emo` (no en el plan v1 pre-implementación). Nueva entidad `EgresoPago` + enum `EstadoPagoEgreso`; `MovimientoCaja.EgresoId` reemplazado por `EgresoPagoId`; nuevo servicio `IEgresoPagoService` calcado de `ICuotaService`; extensión de `AcreditacionCuotasHostedService` (no se crea un segundo job). Punto crítico: migración EF con **backfill de datos de producción** en 3 fases (RT9), con validación obligatoria contra copia de producción antes del deploy real. Riesgos RT9–RT12.
+- **v3** — Diseño técnico de autocomplete Select2 (§15): `FacturaVenta.Motivo` pasa de enum (`MotivoVenta`, eliminado) a texto libre, con migración de backfill de menor riesgo que v2 (RT13, mapeo 1:1 sin ambigüedad). Nuevo `IFacturaVentaService.SugerenciasMotivoAsync` simétrico a `IEgresoService.SugerenciasDetalleAsync`. Se retira el `<datalist>` nativo de Egresos y se unifica el widget de autocomplete en un único script JS reutilizable (`ov-autocomplete-select2.js`) para ambas pantallas.

@@ -141,9 +141,11 @@ Salida minima (presupuesto inicial):
 9. Riesgos y supuestos.
 10. Pruebas minimas requeridas.
 11. Checklist de salida para merge.
-12. Tabla simple para el cliente dividida en Etapa 1 (MVP) y Etapa 2 (resto del alcance): Area | USD con subtotal por etapa y total del proyecto (horas son internas, no se exponen). El cargo de tokens IA (USD 100) va implicito: prorrateado en los precios de la Etapa 1, sin linea visible para el cliente.
+12. Tabla simple para el cliente dividida en Etapa 1 (MVP) y Etapa 2 (resto del alcance): Area | USD con subtotal por etapa y total del proyecto (horas son internas, no se exponen). El cargo de Tokens IA es el 10% del total presupuestado (Subtotal Etapa 1 + Subtotal Etapa 2) y se muestra EXPLICITO como linea individual en la seccion "Total del proyecto" — no se prorratea en los modulos ni se oculta.
 13. Plan de mantenimiento anual recomendado segun cantidad de tablas (ver 27-presupuesto-parametros). Presentar como linea separada post-desarrollo: "Mantenimiento anual — Plan X: USD Y/año".
 14. Condiciones comerciales (50/50 por etapa, sin clausula de validez de oferta) y exclusiones.
+
+**Documento final al cliente (`presupuesto-cliente.md`):** items 1-11 son detalle interno de calibracion (van solo en `4-presupuestador.md`). El archivo que efectivamente se entrega al cliente se arma solo con el contenido comercial (2, 4, 12, 13, 14) envuelto en el formato y estilo obligatorio de `.github/instructions/31-formato-documento-cliente.instructions.md` (encabezado con marca, "Sobre el sistema", Rol de usuario, Que incluye/no incluye, Lo que necesitamos de tu parte, Condiciones comerciales, pie de firma).
 
 Salida adicional (cierre de calibracion estimado vs real, al finalizar el sprint):
 1. Tabla por modulo: horas estimadas, horas reales, desvio % y motivo del desvio.
@@ -161,3 +163,4 @@ Instrucciones a priorizar:
 - .github/instructions/27-presupuesto-parametros.instructions.md
 - .github/instructions/28-estimacion-avanzada.instructions.md
 - .github/instructions/29-trazabilidad-conversacion.instructions.md
+- .github/instructions/31-formato-documento-cliente.instructions.md

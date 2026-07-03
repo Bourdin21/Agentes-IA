@@ -21,7 +21,7 @@ Input esperado:
 - /docs/<proyecto>/definiciones/5-implementador.md (cambios entregados)
 - /docs/<proyecto>/definiciones/6-qa.md (validacion confirmada)
 
-Formato de salida (maximo 6 bloques cortos):
+Formato de salida (maximo 6 bloques cortos, envueltos en el formato de `31-formato-documento-cliente.instructions.md`: encabezado con marca, `## Sobre el proyecto` breve, y pie de firma al final):
 1. Resumen del sprint (3 a 5 lineas).
 2. Cambios principales entregados (bullets simples).
 3. Beneficio para el cliente/usuario (por cada cambio o en bloque).
@@ -41,3 +41,4 @@ Instrucciones a priorizar:
 - .github/instructions/10-blankproject-base.instructions.md
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/29-trazabilidad-conversacion.instructions.md
+- .github/instructions/31-formato-documento-cliente.instructions.md

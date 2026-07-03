@@ -1,10 +1,28 @@
 # Memoria - QA
 
 ## Proyecto: vinosefue
-## Ultima actualizacion: 2026-05-13
+## Ultima actualizacion: 2026-07-03
 
 > Documento de referencia rapida. La memoria QA detallada por feature vive en:
 > `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\6-qa.md`
+
+---
+
+## QA completado — Lote "Compras al proveedor — desacople y cuenta corriente" (2026-07-03)
+
+**Build:** Succeeded (0 errores, mismos warnings preexistentes). **Migraciones:** 2 aplicadas y verificadas en local (conteos/sumas del backfill cuadran contra `VinoSeFue_dev`); pendientes en produccion (requiere aprobacion cliente).
+
+Cobertura: 9 Historias de Usuario (HU-1..9) + 5 Criterios del analista (CU-1..5): **todos PASS** (1 observacion menor de copy en mensaje de concurrencia, no bloqueante). Maquina de estados de `Pedido` y `CompraProveedor` recorrida completa (validas e invalidas).
+
+**2 defectos encontrados y corregidos con auto-fix** (catalogados en `docs/qa/regresiones-manuales.yml` antes del parche):
+- **VSF-001** (menor): item vinculado a una Compra `Cancelada` (remanente historico pre-migracion) bloqueaba la cancelacion/eliminacion del Pedido igual que si la compra estuviera facturada, dejando al usuario sin ninguna accion posible (la UI no expone "Quitar item" en una compra Cancelada). Fix: el guard de bloqueo en `PedidoService` (`CambiarEstadoInternoAsync`/`EliminarItemAsync`) ahora excluye tambien `Estado == Cancelada` ademas de `Borrador`.
+- **VSF-002** (menor): una `CompraProveedor` en `Borrador` no tenia forma de cancelarse (el diccionario de transiciones solo permitia Borrador→Generada), pese a que el diseno aprobado define Borrador/Generada/EnPreparacion→Cancelada. Fix: se agrego `Cancelada` a las transiciones permitidas desde `Borrador` en `CompraProveedorService` (la logica de cancelacion ya era agnostica al estado de origen).
+
+**DEF-003 (heredado del QA de Concesion recibida)**: verificado **CERRADO** — doble guarda (service + UI, `puedeOperar` en `ConcesionesRecibidas/Detalle.cshtml`) ya presente en el codigo vigente.
+
+Riesgos de liberacion principales: reportes `DeudaProveedor`/`Riesgo` con columna de pago degradada a $0 (decision pendiente del cliente); migraciones y scripts del 2026-07-03 pendientes en produccion (requiere aprobacion + backup); flujo de escritura completo (Crear compra, Pagos/NCR) sin ejercitar aun por navegador — pasos de smoke manual dejados para el usuario.
+
+**Recomendacion: GO condicionado** (pendientes son de coordinacion/produccion y decision de negocio sobre reportes, no de codigo). Detalle completo en `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\6-qa.md` (seccion "QA — Lote 'Compras al proveedor...'").
 
 ---
 
@@ -61,12 +79,15 @@
 | id | severidad | descripcion | estado |
 |---|---|---|---|
 | DEF-001 | info | Transicion `MarcarLiquidada` manual no implementada como endpoint; solo ocurre automaticamente al pagar total | pendiente |
-| DEF-003 | menor | Boton "Registrar pago" no se bloquea en `/Compras/Detalle` para compra espejo de concesion `CerradaManual` | pendiente |
+| DEF-003 | menor | Boton "Registrar pago" no se bloquea en `/Compras/Detalle` para compra espejo de concesion `CerradaManual` | **cerrado 2026-07-03** (doble guarda service+UI verificada vigente) |
+| VSF-001 | menor | Item vinculado a Compra `Cancelada` (remanente historico) bloqueaba cancelacion/eliminacion de Pedido igual que Generada+ | **corregido 2026-07-03 (auto-fix)** |
+| VSF-002 | menor | Compra `Borrador` sin transicion posible a `Cancelada` (diccionario de estados incompleto) | **corregido 2026-07-03 (auto-fix)** |
 
 ---
 
 ## Estado go/no-go
 
-- Feature Concesion recibida del proveedor: **GO** (DEF-003 no bloquea). Deployado a produccion el 2026-05-14.
+- Feature Concesion recibida del proveedor: **GO** (DEF-003 no bloquea, y ahora verificado cerrado). Deployado a produccion el 2026-05-14.
 - Feature Reversion estados pedido: **pendiente QA manual** (build OK, pendiente migracion en produccion).
 - Feature Stock propio: **pendiente QA manual** (build OK, pendiente migracion en produccion).
+- Lote "Compras al proveedor — desacople y cuenta corriente" (2026-07-03): **GO condicionado** — build OK, 9 HU + 5 CU PASS, maquina de estados cubierta, 2 defectos encontrados y corregidos (VSF-001, VSF-002). Pendiente: aplicar migraciones/scripts en produccion (aprobacion cliente), smoke manual en navegador, decision sobre reportes DeudaProveedor/Riesgo degradados. Detalle completo en `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\6-qa.md`.

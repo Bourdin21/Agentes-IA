@@ -26,7 +26,7 @@
 
 version: 1
 proyecto: ShowroomGriffin
-ultima_actualizacion: 2026-04-29
+ultima_actualizacion: 2026-07-02
 
 regresiones:
 
@@ -490,3 +490,235 @@ regresiones:
       - "Si se redirige a SystemController: la página de Sistema carga correctamente."
     pruebas_minimas:
       - "Login Admin -> click en 'Notificaciones' en sidebar -> no debe dar 404."
+
+  # ── Entradas específicas del proyecto delicias-naturales (EF6 + MySql.Data.EntityFramework) ─────
+
+  - id: DN-001
+    modulo: Ventas / Listado (DataTable server-side)
+    titulo: "NullReferenceException al filtrar/paginar listado con multiples Include de coleccion + OrderBy dinamico + Skip/Take"
+    severidad: blocker
+    reproducido_en: main (produccion)
+    pasos:
+      - "Ir a Ventas -> Listado (/Ventas/ListarVentas via DataTable)."
+      - "Escribir un numero de venta exacto en el buscador del DataTable."
+      - "Observar la respuesta del POST."
+    sintoma: "500 intermitente. Excepcion NullReferenceException en MySql.Data.EntityFramework.SelectStatement.AddColumn."
+    expectativa: "El listado filtra por numero de venta (y por texto/importe/fecha/estado) sin error, con paginacion y orden correctos."
+    causa_raiz: "El provider EF6-MySQL (MySql.Data.EntityFramework, discontinuado) no soporta combinar 3+ Include de coleccion (Facturas, Pagos, ProductosVenta) + WHERE dinamico + OrderBy dinamico (System.Linq.Dynamic) + Skip/Take en la misma IQueryable: genera un DbApplyExpression anidado en un DbUnionAllExpression que rompe SelectGenerator.AddColumn."
+    capa: Web
+    archivos_fix:
+      - path: DeliciasNaturales/Controllers/VentasController.cs
+        motivo: "Separar ListarVentas en dos queries: (1) pageIds = query.Select(v => v.Id).Skip(start).Take(length).ToList() sin Include de coleccion; (2) ventasDB = segunda query con todos los Include, Where(pageIds.Contains(v.Id)), sin Skip/Take/OrderBy dinamico, reordenada en memoria con pageIds.IndexOf(v.Id)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "POST /Ventas/ListarVentas con search=<numero de venta exacto>"
+      condicion_falla: "La query combina Include de coleccion + WHERE + OrderBy dinamico + Skip/Take en la misma IQueryable antes de proyectar/materializar (patron reproducible via revision de codigo en cualquier ListarX con DataTable sobre EF6-MySQL)."
+    criterio_aceptacion:
+      - "Filtrar por numero exacto de venta no produce 500."
+      - "Filtrar por texto/importe/fecha/estado funciona igual que antes del hotfix."
+      - "Paginacion (pagina 2+) preserva el orden calculado por el OrderBy dinamico."
+      - "Ordenar por cualquier columna, incluida Cliente (NombreCompleto), funciona sin error."
+      - "recordsTotal/recordsFiltered no cambian de comportamiento respecto a la version previa al fix."
+      - "Columnas calculadas (TotalEfectivo, TotalBanco, MontoRestante, PorcentajePagado) siguen alimentadas correctamente (dependen de Include de Pagos/ProductosVenta materializados)."
+    pruebas_minimas:
+      - "Filtrar por numero exacto de venta (caso que rompia con 500)."
+      - "Filtrar por texto de cliente, importe, fecha y estado."
+      - "Combinar filtro por numero con paginacion en pagina 2+."
+      - "Ordenar por cada columna del DataTable, incluida Cliente."
+      - "pendientePago=true combinado con busqueda por numero."
+      - "Verificar columnas calculadas (TotalEfectivo/TotalBanco/MontoRestante/PorcentajePagado) en la respuesta."
+
+  - id: DN-002
+    modulo: Pagos / Listado (DataTable server-side)
+    titulo: "Mismo patron de riesgo (Include de coleccion + WHERE/OrderBy dinamico + Skip/Take) presente en PagosController.ListarPagos, no reproducido/confirmado aun con 500 real"
+    severidad: major
+    reproducido_en: main (no reproducido con excepcion real; confirmado por revision estatica de codigo)
+    pasos:
+      - "Ir a Pagos -> Listado (/Pagos/ListarPagos via DataTable)."
+      - "Escribir un numero de venta/remito exacto en el buscador del DataTable, con orden por columna distinta a Fecha."
+      - "Observar la respuesta del GET."
+    sintoma: "Riesgo de NullReferenceException / 500 intermitente, analogo al de DN-001, ante ciertas combinaciones de filtro+orden+paginacion (no confirmado en ejecucion real; el sintoma en produccion aun no fue reportado)."
+    expectativa: "El listado de Pagos deberia aplicar el mismo patron de separacion (pageIds sin Include de coleccion + segunda query con Include) para blindarse del mismo bug de provider."
+    causa_raiz: "PagosController.ListarPagos (linea ~168) combina Include(p => p.Venta.Facturas) (coleccion) + WHERE dinamico + OrderBy dinamico (System.Linq.Dynamic, con logica especial para columna Cliente) + Skip/Take en la misma IQueryable, antes de materializar. Mismo patron que causo DN-001, con un solo Include de coleccion en vez de tres (riesgo menor pero mismo mecanismo de falla del provider EF6-MySQL)."
+    capa: Web
+    archivos_fix:
+      - path: DeliciasNaturales/Controllers/PagosController.cs
+        motivo: "PENDIENTE DE AUTORIZACION: aplicar el mismo patron que DN-001 (separar pageIds de la query con Include) si se decide corregir preventivamente. No autorizado en el hotfix de Ventas (fuera de alcance)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "GET /Pagos/ListarPagos con search=<numero de venta> + sort distinto de Fecha"
+      condicion_falla: "La query combina Include(p => p.Venta.Facturas) + WHERE + OrderBy dinamico + Skip/Take (linea ~168) en la misma IQueryable antes de materializar, igual que el patron confirmado en DN-001."
+    criterio_aceptacion:
+      - "Decision de negocio pendiente: si se autoriza el fix preventivo, debe pasar los mismos criterios de aceptacion que DN-001 adaptados a Pagos."
+    pruebas_minimas:
+      - "No ejecutar fix sin autorizacion explicita. Si se reproduce un 500 real en produccion, escalar como blocker y aplicar el mismo patron de DN-001."
+
+  # ── Entradas especificas del proyecto ganaderia (BlankProject .NET 10 + EF Core + MySQL 8) ─────
+
+  - id: GAN-001
+    modulo: "Egresos / Create (grilla dinamica de pagos multiples)"
+    titulo: "Guard de servidor 'al menos un pago' nunca se dispara por su condicion original; el bloqueo real ocurre por casualidad via el Range del Importe de una fila fantasma con mensaje enganoso"
+    severidad: minor
+    reproducido_en: "ganaderia - emo, main, tras iteracion v11 (pagos multiples de Egreso)"
+    pasos:
+      - "Autenticarse y hacer POST directo a /Egresos/Create (sin JS, ej. con curl o Postman) enviando Fecha/RubroId/ProveedorId/Detalle/Importe validos pero SIN ningun campo Pagos[i].*."
+      - "Observar el mensaje de validacion devuelto."
+    sintoma: "El alta se bloquea (comportamiento funcional correcto), pero el unico mensaje visible es 'Importe > 0' en vez de 'Debe cargar al menos un pago.'. La condicion 'vm.Pagos == null || vm.Pagos.Count == 0' en el controller nunca se cumple: el model binder de MVC, al no recibir ningun Pagos[i].*, no vacia la lista sino que preserva el valor por defecto del constructor del ViewModel (1 fila con Importe=0), por lo que Pagos.Count siempre es >= 1 en este flujo."
+    expectativa: "Al enviar un Egreso sin ningun pago cargado, el usuario debe ver el mensaje 'Debe cargar al menos un pago.' (PV15, analisis funcional v11 §16), no un mensaje generico de rango de importe sobre una fila que el usuario nunca vio ni completo."
+    causa_raiz: "EgresoCreateVm.Pagos tiene default 'new() { new EgresoPagoViewModel() }' a nivel de constructor C#. El model binder de ASP.NET Core para List<T> con indices Pagos[i] no reemplaza la lista completa cuando no encuentra ninguna entrada indexada en el form; conserva el objeto tal como fue construido. El guard 'Count == 0' en el controller (y el equivalente en EgresoService.CreateAsync) es efectivamente codigo muerto para este formulario especifico; el bloqueo real lo dispara el [Range(0.01, ...)] de EgresoPagoViewModel.Importe sobre la fila fantasma con Importe=0."
+    capa: Web
+    archivos_fix:
+      - path: Ganaderia.Web/Controllers/EgresosController.cs
+        motivo: "Reemplazar el guard 'vm.Pagos == null || vm.Pagos.Count == 0' por 'vm.Pagos == null || vm.Pagos.Count == 0 || vm.Pagos.All(p => p.Importe <= 0)' para detectar el caso real (unica fila sin datos cargados) y mostrar el mensaje correcto de PV15 ademas del error de Range (no lo reemplaza, se suman ambos en el ModelState)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /Egresos/Create sin ningun campo Pagos[i].*"
+      condicion_falla: "El validation-summary de la respuesta NO contiene el texto 'Debe cargar al menos un pago.' (solo aparece el error de Range del Importe)."
+    criterio_aceptacion:
+      - "POST /Egresos/Create sin ningun Pagos[i].* devuelve 200 con ModelState invalido y el mensaje 'Debe cargar al menos un pago.' presente en el validation-summary."
+      - "El alta sigue bloqueada (no se persiste Egreso ni EgresoPago); no se modifica el comportamiento funcional, solo el mensaje."
+    pruebas_minimas:
+      - "PV15: Egreso sin ningun pago cargado -> bloqueado, con el mensaje correcto visible."
+      - "Alta valida con 1+ pagos sigue funcionando sin regresion (PF53-PF55)."
+
+  - id: GAN-002
+    modulo: "Egresos / migracion EF con backfill de produccion (EgresoPago_PagosMultiples)"
+    titulo: "Backfill de EgresoPago desde Egresos historicos no reconstruye FechaVencimiento para pagos historicos con FormaDePago=Cheque (dato esperado, no bug, documentar para no confundir a QA futuro)"
+    severidad: minor
+    reproducido_en: "ganaderia - emo, ganaderia_dev, migracion 20260702181125_EgresoPago_PagosMultiples aplicada y validada"
+    pasos:
+      - "Aplicar la migracion EgresoPago_PagosMultiples sobre una base con Egresos historicos (modelo v10) donde algun Egreso.FormaDePago = Cheque (3)."
+      - "Consultar EgresoPagos para el pago migrado de ese Egreso."
+    sintoma: "El EgresoPago resultante tiene FormaDePago=Cheque, Estado=Acreditado y FechaVencimiento=NULL, lo cual violaria la regla de negocio S31/PV13 (\"Cheque requiere FechaVencimiento\") si se aplicara la misma regla que a las altas nuevas."
+    expectativa: "Es el comportamiento correcto y esperado para datos migrados: en el modelo v10 (previo a v11) Egreso.FormaDePago=Cheque no tenia nunca fecha de vencimiento propia (se acreditaba de inmediato igual que Efectivo/Transferencia, ver migracion 20260507154403_Egreso_FormaDePago). La regla PV13 (\"Cheque requiere FechaVencimiento\") solo aplica a las altas nuevas via EgresoService.CreateAsync, nunca a datos migrados por backfill."
+    causa_raiz: "No es una causa raiz de bug: es una divergencia esperada entre el invariante de negocio de datos nuevos (v11) y datos historicos migrados (v10), documentada implicitamente en la migracion pero no explicitada como nota de QA."
+    capa: Infrastructure
+    archivos_fix: []
+    migracion_ef: "20260702181125_EgresoPago_PagosMultiples (sin cambios; solo se documenta el comportamiento esperado)"
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "SELECT * FROM EgresoPagos WHERE FormaDePago=3 AND FechaVencimiento IS NULL AND Estado=2"
+      condicion_falla: "N/A para builds nuevas (no hay backfill que ejecutar dos veces); solo aplica como nota de contexto al validar el backfill de produccion una unica vez."
+    criterio_aceptacion:
+      - "QA no debe reportar como bug un EgresoPago migrado con FormaDePago=Cheque + FechaVencimiento=NULL + Estado=Acreditado; es la representacion correcta de un cheque historico que ya se habia acreditado bajo el modelo v10."
+      - "Las altas NUEVAS (post-v11) de pagos Cheque SIEMPRE deben tener FechaVencimiento (PV13), validado por EgresoService.CreateAsync."
+    pruebas_minimas:
+      - "Confirmar que EgresoService.CreateAsync sigue bloqueando altas nuevas de Cheque sin FechaVencimiento (PV13) pese a la existencia de datos migrados sin ese campo."
+
+  - id: GAN-003
+    modulo: "Egresos / Create (grilla dinamica de pagos multiples)"
+    titulo: "Boton 'Agregar pago' no agrega ninguna fila: el template de fila usa <script type=\"text/x-template\"> con un Tag Helper <partial> adentro, que Razor no procesa dentro de elementos <script>"
+    severidad: major
+    reproducido_en: "ganaderia - emo, main, tras iteracion v11 (pagos multiples de Egreso) — reportado por el usuario en uso real, confirmado con Playwright contra la app corriendo"
+    pasos:
+      - "Login como Productor o SuperUsuario, ir a Egresos/Create."
+      - "Click en el boton 'Agregar pago'."
+      - "Observar la tabla de pagos: sigue mostrando 1 sola fila."
+    sintoma: "El boton 'Agregar pago' no produce ningun efecto visible. document.getElementById('filaPagoTemplate').textContent devuelve el texto Razor SIN PROCESAR: '<partial name=\"_FilaPago\" model=\"plantilla\" view-data=... />' en lugar del HTML real de la fila (<tr class=\"fila-pago\">...</tr>). Al hacer wrapper.innerHTML = ese texto, wrapper.querySelectorAll('tr') devuelve 0 elementos, por lo que btnAgregar nunca agrega nada a la tabla. No se ve ningun error en consola (el fallo es silencioso: no hay excepcion, simplemente no hay <tr> que anexar)."
+    expectativa: "Cada click en 'Agregar pago' agrega una fila nueva con los campos FormaDePago/Importe/FechaEfectiva/FechaVencimiento, reindexada como Pagos[N] (diseño funcional v2 §2.6, arquitectura §13, RT12)."
+    causa_raiz: "Razor NO invoca Tag Helpers (como <partial>) dentro de elementos <script>: HTML5 clasifica <script> (junto con <style>/<textarea>/<title>) como 'raw text element', y el parser de Razor respeta esa clasificacion tratando el contenido como texto literal (salvo los bloques @{ }/@() explicitos, que si se evaluan server-side, pero su output HTML no se re-parsea como Tag Helper). El patron 'script type=\"text/x-template\" + partial adentro' -copiado de un patron JS comun para plantillas- es incompatible con Razor Tag Helpers."
+    capa: Web
+    archivos_fix:
+      - path: Ganaderia.Web/Views/Egresos/Create.cshtml
+        motivo: "Reemplazar <script id=\"filaPagoTemplate\" type=\"text/x-template\"> por <template id=\"filaPagoTemplate\"> (elemento HTML5 nativo, NO clasificado como raw-text-element por Razor, por lo que el <partial> adentro SI se procesa y renderiza a HTML real). Cambiar el JS de '.textContent' a '.innerHTML' al leer el template (HTMLTemplateElement.innerHTML serializa correctamente el contenido de su DocumentFragment .content en todos los navegadores modernos)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "#btnAgregarPago en Egresos/Create"
+      condicion_falla: "Tras 1 click en #btnAgregarPago, document.querySelectorAll('tr.fila-pago').length sigue siendo 1 (no aumenta a 2)."
+    criterio_aceptacion:
+      - "Cada click en 'Agregar pago' incrementa en 1 la cantidad de filas tr.fila-pago."
+      - "Los campos de las filas nuevas y existentes quedan reindexados correctamente como Pagos[0], Pagos[1], Pagos[2]... tanto al agregar como al quitar una fila intermedia."
+      - "Un Egreso con 2+ pagos (ej. Efectivo + Transferencia) se puede completar y enviar de punta a punta desde el navegador, persistiendo correctamente en el servidor."
+    pruebas_minimas:
+      - "PF55 end-to-end real por navegador (no solo por POST HTTP directo): agregar 2 filas, completar montos que sumen el importe total, enviar el formulario, confirmar 'Egreso registrado' y el registro visible en Egresos/Index."
+      - "Verificar reindexado correcto de name= e id= de los inputs tras agregar y tras quitar una fila."
+
+  - id: GAN-004
+    modulo: "Egresos / Create (autocomplete de Concepto)"
+    titulo: "El <datalist> de sugerencias de Concepto no siempre refresca su desplegable visible en el navegador tras poblarse de forma asincrona (quirk conocido de <datalist> nativo, no un bug del fetch/JSON)"
+    severidad: minor
+    reproducido_en: "ganaderia - emo, main — reportado por el usuario junto con GAN-003; investigado con Playwright: el endpoint /Egresos/SugerenciasDetalle y el JS que puebla el <datalist> funcionan correctamente (las <option> SI se insertan en el DOM con los valores correctos), pero el desplegable nativo del navegador no siempre se re-evalua visualmente despues de una actualizacion asincrona del <datalist> mientras el input ya tiene foco."
+    pasos:
+      - "Ir a Egresos/Create, hacer foco en el campo Concepto y empezar a escribir un texto que coincida con conceptos previos."
+      - "Observar si aparece el desplegable de sugerencias del navegador."
+    sintoma: "En algunos navegadores/versiones, el desplegable de sugerencias no aparece o no se actualiza aunque el <datalist> ya contenga las <option> correctas en el DOM (confirmado por inspeccion: la data llega bien, el fetch responde 200 con el JSON esperado)."
+    expectativa: "El usuario ve sugerencias de conceptos previamente cargados mientras escribe (analisis funcional v10 §4.1, PF40)."
+    causa_raiz: "Limitacion conocida de <input list=\"...\"> + <datalist> nativo: varios navegadores no re-renderizan el popup de sugerencias ya abierto/evaluado cuando las <option> del datalist cambian dinamicamente via JS mientras el input mantiene el foco."
+    capa: Web
+    archivos_fix:
+      - path: Ganaderia.Web/Views/Egresos/Create.cshtml
+        motivo: "Tras poblar el <datalist>, si el input sigue enfocado, se fuerza la re-evaluacion quitando y re-asignando el atributo list (input.setAttribute('list','') seguido de input.setAttribute('list','DetalleSugerencias')), workaround estandar y no disruptivo (no interrumpe el foco ni el texto tipeado) para este quirk de navegador."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "#Detalle / #DetalleSugerencias en Egresos/Create"
+      condicion_falla: "No es detectable de forma confiable por automatizacion (el popup nativo del datalist no es inspeccionable via DOM); QA debe validar manualmente en al menos un navegador real que el desplegable aparece al escribir un termino con coincidencias."
+    criterio_aceptacion:
+      - "Las <option> del datalist reflejan siempre las sugerencias del servidor tras cada busqueda (verificable por DOM, ya funcionaba antes del fix)."
+      - "En una prueba manual con navegador real, el desplegable de sugerencias se muestra al escribir un termino coincidente."
+    pruebas_minimas:
+      - "PF40 (autocomplete sugiere valores previos): validar manualmente en Chrome/Edge y Firefox, no solo por inspeccion de DOM."
+
+  # ── Entradas especificas del proyecto vinosefue (BlankProject .NET 10 + EF Core + MySQL) ─────
+
+  - id: VSF-001
+    modulo: "Pedidos / Cancelar pedido y Eliminar item (vinculo Compra-Item)"
+    titulo: "Item vinculado a una CompraProveedor en estado Cancelada bloquea la cancelacion/eliminacion igual que si estuviera Generada+, aunque la compra ya no tiene ninguna obligacion activa"
+    severidad: minor
+    reproducido_en: "vinosefue - main, tras el lote 'Compras al proveedor - desacople y CC' (2026-07-03), en datos de dev backfilleados desde el modelo pre-migracion (PedidoItems.Id=1 -> CompraProveedorId=1, Estado=Cancelada)"
+    pasos:
+      - "Tener un PedidoItem cuyo CompraProveedorId apunte a una CompraProveedor en estado Cancelada (remanente historico pre-migracion, o cualquier vinculo que haya quedado asi por dato)."
+      - "Ir a Pedidos -> Detalle del pedido dueño de ese item -> Cancelar pedido (o Eliminar ese item puntual)."
+    sintoma: "El sistema bloquea la cancelacion/eliminacion con el mensaje 'No se puede cancelar/eliminar: el item ... ya fue incluido en la compra {Numero} al proveedor. Quitalo de la compra primero o contacta a administracion.' pese a que la Compra ya esta Cancelada. La UI de Compras/Detalle para una compra Cancelada NO muestra el boton 'Quitar de esta compra' (PuedeEditarItems = Estado in [Borrador, Generada]), por lo que el usuario no tiene forma de seguir la instruccion del mensaje: queda en un callejon sin salida."
+    expectativa: "Un item vinculado a una Compra ya Cancelada no debe bloquear la cancelacion/eliminacion del pedido: una Compra Cancelada ya libero sus items y revirtio su movimiento Factura (ver CompraProveedorService.CambiarEstadoAsync, rama Cancelada), por lo que no representa ninguna obligacion activa con el proveedor. El vinculo remanente debe tratarse igual que si la Compra estuviera en Borrador (no bloquea, se limpia el vinculo automaticamente)."
+    causa_raiz: "PedidoService.CambiarEstadoInternoAsync (case Cancelado) y PedidoService.EliminarItemAsync comparaban 'CompraProveedor.Estado != Borrador' para decidir si bloquear, en vez de comparar contra el conjunto de estados realmente activos/facturados (Generada, EnPreparacion, Recibida). Esto trata Cancelada igual que Generada+, cuando en la practica una Compra Cancelada ya paso por la logica de liberacion de items (item.CompraProveedorId = null) al cancelarse via el flujo normal; el unico caso real en que un item queda vinculado a una Compra Cancelada es un remanente de datos pre-migracion (el script de backfill 20260703_BackfillCompraProveedorIdYLedgerHistorico.sql propaga Pedido.CompraProveedorId -> PedidoItem.CompraProveedorId sin filtrar por el Estado de la compra de destino)."
+    capa: Infrastructure
+    archivos_fix:
+      - path: VinoSeFue.Infrastructure/Services/PedidoService.cs
+        motivo: "CambiarEstadoInternoAsync (case EstadoPedido.Cancelado): el guard itemBloqueante ahora excluye tambien Estado == Cancelada ademas de Borrador (bloquea solo si Generada/EnPreparacion/Recibida). EliminarItemAsync: mismo criterio en el if de bloqueo. Ambos casos reutilizan el mismo flujo de desvinculacion + recalculo de TotalCostoSnapshot ya usado para Borrador, sin logica nueva."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "SELECT pi.Id, pi.CompraProveedorId, cp.Estado FROM PedidoItems pi JOIN ComprasProveedor cp ON cp.Id = pi.CompraProveedorId WHERE cp.Estado = 5 (Cancelada) AND pi.DeletedAt IS NULL"
+      condicion_falla: "Cancelar el pedido dueño de un item con CompraProveedorId apuntando a una compra Cancelada devuelve ServiceResult.Success=false con el mensaje de bloqueo 'ya fue incluido en la compra...'."
+    criterio_aceptacion:
+      - "Cancelar un pedido (o eliminar un item) cuyo unico vinculo de compra apunta a una CompraProveedor Cancelada tiene exito: el item se desvincula (CompraProveedorId = null) y, si la compra Cancelada tenia otros items, su TotalCostoSnapshot se recalcula sin ese item."
+      - "El bloqueo sigue aplicando sin cambios cuando la Compra vinculada esta Generada, EnPreparacion o Recibida (regresion del fix original del implementador, 2026-07-03)."
+    pruebas_minimas:
+      - "Pedido con item vinculado a Compra Cancelada -> cancelar pedido -> exito, item desvinculado."
+      - "Pedido con item vinculado a Compra Cancelada -> eliminar ese item -> exito, item eliminado y desvinculado."
+      - "Pedido con item vinculado a Compra EnPreparacion -> cancelar pedido -> sigue bloqueado con el mensaje original (no debe regresionar)."
+      - "Pedido con item vinculado a Compra Generada -> eliminar item -> sigue bloqueado (no debe regresionar)."
+
+  - id: VSF-002
+    modulo: "Compras / Detalle (maquina de estados de CompraProveedor)"
+    titulo: "Una CompraProveedor en Borrador no tiene forma de cancelarse: el diccionario de transiciones validas solo permite Borrador -> Generada, sin Borrador -> Cancelada, pese a que el diseno funcional aprobado lo exige"
+    severidad: minor
+    reproducido_en: "vinosefue - main, tras el lote 'Compras al proveedor - desacople y CC' (2026-07-03), armado manual de compras via Compras/Crear"
+    pasos:
+      - "Ir a Compras -> Crear, seleccionar 1+ items disponibles y confirmar -> queda una CompraProveedor en Borrador."
+      - "Ir a Compras/Detalle de esa compra y buscar una accion para cancelarla/abandonarla por completo (no item por item)."
+    sintoma: "No existe boton 'Cancelar' para una compra en Borrador: CompraProveedorService.GetTransicionesPermitidas(Borrador) solo devuelve [Generada]. La unica forma de vaciar una compra armada por error es quitar sus items uno por uno con 'Quitar item', dejando un registro CompraProveedor vacio en Borrador sin ninguna via para marcarlo Cancelada (queda como 'compra fantasma' en Compras/Index para siempre)."
+    expectativa: "docs/vinosefue/definiciones/2-disenador-funcional.md (maquina de estados de CompraProveedor, tabla aprobada por el cliente) especifica 'Borrador/Generada/EnPreparacion | Usuario cancela | Cancelada' como transicion valida. Una compra Borrador armada por error debe poder cancelarse directamente (libera sus items al pool disponible, sin necesidad de reversar ninguna Factura porque en Borrador todavia no se posteo ninguna)."
+    causa_raiz: "El diccionario privado CompraProveedorService.TransicionesValidasCompra listaba [EstadoCompraProveedor.Borrador] = [Generada] unicamente, sin incluir Cancelada, a diferencia de Generada y EnPreparacion que si la incluyen. La rama 'nuevoEstado == Cancelada' de CambiarEstadoAsync ya es agnostica al estado de origen (libera items siempre; revierte la Factura solo si existe una posteada, lo cual nunca ocurre en Borrador), por lo que el codigo de negocio ya soportaba el caso — solo faltaba habilitar la transicion en el diccionario. La vista Compras/Detalle.cshtml (calculo de 'mensaje' de confirmacion para el boton Cancelar, linea ~298) ya contemplaba el caso sin Factura, lo que sugiere que la omision en el diccionario fue un descuido y no una decision deliberada documentada (no aparece en los 'Riesgos y supuestos' ni 'Desvios' del implementador)."
+    capa: Infrastructure
+    archivos_fix:
+      - path: VinoSeFue.Infrastructure/Services/CompraProveedorService.cs
+        motivo: "TransicionesValidasCompra[Borrador] ahora incluye tambien Cancelada ademas de Generada. Sin cambios en CambiarEstadoAsync (la rama Cancelada ya soportaba el caso sin Factura posteada) ni en la vista (el mensaje de confirmacion ya diferenciaba correctamente segun si habia Factura que revertir)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /Compras/CambiarEstado con compraId de una compra en Borrador y nuevoEstado=Cancelada (5)"
+      condicion_falla: "La respuesta devuelve ServiceResult.Success=false con el mensaje \"No se puede pasar de 'Borrador' a 'Cancelada'.\""
+    criterio_aceptacion:
+      - "Cancelar una CompraProveedor en Borrador tiene exito: pasa a Cancelada, todos sus items vuelven a estar disponibles en Compras/Crear (CompraProveedorId = null), y no se postea ni revierte ningun movimiento Factura (no existia)."
+      - "El boton 'Cancelar' aparece en Compras/Detalle para una compra en Borrador (via TransicionesPermitidas)."
+      - "Las transiciones ya existentes (Generada/EnPreparacion -> Cancelada, con reversion de Factura) no regresionan."
+    pruebas_minimas:
+      - "Crear compra manual (Borrador) con 2 items -> cancelarla -> items vuelven a aparecer en Compras/Crear y la compra queda Cancelada con 0 items vinculados."
+      - "Compra Generada con Factura posteada -> cancelar -> Factura se revierte (regresion, ya cubierto por prueba existente del implementador)."
+      - "Compra Recibida -> intentar cancelar -> sigue rechazado (transicion invalida, sin cambios)."

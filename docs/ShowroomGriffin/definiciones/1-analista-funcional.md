@@ -187,3 +187,17 @@ Valores seed: `XS`, `S`, `M`, `L`, `XL`, `XXL`
 | ✅ Nuevo rol/policy | SÍ — C08 Empleado |
 | ✅ Nuevas entidades de dominio | SÍ — Modelo, TalleConfig |
 | ✅ Refactor entidad existente | SÍ — Subgrupo→Marca, VarianteProducto, Producto |
+
+---
+
+## V9 — Redirect post-ajuste de stock (2026-07-02) — Fast-path
+
+**Pedido:** en la pantalla de ajuste manual de stock (`Stock/Ajuste`), tras cargar el ajuste de un producto, hoy redirige a `Stock/Index` (listado general). El usuario suele cargar ajustes de varios productos seguidos y quiere quedarse en la misma pantalla de ajuste tras guardar, en vez de volver al listado cada vez.
+
+**Alcance:** cambiar el destino del `RedirectToAction` en el POST `StockController.Ajuste` de `Index` a `Ajuste` (GET), limpiando el formulario para el próximo ajuste.
+
+**Fuera de alcance:** no cambia validaciones, permisos (`RequireAdministrador`), lógica de `AjusteManualAsync`, ni el modelo `AjusteStockViewModel`.
+
+**Criterio de aceptación:** al guardar un ajuste válido desde `Stock/Ajuste`, la respuesta redirige (GET) a `Stock/Ajuste` con `TempData["Success"]` mostrando el mensaje de confirmación, y el formulario queda listo para cargar el siguiente producto.
+
+**Banderas:** sin migración EF, sin cambio de permisos, sin nueva entidad. Riesgo: bajo.

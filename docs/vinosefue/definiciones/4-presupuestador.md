@@ -32,5 +32,55 @@
 - Alta complejidad por modulo pero total acotado por equipo experimentado
 - Confirma tasa USD 14/h como solida
 
+## Cierre de calibracion — Sprint "Compras al proveedor: armado manual y cuenta corriente" (2026-07-03)
+
+**Contexto:** este sprint NO paso por la etapa formal de Presupuesto (el cliente decidio implementar directamente tras Arquitectura). Este cierre es una reconstruccion retroactiva del PERT que se hubiese usado, solo para fines de calibracion — no fue el numero cobrado (no se cobro nada, es el mismo cliente/owner del estudio).
+
+**Real reportado por el cliente:** 4 h reales totales para todo el lote (5 items originales + 2 rondas de ajuste post-QA + simplificacion de 2 reportes). El cliente dio el numero como total agregado, sin desglose por item — el reparto por item de abajo es una **aproximacion proporcional no confirmada** (marcada como hipotesis), util solo para calibrar tipos de modulo; el dato solido es el TOTAL (28.27 h estimadas vs 4 h reales).
+
+### Reconstruccion PERT retroactiva por item
+
+| # | Item | Tipo | Anclaje historico (Paso 0) | O | M | P | PERT | Riesgo | Final (h) |
+|---|---|---|---|---:|---:|---:|---:|---|---:|
+| 1 | Fix stock propio en Compras/Detalle | Ajuste puntual | Rango 0.5-1h | 0.35 | 0.5 | 0.8 | 0.53 | Bajo +8% | 0.57 |
+| 2 | Fix orden columna Fecha | Ajuste puntual (solo vista) | Rango 0.5-1h | 0.2 | 0.3 | 0.5 | 0.32 | Bajo +8% | 0.34 |
+| 3 | Compra manual por item + desacople total de estados | ABM complejo / workflow (refactor FK Pedido→PedidoItem, nueva pantalla, 2 migraciones) | Ganaderia (modulo financiero+workflow, mediana ~10h base/modulo) | 6 | 9 | 15 | 9.5 | Medio +15% (migracion + multiples modulos acoplados) | 10.93 |
+| 4 | Cuenta corriente unica del proveedor (ledger nuevo) | Modulo financiero (5-8h), ajustado a la baja por reutilizacion real del patron ya existente (CuentaCorriente/MovimientoCC de Cliente) | Ganaderia + patron Cliente ya resuelto | 4 | 6 | 10 | 6.33 | Medio +15% (dato financiero + migracion) | 7.28 |
+| 5 | Pagos y Notas de Credito manuales del proveedor | ABM intermedio, reutiliza AdjuntoService/MetodoPago existentes | Rango 4-7h, ajustado a la baja por reutilizacion | 3 | 4 | 6.5 | 4.25 | Bajo +8% (CRUD sobre patron probado) | 4.59 |
+| 6 | Fix item huerfano al cancelar/eliminar pedido + recalculo costo | Regla de negocio sobre modulo existente | "Agregar regla de negocio: M~1-2h" | 1 | 1.5 | 2.5 | 1.58 | Bajo +8% | 1.71 |
+| 7 | Simplificacion Reportes/DeudaProveedor + Reportes/Riesgo | Modificacion de reporte existente (x2) | "Nuevo reporte: M~1-2h", ajustado al alza por tocar 2 reportes a la vez | 1.3 | 2 | 3.3 | 2.10 | Bajo +8% | 2.27 |
+| 8 | 2 auto-fixes de QA (VSF-001, VSF-002) | Ajuste puntual x2 | Rango 0.5-1h | 0.35 | 0.5 | 0.9 | 0.54 | Bajo +8% | 0.59 |
+
+**Paso A (preliminar):** suma = **28.27 h** (PERT + contingencia, sin doble contingencia).
+**Sanity check total (Paso 8):** comparado contra Ganaderia (20 h reales / 8 modulos financiero+workflow, el comparable mas cercano), ratio 28.27/20 = 1.41x — coherente con que este lote tiene 1 item de complejidad equivalente a un modulo completo de Ganaderia (item 3) mas 7 items adicionales menores. No amerita ajuste adicional.
+**Paso B (final):** se mantiene 28.27 h (sin cambios respecto a Paso A).
+
+**M total (para formula de facturacion, sin O/P):** 0.5+0.3+9+6+4+1.5+2+0.5(prom. autofixes) = **23.8 h**.
+Horas facturables (M/2.5×1.20) = 11.42 h → Costo formula vigente = 11.42 × $35 = **USD 400** (nunca cobrado — referencia interna).
+
+### Comparacion estimado vs real
+
+| Metrica | Valor |
+|---|---:|
+| Horas PERT+contingencia (Paso B) | 28.27 h |
+| Horas real | 4 h |
+| **Ratio PERT-contingencia/real** | **7.07x — nuevo record del dataset** (supera a Ganaderia 5.05x y ShowroomGriffin 4.0x) |
+| Horas formula vigente (M/2.5×1.20) | 11.42 h |
+| **Ratio formula/real** | **2.86x — tambien nuevo record** (supera a Ganaderia 1.93x) |
+| Costo formula (nunca cobrado) | USD 400 |
+| Costo a real×$35/h (referencia) | USD 140 |
+
+### Reparto proporcional por item (hipotesis, NO confirmada por el cliente)
+
+Si se reparte el total real (4h) proporcionalmente al peso de cada item en el M estimado: item 3 ≈1.8h, item 4 ≈1.0h, item 5 ≈0.5h, items 1+2+6+7+8 ≈0.7h combinados. **Esto es una estimacion de reparto, no un dato medido** — si el cliente confirma horas reales por item en el futuro, reemplazar esta fila.
+
+### Lecciones aprendidas y acciones de recalibracion
+
+1. **Nuevo record de eficiencia IA en el dataset** (7.07x PERT/real, 2.86x formula/real). Refuerza — sin cambiarlo unilateralmente (politica vigente: factor 2.5 fijo hasta cierre de Energy Nutrition) — la evidencia a favor de subir el factor de eficiencia por encima de 2.5.
+2. **Distincion de granularidad clave:** este lote es una **iteracion evolutiva sobre un sistema ya entregado** (reutiliza patrones ya resueltos: `CuentaCorriente`/`MovimientoCC` de Cliente, `AdjuntoService`, `MetodoPago`), no un modulo nuevo desde cero. Anclar este tipo de trabajo en los rangos de "Modulo nuevo" (ABM complejo 7.7-11.5h, Financiero 5-8h) sobreestima sistematicamente — la seccion "Modificacion sobre modulo existente" de `27-presupuesto-parametros.instructions.md` es el ancla correcta, y se le agregaron 2 filas nuevas a partir de este cierre (ver ese archivo).
+3. Los 2 "fixes" simples (items 1 y 2) confirmaron el piso del rango "Ajuste puntual" (0.5-1h) — sin sorpresas ahi.
+4. Los 2 fixes post-QA (item 6) y la simplificacion de 2 reportes (item 7) confirman que "modificar reglas de negocio o reportes sobre un modulo existente" sigue barato (1-2h) incluso cuando toca varias capas, siempre que no haya migracion nueva.
+
 ## Historial de ajustes
 - 2025-07-01: cierre real registrado
+- 2026-07-03: cierre de calibracion (reconstruccion retroactiva) del sprint "Compras al proveedor: armado manual y cuenta corriente" — 4h reales vs 28.27h PERT reconstruido, ratio record 7.07x. Ver `27-presupuesto-parametros.instructions.md` para los ajustes de parametros derivados.

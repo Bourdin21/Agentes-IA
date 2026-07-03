@@ -6,6 +6,100 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 > Nota: la documentacion detallada por feature vive en `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\`. Este archivo registra el log cronologico de alto nivel.
 
+### 2026-07-03 - presupuestador (cierre de calibracion)
+- Etapa: Cierre de calibracion estimado vs real — sprint "Compras al proveedor: armado manual y cuenta corriente" (no paso por Presupuesto formal, el cliente implemento directo).
+- Cambio: reconstruccion retroactiva PERT de los 8 items del lote (23.8h M / 28.27h con contingencia) contra el real reportado por el cliente (4h totales, sin desglose por item). Ratio PERT-contingencia/real = 7.07x y ratio formula-vigente/real = 2.86x, ambos nuevo record del dataset del estudio (superan a Ganaderia: 5.05x y 1.93x). Se agregaron 3 rangos nuevos a "Modificacion sobre modulo existente" en `27-presupuesto-parametros.instructions.md` (refactor de vinculo/FK + migracion, ledger reutilizando patron existente, ABM manual con servicios reutilizados) y una regla de granularidad: verificar reutilizacion de patron ya resuelto en el repo ANTES de clasificar como "modulo nuevo".
+- Motivo: pedido explicito del cliente de calibrar el presupuestador con este cierre real para ajustar la granularidad de presupuestos futuros.
+- Impacto en capas: N/A (calibracion interna del estudio).
+- Riesgos/supuestos: el real (4h) es un agregado del cliente, no desglosado por item — el reparto proporcional por item en `4-presupuestador.md` es una hipotesis no confirmada, no un dato medido. El factor de eficiencia 2.5 de la formula de facturacion NO se cambio unilateralmente (politica vigente: fijo hasta cierre de Energy Nutrition), solo se registro como evidencia adicional.
+
+### 2026-07-03 - documentador (correccion: entrega como Google Doc en Drive, no Artifact)
+- Etapa: Documentacion de alcance (cliente) — el usuario rechazo el Artifact con diseño propio ("me cambia el formato, las letras, y todo el documento") y pidio el archivo Word con el formato ya establecido en su Drive.
+- Hallazgo: ya existia en Drive un `.docx` con el mismo titulo, generado a partir del markdown, con los encabezados y la lista numerada de los 5 pasos rotos en la conversion. Los documentos reales de Olvidata en Drive (ej. "Presupuesto Ulises - OlvidataSoft.docx") no tienen diseño custom, son texto plano prolijo.
+- Cambio: se genero el documento como HTML semantico (sin CSS/colores propios) y se subio a Drive via `create_file` (carpeta `parentId 0AKdL2qlDPnZIUk9PVA`, mismo lugar que el resto de los documentos de Olvidata), quedando como Google Doc nativo: https://docs.google.com/document/d/1An45iVfcU_3LnQVHKpDnld_T_SFweHm-w_Lx-05iOSM/edit — verificado leyendo el archivo de vuelta que los encabezados y la numeracion sobrevivieron la conversion.
+- Motivo: correccion de una instruccion previa mal aplicada (publicar todo documento a cliente como Artifact con diseño propio) — corregida en memoria del estudio.
+- Impacto en capas: N/A (entregable de negocio).
+- Riesgos/supuestos: el `.docx` viejo (mangled) sigue en Drive, no se borro sin permiso. El `.md` en `docs/vinosefue/` sigue siendo la fuente de contenido interna.
+
+### 2026-07-03 - documentador (Artifact del formato oficial)
+- Etapa: Documentacion de alcance (cliente) — publicacion como Artifact del resumen de sprint ya redactado en formato oficial OlvidataSoft.
+- Cambio: nueva convencion permanente adoptada (guardada en memoria del estudio): todo documento a cliente se publica tambien como Artifact ademas del `.md` fuente, con diseño propio por documento (no un template fijo reutilizado). Se publico esta version para "Compras al proveedor — desacople y cuenta corriente".
+- Motivo: pedido explicito del usuario de repetir el flujo de publicacion como Artifact cada vez que pida un documento para el cliente.
+- Impacto en capas: N/A (entregable de negocio).
+- Riesgos/supuestos: el `.md` en `docs/vinosefue/` sigue siendo la fuente de contenido versionada; el Artifact es la version publicable/compartible, en una ruta de sesion temporal.
+
+### 2026-07-03 - documentador (formato oficial OlvidataSoft)
+- Etapa: Documentacion de alcance (cliente) — regeneracion del resumen de sprint aplicando `.github/instructions/31-formato-documento-cliente.instructions.md` (formato obligatorio para documentos a cliente, estilo OlvidataSoft Julio 2026), detectado al recibir el pedido "con el nuevo formato de documentos de olvidata".
+- Cambio: nuevo archivo `docs/vinosefue/resumen-sprint-compras-proveedor-2026-07.md` con wordmark, `## Sobre el proyecto`, seccion "Como funciona: armar una compra al proveedor — paso a paso" (agregada porque el sprint introdujo un flujo nuevo multi-paso), cambios entregados, beneficio, pendientes y pie de firma. Reemplaza como documento de referencia vigente a la v1 (Artifact HTML de formato libre).
+- Motivo: pedido explicito del usuario de usar el nuevo formato estandar del estudio.
+- Impacto en capas: N/A (entregable de negocio).
+- Riesgos/supuestos: mismo contenido validado que la v1 (nada nuevo sin QA), solo cambia el envoltorio/formato.
+
+### 2026-07-03 - documentador (nota de entrega formateada)
+- Etapa: Documentacion de alcance (cliente) — a pedido explicito del usuario, se genero un documento entregable (Artifact HTML tipo nota de entrega/memo) con el mismo contenido de los 6 bloques ya aprobados (resumen, cambios, beneficio, pendientes, consideraciones, proximo paso), listo para compartir con el cliente.
+- Motivo: el usuario pidio "armar documento para entregarle al cliente" via comando `/agentes-ia-documentador`.
+- Impacto en capas: N/A (entregable de negocio).
+- Riesgos/supuestos: el archivo fuente del Artifact vive en una ruta de scratchpad de sesion (temporal); si se necesita regenerar en otra sesion, recrear el contenido desde `7-documentador.md`.
+
+### 2026-07-03 - documentador
+- Etapa: Documentacion de alcance (cliente) — lote "Compras al proveedor — desacople y cuenta corriente"
+- Cambio: resumen ejecutivo entregado al cliente cubriendo los 5 items originales + 3 rondas de ajuste post-QA (items huerfanos/recalculo de costo, simplificacion de reportes DeudaProveedor/Riesgo, incluyendo el cambio de definicion de "riesgo").
+- Motivo: cierre de sprint tras QA con GO condicionado.
+- Impacto en capas: N/A (documentacion de negocio, sin tecnicismos).
+- Riesgos/supuestos: pendiente aplicar migraciones en produccion (requiere aprobacion + backup) y smoke test manual en navegador del circuito de escritura completo (crear compra, pagos/NCR).
+
+### 2026-07-03 - implementador (ajuste post-revision cliente, 3ra vuelta — simplificacion de reportes)
+- Etapa: Implementacion — decision del cliente sobre el pendiente marcado por QA (columna de pago al proveedor en $0 hardcodeado en `Reportes/DeudaProveedor` y `Reportes/Riesgo`): sacar esa dimension en vez de aproximarla, enlazando al ledger `MovimientoCCProveedor` (via `Proveedor/CuentaCorriente`) como fuente de verdad.
+- Cambio: **`Reportes/DeudaProveedor`** pasa a ser listado puro de compras facturadas (Compra, Pedido(s), Cliente(s), Deuda Base, Fecha) — se sacaron `TotalPagadoProveedor`/`SaldoPendiente`/`EstadoPago` del DTO y el filtro `estadoPago`; se agrego boton "Ver saldo real del proveedor" con link a `Proveedor/CuentaCorriente`. **`Reportes/Riesgo`** se saco la clasificacion de 2 ejes con el proveedor; se redefinio "riesgo" (sin inventar reglas nuevas no discutidas, siguiendo instruccion explicita de "dejarlo simple" ante la ambiguedad) como: pedido activo con saldo pendiente de cobro del cliente (`SaldoCliente > 0`). Se agrego el saldo GENERAL del proveedor como dato de contexto en la cabecera (tarjeta, no por fila); se saco el filtro `tipoRiesgo`.
+- Motivo: pedido explicito del cliente para resolver el pendiente de negocio antes de continuar, evitando que el reporte muestre un dato de pago al proveedor enganoso ($0 hardcodeado).
+- Impacto en capas: Application (`ReporteDtos.cs`, `IReporteService.cs`), Infrastructure (`ReporteService.cs`: `GetDeudaProveedorAsync`/`GetReporteRiesgoAsync` reescritos + nuevo helper `GetSaldoActualProveedorAsync`), Web (`ReportesController.cs`, `ReporteViewModels.cs`, vistas `DeudaProveedor.cshtml`/`Riesgo.cshtml` reescritas + copy actualizado en `Reportes/Index.cshtml`). Sin cambios de Domain ni migraciones EF.
+- Riesgos/supuestos: build OK (0 errores). Smoke test runtime con datos reales de dev: ambos reportes 200 OK; el saldo del proveedor mostrado en la tarjeta de `Reportes/Riesgo` coincide exactamente con el saldo real verificado en `Proveedor/CuentaCorriente`. Pendiente para Documentacion (`7-documentador.md`): comunicar al cliente el cambio de definicion de "riesgo" (antes cruzaba cliente y proveedor por pedido; ahora es unicamente "pedidos con cobro pendiente del cliente", con el saldo del proveedor como dato de contexto separado).
+
+### 2026-07-03 - qa
+- Etapa: Pruebas funcionales — lote "Compras al proveedor — desacople y cuenta corriente" (5 items + 2 fixes post-revision del cliente).
+- Cambio: recorridas las 9 Historias de Usuario (HU-1..9) y 5 Criterios del analista (CU-1..5): todos PASS (1 observacion menor de copy en mensaje de concurrencia de `Compras/Crear`, no bloqueante). Maquina de estados de `Pedido` y `CompraProveedor` recorrida completa (transiciones validas e invalidas). Catalogo cross-proyecto `regresiones-manuales.yml` ejecutado (REG-001..010 aplicables PASS; KOI-*/DN-*/GAN-* N/A por proyecto). Verificacion directa contra la base `VinoSeFue_dev` (via `mysqlsh`): conteos/sumas del backfill cuadran (4 Facturas = 4 compras facturadas, 2 Pagos), confirmando ademas el caso borde marcado por el implementador.
+- **2 defectos encontrados y corregidos con auto-fix** (catalogados en `docs/qa/regresiones-manuales.yml` antes del parche, ids `VSF-001` y `VSF-002`): (1) un item vinculado a una Compra `Cancelada` (remanente historico pre-migracion) bloqueaba la cancelacion/eliminacion del Pedido igual que si la compra estuviera facturada, dejando al usuario sin ninguna accion posible porque la UI no expone "Quitar item" en una compra Cancelada — corregido excluyendo tambien `Estado == Cancelada` del guard de bloqueo en `PedidoService` (`CambiarEstadoInternoAsync`/`EliminarItemAsync`); (2) una `CompraProveedor` en `Borrador` no tenia forma de cancelarse (el diccionario de transiciones validas solo permitia Borrador→Generada), pese a que el diseno aprobado define Borrador/Generada/EnPreparacion→Cancelada — corregido agregando `Cancelada` a las transiciones permitidas desde `Borrador` en `CompraProveedorService` (la logica de cancelacion ya era agnostica al estado de origen, sin necesidad de logica de negocio nueva).
+- Se verifico ademas que **DEF-003** (heredado del QA de "Concesion recibida del proveedor", 2026-05-13) esta **cerrado**: doble guarda (service + UI `puedeOperar`) ya presente en el codigo vigente, sin fecha de correccion documentada previamente.
+- Motivo: gate de QA obligatorio antes de habilitar Documentacion al cliente y aplicacion de migraciones en produccion.
+- Impacto en capas: Infrastructure (`PedidoService.cs`, `CompraProveedorService.cs`) para los 2 auto-fixes — sin cambios de Domain/Application/Web ni migraciones EF nuevas (confirmado con `dotnet ef migrations has-pending-model-changes`).
+- Riesgos/supuestos: build OK (0 errores) antes y despues de los auto-fixes. Riesgos de liberacion pendientes (no de codigo): migraciones y scripts del 2026-07-03 sin aplicar en produccion (requiere aprobacion cliente + backup); reportes `Reportes/DeudaProveedor` y `Reportes/Riesgo` con columna de pago degradada a $0 (decision de negocio pendiente: retirar o redisenar); flujo de escritura completo (Crear compra, Agregar/Quitar item, Pagos/NCR) sin ejercitar aun por navegador — se dejaron pasos de smoke manual para ejecucion del usuario. Recomendacion: **GO condicionado** (pendientes son de coordinacion/produccion y decision de negocio, no de codigo).
+
+### 2026-07-03 - implementador (ajuste post-revision cliente, mismo dia)
+- Etapa: Implementacion — correccion de 2 riesgos residuales del lote "Compras al proveedor" antes de pasar a QA (pedido explicito del cliente, no quedan catalogados como defecto).
+- Cambio: **Fix 1** — cancelar un Pedido o eliminar un item ahora verifica el estado de la Compra vinculada al item: si esta en `Borrador` se desvincula automaticamente (`CompraProveedorId = null`) y se recalcula `TotalCostoSnapshot`; si esta `Generada` o posterior (ya facturada), se **bloquea** la operacion con mensaje explicito indicando el item y el numero de compra. Aplicado en `CambiarEstadoInternoAsync` (case Cancelado) y `EliminarItemAsync`. **Fix 2** — el helper `RecalcularSnapshotComprasVinculadasAsync` ahora solo recalcula si la Compra vinculada sigue en Borrador (antes lo hacia sin condicion); se agrego su uso en `ActualizarCantidadItemAsync`, `AgregarItemAsync` y `AgregarItemsBatchAsync` (ramas de merge de item existente) para que el costo de la Compra se mantenga sincronizado mientras siga editable.
+- Motivo: pedido explicito del cliente tras revisar los riesgos residuales documentados en la entrada anterior del mismo dia, antes de dar luz verde a QA.
+- Impacto en capas: solo Infrastructure (`PedidoService.cs`). Sin cambios de Domain, Application, Web ni migraciones EF nuevas.
+- Riesgos/supuestos: 2 de los riesgos residuales de la entrada anterior quedan resueltos (item huerfano al cancelar/eliminar; recalculo de costo al editar cantidad). El resto de riesgos residuales de esa entrada no cambia. Build OK (0 errores). Probado en runtime contra los datos de dev ya backfilleados (con datos sinteticos temporales insertados y revertidos al finalizar la prueba, sin dejar residuos): verificados los 5 escenarios (bloqueo/desvinculacion al cancelar, bloqueo/desvinculacion al eliminar item, recalculo por edicion de cantidad). Caso borde detectado: items vinculados a una Compra `Cancelada` remanente del modelo pre-migracion tambien activan el bloqueo (tratado igual que "Generada+", comportamiento conservador correcto pero puede generar mensaje confuso si el admin no sabe que es un remanente historico — a revisar en QA si aparece en produccion).
+
+### 2026-07-03 - implementador
+- Etapa: Implementacion — lote "Compras al proveedor — desacople y cuenta corriente" (5 items: 2 fixes + 3 features)
+- Cambio: vinculo Compra-Item via FK directa `PedidoItem.CompraProveedorId` (elimina `Pedido.CompraProveedorId`); nueva entidad `MovimientoCCProveedor` + enum `OrigenTipoMovimientoProveedor`; se elimina `PagoProveedor` y campos denormalizados de `CompraProveedor`. Nuevas pantallas `Compras/Crear` y `Proveedor/CuentaCorriente`. `CambiarEstadoAsync` ya no sincroniza Pedido<->Compra; postea Factura automatica en Borrador->Generada y la revierte al Cancelar (nunca NCR automatica). Se detecto y resolvio una dependencia no contemplada en arquitectura: el modulo "Concesion recibida del proveedor" (compra espejo) dependia de pago/deuda por compra individual — se mantuvieron esos metodos con la misma firma pero reimplementados contra el ledger nuevo.
+- Motivo: implementar el alcance ya aprobado en Analisis/Diseno/Arquitectura (2026-07-03), saltando la etapa de Presupuesto por decision expresa del cliente.
+- Impacto en capas: todas (Domain, Application, Infrastructure, Web). Ver detalle completo por archivo en `5-implementador.md` y en la memoria detallada del repo del sistema.
+- Migraciones EF: 2 (no 4 como sugeria la arquitectura, por limitacion de tooling EF Core al generar diffs parciales — se preservo la misma propiedad de seguridad aditivo->verificar->destructivo). Aplicadas y verificadas en local (conteos y sumas del backfill coinciden). Pendientes en produccion.
+- Riesgos/supuestos: reportes `DeudaProveedor` y `Riesgo` quedan con columna de pago al proveedor degradada a $0 (arquitectura solo marco `DeudaProveedor` como obsoleto, `Riesgo` no fue mencionado). Un `PedidoItem` de un pedido cancelado ya no se desvincula automaticamente de su Compra (requiere accion manual). Build OK, smoke test runtime OK con datos reales backfilleados; flujo de escritura completo (Crear compra, Agregar/Quitar item, Pagos/NCR) no probado en runtime por falta de datos de prueba disponibles — queda para QA.
+
+### 2026-07-03 - arquitecto-mvc
+- Etapa: Arquitectura tecnica — lote "Compras al proveedor — desacople y cuenta corriente"
+- Cambio: vinculo Compra-Item via FK directa `PedidoItem.CompraProveedorId` (reemplaza `Pedido.CompraProveedorId`, sin tabla N:N nueva); nueva entidad `MovimientoCCProveedor` + enum `OrigenTipoMovimientoProveedor` (sin cabecera `CuentaCorrienteProveedor` porque el proveedor es unico); se elimina `PagoProveedor` y los campos `TotalPagadoProveedor`/`SaldoPendienteProveedor`/`EstadoPagoProveedor` de `CompraProveedor`. 4 migraciones EF + 2 scripts de datos (propagar CompraProveedorId a items, backfill de Factura y Pago historicos). Posteo automatico de Factura en transicion Borrador->Generada; reversion al Cancelar.
+- Motivo: implementar las decisiones ya validadas por el cliente en Diseno (granularidad por item, desacople total de estados, ledger unico de proveedor).
+- Impacto en capas: todas (Domain, Application, Infrastructure, Web).
+- Riesgos/supuestos: migraciones 2 y 4 son destructivas (dropean columna/tabla) - requieren verificacion en staging antes de correr en produccion. Fecha de Factura backfilleada usa `FechaGeneracion` como aproximacion. Sin cambios de permisos. Cliente salta Presupuesto e implementa directo.
+
+### 2026-07-03 - disenador-funcional
+- Etapa: Diseno funcional — lote "Compras al proveedor — desacople y cuenta corriente"
+- Cambio: definidas 4 pantallas (2 ajustes: Compras/Detalle, Compras/Index; 2 nuevas: Compras/Crear, Proveedor/CuentaCorriente), ViewModels, maquina de estados (Pedido sin disparadores desde Compra; CompraProveedor con transiciones que ya no propagan; nuevo ledger MovimientoCCProveedor), 9 historias de usuario con criterios de aceptacion, plan funcional en 5 etapas para Arquitectura.
+- Motivo: traducir el analisis aprobado en diseno implementable.
+- Impacto en capas: preliminar en las 3 (detalle en Arquitectura).
+- Riesgos/supuestos: quedan 2 puntos abiertos para Arquitectura antes de Presupuesto: (1) como revertir/compensar el movimiento Factura si se cancela una Compra que ya facturo, (2) que hacer con los pagos historicos de `PagoProveedor` (migrar al ledger nuevo o convivir).
+
+### 2026-07-03 - analista-funcional
+- Etapa: Discovery + Analisis funcional — lote "Compras al proveedor — desacople y cuenta corriente" (5 items: 2 fixes + 3 features)
+- Cambio: relevamiento de codigo actual (CompraProveedor, PedidoService, CompraProveedorService, PagoProveedor, CuentaCorriente/MovimientoCC de Clientes). Confirmados sin ambiguedad: fix stock propio en Compras/Detalle (excluir items EsStockPropio de la vista) y fix orden de columnas en listado de Compras (Fecha primero; orden descendente ya existe en backend).
+- Motivo: pedido del cliente via imagen de extracto de cuenta corriente real del proveedor + 3 items funcionales.
+- Impacto en capas: pendiente de definir en Arquitectura (bloqueado por 3 preguntas abiertas).
+- Riesgos/supuestos: features 3/4/5 requieren decisiones de arquitectura funcional (granularidad de seleccion de articulos para compra manual, alcance de desacople de estados Compra/Pedido, y si Pagos/NCR de proveedor pasan a ser un ledger tipo cuenta corriente en vez de atarse 1:1 a una Compra puntual como hoy `PagoProveedor`). Gate: no se pasa a Diseno (etapa 2) para 3/4/5 hasta validacion del cliente.
+
 ### 2026-05-22 - implementador
 - Etapa: Implementacion — Mejoras varias (pedidos y compras)
 - Cambio: ajuste en `PedidoService`; `ComprasController` y `PedidosController` con nuevas acciones; vistas `Compras/Detalle.cshtml` y `Pedidos/Detalle.cshtml` expandidas (~75 lineas nuevas cada una). Adicion de `.github/copilot-instructions.md` al repositorio del sistema.

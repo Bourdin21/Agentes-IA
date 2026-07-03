@@ -73,6 +73,7 @@ Leer según el agente activo:
 - `28-estimacion-avanzada` — método PERT y contingencia variable
 - `29-trazabilidad-conversacion` — persistencia de memoria por agente
 - `30-qa-regresiones` — regresiones y pruebas funcionales
+- `31-formato-documento-cliente` — formato y estilo obligatorio de todo documento entregado al cliente (presupuesto, resumen de sprint)
 
 ## Trazabilidad documental
 

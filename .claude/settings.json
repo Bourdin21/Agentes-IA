@@ -1,9 +1,15 @@
 {
   "permissions": {
     "allow": [
+      "Grep",
+      "Glob",
+      "Bash",
       "Read(//c/Sistemas/**)",
       "PowerShell(Head -20)",
-      "PowerShell(Get-ChildItem -Path \"C:\\\\Sistemas\" -Directory | Where-Object { $_.Name -match \"\\(vino|virtual|ganaderia|griffin\\)\" } | Select-Object -ExpandProperty FullName)"
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Sistemas\" -Directory | Where-Object { $_.Name -match \"\\(vino|virtual|ganaderia|griffin\\)\" } | Select-Object -ExpandProperty FullName)",
+      "Bash(nslookup *)",
+      "Bash(where *)",
+      "mcp__pylance_mcp_server__pylanceWorkspaceRoots"
     ]
   }
 }

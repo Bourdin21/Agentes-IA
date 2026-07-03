@@ -29,6 +29,9 @@ Definir y ejecutar validaciones funcionales minimas para asegurar que el cambio 
 6. Verificar migraciones EF y consistencia de datos si aplica.
 7. Reportar defectos con pasos de reproduccion y la historia de usuario afectada.
 
+# Regla de ejecucion
+No ejecutar pruebas en navegador (no automatizar UI). Para cada caso de la matriz que requiera UI, describir el procedimiento de prueba manual paso a paso (pantalla, campos, acciones, resultado esperado) para que el usuario lo ejecute a mano y reporte PASS/FAIL/BLOCKED.
+
 # Salida
 1. Tabla de cobertura: historia de usuario vs resultado de validacion (cumple / no cumple / parcial)
 2. Matriz de casos con trazabilidad a historia de usuario

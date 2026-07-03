@@ -287,4 +287,219 @@ Refactor del modelo de dominio post-QA: consolidacion de `OrganismoIntermediario
 ### Riesgos y supuestos
 - Pendiente aplicar migraciones en produccion (UAT no iniciado formalmente).
 - `appsettings.Production.json` configurado con flags de etapa para deploy controlado.
+
+---
+
+## Iteracion v11 — Pagos multiples de Egreso (2026-07-02)
+
+Repositorio exclusivo: `C:\Sistemas\ganaderia - emo` (NO se toco `C:\Sistemas\ganaderia - fausto`). Sistema **en produccion desde mayo 2026**; cambio evolutivo, no proyecto nuevo. Fuentes: `1-analista-funcional.md` v11 §4, `2-disenador-funcional.md` v2 §2.6-2.9/§3.5-3.5.2/§4.4-4.9, `3-arquitecto-mvc.md` §13 (prioridad sobre §1-12), `4-presupuestador.md` "Iteracion v11" (USD 415.0, aprobado).
+
+### 0. Escaneo de reutilizacion (paso obligatorio previo)
+Se escaneo `C:/Sistemas/Agentes-IA/docs/*/definiciones/5-implementador.md` (ShowroomGriffin, century-21, delicias-naturales, meta-ads, etc.) buscando el patron "pagos multiples con estado y ciclo de vida (Pendiente/Acreditado/Rechazado) + job diario idempotente + rechazo/regularizacion 3a/3b". **Sin match cross-proyecto.** El unico precedente es intra-proyecto: `CuotaService`/`FacturaVentaCuota`, ya implementado y probado en este mismo repositorio (etapa anterior, mayo 2026). Se copio ese patron 1:1 en `EgresoPagoService` en vez de disenar desde cero, tal como indicaba la arquitectura (RT10).
+
+### 1. Alcance funcional resumido
+El modulo Egreso (compra a proveedor) pasa de "1 forma de pago con acreditacion inmediata" a **pagos multiples** (nueva entidad `EgresoPago`, 1 Egreso -> N Pagos). Habilita cheques diferidos con fecha de vencimiento propia + pago compensatorio, con ciclo de vida Pendiente->Acreditado via el job diario ya existente (`AcreditacionCuotasHostedService`, extendido, no duplicado), y rechazo/regularizacion (Opcion 3a/3b) simetricos a los ya implementados para Cuotas de venta. Sin edicion de Egresos existentes (fuera de alcance, S34).
+
+### 2. Plan de ejecucion tecnica por etapas (seguido)
+1. Domain: `EgresoPago`, `EstadoPagoEgreso`, cambios en `Egreso`/`MovimientoCaja`/`JobEjecucion`.
+2. Application: `EgresoPagoInput`, `EgresoCreateInput` (con `List<EgresoPagoInput> Pagos`), `IEgresoPagoService`.
+3. Infrastructure: `EgresoService.CreateAsync/AnularAsync` reescritos, `EgresoPagoService` nuevo (calcado de `CuotaService`), `AppDbContext` (DbSet + fluent config), `AcreditacionCuotasHostedService` extendido, `DependencyInjection` actualizado. Ajuste no previsto: `CajaService.ListAsync` tambien usaba `MovimientoCaja.Egreso` para drill-down y requirio actualizarse a `EgresoPago.Egreso`.
+4. Migracion EF en 3 fases (schema aditivo -> backfill SQL -> drop destructivo), reescrita a mano sobre el esqueleto de `dotnet ef migrations add` (ver §4).
+5. Web: `EgresoViewModels.cs` (grilla `Pagos`), `EgresosController.Create` adaptado, `EgresoPagosController` nuevo (Rechazar/Regularizar), vistas `Egresos/Create.cshtml` (grilla dinamica JS con reindexado `Pagos[i]`), `Egresos/_FilaPago.cshtml` (partial), `Egresos/Details.cshtml` (tabla de pagos + acciones), `Egresos/Index.cshtml` (columna "Pagos" en vez de "Forma pago"), `EgresoPagos/Rechazar.cshtml`, `EgresoPagos/Regularizar.cshtml` (calcadas de `Cuotas/Rechazar.cshtml`/`Cuotas/Regularizar.cshtml`). Ajuste no previsto: `Caja/Index.cshtml` tambien referenciaba `MovimientoCaja.EgresoId` para el link de drill-down y se adapto a `m.EgresoPago.EgresoId`.
+
+### 3. Cambios por capa (archivos)
+
+**Domain**
+- `Ganaderia.Domain/Entities/Ganaderia/EgresoPago.cs` (nuevo) — entidad `SoftDestroyable` con `EgresoId`, `FormaDePago`, `Importe`, `FechaEfectiva`, `FechaVencimiento?`, `Estado`, `FechaRechazo?`, `MotivoRechazo?`, `OpcionRegularizacion?`, `FechaRegularizacion?`, `MovimientoCajaEgresoId?`.
+- `Ganaderia.Domain/Enums/Ganaderia/EstadoPagoEgreso.cs` (nuevo) — `Pendiente=1, Acreditado=2, Rechazado=3`.
+- `Ganaderia.Domain/Entities/Ganaderia/Egreso.cs` — se quito `FormaDePago`; se agrego `ICollection<EgresoPago> Pagos`.
+- `Ganaderia.Domain/Entities/Ganaderia/MovimientoCaja.cs` — `EgresoId`/`Egreso` reemplazados por `EgresoPagoId`/`EgresoPago`.
+- `Ganaderia.Domain/Entities/Ganaderia/JobEjecucion.cs` — nueva columna `ChequesEgresoProcesados` (int).
+
+**Application**
+- `Ganaderia.Application/Interfaces/Ganaderia/ICajaEgresoServices.cs` — nuevo record `EgresoPagoInput`; `EgresoCreateInput` cambia `FormaDePago` por `List<EgresoPagoInput> Pagos`; nueva interfaz `IEgresoPagoService` (`RechazarAsync`, `RegularizarAsync`, `AcreditarChequesVencidosAsync`).
+
+**Infrastructure**
+- `Ganaderia.Infrastructure/Services/Ganaderia/EgresoService.cs` — `CreateAsync` reescrito: valida `Pagos.Count>=1` (PV15), cada `Importe>0`, Cheque requiere `FechaVencimiento>=FechaEfectiva` (PV13/PV14), suma de pagos == importe total con redondeo 2 decimales sin tolerancia (PF56/RD6/S31); crea N `EgresoPago` en transaccion, Efectivo/Transferencia con `MovimientoCaja` inmediato Acreditado, Cheque en Pendiente sin movimiento. `AnularAsync` reescrito: propaga soft-delete a todos los `EgresoPago` del Egreso y a todos los `MovimientoCaja` asociados a esos pagos.
+- `Ganaderia.Infrastructure/Services/Ganaderia/EgresoPagoService.cs` (nuevo) — `RechazarAsync`, `RegularizarAsync` (3a/3b), `AcreditarChequesVencidosAsync` calcados linea por linea del patron de `CuotaService.cs` (misma transaccion por item, `IgnoreQueryFilters()`, mutacion de estado sin contramovimiento en rechazo).
+- `Ganaderia.Infrastructure/Services/Ganaderia/CajaService.cs` — `ListAsync`: `Include(m => m.Egreso)` reemplazado por `Include(m => m.EgresoPago).ThenInclude(p => p.Egreso)` (ajuste no previsto explicitamente en la arquitectura, detectado al compilar).
+- `Ganaderia.Infrastructure/Services/Ganaderia/AcreditacionCuotasHostedService.cs` — `EjecutarSiCorrespondeAsync` extendido: tras `ICuotaService.AcreditarCuotasVencidasAsync`, invoca `IEgresoPagoService.AcreditarChequesVencidosAsync` (transaccion independiente por coleccion, RT11); `registro.ChequesEgresoProcesados` persistido; notificacion in-app consolidada con ambos totales (una sola notificacion, no dos).
+- `Ganaderia.Infrastructure/Data/AppDbContext.cs` — `DbSet<EgresoPago> EgresoPagos`; fluent config nueva de `EgresoPago` (conversiones int, precision 18,2, indice `(Estado, FormaDePago, FechaVencimiento)`, FK a `Egreso`); `MovimientoCaja` reconfigurado con FK a `EgresoPago` en vez de `Egreso`; `Egreso` pierde la conversion de `FormaDePago`.
+- `Ganaderia.Infrastructure/DependencyInjection.cs` — registrado `IEgresoPagoService -> EgresoPagoService` (Scoped).
+
+**Web**
+- `Ganaderia.Web/Models/Ganaderia/EgresoViewModels.cs` — `EgresoCreateVm.FormaDePago` reemplazado por `List<EgresoPagoViewModel> Pagos` (min. 1 fila por defecto); nuevo `EgresoPagoViewModel`; nuevos `RechazoEgresoPagoVm`, `RegularizacionEgresoPagoVm`.
+- `Ganaderia.Web/Controllers/EgresosController.cs` — `Create(POST)`: valida `Pagos.Count>0` en cliente, mapea `List<EgresoPagoViewModel>` a `List<EgresoPagoInput>`.
+- `Ganaderia.Web/Controllers/EgresoPagosController.cs` (nuevo) — `Rechazar`/`Regularizar` (GET+POST), calcado de `CuotasController`.
+- `Ganaderia.Web/Views/Egresos/Create.cshtml` — grilla dinamica de pagos (agregar/quitar filas por JS, reindexado `Pagos[i].Campo`, toggle de `FechaVencimiento` habilitado solo si Cheque, validacion en vivo de suma == importe total).
+- `Ganaderia.Web/Views/Egresos/_FilaPago.cshtml` (nuevo, partial) — fila de la grilla, reutilizada tanto en el render inicial como en el template JS de "agregar pago".
+- `Ganaderia.Web/Views/Egresos/Details.cshtml` — tabla de pagos con estado (badge) y acciones Rechazar/Regularizar condicionadas a `FormaDePago==Cheque` y `Estado`.
+- `Ganaderia.Web/Views/Egresos/Index.cshtml` — columna "Forma pago" reemplazada por "Pagos" (muestra la unica forma si hay 1 pago, o "N pagos" con tooltip si hay varios).
+- `Ganaderia.Web/Views/EgresoPagos/Rechazar.cshtml`, `Regularizar.cshtml` (nuevas) — calcadas de `Cuotas/Rechazar.cshtml`/`Cuotas/Regularizar.cshtml`.
+- `Ganaderia.Web/Views/Caja/Index.cshtml` — drill-down de Egreso adaptado a `m.EgresoPago.EgresoId` (ajuste no previsto).
+
+### 4. Migracion EF — `20260702181125_EgresoPago_PagosMultiples`
+
+**Critico**: el `Up()` auto-generado por `dotnet ef migrations add` dropeaba `Egresos.FormaDePago` y **renombraba** `MovimientosCaja.EgresoId` a `EgresoPagoId` sin backfill — hubiera corrompido la FK (los valores existentes de `EgresoId` habrian quedado apuntando a `EgresoPagoId` inexistentes, ya que la tabla `EgresoPagos` se crea vacia) y perdido la trazabilidad de `Egreso.FormaDePago`. Se reescribio manualmente el archivo `.cs` de la migracion (`Up()`/`Down()`) siguiendo el plan de 3 fases de `3-arquitecto-mvc.md` §13.4:
+
+- **Fase A (schema aditivo)**: `CREATE TABLE EgresoPagos`; `ADD COLUMN MovimientosCaja.EgresoPagoId` (nullable, coexiste temporalmente con `EgresoId`); `ADD COLUMN JobEjecuciones.ChequesEgresoProcesados` (default 0).
+- **Fase B (backfill, `migrationBuilder.Sql(...)`)**: `INSERT INTO EgresoPagos` — 1 fila por cada `Egreso` existente (`Estado=2/Acreditado`, `FormaDePago`/`Importe`/`Fecha` copiados, `MovimientoCajaEgresoId` resuelto via subquery al `MovimientoCaja` existente); luego `UPDATE MovimientosCaja ... SET EgresoPagoId = ep.Id` via join contra `EgresoPagos.MovimientoCajaEgresoId`. Egresos anulados (`DeletedAt` no nulo) migran su pago con el mismo `DeletedAt`. Se dejaron **comentadas en el propio archivo** las 3 queries de validacion (conteo `Egresos` vs `EgresoPagos`, conteo `MovimientosCaja` con `EgresoId`/`EgresoPagoId` no nulo, pagos sin `MovimientoCajaEgresoId`) para correr manualmente contra una copia de produccion antes del deploy real (RT9).
+- **Fase C (schema destructivo)**: recien aqui `DROP FK`, `DROP COLUMN MovimientosCaja.EgresoId`, `DROP COLUMN Egresos.FormaDePago`, `ADD FK MovimientosCaja.EgresoPagoId -> EgresoPagos.Id`.
+- **`Down()`**: reconstruye el esquema v10 (recrea `Egresos.FormaDePago` a partir del primer `EgresoPago` de cada Egreso — mejor esfuerzo; recrea `MovimientosCaja.EgresoId` desde `EgresoPago.EgresoId`). Documentado en el propio archivo: si se cargaron Egresos con **mas de 1 pago** o cheques Pendientes despues de aplicar esta migracion, el rollback pierde esa informacion (no representable en el modelo v10) — mismo criterio que RT2 del plan v1, no es lossless.
+
+**Validacion del backfill (a ejecutar en el despliegue, NO en este entorno)**:
+```sql
+-- 1) Egresos y EgresoPagos deben coincidir 1:1
+SELECT (SELECT COUNT(*) FROM Egresos) AS TotalEgresos,
+       (SELECT COUNT(*) FROM EgresoPagos) AS TotalEgresoPagos;
+
+-- 2) MovimientosCaja con vinculo a Egreso (antes) vs a EgresoPago (despues) deben coincidir
+--    (correr el primer SELECT ANTES de aplicar la migracion, el segundo DESPUES)
+SELECT COUNT(*) FROM MovimientosCaja WHERE EgresoId IS NOT NULL;      -- pre-migracion
+SELECT COUNT(*) FROM MovimientosCaja WHERE EgresoPagoId IS NOT NULL; -- post-migracion
+
+-- 3) Todo EgresoPago vigente (no anulado) deberia tener su MovimientoCaja vinculado
+SELECT * FROM EgresoPagos WHERE MovimientoCajaEgresoId IS NULL AND DeletedAt IS NULL; -- debe dar 0 filas
+```
+Se valido la migracion generando el script SQL completo (`dotnet ef migrations script ... -o migracion_egresopago.sql`, scratchpad de la sesion) y confirmando el orden de sentencias: `CREATE TABLE` -> `INSERT`/`UPDATE` backfill -> `DROP COLUMN`/`ADD CONSTRAINT`. **No se aplico contra ninguna base** (ni dev ni produccion): eso queda a cargo del despliegue, con backup previo de `Egresos` y `MovimientosCaja`, tal como exige RT9.
+
+### 5. Evidencia de build
+- `dotnet build Ganaderia.slnx -c Debug` → **Compilacion correcta. 0 Errores** (9 advertencias, todas preexistentes: `NU1902` MailKit/MimeKit y `CS0114` en `HomeController`, no relacionadas con este cambio).
+- `dotnet build Ganaderia.slnx -c Release` → **Compilacion correcta. 0 Errores**.
+- `dotnet ef migrations add EgresoPago_PagosMultiples ...` → generado y build post-edicion manual OK.
+- `dotnet ef migrations script <anterior> <nueva> -o ...` → generado sin errores; orden de fases verificado manualmente en el SQL resultante.
+- No se aplico la migracion contra ninguna base de datos (dev ni produccion) en esta sesion.
+
+### 6. Riesgos y supuestos
+- **RT9** (critico, heredado de arquitectura): backfill debe validarse contra copia de produccion + backup previo antes de aplicar el deploy real. Script de validacion dejado documentado en la propia migracion.
+- **RT10**: se siguio el patron de `CuotaService` linea por linea para minimizar divergencia de comportamiento.
+- **RT11**: `AcreditarCuotasVencidasAsync` y `AcreditarChequesVencidosAsync` corren con transacciones independientes por item (no una transaccion comun), para que una falla en una coleccion no revierta la otra.
+- **RT12**: grilla dinamica de pagos con reindexado JS de `Pagos[i]`; cubierta con estructura estandar de binding MVC, falta smoke test manual en navegador (no ejecutado en esta sesion, requiere entorno corriendo).
+- Supuesto nuevo no cubierto explicitamente por el diseño: `CajaService` y `Caja/Index.cshtml` tambien consumian la FK vieja `MovimientoCaja.Egreso`/`EgresoId` para drill-down de consulta — no estaba listado en el alcance pero es necesario para que el build compile y el modulo Caja siga funcionando; se adapto sin cambiar el comportamiento visible (mismo link "Ver egreso", ahora resuelto via `EgresoPago.EgresoId`).
+
+### 7. Decisiones de diseño no 100% especificadas (para que QA las tenga en cuenta)
+- El diseñador funcional §4 usa firmas genericas `Resultado<T>` (plan v1 pre-implementacion); se siguio la arquitectura §13 (`ServiceResult`, records `EgresoCreateInput`/`EgresoPagoInput`) por tener prioridad explicita y estar grounded en el codigo real.
+- El mensaje de `Concepto` del `MovimientoCaja` generado por acreditacion de cheque vencido usa el texto fijo "(Cheque vencido)"; no estaba especificado el formato exacto en el diseño, se siguio el estilo de `CuotaService` (`Concepto` descriptivo con rubro/proveedor).
+- En `EgresoPagoService.RegularizarAsync` opcion 3b, el nuevo `MovimientoCaja` usa `EsIngreso=false` (es un egreso) — analogo a `CuotaService` que usa `EsIngreso=true` para cuotas (ingreso); no explicitado en el diseño pero es la unica opcion consistente con el signo del saldo de caja.
+- La columna "Pagos" del listado `Egresos/Index` (1 forma de pago vs "N pagos") es una decision de UI no especificada en el diseño (que solo detallaba `Egresos/Create` y `Egresos/Details`); se opto por mantener la tabla legible sin agregar columnas nuevas al DataTable existente.
+- No se implemento un endpoint `GET` en `EgresoPagosController` para mostrar el detalle del pago antes de rechazar/regularizar (igual que `CuotasController`, que solo recibe el `id` por la URL); el usuario ve el contexto completo en `Egresos/Details` antes de hacer clic en la accion.
+
+### 8. Pruebas minimas requeridas para QA
+Aplican tal cual del analisis funcional v11 §16: **PF53-PF61** (alta con 1 pago Efectivo, cheque diferido que cubre el total, 2 cheques + compensatorio, suma que no cuadra bloqueada, job acredita cheque vencido + notifica, job idempotente, rechazo de cheque Acreditado, regularizacion 3a, regularizacion 3b) y **PV13-PV16** (cheque sin fecha de vencimiento bloqueado, fecha de vencimiento anterior a fecha efectiva bloqueado, Egreso sin pagos bloqueado, no regularizar/rechazar pago que no sea Cheque o ya Rechazado).
+
+Desvios/notas para QA:
+- PF56 (suma no coincide) y PV13/PV14 se validan tanto en cliente (JS, en vivo) como en servidor (`EgresoService.CreateAsync`, autoritativo) — probar tambien con JS deshabilitado o POST directo para confirmar que el servidor bloquea igual.
+- No hay prueba automatizada de integracion para el backfill de la migracion (RT9): la validacion contra datos reales de produccion queda fuera del alcance de esta sesion, a cargo del equipo de despliegue con las queries documentadas en la migracion (§4 arriba).
+- Falta smoke test manual en navegador de la grilla dinamica (agregar/quitar filas, reindexado, toggle de fecha de vencimiento) — no ejecutado en esta sesion por no haber corrido la app.
+- Regresion a validar: `Caja/Index` (listado y drill-down a Egreso) y `Facturas/Details` (que su propio `FormaDePago` de `FacturaVenta`, entidad no tocada, siga funcionando sin cambios).
+
+### 9. Checklist de salida para merge
+- [x] `EgresoPago` creada, hereda `SoftDestroyable`, configurada en `AppDbContext` con indice `(Estado, FormaDePago, FechaVencimiento)`.
+- [x] `MovimientoCaja.EgresoId` reemplazado por `EgresoPagoId` (FK + navegacion).
+- [x] Migracion con backfill de datos escrita en 3 fases y validada via script SQL generado (orden de sentencias correcto).
+- [ ] Migracion con backfill **ejecutada y validada contra copia real de produccion** — pendiente, responsabilidad del despliegue (RT9).
+- [x] `IEgresoPagoService`/`EgresoPagoService` implementados calcando el patron de `ICuotaService`/`CuotaService`.
+- [x] `EgresoService.CreateAsync` valida suma exacta de pagos + reglas de cheque (servidor, autoridad).
+- [x] `EgresoService.AnularAsync` propaga baja logica a `EgresoPago` y `MovimientoCaja` asociados.
+- [x] `AcreditacionCuotasHostedService` extendido para procesar `EgresoPago` sin crear un segundo `IHostedService`.
+- [x] `EgresosController.Create` con grilla dinamica de pagos (binding `List<EgresoPagoViewModel>`); `EgresoPagosController` con `Rechazar`/`Regularizar`.
+- [ ] Backup de `Egresos`/`MovimientosCaja` tomado inmediatamente antes del deploy a produccion — pendiente, responsabilidad del despliegue.
+- [x] `dotnet build` OK en Debug y Release, 0 errores.
+- [ ] Pruebas funcionales PF53-PF61/PV13-PV16 ejecutadas por QA — pendiente, fuera del alcance de esta sesion de implementacion.
+- [x] `ganaderia - fausto` no tocado (confirmado: no es un repo git accesible en este entorno; ningun archivo fuera de `ganaderia - emo` fue leido ni escrito).
 - Tests funcionales end-to-end pendientes (QA Etapa 7 plan, ejecutar con datos reales).
+
+---
+
+## Iteracion v12 — Autocomplete Select2 (Concepto de Egreso, Motivo de Factura de venta)
+
+Repo: **`C:\Sistemas\ganaderia - emo`** unicamente (`ganaderia - fausto` no tocado). Grounded en analisis funcional v12 §3.1/§4.1/§10, diseño funcional v3 §8.1/§8.2, arquitectura v3 §15.
+
+### 0. Escaneo de reutilizacion
+Se escanearon todos los `docs/*/definiciones/5-implementador.md` del estudio buscando "Select2"/"autocomplete". Unico match relevante: `docs/vinosefue/definiciones/5-implementador.md`, que usa un autocomplete simple (no Select2 AJAX con `tags:true`), no aplicable como fuente de copia directa. El patron de referencia real ya vive dentro del propio proyecto `ganaderia - emo` (v11: `EgresosController.SugerenciasDetalle` + `EgresoService.SugerenciasDetalleAsync`), que es precisamente lo que arquitectura v3 indica calcar para `Motivo`. **Decision: implementar in-place calcando el patron existente del propio proyecto; no se copio codigo de otro proyecto del estudio.**
+
+### 1. Alcance funcional resumido
+Dos cambios de UX/datos con Select2 (ya cargado globalmente en `_Layout.cshtml`, sin agregar dependencias nuevas):
+1. `Egresos/Create` — Concepto pasa de `<input list> + <datalist>` con `fetch` manual a Select2 AJAX (`tags:true`) contra el endpoint ya existente `Egresos/SugerenciasDetalle` (backend sin cambios).
+2. `Facturas/Create` — Motivo deja de ser un enum cerrado (`MotivoVenta`: Faena/Vacía/Enfermedad) y pasa a texto libre con Select2 AJAX contra un endpoint nuevo `Facturas/SugerenciasMotivo`, mismo patron.
+
+### 2. Plan de ejecucion tecnica por etapas
+1. Script JS reutilizable `ov-autocomplete-select2.js` (`initAutocompleteSelect2(selector, url)`).
+2. `Egresos/Create.cshtml`: `<input list>+<datalist>` → `<select>` + Select2; retiro del JS viejo de `fetch`.
+3. Domain: `FacturaVenta.Motivo` de `MotivoVenta` (enum) a `string`; eliminacion de `Enums/Ganaderia/MotivoVenta.cs`.
+4. Application: `IFacturaVentaService` — `FacturaVentaCreateInput.Motivo` a `string`; nuevo `SugerenciasMotivoAsync`.
+5. Infrastructure: `FacturaVentaService.SugerenciasMotivoAsync` calcado de `EgresoService.SugerenciasDetalleAsync`; `Motivo.Trim()` en alta/edicion; validacion Required/StringLength(200) repetida en `ValidarInput` (defensa de servicio).
+6. Infrastructure: `AppDbContext` — config fluent de `Motivo` de `HasConversion<int>()` a `HasMaxLength(200).IsRequired()`.
+7. Migracion EF `FacturaVenta_MotivoTexto` (3 fases, ver §4).
+8. Web: `FacturasController.SugerenciasMotivo` (calcada de `EgresosController.SugerenciasDetalle`); `FacturaVentaCreateVm.Motivo` a `string` con `[Required, StringLength(200)]`.
+9. `Facturas/Create.cshtml`: `<select asp-items="Html.GetEnumSelectList<MotivoVenta>()">` → `<select>` + Select2 AJAX (misma vista sirve `Create` y `Edit`, ambos flujos cubiertos).
+10. Verificacion de referencias colgantes a `MotivoVenta` en toda la solucion (grep antes y despues del borrado).
+11. Build.
+
+### 3. Cambios por capa (archivos tocados y motivo)
+
+**Presentacion (Web)**
+- `Ganaderia.Web/wwwroot/js/ov-autocomplete-select2.js` (nuevo): funcion unica `initAutocompleteSelect2(selector, url)` reutilizada por ambas vistas — evita duplicar el snippet de diseño §8.1 en 2 archivos `.cshtml` (RD9).
+- `Ganaderia.Web/Views/Egresos/Create.cshtml`: input `Detalle` reemplazado por `<select>` + Select2; retirado el bloque JS de `fetch`/`<datalist>` (bugfix post-v11, ahora codigo muerto). Grilla de pagos multiples (`btnAgregarPago`, `filaPagoTemplate`, reindexado) **no tocada**.
+- `Ganaderia.Web/Views/Facturas/Create.cshtml`: `<select asp-items="Html.GetEnumSelectList<MotivoVenta>()">` reemplazado por `<select>` + Select2 AJAX contra `Facturas/SugerenciasMotivo`. Resto de la vista (items, calculo de IVA/cuotas en vivo) no tocado.
+- `Ganaderia.Web/Controllers/FacturasController.cs`: accion nueva `SugerenciasMotivo(string? term, int top = 10)`, calcada de `EgresosController.SugerenciasDetalle` — sin logica de negocio, delega en `IFacturaVentaService.SugerenciasMotivoAsync`.
+- `Ganaderia.Web/Models/Ganaderia/FacturaViewModels.cs`: `FacturaVentaCreateVm.Motivo` de `MotivoVenta` a `string` con `[Required, StringLength(200)]`.
+
+**Negocio (Application + Infrastructure)**
+- `Ganaderia.Application/Interfaces/Ganaderia/IFacturaVentaService.cs`: `FacturaVentaCreateInput.Motivo` a `string`; nuevo `Task<List<string>> SugerenciasMotivoAsync(string? term, int top = 10)`.
+- `Ganaderia.Infrastructure/Services/Ganaderia/FacturaVentaService.cs`: nuevo metodo `SugerenciasMotivoAsync` (mismo patron `GroupBy`+`OrderByDescending(Max(Id))`+`Take` que `EgresoService.SugerenciasDetalleAsync`, sobre `_db.FacturasVenta.Motivo`); `ValidarInput` ahora valida `Motivo` (obligatorio, max 200) sin enum de por medio; `Motivo.Trim()` aplicado en `CreateAsync`/`EditAsync` (mismo criterio que `Egreso.Detalle.Trim()`).
+
+**Datos (EF Core + MySQL)**
+- `Ganaderia.Domain/Entities/Ganaderia/FacturaVenta.cs`: `Motivo` de `MotivoVenta` a `string` (`= string.Empty`).
+- `Ganaderia.Domain/Enums/Ganaderia/MotivoVenta.cs`: **eliminado** (verificado sin referencias colgantes tras el cambio, `grep -rn "MotivoVenta"` solo devuelve un comentario explicativo en `FacturaVenta.cs`).
+- `Ganaderia.Infrastructure/Data/AppDbContext.cs`: config fluent de `FacturaVenta.Motivo` de `HasConversion<int>()` a `HasMaxLength(200).IsRequired()`.
+- Migracion `20260702210025_FacturaVenta_MotivoTexto.cs` (+ `.Designer.cs`, snapshot actualizado) — ver §4.
+
+### 4. Migracion EF aplicada
+**`FacturaVenta_MotivoTexto`** (una sola migracion, 3 fases, sin el nivel de validacion obligatoria de la migracion v11/RT9 porque el mapeo es 1:1 sin ambiguedad — RT13 arquitectura §15.3):
+- Fase A: `AddColumn<string>("MotivoTexto", "FacturasVenta", varchar(200), nullable)`.
+- Fase B: backfill via `migrationBuilder.Sql` — `CASE Motivo WHEN 1 THEN 'Faena' WHEN 2 THEN 'Vacía' WHEN 3 THEN 'Enfermedad' ELSE 'Faena' END`.
+- Fase C: `DropColumn("Motivo")` → `RenameColumn("MotivoTexto","Motivo")` → `AlterColumn` a `NOT NULL`.
+- `Down()`: recrea columna `int`, mapea texto exacto de vuelta a 1/2/3, con fallback a `1` para valores libres cargados despues de v12 (no lossless, mismo criterio documentado que el `Down()` de la migracion v11).
+
+**Nota de proceso:** se genero primero el scaffold con `dotnet ef migrations add FacturaVenta_MotivoTexto` (con `AppDbContext` ya editado) para obtener el `Designer.cs`/snapshot correctos del modelo destino automaticamente; el `Up()`/`Down()` auto-generado hacia un `AlterColumn` directo `int→varchar` (cast numerico, ej. `1→"1"`, perdida de dato semantico) y se **reemplazo a mano** por las 3 fases con backfill textual antes de dar la migracion por cerrada. El snapshot y el `.Designer.cs` finales SI reflejan el modelo destino correcto (`Motivo` string(200) NOT NULL), confirmado por inspeccion.
+
+**Impacto:** sistema en produccion con `FacturasVenta.Motivo` ya cargado como `int` (1/2/3). Se recomienda correr primero contra copia de desarrollo/staging antes de produccion (buena practica general), no requiere el nivel de validacion obligatoria de RT9 (v11) por tratarse de un mapeo cerrado sin ambiguedad.
+
+### 5. Evidencia de build
+- `dotnet build` (`Ganaderia.slnx`, Debug) → **Compilacion correcta. 0 Errores** (9 advertencias, todas preexistentes: `NU1902` MailKit/MimeKit y `CS0114` en `HomeController`, no relacionadas con este cambio).
+- `dotnet ef migrations add FacturaVenta_MotivoTexto ...` → generado correctamente (advertencia esperada "may result in loss of data" del scaffold automatico, corregida a mano reescribiendo `Up()`/`Down()`).
+- `dotnet ef migrations list` → confirma `20260702210025_FacturaVenta_MotivoTexto` como ultima migracion de la cadena, inmediatamente despues de `20260702181125_EgresoPago_PagosMultiples` (v11).
+- No se aplico la migracion contra ninguna base de datos (dev ni produccion) en esta sesion (sin conexion disponible en este entorno).
+
+### 6. Riesgos y supuestos
+- **RT13** (arquitectura §15.3): riesgo bajo, mapeo 1:1 sin ambiguedad; igual se recomienda correr primero contra staging antes de produccion.
+- **RD9**: cubierto — no quedo codigo muerto del `<datalist>`/fetch viejo (verificado con `grep -rn "datalist"` sobre `Ganaderia.Web/Views`, sin resultados).
+- **RD10** (heredado del diseño, no accionable en esta iteracion): `Motivo` como texto libre pierde la garantia de lista cerrada para agrupar/reportar; no hay uso actual de ese tipo en Dashboard ni reglas de negocio (confirmado, analisis v12 S37/R28).
+- Supuesto propio: el mensaje de error de servidor para `Motivo` vacio/largo ("Motivo obligatorio." / "Motivo no puede superar 200 caracteres.") no estaba especificado textualmente en el diseño; se redacto siguiendo el estilo de los mensajes existentes en `FacturaVentaService.ValidarInput`.
+
+### 7. Decisiones de diseño no 100% especificadas
+- El endpoint `SugerenciasMotivo` se agrego directamente en `FacturasController` (no una interfaz `IFacturaVentaSugerenciasService` separada) — diseño v3 §8.2 dejaba ambas opciones abiertas ("...o interfaz nueva... si el diseño arquitectonico prefiere separarlo"); arquitectura v3 §15.2 no separa el metodo, asi que se siguio la arquitectura (metodo dentro de `IFacturaVentaService`, misma decision que prevalecio en el documento con prioridad explicita).
+- El `<select>` de Select2 se inicializa con una unica `<option>` preseleccionada (valor actual del modelo) tanto en `Egresos/Create` como en `Facturas/Create` (relevante para `Facturas/Edit`, que reusa la vista `Create`) — necesario para que Select2 muestre el valor existente al editar sin depender de una llamada AJAX previa; no explicitado en el diseño pero es el patron estandar de Select2 con `ajax` + valor inicial.
+- Se aplico `.Trim()` a `Motivo` en el Service (alta y edicion), simetrico a `Egreso.Detalle.Trim()` — no explicitado puntualmente para Motivo en diseño/arquitectura v3, pero es coherente con el "mismo patron" pedido explicitamente para normalizacion (trim + case-insensitive, S36).
+
+### 8. Pruebas minimas requeridas para QA
+**PF62–PF66** (analisis v12 §16): Select2 con coincidencias muestra desplegable y carga valor al seleccionar (Egresos); Select2 admite valor nuevo sin coincidencias (Egresos); Motivo sugiere valores previos (Facturas); Motivo acepta valor nuevo no limitado a los 3 historicos (Facturas); facturas historicas muestran su Motivo original tras la migracion sin perdida de dato.
+**PV17–PV18**: Motivo vacio bloqueado (Required); Motivo > 200 caracteres bloqueado (StringLength).
+
+Notas para QA:
+- PF66 (preservacion de datos historicos post-migracion) requiere aplicar la migracion contra una copia de la base de produccion real y verificar los 3 valores mapeados (`1→Faena`, `2→Vacía`, `3→Enfermedad`) — no ejecutable en este entorno sin conexion a MySQL.
+- Falta smoke test manual en navegador real de ambos Select2 (Playwright o similar) — arquitectura §15.5 lo marca como paso explicito antes de cerrar QA, dada la experiencia del bugfix post-v11 con el `<datalist>` (`6-qa.md` §12.4). No ejecutado en esta sesion por no correr la app.
+- Verificar tambien `Facturas/Edit` (reusa la vista `Create`): el Select2 de Motivo debe mostrar el valor existente preseleccionado al entrar a editar una factura.
+
+### 9. Checklist de salida para merge (v12)
+- [x] `MotivoVenta` enum eliminado del Domain, sin referencias colgantes (`grep -rn "MotivoVenta"` limpio salvo comentario explicativo).
+- [x] `FacturaVenta.Motivo` es `string(200)` NOT NULL en la configuracion EF (snapshot y Designer.cs confirmados), con backfill definido en la migracion (no ejecutado contra datos reales en esta sesion).
+- [x] `IFacturaVentaService.SugerenciasMotivoAsync` implementado, calcado de `SugerenciasDetalleAsync`.
+- [x] `FacturasController.SugerenciasMotivo` accion nueva, mismo contrato JSON que `Egresos/SugerenciasDetalle`.
+- [x] Select2 inicializado en `Egresos/Create` y `Facturas/Create` via `ov-autocomplete-select2.js`, sin codigo muerto del `<datalist>`/fetch anterior.
+- [x] `dotnet build` OK, 0 errores.
+- [ ] Migracion **ejecutada y validada contra copia de staging/produccion** — pendiente, responsabilidad del despliegue.
+- [ ] Smoke test de navegador real del autocomplete en ambas pantallas — pendiente, fuera del alcance de esta sesion (no se corrio la app).
+- [ ] Pruebas funcionales PF62–PF66 + PV17–PV18 ejecutadas por QA — pendiente.
+- [x] `ganaderia - fausto` no tocado (ningun archivo fuera de `ganaderia - emo` fue leido ni escrito en esta sesion).

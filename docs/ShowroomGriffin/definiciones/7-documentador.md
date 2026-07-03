@@ -58,3 +58,4 @@ Coordinar una **sesión de pruebas guiada con Ulises (≈1 h)** para ejecutar lo
 ## Memoria acumulativa
 
 - **2026-01-15** — v1.0 borrador. Generado a partir del cierre técnico de E0–E8 (build verde, migraciones aplicadas en local y producción) y el reporte QA v1.1 (0 defectos funcionales abiertos, gate condicional). Pendientes: smoke manual con cliente y cierre del bloqueante de credenciales (RR-01 / D-04).
+- **2026-07-02** — V9 (fast-path): en la pantalla de **Ajuste manual de stock**, al guardar el ajuste de un producto, el sistema ahora permanece en la misma pantalla (con el mensaje de confirmación) en vez de volver al listado general de stock. Pensado para cargar ajustes de varios productos seguidos sin tener que renavegar cada vez. Sin impacto en permisos, validaciones ni otras pantallas. QA técnico aprobado sin observaciones (ver `6-qa.md`, entrada V9). Costo: 0,3 h / USD 12 (tasa USD 40/h).

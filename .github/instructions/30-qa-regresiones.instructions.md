@@ -26,8 +26,9 @@ Antes de aprobar un build:
 
 1. Cargar `docs/qa/regresiones-manuales.yml`.
 2. Para cada item con `severidad != deprecated`:
-   - Ejecutar `deteccion_qa` segun su `tipo` (ui | api | data | static).
-   - Si se cumple `condicion_falla`, reportar regresion citando el `id`.
+   - Ejecutar `deteccion_qa` segun su `tipo` (api | data | static) de forma automatica.
+   - Para items con `tipo: ui`, **no automatizar en navegador** (nada de Playwright/Selenium/etc.): describir el procedimiento de prueba manual paso a paso (pantalla, campos, acciones y resultado esperado) para que el usuario lo ejecute a mano y reporte PASS/FAIL.
+   - Si se cumple `condicion_falla` (confirmado por automatizacion o por el reporte manual del usuario), reportar regresion citando el `id`.
    - Validar `criterio_aceptacion` y correr `pruebas_minimas`.
 3. Reportar resultado consolidado por `id`.
 4. **Auto-fix obligatorio cuando se reproduce un bug detectado en prueba manual**:

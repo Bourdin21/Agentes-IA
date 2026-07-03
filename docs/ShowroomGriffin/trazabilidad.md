@@ -1,7 +1,7 @@
 # 🏗️ Trazabilidad de Conversación - ShowroomGriffin
 **Proyecto:** ShowroomGriffin  
 **Fecha inicio:** 2026-04-23  
-**Última actualización:** 2026-05-18  
+**Última actualización:** 2026-07-02  
 
 ---
 
@@ -40,6 +40,19 @@ Este archivo registra la trazabilidad de las conversaciones con el usuario, deci
 | **Motivo desvío** | Sobreestimación sistémica del M y P en los ítems PERT; el proyecto resultó significativamente más acotado en ejecución. Tracking granular por módulo no registrado. |
 | **Impacto** | Recalibrar `27-presupuesto-parametros.instructions.md`: reducir rangos M y P para proyectos similares (ABM + workflow MVC); revisar multiplicadores de contingencia alta. |
 | **Acción requerida** | Recalibrar dataset histórico con: base real = 25 h / 11 módulos ≈ 2,3 h/módulo promedio. |
+
+---
+
+### Entrada 2026-07-02 — QA puntual V9 (fast-path redirect post-ajuste de stock)
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-07-02 |
+| **Agente / Etapa** | QA — verificación puntual de cambio acotado |
+| **Feature** | V9 — `StockController.Ajuste` (POST) redirige a `Stock/Ajuste` en vez de `Stock/Index` tras un ajuste exitoso |
+| **Alcance QA** | Cambio de una línea, sin regresión completa del proyecto (a pedido explícito). Verificación por inspección de código (controller, service, vista, layout) + build verde. |
+| **Resultado** | **APROBADO**, 5/5 criterios PASS, 0 defectos, 0 auto-fixes. Diff coincide exactamente con lo documentado en `3-arquitecto-mvc.md` y `5-implementador.md` (sección V9 en ambos). |
+| **Detalle** | Ver `6-qa.md` sección "V9 — Redirect post-ajuste de stock" y memoria acumulativa. |
 
 ---
 
@@ -209,6 +222,11 @@ Si no existen, **detener implementación** y solicitar al usuario que active los
 - EF Migration: `V7_ModeloTipoTalleYPrecio`.
 - Vistas `Modelos/Crear` y `Modelos/Editar` nuevas.
 - `Cliente` con campo adicional. `VarianteProducto` con `RowVersion` (concurrencia optimista).
+
+#### V9 — Redirect post-ajuste de stock (2026-07-02)
+- `StockController.Ajuste` (POST): tras ajuste exitoso, redirige a `Stock/Ajuste` (GET) en vez de `Stock/Index`, para permitir cargar ajustes de varios productos sin renavegar.
+- Cambio de una linea, sin migracion EF, sin cambios de permisos/validaciones.
+- Build: OK, 0 errores.
 
 ---
 

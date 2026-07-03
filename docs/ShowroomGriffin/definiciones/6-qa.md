@@ -360,3 +360,84 @@ QA — CHECKLIST DE SALIDA (Gate cliente)
 
 - **2026-01-15** — QA inicial v1.0. Cobertura por inspección + cierre del implementador. 0 defectos funcionales, 6 observaciones. Gate aprobado **condicional** para iniciar documentación al cliente en modo borrador.
 - **2026-01-15** — QA v1.1. Cierre de defectos D-02 (runbook `docs/MIGRATIONS.md`), D-03 (creación defensiva de `Logs/` en `Program.cs`), D-05 (rate limit general 100→300/min), D-06 (entrada de despliegue M2 en trazabilidad). Build verde. Quedan 0 defectos abiertos no críticos. **D-04 / RR-01 sigue abierto** y continúa siendo el único bloqueante de go-live productivo.
+- **2026-07-02** — QA puntual V9 (fast-path redirect post-ajuste de stock). Alcance acotado: `StockController.Ajuste(AjusteStockViewModel vm)` [POST] cambia `RedirectToAction(nameof(Index))` → `RedirectToAction(nameof(Ajuste))`. Verificado por inspección exhaustiva de código (controller completo, `StockService.AjusteManualAsync` sin diff, vista `Ajuste.cshtml`, `_Layout.cshtml` con manejo global de `TempData["Success"]`/`TempData["Error"]` vía SweetAlert2) + build verde (0/0). Diff aplicado coincide 100% con lo documentado en `5-implementador.md` (V9) y `3-arquitecto-mvc.md` (V9). **5/5 criterios PASS, 0 defectos.** No se re-ejecutó la regresión completa del proyecto (fuera de alcance del pedido); del catálogo cross-proyecto ningún item aplica directamente a este cambio (ninguno cubre redirect post-POST en Stock). Ver detalle en sección "V9" más abajo.
+
+---
+
+## V9 — Redirect post-ajuste de stock (2026-07-02)
+
+**Fuente:** `1-analista-funcional.md` (sección V9), `3-arquitecto-mvc.md` (sección V9), `5-implementador.md` (entrada V9).
+
+**Alcance QA:** cambio puntual de una línea en `StockController.cs`, sin regresión completa (a pedido explícito). Verificación por inspección de código + build, sin ejecución en navegador (no requerida: el cambio es de flujo HTTP puro, sin lógica condicional ni dependencia de datos/JS de estado).
+
+### Cobertura por criterio de aceptación
+
+| # | Criterio | Estado | Evidencia |
+|---|---|---|---|
+| 1 | Ajuste válido (Admin) → permanece en `Stock/Ajuste` (no `Index`), `TempData["Success"]` visible | PASS | `StockController.cs:84` `return RedirectToAction(nameof(Ajuste))`; `_Layout.cshtml:303-313` renderiza SweetAlert2 con `TempData["Success"]` en cualquier vista tras el redirect. |
+| 2 | Se puede cargar un segundo ajuste inmediatamente sin renavegar | PASS | El GET `Ajuste(int? varianteId = null)` (línea 64-70) construye `new AjusteStockViewModel()` en cada request; el redirect es un GET fresco, formulario queda limpio. Select2 de variante se reinicializa en `Scripts` de `Ajuste.cshtml`. |
+| 3 | Ajuste inválido (ModelState o error de negocio) sigue devolviendo vista `Ajuste` con errores, sin cambios | PASS | Líneas 76 y 82 del controller sin diff: `if (!ModelState.IsValid) return View(vm);` y `if (!result.Success) { ModelState.AddModelError(...); return View(vm); }` — intactas. |
+| 4 | `CargaInicial` sigue redirigiendo a `Index` sin cambios | PASS | Línea 60: `return RedirectToAction(nameof(Index));` sin modificar. `git diff` confirma que solo la línea 84 (dentro de `Ajuste` POST) cambió. |
+| 5 | Build verde + diff coincide con lo documentado | PASS | `dotnet build ShowroomGriffin.slnx` → "Compilación correcta. 0 Advertencia(s), 0 Errores." `git diff` de una sola línea, idéntico al descripto en `5-implementador.md` V9 y `3-arquitecto-mvc.md` V9. `StockService.cs` sin diff (capa de negocio no tocada, confirmado con `git status`). |
+
+### Cobertura de máquina de estados
+
+No aplica — el cambio no altera transiciones de estado de ninguna entidad (Venta, Compra, Devolución). Es un cambio de navegación (redirect target) dentro de una única acción sin máquina de estados propia.
+
+### Cobertura del catálogo cross-proyecto (regresiones-manuales.yml)
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| REG-001 | no | N/A | RowVersion en variantes — no tocado por este cambio. |
+| REG-002 | no | N/A | Stock inicial en variantes — módulo distinto (`CargaInicial`, no tocado). |
+| REG-003 | no | N/A | Autocomplete Compras — no relacionado. |
+| REG-004 | no | N/A | Máquina de estados de Compra — no relacionado. |
+| REG-005 | no | N/A | Autocomplete Ventas — no relacionado. |
+| REG-006 | no | N/A | Medio de pago Cuotas — no relacionado. |
+| REG-007 | no | N/A | Autocomplete Devoluciones — no relacionado. |
+| REG-008 | no | N/A | Foco de input en pagos — no relacionado. |
+| REG-009 | no | N/A | Cascada AumentoMasivo — no relacionado. |
+| REG-010 | no | N/A | Visibilidad menú Auditoría — no relacionado. |
+
+Ningún item del catálogo cubre el patrón "redirect post-POST en Stock/Ajuste"; no se detectó bug reproducible que amerite alta de nuevo item. No se ejecutó el catálogo completo en este pase por ser QA puntual de alcance acotado (a pedido explícito); queda pendiente en la próxima regresión completa del proyecto.
+
+### Defectos detectados
+
+Ninguno.
+
+### Auto-fixes aplicados
+
+No aplica — no se reprodujo ningún defecto.
+
+### Riesgos de liberación y mitigaciones
+
+| Riesgo | Probabilidad | Impacto | Mitigación |
+|---|---|---|---|
+| Verificación sin ejecución real en navegador | Baja | Bajo | El cambio es de flujo HTTP puro (redirect target), sin JS de estado ni dependencia de datos; la inspección de código + build cubre el 100% del comportamiento. Si se desea, un smoke manual de 1 minuto (cargar 2 ajustes seguidos) cierra el gap residual antes de producción. |
+| Regresión completa del proyecto no re-ejecutada | Baja | Bajo | Cambio acotado a una línea sin impacto en Domain/Application/Infrastructure; confirmado que `StockService.cs` no tiene diff. Recomendado incluir en el próximo smoke completo (M4 Stock) del checklist pendiente en la sección 6 de este documento. |
+
+### Pruebas mínimas ejecutadas
+
+- Lectura completa de `StockController.cs` (controller entero, no solo el diff).
+- `git diff` de `StockController.cs` — confirmado cambio de una sola línea.
+- `git status` — confirmado que `StockService.cs` (Infrastructure) no tiene cambios pendientes.
+- Lectura de `Views/Stock/Ajuste.cshtml` — confirmado formulario sin lógica condicional por origen de navegación.
+- Lectura de `Views/Shared/_Layout.cshtml` — confirmado manejo global de `TempData["Success"]`/`TempData["Error"]` con SweetAlert2.
+- `dotnet build ShowroomGriffin.slnx` — build verde, 0 warnings, 0 errores.
+- Comparación línea por línea del diff aplicado contra lo documentado en `3-arquitecto-mvc.md` (V9) y `5-implementador.md` (V9) — coincidencia exacta.
+
+### Checklist de salida para merge
+
+```
+[x] Diff coincide exactamente con lo documentado (implementador + arquitecto)
+[x] Build verde (0 warnings, 0 errores)
+[x] Sin migración EF (confirmado, no aplica)
+[x] Sin cambios en permisos (RequireAdministrador intacto en Ajuste; RequireAdministrador intacto en CargaInicial)
+[x] Sin cambios en validaciones (ModelState y result.Success guards intactos)
+[x] Capa de negocio (StockService, AjusteManualAsync) sin diff
+[x] Vista Ajuste.cshtml y _Layout.cshtml revisadas — TempData["Success"] se muestra correctamente vía SweetAlert2
+[x] CargaInicial no afectado — sigue redirigiendo a Index
+[ ] Smoke manual opcional en navegador (no bloqueante, cambio de bajo riesgo)
+```
+
+**Veredicto: APROBADO** — sin observaciones bloqueantes. Cambio de bajo riesgo, acotado a una línea, sin impacto en otras capas. Listo para merge.

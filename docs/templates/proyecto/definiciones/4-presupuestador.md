@@ -15,8 +15,10 @@
 <completar>
 
 ### Resumen economico (con Tokens IA como item individual)
-- Subtotal desarrollo (sin Tokens IA): <USD>
-- Tokens IA (item individual): <USD>
+- Subtotal Etapa 1: <USD>
+- Subtotal Etapa 2: <USD>
+- Subtotal desarrollo (Etapa 1 + Etapa 2, sin Tokens IA): <USD>
+- Tokens IA (10% del subtotal desarrollo): <USD>
 - Total cliente: <USD>
 
 ### Calibraciones historicas usadas

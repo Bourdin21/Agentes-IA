@@ -51,7 +51,7 @@ Regla de oro: **no se inicia una etapa hasta que la anterior haya cerrado su arc
 ### Paso 4 - Presupuestador
 - Invocar: `@4 - presupuestador`
 - Input: 1, 2 y 3 aprobados.
-- Pedirle: tabla por modulo funcional con O/M/P, PERT, contingencia, horas finales y USD segun formula vigente (M x $16.80); cargo fijo de USD 100 por tokens IA; bloque de autocorreccion contra historicos.
+- Pedirle: tabla por modulo funcional con O/M/P, PERT, contingencia, horas finales y USD segun formula vigente (M x $16.80); cargo de tokens IA (10% del total presupuestado); bloque de autocorreccion contra historicos.
 - Entregar al cliente y obtener aprobacion **antes** de implementar.
 
 ### Paso 5 - Implementador .NET (Agent mode)
@@ -105,7 +105,7 @@ Restricciones / supuestos:
 - Migracion EF se declara en analista (bandera) y se confirma en arquitecto.
 - Contingencia: una sola vez en toda la cadena (no doble).
 - Tarifa vigente: USD 35/h sobre horas facturables. Formula de precio por modulo: M / 2.5 x 1.20 x $35 = M x $16.80 (ver 27-presupuesto-parametros). Piso USD 30/h solo con aprobacion explicita.
-- Todo presupuesto suma USD 100 fijos por uso de tokens IA, como linea separada del total de desarrollo.
+- Todo presupuesto suma un cargo de tokens IA equivalente al 10% del total presupuestado (Etapa 1 + Etapa 2), como linea separada y visible en el total del proyecto.
 - Las horas no se exponen al cliente: el documento entregado muestra solo USD por area funcional.
 
 ## 7. Checklist por sprint

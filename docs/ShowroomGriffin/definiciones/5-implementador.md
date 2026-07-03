@@ -2128,3 +2128,38 @@ OK — 0 errores.
 
 ### Build
 OK — 0 errores.
+
+---
+
+## V9 — Redirect post-ajuste de stock (2026-07-02)
+
+### Alcance
+- Tras un ajuste manual de stock exitoso, el usuario permanece en la pantalla `Stock/Ajuste` (GET) en vez de ser redirigido al listado `Stock/Index`, para poder cargar ajustes de otros productos sin renavegar.
+- Cambio de una linea en el metodo POST `Ajuste(AjusteStockViewModel vm)`.
+- No se modifico el metodo GET `Ajuste(int? varianteId = null)`, `CargaInicial`, validaciones, permisos (`RequireAdministrador`) ni la vista `Ajuste.cshtml` (se revisó y no tiene logica condicional dependiente del origen Index/Ajuste).
+
+### Cambios por capa
+- **Web**: `ShowroomGriffin.Web/Controllers/StockController.cs` — en el POST `Ajuste`, tras `TempData["Success"] = result.Message;`, cambia `return RedirectToAction(nameof(Index));` por `return RedirectToAction(nameof(Ajuste));`.
+
+### Migracion EF
+No aplica — sin cambios de modelo/datos.
+
+### Build
+`dotnet build ShowroomGriffin.slnx` → Compilación correcta. 0 Advertencia(s), 0 Errores.
+
+### Riesgos y supuestos
+- 🟢 Riesgo minimo: cambio de una linea, sin tocar logica de negocio ni validaciones.
+- Supuesto: la vista `Ajuste.cshtml` no depende del origen de navegacion (confirmado por lectura del archivo).
+
+### Pruebas minimas requeridas (QA)
+- [ ] Como usuario Administrador, ir a `Stock/Ajuste`, cargar un ajuste valido y confirmar que tras guardar permanece en `Stock/Ajuste` (no redirige a `Stock/Index`) con mensaje de exito visible.
+- [ ] Confirmar que se puede cargar un segundo ajuste inmediatamente despues sin renavegar.
+- [ ] Confirmar que un ajuste invalido (ModelState invalido o error de negocio) sigue mostrando la vista `Ajuste` con los errores, sin cambios de comportamiento.
+- [ ] Confirmar que `CargaInicial` sigue redirigiendo a `Stock/Index` sin cambios.
+
+### Checklist de salida para merge
+- [x] Compila sin errores.
+- [x] Sin migracion EF.
+- [x] Sin cambios en permisos ni validaciones.
+- [x] Vista `Ajuste.cshtml` revisada, sin logica dependiente del origen.
+- [x] Cambio acotado a una linea en `StockController.cs`.

@@ -15,6 +15,7 @@ Generar un presupuesto defendible, calibrado y comercialmente entendible en base
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/27-presupuesto-parametros.instructions.md
 - .github/instructions/28-estimacion-avanzada.instructions.md
+- .github/instructions/31-formato-documento-cliente.instructions.md
 
 # Entrada
 - Analisis aprobado
@@ -84,10 +85,12 @@ Generar un presupuesto defendible, calibrado y comercialmente entendible en base
 12. Exclusiones
 13. Dependencias del cliente
 14. Criterios de aceptacion minimos
-15. Tabla simple para cliente dividida en Etapa 1 (MVP) y Etapa 2 (resto): Area | USD con subtotal por etapa y total del proyecto (sin horas — son internas). El cargo de tokens IA (USD 100) va implicito: prorrateado en los precios de la Etapa 1, sin linea visible para el cliente.
+15. Tabla simple para cliente dividida en Etapa 1 (MVP) y Etapa 2 (resto): Area | USD con subtotal por etapa y total del proyecto (sin horas — son internas). El cargo de Tokens IA es el 10% del total presupuestado (Subtotal Etapa 1 + Subtotal Etapa 2) y se muestra EXPLICITO como linea individual en la seccion "Total del proyecto" — no se prorratea en los modulos ni se oculta.
 16. Plan de mantenimiento anual recomendado segun cantidad de tablas del sistema (ver 27-presupuesto-parametros). Presentar como linea separada: "Mantenimiento anual — Plan X: USD Y/año".
 17. Condiciones comerciales (50/50 por etapa; sin clausula de validez de oferta)
 18. Nota de contingencia aplicada
+
+**Documento final al cliente (`presupuesto-cliente.md`):** solo con el contenido comercial (alcance funcional, roles, tabla Etapa1/Etapa2/Tokens IA, mantenimiento, condiciones), envuelto en el formato de `.github/instructions/31-formato-documento-cliente.instructions.md`. Los puntos de detalle interno de calibracion (PERT, ratios, autocorreccion) no van en este archivo, solo en `4-presupuestador.md`.
 
 # Restricciones
 - No estimar M desde cero: siempre anclar en historico antes de ajustar.

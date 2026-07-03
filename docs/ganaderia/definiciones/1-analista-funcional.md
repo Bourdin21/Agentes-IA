@@ -1,9 +1,10 @@
 # Análisis Funcional — Sistema de Gestión Ganadera
 
-Versión: **v10** (consolidada y validada por el agente `1 - analista-funcional`)
+Versión: **v12** (consolidada y validada por el agente `1 - analista-funcional`)
 Agente: `analista-funcional` (`C:\Sistemas\Agentes-IA\.github\agents\analista-funcional.agent.md`)
 Conversación: `2025-11-ganaderia-blankproject`
 Proyecto: BlankProject (ASP.NET Core **MVC**, .NET 10, EF Core 10, MySQL 8, Identity, Serilog)
+Repositorio de esta versión: **`C:\Sistemas\ganaderia - emo`** (cambio de v11/v12 exclusivo de este cliente; NO aplica a `ganaderia - fausto`).
 Alcance: documento funcional. **No** define implementación técnica detallada.
 
 ---
@@ -14,26 +15,26 @@ Alcance: documento funcional. **No** define implementación técnica detallada.
 
 ### 0.1 Alcance funcional resumido
 
-Sistema de gestión para un productor ganadero argentino con **tres ejes**: **Ingresos** (Ventas → Facturas → Cuotas → Caja), **Egresos** (Gastos con comprobante) y **Stock** (por Grupo, con compensaciones intra/inter-categoría según matriz cerrada). Transversales: **Cuenta Corriente / Caja** y **Dashboard anual mensualizado**. Soporta hasta **5 usuarios Productor** + **1 SuperUsuario**. Catálogos ABM: Grupo, Rubro, Proveedor (con ámbito), Organismo intermediario. Job diario idempotente de acreditación + notificación in-app.
+Sistema de gestión para un productor ganadero argentino con **tres ejes**: **Ingresos** (Ventas → Facturas → Cuotas → Caja), **Egresos** (compras a proveedor con **pagos múltiples**: efectivo, transferencia y cheque diferido, con posible pago compensatorio) y **Stock** (por Grupo, con compensaciones intra/inter-categoría según matriz cerrada). Transversales: **Cuenta Corriente / Caja** y **Dashboard anual mensualizado**. Soporta hasta **5 usuarios Productor** + **1 SuperUsuario**. Catálogos ABM: Grupo, Rubro, Proveedor (con ámbito), Organismo intermediario. Job diario idempotente de acreditación de Cuotas de venta **y de Pagos de egreso con cheque diferido** + notificación in-app. **(v12)** Autocomplete de texto libre con sugerencias (Concepto de Egreso, Motivo de Factura de venta) implementado con **Select2**, no con `<datalist>` nativo.
 
 ### 0.2 Impacto técnico por capa
 
-- **Presentación (MVC)**: 11 áreas de vistas (Ventas, Facturas, Cuotas, Gastos, Stock, MovimientosStock, Caja, Dashboard, Catálogos×4, Novedades), formularios con validación en español, selectores filtrados, uploader de comprobante, bandeja de novedades, autorización por rol.
-- **Negocio (Application + Services)**: reglas de ciclo de vida (Venta/Factura/Cuota), cálculo de IVA con snapshot inmutable, generación/regeneración de cuotas, matriz de transiciones, compensaciones, baja lógica con `stock==0`, regularización Opción 3a/3b, job diario idempotente, autocomplete normalizado, filtrado de proveedores por ámbito, límite de 5 Productores.
-- **Datos (EF Core + MySQL)**: 13 entidades nuevas bajo `Domain/Entities/Ganaderia`, snapshot `TasaImpuestoAplicada` en Factura, `MovimientoStock` con origen/destino nullables, `MovimientoCaja` con estado y FK polimórfica al documento de origen, almacenamiento de archivo de comprobante fuera de DB, baja lógica vía `SoftDestroyable`.
+- **Presentación (MVC)**: 11 áreas de vistas (Ventas, Facturas, Cuotas, Egresos, Stock, MovimientosStock, Caja, Dashboard, Catálogos×4, Novedades), formularios con validación en español, selectores filtrados, uploader de comprobante, bandeja de novedades, autorización por rol. Egresos pasa de alta con forma de pago única a alta con **grilla de pagos múltiples** (agregar/quitar líneas de pago) + pantallas de rechazo/regularización de cheque diferido.
+- **Negocio (Application + Services)**: reglas de ciclo de vida (Venta/Factura/Cuota), cálculo de IVA con snapshot inmutable, generación/regeneración de cuotas, matriz de transiciones, compensaciones, baja lógica con `stock==0`, regularización Opción 3a/3b (**ahora también para Pagos de egreso**), job diario idempotente (**extendido a Pagos de egreso con cheque**), autocomplete normalizado, filtrado de proveedores por ámbito, límite de 5 Productores, validación de suma de pagos == importe del egreso.
+- **Datos (EF Core + MySQL)**: entidades nuevas bajo `Domain/Entities/Ganaderia`, snapshot `TasaImpuestoAplicada` en Factura, `MovimientoStock` con origen/destino nullables, `MovimientoCaja` con estado y FK polimórfica al documento de origen (**ahora incluye pago de egreso**), almacenamiento de archivo de comprobante fuera de DB, baja lógica vía `SoftDestroyable`. Nueva entidad **`EgresoPago`** (1:N con `Egreso`) reemplaza el campo único `FormaDePago` de `Egreso`.
 
 ### 0.3 Riesgos y supuestos clave
 
-- **R16** Recálculo de cuotas al cambiar plazo en la factura · **R18** Mantenimiento de la matriz si aparecen nuevas categorías · **R20/R24** Concurrencia en venta multi-grupo · **R22** Variantes ortográficas en autocomplete de concepto · **R23** Matriz cerrada requiere deploy para extenderse · **R13** Movimientos en `Pendiente` por rechazo sin regularizar.
-- Supuestos S1–S30 consolidados: un productor, ARS única, 1 Venta ↔ 1 Factura, sin AFIP, sin retenciones, tasa IVA histórica inmutable, cuotas equitativas con última absorbiendo diferencia, stock por Grupo (categoría derivada), trazabilidad individual diferida a fase 2, comprobante 1 archivo × 5 MB, rechazo muta estado sin contramovimiento, regularización Opción 3a/3b, proveedor con ámbito, Rubro y Grupo entidades distintas con mismo patrón ABM, concepto de gasto libre con autocomplete.
+- **R16** Recálculo de cuotas al cambiar plazo en la factura · **R18** Mantenimiento de la matriz si aparecen nuevas categorías · **R20/R24** Concurrencia en venta multi-grupo · **R22** Variantes ortográficas en autocomplete de concepto · **R23** Matriz cerrada requiere deploy para extenderse · **R13** Movimientos en `Pendiente` por rechazo sin regularizar · **R25** Suma de pagos de un Egreso debe cuadrar exactamente contra el importe total · **R26** Job diario ahora corre dos colecciones (Cuotas + Pagos de egreso); debe mantener idempotencia independiente por colección.
+- Supuestos S1–S30 consolidados (ver v10) + **S31–S34** (v11): pagos de Egreso admiten múltiples líneas con distinta forma de pago; cheque diferido de Egreso replica el ciclo Pendiente→Acreditado del job diario de Cuotas; rechazo/regularización de cheque de Egreso replica Opción 3a/3b de Cuotas; no se agrega edición de Egreso (se mantiene alta + anulación).
 
 ### 0.4 Pruebas mínimas requeridas
 
-Casos **PF1–PF52** funcionales + **PV1–PV12** de validación/borde, detallados en §16. Cubren ciclos de vida, cálculos de IVA y cuotas, job diario idempotente, rechazo y regularización (3a/3b), compensaciones intra/inter con matriz, baja lógica, autocomplete, filtrado por ámbito, autorización por rol, formato/tamaño de comprobante, numeración correlativa de Factura, stock inicial como movimiento explícito y visibilidad histórica de Grupos inactivos.
+Casos **PF1–PF61** funcionales + **PV1–PV16** de validación/borde, detallados en §16. Cubren ciclos de vida, cálculos de IVA y cuotas, job diario idempotente (Cuotas y Pagos de egreso), rechazo y regularización (3a/3b) de Cuotas y de Pagos de egreso, compensaciones intra/inter con matriz, baja lógica, autocomplete, filtrado por ámbito, autorización por rol, formato/tamaño de comprobante, numeración correlativa de Factura, stock inicial como movimiento explícito, visibilidad histórica de Grupos inactivos y **pagos múltiples de Egreso con cheque diferido**.
 
 ### 0.5 Checklist de salida para merge
 
-Ver **§17** (checklist completo con 21 ítems verificables desde UI + Service + persistencia).
+Ver **§17** (checklist completo, incluye ítems nuevos de v11 sobre pagos múltiples de Egreso).
 
 ---
 
@@ -41,6 +42,8 @@ Ver **§17** (checklist completo con 21 ítems verificables desde UI + Service +
 
 - **v8** — Cerró categoría `Ternero`, comprobante 1 archivo × 5 MB, Organismo intermediario como ABM.
 - **v9** — Validación por el agente `analista-funcional`: se corrigió el stack (MVC, no Razor Pages) y se agregó el bloque §0 con el contrato del agente. Sin cambios de alcance funcional.
+- **v11** — Egresos pasa de "forma de pago única, acreditación inmediata" a **pagos múltiples por Egreso** (efectivo, transferencia, cheque diferido y pago compensatorio), con ciclo de vida de cheque diferido (Pendiente → Acreditado vía job diario) y rechazo/regularización (Opción 3a/3b), simétrico al ya existente para Cuotas de venta. Cambio exclusivo del repositorio `ganaderia - emo`.
+- **v12** — Autocomplete de "Concepto" (Egresos) migra de `<datalist>` nativo a **Select2** (estándar UI del estudio). En Facturas de venta, `Motivo` deja de ser enum cerrado (`Faena`/`Vacía`/`Enfermedad`) y pasa a **texto libre con autocomplete Select2** sobre motivos previamente registrados, mismo patrón que Concepto de Egresos. Cambio exclusivo del repositorio `ganaderia - emo`.
 
 ---
 
@@ -66,7 +69,7 @@ Transversales: **Cuenta Corriente / Caja** y **Dashboard**.
 ## 3. Módulo Ingresos — Ventas
 
 ### 3.1 Venta
-- **Motivo** (enum cerrado): `Faena`, `Vacía`, `Enfermedad`.
+- **Motivo** — **(v12)** deja de ser enum cerrado. Pasa a ser **texto libre** (obligatorio, máx. 200 caracteres) con **autocomplete Select2** sobre motivos previamente registrados en cualquier Factura de venta (histórico distinct, normalizado: trim + comparación case-insensitive — mismo patrón que Concepto de Egreso, §4.1). Los tres valores históricos (`Faena`, `Vacía`, `Enfermedad`) quedan disponibles como sugerencias iniciales (se migran como texto) pero el usuario puede escribir cualquier motivo nuevo.
 - Detalle multi-línea: cada línea referencia un **Grupo** y una **Cantidad**.
 - Una venta puede descontar de **varios grupos** y de **distintas categorías** en líneas separadas.
 - Relación **1 venta ↔ 1 factura**.
@@ -145,21 +148,65 @@ Resumen tabular:
 
 ---
 
-## 4. Módulo Egresos — Gastos
+## 4. Módulo Egresos — Compras a proveedor
 
-### 4.1 Atributos del Gasto
-- Fecha
-- Importe
+> **v11**: se reemplaza el modelo de "forma de pago única con acreditación inmediata" por **pagos múltiples por Egreso**. Motivo del cliente: una compra suele pagarse combinando uno o varios cheques diferidos (que no siempre cubren el importe total) más un pago compensatorio (efectivo/transferencia) por la diferencia.
+
+### 4.1 Atributos del Egreso (cabecera — se mantienen)
+- Fecha (fecha de la compra / factura de compra)
+- Importe total
 - **Rubro** (FK a catálogo ABM de Rubros de egreso — entidad propia)
-- **Concepto / Motivo**: string libre con **autocomplete** basado en valores previamente ingresados por el usuario (historial distinct, con normalización básica: trim y comparación case-insensitive).
-  - Descripción
+- **Concepto / Motivo**: string libre con **autocomplete** basado en valores previamente ingresados por el usuario (historial distinct, con normalización básica: trim y comparación case-insensitive). Incluye Descripción. **(v12)** El widget de autocomplete pasa de `<datalist>` nativo a **Select2** (tags + AJAX): mismo comportamiento funcional (escribir y ver sugerencias que matchean, o cargar un valor nuevo), pero con un desplegable confiable en todos los navegadores (el `<datalist>` nativo no siempre refrescaba el popup visible tras poblarse de forma asíncrona — ver `6-qa.md` §12/GAN-004).
 - **Proveedor** (FK a catálogo único de Proveedores, filtrado por ámbito)
-- **Forma de pago** (enum cerrado): `Efectivo`, `Transferencia`, `Cheque`
-- **Comprobante** adjunto: PDF / JPG / PNG, opcional, **1 archivo por gasto**, tamaño máximo **5 MB**.
+- **Comprobante** adjunto: PDF / JPG / PNG, opcional, **1 archivo por egreso**, tamaño máximo **5 MB**.
+- ~~Forma de pago única~~ → reemplazada por la colección de **Pagos** (§4.2).
 
-### 4.2 Impacto
-- Genera **Movimiento de Caja** egreso en estado `Acreditado` al registrarse.
-- Afecta saldo de cuenta corriente y dashboard del mes.
+### 4.2 Pagos del Egreso (nuevo — entidad `EgresoPago`, 1 Egreso → N Pagos)
+
+Cada Egreso requiere **uno o más pagos**. Cada pago tiene:
+- **Forma de pago** (enum cerrado, reutiliza `FormaDePago`): `Efectivo`, `Transferencia`, `Cheque`.
+- **Importe** del pago (> 0).
+- **Fecha efectiva del pago**: fecha en la que se entrega/emite el pago (para Efectivo/Transferencia coincide con la acreditación real; para Cheque es la fecha de emisión/entrega al proveedor).
+- **Fecha de vencimiento** del cheque: **obligatoria únicamente si Forma de pago = Cheque**; es la fecha en la que el cheque diferido se hace efectivo. No aplica a Efectivo/Transferencia.
+- **Estado** (enum nuevo `EstadoPagoEgreso`): `Pendiente`, `Acreditado`, `Rechazado`.
+
+**Regla de cierre**: la suma de los importes de todos los pagos de un Egreso debe ser **exactamente igual** al Importe total del Egreso (tolerancia 0, redondeo a 2 decimales). El alta del Egreso se bloquea si no cuadra. Esto habilita el caso de uso del cliente: varios cheques diferidos con fechas distintas que no cubren el total + un pago compensatorio final.
+
+### 4.3 Ciclo de vida del pago
+
+- **Efectivo / Transferencia**: se acreditan **inmediatamente** al guardar el Egreso. Estado inicial = `Acreditado`. Genera de inmediato su Movimiento de Caja egreso en `Acreditado`, con fecha = Fecha efectiva del pago.
+- **Cheque**: queda en `Pendiente` al guardar el Egreso (no genera Movimiento de Caja todavía). El **mismo job diario** que hoy acredita las Cuotas de venta vencidas (§3.5) revisa también los Pagos de egreso tipo `Cheque` en `Pendiente` con Fecha de vencimiento `<=` hoy, los pasa a `Acreditado` y crea su Movimiento de Caja egreso en `Acreditado` con fecha = Fecha de vencimiento. Es **idempotente**, igual que hoy para Cuotas.
+- La notificación in-app diaria de "acreditaciones del día" (§9) incluye también los cheques de Egreso acreditados por el job, no sólo las Cuotas de venta.
+
+### 4.4 Rechazo de cheque diferido (Egreso)
+
+Acción manual del Productor sobre un Pago de Egreso tipo `Cheque` en estado `Pendiente` o `Acreditado` (cheque rebotado / no debitado por el banco). Efecto, simétrico al rechazo de Cuotas (§3.6):
+- El pago pasa a `Rechazado` (permanece como registro histórico).
+- Si ya tenía Movimiento de Caja `Acreditado`, ese movimiento pasa a `Pendiente` y **no computa en saldo**.
+- **No** se genera contramovimiento ni se elimina nada.
+
+### 4.5 Regularización de rechazo (Egreso — Opción 3, simétrica a Cuotas §3.7)
+
+Acción explícita sobre un Pago `Rechazado`. Dos variantes:
+
+**a) Corrección de error de carga**
+- El pago vuelve a `Acreditado`.
+- El Movimiento de Caja existente vuelve a `Acreditado` con **fecha original**. No se crea movimiento nuevo.
+
+**b) Pago posterior efectivo**
+- El pago permanece en `Rechazado` (preserva auditoría del rebote).
+- El Movimiento de Caja original permanece en `Pendiente`.
+- Se **crea un nuevo Movimiento de Caja** en estado `Acreditado`, vinculado al pago, con **fecha y forma de pago reales** (por ejemplo: se terminó pagando en efectivo o con un cheque de reemplazo).
+
+### 4.6 Alta / anulación del Egreso
+
+- El Egreso se crea con su(s) pago(s) en una única operación (transaccional): si algún pago es inválido (importe, fecha de vencimiento faltante en cheque, suma que no cuadra) se rechaza el alta completa.
+- **No se agrega edición** de Egreso ni de sus pagos individuales en este alcance (se mantiene el comportamiento actual: alta y anulación únicamente).
+- Anular un Egreso anula (baja lógica) el Egreso, **todos** sus Pagos y **todos** los Movimientos de Caja asociados a esos pagos, sin importar su estado.
+
+### 4.7 Impacto en Caja / Dashboard
+- Cada pago genera (o generará, si es cheque, al vencer) su propio Movimiento de Caja egreso — un Egreso con 3 pagos puede aportar hasta 3 movimientos en fechas distintas, reflejando el impacto real en caja en el momento en que efectivamente ocurre (no en la fecha de la compra).
+- Afecta saldo de cuenta corriente y dashboard del mes en que cada pago se acredita.
 
 ---
 
@@ -236,8 +283,10 @@ Lista cerrada de pares permitidos `(CategoríaOrigen → CategoríaDestino)`:
 - Fuentes de movimiento:
   - Cuota acreditada (ingreso, automático por job).
   - Regularización de cuota rechazada — cobro posterior (ingreso, manual).
-  - Gasto (egreso, inmediato en `Acreditado`).
-- Cada movimiento navega a su documento de origen (cuota/factura/venta o gasto).
+  - Pago de Egreso en Efectivo/Transferencia (egreso, inmediato en `Acreditado`).
+  - Pago de Egreso con Cheque diferido acreditado por vencimiento (egreso, automático por job — v11).
+  - Regularización de pago de Egreso rechazado — pago posterior (egreso, manual — v11).
+- Cada movimiento navega a su documento de origen (cuota/factura/venta o pago de egreso).
 - Saldo = suma de movimientos en `Acreditado`.
 
 ---
@@ -256,7 +305,7 @@ Lista cerrada de pares permitidos `(CategoríaOrigen → CategoríaDestino)`:
 
 - **Canal único: in-app** (pantalla/bandeja de novedades al iniciar sesión).
 - **Sin email**, sin canales externos.
-- Evento mínimo: pagos acreditados del día por el job automático.
+- Evento mínimo: pagos acreditados del día por el job automático (Cuotas de venta **y**, desde v11, Pagos de Egreso con cheque diferido vencido).
 
 ---
 
@@ -264,10 +313,12 @@ Lista cerrada de pares permitidos `(CategoríaOrigen → CategoríaDestino)`:
 
 | Enum | Valores |
 |---|---|
-| `MotivoVenta` | Faena, Vacía, Enfermedad |
-| `FormaDePago` (Gasto) | Efectivo, Transferencia, Cheque |
+| ~~`MotivoVenta`~~ | **(v12) Eliminado.** `Motivo` pasa a texto libre con autocomplete (§3.1); los 3 valores históricos quedan como datos migrados, no como enum. |
+| `FormaDePago` (por pago, Ingresos y Egresos) | Efectivo, Transferencia, Cheque |
 | `TasaImpuesto` | IVA21, IVA10_5 |
 | `EstadoCuota` | Pendiente, Acreditada, Rechazada |
+| `EstadoPagoEgreso` (nuevo, v11) | Pendiente, Acreditado, Rechazado |
+| `OpcionRegularizacion` (reutilizado en Egresos, v11) | ErrorDeCarga, CobroPosterior |
 | `EstadoMovimientoCaja` | Pendiente, Acreditado |
 | `TipoMovimientoStock` | Inicial, Nacimiento, Compra, Muerte, Venta, Compensación |
 | `CategoriaHacienda` | Vaca, Toro, Vaquillona, Ternera, Ternero |
@@ -290,29 +341,32 @@ Lista cerrada de pares permitidos `(CategoríaOrigen → CategoríaDestino)`:
 
 ### Presentación (ASP.NET Core MVC)
 - ABM: Grupo, Rubro, Proveedor, Organismo intermediario, Usuarios (SuperUsuario).
-- Operativa: Venta (multi-línea con selector de grupo), Factura + Cuotas, Gasto (con autocomplete de concepto y upload de comprobante), Movimientos de Stock (incl. compensación con origen/destino).
+- Operativa: Venta (multi-línea con selector de grupo), Factura + Cuotas, **Egreso con grilla de pagos múltiples** (agregar/quitar líneas: forma de pago, importe, fecha efectiva, fecha de vencimiento sólo si Cheque; validación de suma == importe total en cliente y servidor), con autocomplete de concepto y upload de comprobante, Movimientos de Stock (incl. compensación con origen/destino).
 - Consulta: Cuenta Corriente, Stock (por Grupo con totalización por Categoría), Dashboard con selector de año y filtros por categoría/grupo.
-- Acciones: Rechazo de cuota, Regularización (Opción 3 a/b).
-- Bandeja de novedades al iniciar sesión.
-- Validaciones de UI: fechas coherentes, importes/cantidades > 0, stock no negativo, formato/tamaño de comprobante, transiciones de compensación según matriz.
+- Acciones: Rechazo de cuota, Regularización de cuota (Opción 3 a/b), **Rechazo de pago de Egreso (cheque), Regularización de pago de Egreso (Opción 3 a/b — v11)**.
+- Bandeja de novedades al iniciar sesión (incluye acreditaciones de Cuotas y de Pagos de egreso con cheque).
+- Validaciones de UI: fechas coherentes, importes/cantidades > 0, stock no negativo, formato/tamaño de comprobante, transiciones de compensación según matriz, **fecha de vencimiento obligatoria y >= fecha efectiva cuando Forma de pago = Cheque, suma de pagos == importe del Egreso**.
 
 ### Negocio
 - Reglas de ciclo de vida (edición/anulación) de Venta, Factura, Cuota.
 - Cálculo de impuestos con tasa histórica persistida.
 - Generación y recálculo de cuotas con distribución equitativa y redondeo a 2 decimales.
-- Job diario idempotente de acreditación.
-- Regularización de rechazo (Opción 3).
+- Job diario idempotente de acreditación de Cuotas **y, desde v11, de Pagos de Egreso con cheque diferido vencido**.
+- Regularización de rechazo (Opción 3) de Cuotas **y, desde v11, de Pagos de Egreso**.
 - Validación de compensaciones contra matriz de transiciones.
 - Baja lógica de Grupo con `stock == 0`.
 - Autorización por rol (Productor vs SuperUsuario).
 - Filtrado de proveedores por ámbito.
 - Autocomplete de conceptos (distinct histórico, normalizado).
+- **(v11)** Alta transaccional de Egreso + sus Pagos, con validación de suma exacta de importes.
+- **(v11)** Anulación de Egreso propaga baja lógica a todos sus Pagos y Movimientos de Caja asociados.
 
 ### Datos
-- Entidades: Venta, DetalleVenta, Factura, Cuota, MovimientoCaja, Gasto, Rubro, Proveedor, Grupo, MovimientoStock, Categoria (enum), Usuario, OrganismoIntermediario, Comprobante (archivo).
+- Entidades: Venta, DetalleVenta, Factura, Cuota, MovimientoCaja, Egreso, **EgresoPago (nueva, v11)**, Rubro, Proveedor, Grupo, MovimientoStock, Categoria (enum), Usuario, OrganismoIntermediario, Comprobante (archivo).
 - Snapshot de `TasaImpuestoAplicada` en Factura.
 - MovimientoStock con `GrupoOrigen` y `GrupoDestino` (nullables según tipo).
-- MovimientoCaja con `Estado` y FK al documento de origen (cuota o gasto).
+- MovimientoCaja con `Estado` y FK al documento de origen (cuota o **pago de egreso** — v11 reemplaza la FK directa a Egreso por FK al pago).
+- Egreso pierde el campo `FormaDePago` único; pasa a exponerlo por cada `EgresoPago`.
 - Sin borrado físico; baja lógica donde corresponda.
 
 ---
@@ -324,7 +378,11 @@ Lista cerrada de pares permitidos `(CategoríaOrigen → CategoríaDestino)`:
 - **R20/R24** — Concurrencia en venta multi-grupo: validar atómicamente stock al guardar.
 - **R22** — Autocomplete de concepto: sensibilidad a variantes ortográficas; aplicar normalización.
 - **R23** — Matriz como configuración cerrada requiere deploy para extenderse.
-- **R13** — Movimientos en `Pendiente` por rechazo pueden quedar "huérfanos" si nunca se regularizan; considerar filtros/reportes.
+- **R13** — Movimientos en `Pendiente` por rechazo pueden quedar "huérfanos" si nunca se regularizan; considerar filtros/reportes (ahora aplica también a pagos de Egreso).
+- **R25** (v11) — Suma de pagos de un Egreso debe cuadrar exactamente contra el importe total; redondeos de 2 decimales pueden generar diferencias de centavos si la UI calcula el compensatorio automáticamente (recomendado: usuario ingresa el compensatorio manual, sistema sólo valida).
+- **R26** (v11) — El job diario pasa a procesar dos colecciones (Cuotas de venta y Pagos de Egreso); debe mantener idempotencia y notificación consolidada sin duplicar registros de `JobEjecucion`.
+- **R27** (v12) — Migración de `FacturaVenta.Motivo` de enum (`int`) a texto libre (`string`) sobre datos ya cargados en producción: el backfill debe preservar el valor original de cada factura histórica (mapeo `1→"Faena"`, `2→"Vacía"`, `3→"Enfermedad"`), no perderlo ni dejarlo `NULL`.
+- **R28** (v12) — Al eliminar el enum `MotivoVenta`, cualquier filtro/reporte futuro que hoy agrupe por esos 3 valores fijos deja de tener una lista cerrada para agrupar (motivo pasa a ser texto libre); no hay uso actual de ese tipo (verificado, `Motivo` no participa en Dashboard ni en ninguna regla de negocio), pero queda como consideración para diseño de reportes futuros.
 
 ---
 
@@ -345,6 +403,15 @@ Lista cerrada de pares permitidos `(CategoríaOrigen → CategoríaDestino)`:
   - Proveedores: catálogo único con ámbito.
   - Grupo (Stock) y Rubro (Egresos): entidades distintas con mismo patrón ABM.
   - Concepto de gasto: string libre con autocomplete.
+- **S31–S34** (v11, pagos múltiples de Egreso):
+  - **S31** Un Egreso admite 1..N pagos; la suma de importes debe ser exactamente igual al importe total del Egreso (sin tolerancia, redondeo a 2 decimales).
+  - **S32** El cheque diferido de Egreso replica el ciclo Pendiente→Acreditado del job diario ya existente para Cuotas de venta (mismo horario, misma tabla `JobEjecucion`, misma notificación in-app consolidada).
+  - **S33** El rechazo y la regularización (Opción 3 a/b) de un Pago de Egreso con cheque son simétricos a los de Cuota de venta (§3.6/§3.7), reutilizando el enum `OpcionRegularizacion`.
+  - **S34** No se agrega edición de Egreso ni de pagos individuales en este alcance; sólo alta (transaccional, con sus pagos) y anulación (propaga a pagos y movimientos).
+- **S35–S37** (v12, autocomplete Select2):
+  - **S35** Select2 es la librería estándar del estudio para este tipo de widget (ya cargada globalmente en el layout de `ganaderia - emo`); no se introduce Selectize ni otra dependencia nueva.
+  - **S36** El autocomplete de Motivo (Facturas de venta) reutiliza el mismo patrón de sugerencias que Concepto de Egreso: histórico distinct, normalizado (trim + case-insensitive), a nivel organización (no por usuario).
+  - **S37** La conversión de `Motivo` a texto libre no afecta ninguna regla de negocio existente: se verificó que el valor de `Motivo` sólo se persiste y se muestra, sin participar en cálculos, filtros de Dashboard, ni condiciones de otros servicios.
 
 ---
 
@@ -420,6 +487,20 @@ _Ninguna al cierre de v10. Todas las preguntas previas fueron cerradas o diferid
 - PF50 — Intento de segundo movimiento `Inicial` sobre el mismo Grupo: bloqueado con error claro.
 - PF51 — Grupo dado de baja con historia previa: aparece en filtros del Dashboard de años anteriores y en el detalle histórico de Caja/Ventas donde participó.
 - PF52 — Grupo dado de baja: no aparece en selectores operativos (alta de movimiento, venta, compensación, gasto).
+- PF53 — Egreso con un único pago Efectivo: pago queda `Acreditado` y genera Movimiento de Caja `Acreditado` de inmediato.
+- PF54 — Egreso con un cheque diferido que cubre el total: pago queda `Pendiente`, sin Movimiento de Caja hasta la fecha de vencimiento.
+- PF55 — Egreso con dos cheques diferidos (fechas distintas) + un pago compensatorio en efectivo cuya suma == importe total: alta exitosa, 3 pagos creados con sus estados iniciales correctos.
+- PF56 — Egreso donde la suma de pagos no coincide con el importe total: alta bloqueada con error claro, nada se persiste.
+- PF57 — Job diario acredita un Pago de Egreso con cheque cuya fecha de vencimiento ya venció, genera su Movimiento de Caja `Acreditado` y notifica in-app junto con las Cuotas de venta acreditadas ese día.
+- PF58 — Job diario es idempotente también para Pagos de Egreso con cheque (correrlo dos veces el mismo día no duplica movimientos).
+- PF59 — Rechazo de Pago de Egreso con cheque `Acreditado`: pasa a `Rechazado`, su Movimiento de Caja pasa a `Pendiente`, no computa en saldo.
+- PF60 — Regularización de Pago de Egreso — error de carga (3a): pago vuelve a `Acreditado`, Movimiento de Caja original vuelve a `Acreditado` con fecha original.
+- PF61 — Regularización de Pago de Egreso — pago posterior (3b): pago permanece `Rechazado`, se crea nuevo Movimiento de Caja `Acreditado` con fecha y forma de pago reales.
+- PF62 — (v12) Autocomplete Select2 de Concepto en Egresos: escribir un término con coincidencias muestra el desplegable con las opciones filtradas; seleccionar una opción la carga en el campo.
+- PF63 — (v12) Autocomplete Select2 de Concepto en Egresos: escribir un valor sin coincidencias previas permite cargarlo igual como texto nuevo (no obliga a elegir de la lista).
+- PF64 — (v12) Factura de venta: campo Motivo con autocomplete Select2 sugiere motivos previamente registrados en cualquier Factura de venta.
+- PF65 — (v12) Factura de venta: Motivo acepta un valor nuevo (no limitado a Faena/Vacía/Enfermedad).
+- PF66 — (v12) Facturas de venta históricas (pre-migración) muestran su Motivo original como texto (`Faena`/`Vacía`/`Enfermedad`) tras la migración, sin pérdida de dato.
 
 ### Validaciones / borde
 - PV1 — Importes y kilos > 0.
@@ -434,6 +515,12 @@ _Ninguna al cierre de v10. Todas las preguntas previas fueron cerradas o diferid
 - PV10 — Gasto con proveedor inexistente/inactivo: bloqueado.
 - PV11 — Compensación con origen = destino: bloqueada.
 - PV12 — Nacimiento sin grupo destino: bloqueado.
+- PV13 — Pago de Egreso tipo Cheque sin fecha de vencimiento: bloqueado.
+- PV14 — Pago de Egreso con fecha de vencimiento anterior a la fecha efectiva del pago: bloqueado.
+- PV15 — Egreso sin ningún pago cargado: bloqueado.
+- PV16 — No regularizar/rechazar un Pago de Egreso que no sea de tipo Cheque, ni rechazar uno ya `Rechazado`.
+- PV17 — (v12) Motivo de Factura de venta vacío: bloqueado (campo obligatorio).
+- PV18 — (v12) Motivo de Factura de venta mayor a 200 caracteres: bloqueado.
 
 ---
 
@@ -463,6 +550,14 @@ _Ninguna al cierre de v10. Todas las preguntas previas fueron cerradas o diferid
 - [ ] Grupos inactivos visibles en consulta histórica (Dashboard/Caja) y ocultos en selectores operativos.
 - [ ] Criterios de aceptación por pantalla redactados.
 - [ ] Pruebas PF1–PF52 + PV1–PV12 aprobadas.
+- [ ] **(v11)** Entidad `EgresoPago` reemplaza `FormaDePago` único de `Egreso`; suma de pagos == importe total validada en alta.
+- [ ] **(v11)** Cheque diferido de Egreso: ciclo `Pendiente` → `Acreditado` vía job diario extendido (mismo job que Cuotas).
+- [ ] **(v11)** Rechazo y regularización (Opción 3 a/b) de Pago de Egreso implementados, simétricos a Cuotas.
+- [ ] **(v11)** Anulación de Egreso propaga a todos sus Pagos y Movimientos de Caja asociados.
+- [ ] **(v11)** Pruebas PF53–PF61 + PV13–PV16 aprobadas.
+- [ ] **(v12)** Autocomplete de Concepto (Egresos) migrado de `<datalist>` a Select2, sin regresión funcional.
+- [ ] **(v12)** `FacturaVenta.Motivo` migrado de enum a texto libre con autocomplete Select2, datos históricos preservados (backfill validado).
+- [ ] **(v12)** Pruebas PF62–PF66 + PV17–PV18 aprobadas.
 
 ---
 
@@ -477,4 +572,6 @@ _Ninguna al cierre de v10. Todas las preguntas previas fueron cerradas o diferid
 - **v7** — Rubro (Egresos) y Grupo (Stock) como **entidades distintas con mismo patrón ABM**; **Opción 3** adoptada para regularización de rechazo (error de carga / cobro posterior).
 - **v8** — Categoría `Ternero` confirmada (con transición `Ternero → Toro`); comprobante de gasto fijado en **1 archivo / 5 MB**; **Organismo intermediario** confirmado como entidad **ABM**.
 - **v9** — Validación por el agente `analista-funcional`: stack corregido a MVC; agregado §0 con contrato de salida mínima del agente. Confirmadas: Dashboard a backlog fase 2 y capa de presentación MVC (Controllers + Views). Se abren PA1–PA3 como preguntas funcionales pendientes. Sin cambios de alcance funcional.
-- **v10** — Cierre de PA1–PA3: numeración correlativa única de Factura (`F-000123`), stock inicial como movimiento explícito tipo `Inicial` (nuevo valor del enum `TipoMovimientoStock`), visibilidad histórica completa de Grupos dados de baja en Dashboard y detalles históricos. Agregadas PF47–PF52.
+- **v10** — Cierre de PA1–PA3: numeración correlativa única de Factura (`F-000123`), stock inicial como movimiento explícito tipo `Inicial`, visibilidad histórica completa de Grupos dados de baja en Dashboard y detalles históricos. Agregadas PF47–PF52.
+- **v11** — Pedido del cliente (proyecto `ganaderia - emo` únicamente): Egresos pasa de forma de pago única con acreditación inmediata a **pagos múltiples por Egreso** (nueva entidad `EgresoPago`), habilitando cheques diferidos con fecha de vencimiento propia + pago compensatorio, con validación de suma exacta contra el importe total. El cheque diferido replica el ciclo Pendiente→Acreditado del job diario ya usado para Cuotas de venta, y admite rechazo/regularización (Opción 3 a/b) simétricos a los de Cuota. No se agrega edición de Egreso. Agregadas PF53–PF61, PV13–PV16, riesgos R25–R26, supuestos S31–S34.
+- **v12** — Pedido del cliente (proyecto `ganaderia - emo` únicamente): el autocomplete de Concepto (Egresos) migra de `<datalist>` nativo a **Select2** (estándar UI del estudio, sin agregar dependencias nuevas). En Facturas de venta, `Motivo` deja de ser un enum cerrado y pasa a **texto libre con autocomplete Select2**, mismo patrón que Concepto de Egreso; los 3 valores históricos se preservan como datos migrados. Agregadas PF62–PF66, PV17–PV18, riesgos R27–R28, supuestos S35–S37.

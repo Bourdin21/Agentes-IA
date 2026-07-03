@@ -586,3 +586,17 @@ PRUEBAS
 - SeedData con rol + talles + categorías.
 
 **Riesgo principal:** MR-1 con script de datos (R1). Validar con query previo antes de ejecutar.
+
+---
+
+## V9 — Redirect post-ajuste de stock (2026-07-02) — Fast-path
+
+**Capa afectada:** Web (Controllers) únicamente.
+
+**Cambio:** `StockController.Ajuste(AjusteStockViewModel vm)` [POST] — línea `return RedirectToAction(nameof(Index));` pasa a `return RedirectToAction(nameof(Ajuste));`. El `TempData["Success"]` ya existente se preserva y se muestra en la vista `Ajuste.cshtml` tras el redirect.
+
+**Sin impacto en:** Domain, Application, Infrastructure, migraciones EF, permisos (`RequireAdministrador` se mantiene), ni en el GET `Ajuste(int? varianteId)` que ya soporta pre-cargar variante.
+
+**Riesgo:** bajo — cambio de una línea, sin efectos secundarios en otras pantallas (Index sigue accesible por su propio link de navegación).
+
+**Gate: APROBADO (fast-path) — habilitado handoff directo a implementación.**

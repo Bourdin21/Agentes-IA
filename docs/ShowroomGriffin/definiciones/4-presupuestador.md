@@ -241,3 +241,17 @@ PRESUPUESTO — CHECKLIST DE SALIDA
 > **Desvío total −75,2 %** — supera el umbral del 20%. **Pendiente:** recalibrar rangos en `27-presupuesto-parametros.instructions.md` con datos de este sprint.  
 > **Costo real facturado:** 25 h × USD 40 = **USD 1.000**  
 > **Ratio real/estimado:** 25 / 101,1 = 0,25 — indica sobreestimación sistemática; revisar M (más probable) y P (pesimista) del dataset histórico para proyectos similares.
+
+---
+
+## V9 — Redirect post-ajuste de stock (2026-07-02) — Presupuesto exprés (fast-path)
+
+Ítem único, sin PERT completo dado el tamaño trivial (cambio de 1 línea en un controller ya existente, sin migración ni pruebas de regresión amplias).
+
+| Ítem | Horas estimadas | Riesgo |
+|---|---:|---|
+| Cambio de redirect + verificación funcional (build, smoke manual del flujo Ajuste) | 0,3 h | Bajo |
+
+**Tasa:** USD 40/hora (recalibrada al cierre de sprint anterior). **Costo estimado:** USD 12.
+
+**Aprobación:** fast-path autorizado por el usuario en este hilo — no requiere gate de aprobación formal de cliente dado el tamaño del cambio.
