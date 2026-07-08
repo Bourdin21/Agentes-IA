@@ -74,6 +74,7 @@ Leer según el agente activo:
 - `29-trazabilidad-conversacion` — persistencia de memoria por agente
 - `30-qa-regresiones` — regresiones y pruebas funcionales
 - `31-formato-documento-cliente` — formato y estilo obligatorio de todo documento entregado al cliente (presupuesto, resumen de sprint)
+- `32-estandares-qa-implementador` — estandares de implementacion derivados del barrido de errores QA cross-proyecto
 
 ## Trazabilidad documental
 

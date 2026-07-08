@@ -26,6 +26,7 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - .github/instructions/29-trazabilidad-conversacion.instructions.md
 - .github/instructions/30-qa-regresiones.instructions.md
 - .github/instructions/31-formato-documento-cliente.instructions.md
+- .github/instructions/32-estandares-qa-implementador.instructions.md
 
 ## Reglas base que siempre aplican
 - No colocar lógica de negocio compleja en Controllers.

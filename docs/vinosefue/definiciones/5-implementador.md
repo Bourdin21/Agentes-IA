@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: vinosefue
-## Ultima actualizacion: 2026-07-08
+## Ultima actualizacion: 2026-07-08 (2)
 
 > Documento de referencia rapida. La memoria detallada por feature con cambios por capa, migraciones y checklists vive en:
 > `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\5-implementador.md`
@@ -9,6 +9,29 @@
 ---
 
 ## Features completadas (cronologia inversa)
+
+### 2026-07-08 — Reorganizacion visual de Compras/Detalle.cshtml (header + resumen horizontal + pestanas Bootstrap, mismo criterio que Pedidos)
+- Refactor puramente visual/estructural, replica del patron ya aprobado y aplicado el mismo dia en `Pedidos/Detalle.cshtml`: la pantalla de 2 columnas (col-md-8/col-md-4) pasa a header persistente (sin cambios) + tira de resumen horizontal + 3 pestanas Bootstrap 5 nativas (Detalle, Estado, Costos y pagos). Cero cambios de logica, endpoints, condicionales de negocio ni del `@section Scripts` existente (todos los ids/clases que usa el JS se preservaron, solo se movieron de lugar en el DOM).
+- Tira de resumen: Costo Snapshot (siempre), Costo Real (si `TotalCostoReal.HasValue`), Diferencia (idem, mismo color condicional rojo/verde), Pagado y Saldo (misma condicion `TotalPagado > 0 || Estado != Cancelada` y mismo calculo de color/label "credito"/"Pagado" que ya existia) — Numero y Proveedor se omitieron por estar ya en el header (des-duplicacion, no perdida de dato). Fecha de generacion y Responsable pasaron a badges secundarios debajo de la tira.
+- "Revertir recepcion" paso a ser una seccion `collapse` de Bootstrap colapsada por defecto dentro de la pestana Estado (mismo componente que "Mas acciones (reversion/cancelacion)" de Pedidos), en vez de una card siempre visible en el panel lateral.
+- **Deviacion tecnica deliberada respecto al pedido literal:** el modal `modalRevertirRecepcion` se movio fuera del `collapse`/tab-content hacia el bloque de modales al final de la pagina (junto a `modalAgregarItems`), en vez de dejarlo textualmente "donde estaba". Motivo: un modal anidado dentro de un `.collapse` sin `.show` queda con `display:none` heredado y nunca se muestra al hacer click, aunque Bootstrap le agregue `.show` al modal via JS. El propio `Pedidos/Detalle.cshtml` de referencia ya saca sus 3 modales de reversion fuera del tab-content por la misma razon, asi que el cambio es consistente con el precedente aprobado.
+- Unico archivo tocado: `Views/Compras/Detalle.cshtml` (reescritura completa, capa Web unicamente). Sin migracion EF.
+- Build OK, 0 errores (mismos 10 warnings preexistentes de la solucion, ninguno nuevo).
+- Verificado en runtime contra `VinoSeFue_dev`: se levanto `dotnet run` en el puerto 5015, se autentico via `curl` con cookies de sesion usando el superusuario semilla (`no-reply@olvidata.com.ar` / `Super123!` de `SeedData.cs`), y se pidieron 4 compras reales en estados distintos:
+  - Id 7 — Borrador, `PuedeEditarItems=true`, sin Costo Real cargado. 200 OK. Se confirmo por grep sobre el HTML que TODOS los ids/clases usados por el JS estan presentes: `form-costos-item` (3), `input-cant-compra` (5), `input-costo-unit` (5), `input-descuento-costo` (5), `input-subtotal-costo` (6), `costo-status` (3), `totalCostoCalculado` (2), `data-subtotal-costo-readonly` (1), `modalAgregarItems` (3), `tbodyItemsDisponiblesAgregar`/`filtroPedidoAgregar`/`filtroProductoAgregar`/`btnAgregarItemsSubmit`/`contadorSeleccionAgregar`/`agregarItemsHiddenInputs` (2 c/u), `btnSubir` (3), `selectMetodoPagoCom`/`refPagoComWrapper` (2 c/u). La card+modal "Revertir recepcion" correctamente ausente (no es Recibida).
+  - Id 8 — Recibida, Costo Real cargado (con Diferencia), 2 pagos registrados, `PuedeRevertirRecepcion=true`. 200 OK. `modalRevertirRecepcion`/`Motivo`/`confirmRevertir` presentes; card "Revertir recepcion" dentro del collapse (`collapseRevertirRecepcion` x3: id, data-bs-target, aria-controls).
+  - Id 4 — Recibida, Costo Real cargado, sin pagos. 200 OK, mismas verificaciones que id 8.
+  - Id 5 — Borrador con Costo Real ya cargado (caso borde: Diferencia se muestra igual aunque no sea Recibida, coherente con la condicion original `TotalCostoReal.HasValue` sin atar al estado). 200 OK.
+  - En las 4 paginas: 0 matches de patrones de excepcion (`InvalidOperationException`, `NullReferenceException`, "unhandled exception", "Stack Trace"); tira "Resumen" presente (2 matches: header de card + label); las 3 pestanas (`tab-detalle-btn`/`tab-estado-btn`/`tab-costos-btn`) presentes; 0 matches de `col-md-8`/`col-md-4` residual (confirma eliminacion completa del layout de 2 columnas).
+  - Solo se hicieron requests GET (login + navegacion), sin escrituras a la DB. Proceso de `dotnet run` detenido al finalizar (`Stop-Process`), cookies/HTML descargado de la sesion de prueba borrados de `/tmp`.
+- Riesgos: QA manual de clicks de pestanas/collapse/modal en navegador real (no automatizado por el estudio) queda pendiente — ver pruebas minimas abajo.
+
+### Pruebas minimas para QA — Compras/Detalle reorganizado
+1. Abrir una compra en Borrador con `PuedeEditarItems=true`: confirmar que la tabla de items sigue siendo editable inline (cantidad/costo/descuento/subtotal con auto-save), que el boton "Agregar items" abre el modal y que el listado/filtrado dentro del modal funciona igual que antes.
+2. Abrir una compra Recibida con `PuedeRevertirRecepcion=true`: click en pestana "Estado" → click en "Mas acciones (reversion)" para expandir el collapse → click en "Revertir recepcion" → confirmar que el modal se abre correctamente (era el punto de riesgo de la deviacion tecnica documentada arriba) y que el submit funciona.
+3. Abrir una compra con Costo Real cargado: confirmar que la tira de resumen muestra Costo Snapshot/Costo Real/Diferencia con el color correcto (rojo si el real es mayor al snapshot, verde si es menor).
+4. Recorrer las 3 pestanas (Detalle/Estado/Costos y pagos) en al menos 2 compras de distinto estado, confirmando que ningun dato que antes era visible desaparecio (solo cambio de ubicacion).
+5. Verificar en una compra Cancelada que las cards "Cargar costo real" y "Pagos al proveedor" no aparecen (condicion preexistente `Estado != Cancelada`, sin cambios).
 
 ### 2026-07-08 — Fix: excepcion 500 en Compras/Detalle por .Contains() sobre List<string> (provider MySql.EntityFrameworkCore)
 - Bug reportado: `Compras/Detalle` de una compra sin pagos tiraba `InvalidOperationException: Expression '@userIds' in the SQL tree does not have a type mapping assigned` al resolver los nombres de usuarios que registraron pagos (`ComprasController.Detalle`, query `_context.Users.Where(u => userIds.Contains(u.Id))` con `userIds` vacio).

@@ -15,7 +15,9 @@ Aplicar los cambios aprobados con trazabilidad por capa y sin romper comportamie
 - .github/instructions/21-application.instructions.md
 - .github/instructions/22-infrastructure.instructions.md
 - .github/instructions/23-web.instructions.md
+- .github/instructions/25-frontend-design-system.instructions.md
 - .github/instructions/26-checklists.instructions.md
+- .github/instructions/32-estandares-qa-implementador.instructions.md
 
 # Entrada
 - Analisis, diseno, arquitectura y presupuesto aprobados

@@ -11,5 +11,6 @@ Leer y aplicar:
 - `C:/Sistemas/Agentes-IA/.github/instructions/23-web.instructions.md`
 - `C:/Sistemas/Agentes-IA/.github/instructions/25-frontend-design-system.instructions.md`
 - `C:/Sistemas/Agentes-IA/.github/instructions/01-fronteras-por-capa.instructions.md`
+- `C:/Sistemas/Agentes-IA/.github/instructions/32-estandares-qa-implementador.instructions.md`
 
 Controllers solo coordinan request/response. Validaciones de presentación en ViewModels; reglas de negocio en Services.

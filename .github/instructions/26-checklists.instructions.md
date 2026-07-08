@@ -15,6 +15,7 @@ applyTo: "**/*.{cs,csproj,cshtml}"
 9. Crear Controller en Web/Controllers.
 10. Crear Views segun design system, con criterio de diseñador grafico senior (jerarquia visual, agrupacion logica de campos, ver `25-frontend-design-system.instructions.md`).
 10a. Si la entidad tiene listado: renderizar con DataTables server-side, y agregar un filtro por cada columna visible de la grilla (ver `25-frontend-design-system.instructions.md` — regla obligatoria, no opcional).
+10b. Si la entidad se edita y tiene alguna relacion configurable por combo (Select2 simple o multiple), la vista de Editar debe inicializar el combo con los valores ya asignados a la entidad, nunca vacio (ver `32-estandares-qa-implementador.instructions.md`).
 11. Agregar link en sidebar de Shared/_Layout.cshtml.
 12. Generar migracion EF.
 

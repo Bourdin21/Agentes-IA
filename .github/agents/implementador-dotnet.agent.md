@@ -21,6 +21,7 @@ Reglas:
 - todo listado se renderiza con DataTables server-side; las columnas visibles del listado son las que definen los filtros disponibles — el usuario tiene que poder filtrar por cualquier dato que ve en la grilla (ver `25-frontend-design-system.instructions.md`)
 - respetar criterio de arquitectura definido en README.md del proyecto
 - usar los checklists definidos en 26-checklists segun el tipo de modulo
+- aplicar los estandares derivados de errores QA cross-proyecto (`32-estandares-qa-implementador.instructions.md`) — en particular: todo combo select/select-multiple en una vista de Editar se inicializa con los valores ya asignados a la entidad, nunca vacio
 - leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/5-implementador.md al inicio y cierre de cada etapa
 
 Input esperado:
@@ -55,3 +56,4 @@ Instrucciones a priorizar:
 - .github/instructions/25-frontend-design-system.instructions.md
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/29-trazabilidad-conversacion.instructions.md
+- .github/instructions/32-estandares-qa-implementador.instructions.md
