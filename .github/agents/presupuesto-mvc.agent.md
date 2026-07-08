@@ -24,6 +24,7 @@ Reglas:
 - usar las capas solo como control interno de impacto, no como unidad principal de presupuesto al cliente
 - no sumar horas independientes por Presentacion, Negocio y Datos para inflar el total
 - no tratar una mejora sobre modulo existente como modulo nuevo salvo evidencia explicita
+- si el proyecto ya tuvo una o mas rondas previas de mejoras (no es la primera entrega), verificar si la ronda nueva reutiliza patrones de UI/AJAX/servicios ya construidos en rondas anteriores del MISMO proyecto (no solo de otros proyectos) — de ser asi, aplicar el descuento adicional de la regla "segunda/tercera ronda sobre el mismo modulo" (27-presupuesto-parametros.instructions.md), incluso si el item aparenta ser una pantalla nueva
 - si el discovery es incompleto, devolver rango y sugerir fase corta de relevamiento antes de comprometer numero final
 - si un numero queda por encima del rango historico de referencia, justificarlo con drivers concretos
 - leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/4-presupuestador.md al inicio y cierre de cada etapa
@@ -42,6 +43,7 @@ PASO 0 — Anclaje historico previo a cualquier estimacion (OBLIGATORIO):
 - Tomar la mediana de horas base de esa referencia como punto de partida obligatorio para M (caso mas probable).
 - Si no existe referencia comparable clara, declarar incertidumbre explicitamente y entregar rango en lugar de punto unico.
 - Registrar: referencia elegida, horas base de la referencia, motivo de la eleccion.
+- Verificar explicitamente si el proyecto ya tuvo rondas previas de mejoras cerradas (revisar el `4-presupuestador.md` del propio proyecto, no solo referencias cross-proyecto). Si el modulo a estimar reutiliza patrones de UI/AJAX/servicios ya construidos en esas rondas anteriores del MISMO proyecto, es una señal fuerte de sobreestimacion — confirmado con el cierre real de labipac SESION 3 (2026-07-08): banda M ya ajustada por reutilizacion generica igual cerro en ratio 6.84x (PERT/real) y 2.76x (formula/real), segundo lugar del dataset. Aplicar la regla "segunda/tercera ronda sobre el mismo modulo" de 27-presupuesto-parametros.instructions.md.
 
 PASO 1 — Identificar el modulo funcional visible para el cliente.
 
@@ -73,6 +75,7 @@ PASO 4 — Determinar M ajustado por drivers:
 - Cada ajuste al alza debe tener un driver concreto que lo justifique.
 - Cada ajuste a la baja debe justificarse con reutilizacion o simplificacion real confirmada.
 - M no puede alejarse mas del 30% de la mediana historica sin documentar causa puntual.
+- Si aplica la señal de "segunda/tercera ronda sobre el mismo modulo" detectada en el Paso 0, usar el PISO del rango de "Modificacion sobre modulo existente" (27-presupuesto-parametros.instructions.md) como M de partida, no la mediana — aunque el item se vea como pantalla nueva, si reutiliza AJAX/servicios/patrones visuales ya existentes en el mismo repo no es un modulo nuevo a efectos de esfuerzo.
 
 PASO 5 — Asignar O y P con restriccion de spread:
 - O (optimista): mejor caso realista. No puede ser menor a M × 0.65 sin justificacion documentada.

@@ -13,7 +13,8 @@ applyTo: "**/*.{cs,csproj,cshtml}"
 7. Registrar servicio en DependencyInjection.cs (Scoped).
 8. Crear ViewModels en Web/Models con DataAnnotations en espanol.
 9. Crear Controller en Web/Controllers.
-10. Crear Views segun design system.
+10. Crear Views segun design system, con criterio de diseñador grafico senior (jerarquia visual, agrupacion logica de campos, ver `25-frontend-design-system.instructions.md`).
+10a. Si la entidad tiene listado: renderizar con DataTables server-side, y agregar un filtro por cada columna visible de la grilla (ver `25-frontend-design-system.instructions.md` — regla obligatoria, no opcional).
 11. Agregar link en sidebar de Shared/_Layout.cshtml.
 12. Generar migracion EF.
 
@@ -35,7 +36,7 @@ applyTo: "**/*.{cs,csproj,cshtml}"
 # Checklist reporte o exportacion
 1. DTO/proyeccion en Application sin exponer entidades.
 2. Service en Infrastructure con consulta optimizada (no N+1).
-3. Filtros y paginacion en ViewModel.
+3. Filtros y paginacion en ViewModel (un filtro por cada columna visible del listado, ver `25-frontend-design-system.instructions.md`).
 4. Export Excel via ClosedXML o PDF via QuestPDF segun corresponda.
 5. Permiso explicito para acceder al reporte.
 6. Pruebas funcionales con datos representativos.

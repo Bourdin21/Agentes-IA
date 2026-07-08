@@ -1,7 +1,55 @@
 ﻿# Memoria - Analista funcional
 
 ## Proyecto: labipac
-## Ultima actualizacion: 2026-06-13 (sesion 3 — P5-B confirmado — analisis CERRADO sin pendientes)
+## Ultima actualizacion: 2026-07-08 (sesion 4 — 3 mejoras funcionales: carga masiva, Unidad/precio por Unidad, fix PDF — analisis CERRADO)
+
+## NOTA — divergencia documental detectada (2026-07-08)
+El repo `C:\Sistemas\labipac\docs\labipac\` contiene una copia local de las definiciones (incluye `analisis-funcional-F001-F002.md`, no replicado aqui) generada por una sesion previa que no escribio en la ruta canonica `C:/Sistemas/Agentes-IA/docs/labipac/`. Esa copia documenta F-001 (Aumento masivo de precios, `Precios/AumentoMasivo`) y F-002 (IVA en resumen mensual) — **ambas ya implementadas y en produccion** segun `docs/labipac/definiciones/5-implementador.md` (copia local, sesion 2026-06-25). Se toma esa informacion como valida (verificada contra el codigo real) y se referencia aqui, pero se recomienda migrar esa copia local a la ruta canonica en una proxima sesion para evitar que la memoria del estudio quede desactualizada.
+
+## Sesion 4 (2026-07-08) — 3 mejoras funcionales sobre labipac
+
+### Terminologia vigente en UI (IMPORTANTE — invertida respecto al nombre de entidad)
+- Entidad `Practica` (Domain) = compuesta por N `UnidadBioquimica` via `PracticaDetalle` (M:N) → se muestra en toda la UI como **"Perfil"**.
+- Entidad `UnidadBioquimica` (Domain) = estudio individual → se muestra en toda la UI como **"Práctica"**.
+- Toda referencia a "Perfil" en esta sesion = entidad `Practica`. Toda referencia a "Práctica" (en el sentido nuevo del cliente) = entidad `UnidadBioquimica`.
+
+### Pedido 1 — Carga masiva + creacion inline de Perfiles/Practicas desde Produccion Mensual
+- Hoy `ProduccionMensual/Detalle` tiene boton "Agregar ítem" que abre un modal con una sola linea por vez, solo seleccion de existentes (sin crear nuevos).
+- **P6 (pantalla vs partial):** CONFIRMADO — pantalla nueva dedicada (no partial). Justificacion: centraliza carga masiva + creacion inline sin sobrecargar el modal existente ni la pantalla de Detalle.
+- **P7 (patron de carga masiva):** CONFIRMADO — filas repetibles en un mismo formulario (boton "agregar fila", cada fila con tipo + selector + cantidad + precio), guardado con un unico submit. Se descarta importacion Excel/CSV por mayor esfuerzo sin necesidad confirmada.
+- Creacion inline de nuevos Perfiles/Practicas: el usuario podra dar de alta un Perfil o Practica nuevo sin salir de la pantalla nueva de carga. Pendiente definir en Diseno si la creacion inline de un Perfil exige composicion completa (RN-02: minimo 1 componente) o admite alta rapida con composicion diferida al catalogo — queda para etapa de Diseno.
+
+### Pedido 2 — Propiedad "Unidad" en Perfiles + Precio por Unidad configurable
+- Nueva propiedad numerica `Unidad` en la entidad `Practica` (UI "Perfil"): cantidad de unidades que pondera el valor del perfil.
+- Nueva configuracion global `PrecioPorUnidad` (valor de referencia actual: $892.03).
+- Formula: `Practica.PrecioActual = Unidad * PrecioPorUnidad` (calculado, ya no editable a mano).
+- `ProduccionMensual estimada` = para lineas tipo Perfil, `PrecioSnapshot (= PrecioActual al momento de carga) * Cantidad` — sin cambios en el mecanismo de snapshot ya vigente (P3-A), solo cambia como se origina el PrecioActual del Perfil.
+- **P8 (relacion Unidad-Precio):** CONFIRMADO — precio calculado automaticamente. Se elimina la edicion manual de `Practica.PrecioActual`.
+- **P9 (ubicacion de configuracion):** CONFIRMADO — el valor `PrecioPorUnidad` y la accion de aumento por % viven dentro del listado de Perfiles (Practicas Index), no en pantalla de Configuracion separada.
+- **P10 (conflicto con F-001 — CONFIRMADO):** F-001 (Aumento masivo de precios, ya implementado) permite hoy editar manualmente el precio de un Perfil y cascada UB→Perfil ponderada por `PracticaDetalle.Cantidad`. Con el nuevo modelo, ambos mecanismos quedan obsoletos para Perfiles. Decision: **se reemplaza para Perfiles** — el precio de Perfil pasa a ser 100% derivado de `Unidad * PrecioPorUnidad`; se retira la edicion manual de precio de Perfil y el cascade UB→Perfil deja de aplicarse a Perfiles. F-001 sigue vigente sin cambios para Practicas (UnidadBioquimica) sueltas. La composicion M:N (`PracticaDetalle`) se conserva solo como dato informativo/de laboratorio (que UBs integra un Perfil), ya no determina ni valida el precio (RN-01 "precio < sumatoria componentes" queda derogada para Perfiles).
+- Accion de aumento simple: se aplica un % sobre `PrecioPorUnidad` (unico valor global), lo que recalcula automaticamente el precio de todos los Perfiles activos (via la formula). No hay cascade manual a implementar: al ser derivado, el aumento es automatico en cada lectura o requiere un recalculo batch de `PrecioActual` — a definir en Diseno/Arquitectura si `PrecioActual` se persiste desnormalizado (para performance/orden en listados) o se calcula al vuelo.
+
+### Pedido 3 — Fix exportacion PDF Produccion Mensual
+- Causa raiz identificada: `ProduccionMensualController.cs` (metodo `ReportePdf`), columna "Precio unit." definida con `c.ConstantColumn(55)` — insuficiente para montos con miles/decimales, provoca corte de digitos.
+- Fix: ampliar el ancho constante (ej. a 70-75) y ajustar el resto de columnas fijas si es necesario para no desbalancear el layout A4 portrait. QuestPDF no tiene "shrink to fit" nativo por celda como Excel; la solucion practica es ancho fijo mayor + `AlignRight()` (ya presente).
+- Sin impacto en otras capas. Sin migracion. Riesgo minimo — se resuelve directo en Implementacion sin pasar por Diseno/Arquitectura extendidos (WBS de 0.5h aprox., ver Presupuesto).
+
+### Impacto en alcance funcional vigente
+- Se deroga RN-01 (precio Practica/Perfil < sumatoria componentes) para la entidad `Practica` (Perfil). Sigue vigente el concepto de composicion pero sin validacion de precio.
+- Se deroga la edicion manual de `Practica.PrecioActual` y su inclusion como target editable en F-001 (`Precios/AumentoMasivo`) — pasa a ser solo lectura/informativo para Perfiles en esa pantalla, o se remueve el tab de Perfiles de F-001 (a definir en Diseno).
+- Nuevo caso de uso: CU-07 Carga masiva de produccion mensual (pantalla nueva). CU-08 Configurar Precio por Unidad y aplicar aumento %.
+
+### Preguntas resueltas en sesion 4
+| Ref | Pregunta | Respuesta confirmada |
+|---|---|---|
+| P6 | Carga masiva: partial o pantalla nueva? | Pantalla nueva dedicada |
+| P7 | Patron de carga masiva | Filas repetibles en un formulario, un solo submit |
+| P8 | Relacion Unidad-Precio en Perfil | Precio calculado automaticamente (Unidad x PrecioPorUnidad) |
+| P9 | Ubicacion configuracion PrecioPorUnidad + aumento % | Dentro del listado de Perfiles |
+| P10 | Que pasa con F-001 (cascade + edicion manual) para Perfiles | Se reemplaza: precio de Perfil 100% derivado, cascade UB→Perfil ya no aplica a Perfiles |
+
+### Estado
+ANALISIS FUNCIONAL DE SESION 4 CERRADO. Sin preguntas pendientes. Listo para pasar a Diseno funcional de los 3 items.
 
 ## Terminologia de dominio confirmada
 

@@ -1,227 +1,246 @@
 # Memoria - Analista funcional
 
 ## Proyecto: decorhogar *(nombre provisional — confirmar con cliente)*
-## Ultima actualizacion: 2026-06-29
+## Ultima actualizacion: 2026-07-06
 
 ---
 
-## Análisis funcional cerrado — 2026-06-29
+## Análisis funcional v2 — CERRADO 2026-07-06
 
 ### Contexto del negocio
 - Rubro: venta de productos de decoración y hogar
-- Canal de captación: anuncios en Meta (Facebook / Instagram)
+- Sistema actual: Contagram (gestión de ventas y compras) — a reemplazar completamente
+- Canal de captación: anuncios de producto específico en Meta (Facebook / Instagram)
 - Canal de contacto del lead: WhatsApp (clic en anuncio → mensaje al número del negocio)
-- Cierre de venta: presencial en el local O con entrega y cobro a domicilio
-- Proceso actual: manual, sin CRM, sin stock sistematizado, facturación en local
-- Objetivo: maximizar y agilizar ventas — reducir fricción entre lead y cierre
+- Cierre de venta: presencial en el local O entrega y cobro a domicilio
+- Formas de cobro: efectivo, transferencia, MercadoPago
+- Objetivo: sistema de gestión comercial completo que reemplaza Contagram + automatiza captación de leads
+
+### Escala del sistema post-relevamiento
+El relevamiento v1 describía un sistema de captación y ventas (10 módulos).
+El relevamiento v2 describe un sistema de gestión comercial completo (18 módulos), comparable a Delicias Naturales en alcance.
 
 ---
 
-### Proceso objetivo relevado
-1. Meta Ads → lead hace clic → envía WhatsApp
-2. **Bot automático** responde, captura nombre e interés → registra Lead en CRM
-3. Vendedor retoma desde CRM, hace seguimiento, envía presupuesto en PDF por WhatsApp
-4. Cliente aprueba presupuesto → vendedor convierte a Venta
-5. Venta en local → pago registrado (múltiples medios) → descuento de stock → **factura electrónica AFIP (CAE)**
-6. Venta con entrega → vendedor programa entrega, va al domicilio → cobra en destino → registra pago desde sistema → factura AFIP
+## Módulos confirmados — 18 módulos
 
----
-
-### Módulos confirmados
-
+### Grupo 1 — Captación y ventas
 | # | Módulo | Descripción | Complejidad |
 |---|---|---|---|
-| M1 | CRM de Leads | Registrar leads con máquina de estados, historial de contacto | Media |
-| M2 | Catálogo de productos | Productos con fotos, precio, categorías | Baja |
-| M3 | Control de stock | Movimientos entrada/salida, alertas de stock bajo | Media |
-| M4 | Presupuestador | Armar cotización, generar PDF, enviar por WhatsApp | Media |
-| M5 | Gestión de ventas | Líneas de producto, formas de pago múltiples, estados | Alta |
-| M6 | Gestión de entregas | Dirección, fecha, estado, cobro en destino | Media |
-| M7 | Facturación AFIP | Integración WSFE + WSAA, emisión de CAE, PDF de comprobante | **Muy alta** |
-| M8 | Automatización WhatsApp | Webhook Meta, bot auto-respuesta, envío de mensajes/PDFs | **Muy alta** |
-| M9 | Dashboard / reportes | Conversión de leads, ventas por período, stock crítico | Media |
-| M10 | Gestión de usuarios | Roles: Administrador / Vendedor | Baja |
+| M1 | CRM de Leads | Leads desde WhatsApp, máquina de estados, historial | Media |
+| M4 | Presupuestador | Cotización multi-línea, PDF, envío WhatsApp | Media |
+| M5 | Gestión de ventas | Multi-pago, estados, impacto automático en CC del local | Alta |
+| M6 | Entregas a domicilio | Dirección, fecha, cobro en destino, mobile-friendly | Media |
+| M8 | Bot WhatsApp | Inbound webhook, reconocimiento de anuncio (referral Meta), preguntas de calificación por producto | **Muy alta** |
+
+### Grupo 2 — Catálogo y stock
+| # | Módulo | Descripción | Complejidad |
+|---|---|---|---|
+| M2 | Catálogo de productos | Precio compra, precio venta, tipo, marca, modelo, categoría, fotos, stock mínimo | Media |
+| M3 | Control de stock | Movimientos: compras (M12), ventas (M5), ajuste manual. Alerta stock mínimo | Media |
+| M16 | Aumento masivo de precios | Por marca / categoría / modelo · sobre precio compra o venta · previsualización previa obligatoria | Media |
+
+### Grupo 3 — Compras y proveedores
+| # | Módulo | Descripción | Complejidad |
+|---|---|---|---|
+| M12 | Compras a proveedores | Órdenes de compra (estados), líneas de producto, recepción completa → actualiza stock | Alta |
+| M13 | Cuenta corriente proveedores | Saldo por proveedor, historial de pagos, deuda pendiente | Media |
+| M14 | Gestión de cheques | Cheques 30/60/90 días, acreditación automática (job diario), alertas dashboard | **Alta** |
+
+### Grupo 4 — Financiero del local
+| # | Módulo | Descripción | Complejidad |
+|---|---|---|---|
+| M11 | Cuenta corriente del local | Balance: ingresos (ventas) − egresos (compras + gastos). Sin clientes deudores. | Media |
+| M15 | Caja mensual | Ingresos vs egresos del período con filtro y comparativo mes anterior | Media |
+| M18 | Gastos varios | Alquiler, servicios, sueldos, fletes, otros. Con categoría e impacto en CC y caja. | Baja-Media |
+| M17 | Proyección financiera | Promedio histórico (últimos 3 meses) + compromisos futuros (cheques + OCs pendientes). Alerta de déficit. | Alta |
+
+### Grupo 5 — Facturación
+| # | Módulo | Descripción | Complejidad |
+|---|---|---|---|
+| M7 | Facturación ARCA | Selección de ítems individuales y cantidades de la venta. Factura A/B. CAE + PDF. | **Muy alta** |
+
+### Grupo 6 — Infraestructura y visibilidad
+| # | Módulo | Descripción | Complejidad |
+|---|---|---|---|
+| M10 | Usuarios y roles | Administrador / Vendedor | Baja |
+| M9 | Dashboard | KPIs financieros básicos + cheques por vencer + stock crítico + conversión leads | Media |
 
 ---
 
-### Casos de uso principales
+## Procesos principales confirmados
 
-**CU-01: Lead entra por WhatsApp**
-- Actor: lead (externo)
-- Flujo: Meta Ad → WhatsApp → Bot responde automáticamente → captura nombre e interés → crea Lead en estado "Nuevo" → notifica al vendedor
+### Proceso de venta
+1. Meta Ad (producto específico) → cliente escribe WhatsApp → bot detecta anuncio (referral) → captura nombre + preguntas de calificación → registra Lead
+2. Vendedor retoma desde CRM → arma Presupuesto → genera PDF → envía al cliente
+3. Cliente aprueba → convierte a Venta → descuenta stock → genera movimiento en CC del local
+4. Pago registrado (efectivo/transferencia/MP) → emite factura ARCA con los ítems seleccionados
 
-**CU-02: Seguimiento de lead**
-- Actor: Vendedor
-- Flujo: Vendedor abre CRM → ve leads pendientes → contacta → avanza estado → registra nota
+### Proceso de compra a proveedores
+1. Admin crea Orden de Compra → selecciona proveedor + productos + cantidades
+2. OC pasa a Confirmada → al recibir mercadería → Recibida → stock se actualiza
+3. Admin registra pago: efectivo / transferencia / cheque 30-60-90 / depósito
+4. Cheque queda en estado Pendiente → job diario al vencer → pasa a Acreditado → notificación in-app
+5. Pago impacta CC del proveedor y CC del local
 
-**CU-03: Generar y enviar presupuesto**
-- Actor: Vendedor
-- Flujo: Abre lead → selecciona productos y cantidades → sistema calcula totales → genera PDF (QuestPDF) → envía por WhatsApp al número del lead
-
-**CU-04: Convertir presupuesto a venta**
-- Actor: Vendedor
-- Flujo: Lead aprueba → Vendedor convierte Presupuesto en Venta → stock reservado → estado Lead pasa a "Vendido"
-
-**CU-05: Registrar venta en local**
-- Actor: Vendedor
-- Flujo: Selecciona productos → registra pago (uno o varios medios) → sistema descuenta stock → emite factura AFIP (CAE) → genera PDF de factura
-
-**CU-06: Gestionar entrega a domicilio**
-- Actor: Vendedor / Administrador
-- Flujo: Venta con entrega → programa fecha + dirección → Vendedor va al domicilio → cobra → registra pago desde sistema → emite factura AFIP → estado Entrega = "Entregada"
-
-**CU-07: Administrar catálogo y stock**
-- Actor: Administrador
-- Flujo: Alta/edición de producto → foto, precio, stock inicial → sistema controla movimientos
-
-**CU-08: Ver dashboard**
-- Actor: Administrador
-- Flujo: Ver métricas de leads por período, tasa de conversión, ventas totales, productos con stock crítico
+### Proceso de caja y proyección
+1. Ventas → movimientos de ingreso en CC y caja mensual
+2. Pagos a proveedores + gastos varios → movimientos de egreso
+3. Proyección: promedio últimos 3 meses + cheques por vencer + OCs pendientes = ingresos/gastos estimados próximo mes
+4. Si gastos comprometidos > ingresos proyectados → alerta de déficit en dashboard
 
 ---
 
-### Máquinas de estados confirmadas
+## Máquinas de estados confirmadas (6)
 
-**Lead:**
-Nuevo → Contactado → Presupuesto enviado → [Vendido | Perdido]
-También: Contactado → Visita programada → [Vendido | Perdido]
-También: Contactado → Entrega programada → [Vendido | Perdido]
+**Lead:** Nuevo → Contactado → Presupuesto enviado → Vendido / Perdido
+*(también: Contactado → Visita programada / Entrega programada)*
 
-**Presupuesto:**
-Borrador → Enviado → [Aprobado → Convertido | Rechazado | Expirado]
+**Presupuesto:** Borrador → Enviado → [Aprobado → Convertido | Rechazado | Expirado]
 
-**Venta:**
-Pendiente → Pagada parcialmente → Pagada → [Con entrega pendiente → Entregada | Completada]
-También: Pagada → Cancelada (con reposición de stock)
+**Venta:** Pendiente → Pagada parcialmente → Pagada → [Con entrega pendiente → Entregada] / Cancelada
 
-**Entrega:**
-Pendiente → En camino → [Entregada | No entregada (reagendar)]
+**Entrega:** Pendiente → En camino → Entregada / No entregada (reagendar)
+
+**Orden de compra:** Borrador → Confirmada → Recibida / Cancelada
+
+**Cheque:** Pendiente → Acreditado *(automático, job diario)* / Rechazado *(manual)*
 
 ---
 
-### Criterios de aceptación (por módulo)
+## Criterios de aceptación — módulos nuevos
 
-**M1 - CRM Leads**
-- CA-01: Un lead nuevo creado por el bot aparece en la lista de leads del vendedor en menos de 30 segundos
-- CA-02: El vendedor puede avanzar el estado del lead y la transición queda registrada con fecha y responsable
-- CA-03: Se puede filtrar leads por estado, fecha y vendedor asignado
+**M11 — CC Local**
+- CA-N1: Cada venta genera automáticamente un movimiento de ingreso en la CC
+- CA-N2: Cada pago a proveedor y gasto genera un movimiento de egreso en la CC
+- CA-N3: El saldo actual de la CC es visible en todo momento con detalle de movimientos
 
-**M2 - Catálogo**
-- CA-04: Se puede cargar producto con hasta 5 fotos, precio, categoría y descripción
-- CA-05: El catálogo es compartible (link o PDF) para enviar al cliente por WhatsApp
+**M12 — Compras a proveedores**
+- CA-N4: OC con múltiples líneas de producto, cantidad y precio de compra
+- CA-N5: Al marcar OC como "Recibida", el stock de cada producto se incrementa automáticamente
+- CA-N6: Los pagos de la OC soportan efectivo, transferencia, cheque y depósito
+- CA-N7: El saldo pendiente de pago de la OC actualiza la CC del proveedor
 
-**M3 - Stock**
-- CA-06: Cada venta o entrega descuenta automáticamente el stock
-- CA-07: El sistema muestra alerta visual cuando un producto cae por debajo del stock mínimo configurado
-- CA-08: El Administrador puede registrar entradas de stock (compras/reposición)
+**M13 — CC Proveedores**
+- CA-N8: Saldo adeudado por proveedor con historial de movimientos y pagos
+- CA-N9: Los pagos registrados en OCs actualizan automáticamente el saldo del proveedor
 
-**M4 - Presupuestador**
-- CA-09: El presupuesto incluye listado de productos, cantidades, precios y total
-- CA-10: Se genera PDF del presupuesto con datos del negocio (logo, CUIT, datos de contacto)
-- CA-11: El presupuesto se puede enviar directamente al número de WhatsApp del lead desde el sistema
+**M14 — Cheques**
+- CA-N10: Cheque con monto, fecha de vencimiento y cuota (30/60/90 días)
+- CA-N11: Cheques con vencimiento en los próximos 30 días aparecen en el dashboard como alerta
+- CA-N12: Al pasar la fecha de vencimiento, el cheque pasa automáticamente a "Acreditado" con notificación in-app
+- CA-N13: El Administrador puede registrar manualmente un cheque como "Rechazado"
 
-**M5 - Ventas**
-- CA-12: Se pueden registrar múltiples formas de pago en una sola venta (efectivo + transferencia, etc.)
-- CA-13: El total de la venta debe cuadrar con la suma de los pagos registrados para cerrar la transacción
-- CA-14: Una venta convertida desde presupuesto hereda todos los ítems del presupuesto
+**M15 — Caja mensual**
+- CA-N14: Ingresos y egresos del período con filtro de fechas y totales
+- CA-N15: Comparativo con el mes anterior visible en la misma vista
 
-**M6 - Entregas**
-- CA-15: La entrega registra dirección, fecha estimada y vendedor asignado
-- CA-16: El vendedor puede registrar el cobro desde el sistema al momento de la entrega (mobile-friendly)
-- CA-17: La factura AFIP se puede emitir en el momento del cobro en domicilio
+**M16 — Aumento masivo de precios**
+- CA-N16: Selección de criterio: por marca, por categoría o por modelo
+- CA-N17: Selección de precio objetivo: precio de compra, precio de venta, o ambos
+- CA-N18: Previsualización obligatoria antes de confirmar — muestra precio actual y nuevo precio para cada producto afectado
+- CA-N19: El aumento se aplica solo al confirmar explícitamente después de la previsualización
 
-**M7 - AFIP**
-- CA-18: El sistema se autentica contra WSAA y renueva el token automáticamente (24h de validez)
-- CA-19: Se puede emitir Factura B (consumidor final) y Factura A (responsable inscripto)
-- CA-20: El CAE y fecha de vencimiento quedan registrados en la Venta
-- CA-21: Se genera PDF del comprobante emitido (con QR AFIP si aplica)
+**M17 — Proyección financiera**
+- CA-N20: Promedio de ingresos y gastos de los últimos 3 meses calculado automáticamente
+- CA-N21: Compromisos futuros mostrados: cheques por vencer + OCs pendientes de pago en el período
+- CA-N22: Alerta visible si gastos comprometidos > ingresos proyectados
+- CA-N23: El Administrador puede cambiar el período base de la proyección (1, 3 o 6 meses)
 
-**M8 - WhatsApp Bot**
-- CA-22: El bot responde el primer mensaje del lead en menos de 60 segundos
-- CA-23: El bot captura al menos nombre e interés (producto consultado)
-- CA-24: El sistema puede enviar PDFs (presupuesto, factura) al número del lead directamente
-
-**M9 - Dashboard**
-- CA-25: Se puede ver cantidad de leads por período con filtro de fechas
-- CA-26: Se muestra tasa de conversión Lead → Venta
-- CA-27: Se muestran los 5 productos más vendidos y los productos con stock crítico
-
-**M10 - Usuarios**
-- CA-28: El Vendedor puede: crear/editar leads, crear presupuestos, registrar ventas y entregas
-- CA-29: El Vendedor NO puede: modificar precios, ver reportes financieros completos, administrar usuarios
-- CA-30: El Administrador tiene acceso total
+**M18 — Gastos varios**
+- CA-N24: Gasto con monto, categoría (alquiler / servicios / sueldos / flete / otro), descripción, forma de pago y fecha
+- CA-N25: Cada gasto genera movimiento de egreso en CC del local y en la caja del período
 
 ---
 
-### Permisos por rol
+## Permisos por rol — actualizados
 
 | Acción | Administrador | Vendedor |
 |---|---|---|
 | Gestionar catálogo y precios | ✓ | ✗ |
-| Gestionar stock (entradas) | ✓ | ✗ |
+| Aumento masivo de precios | ✓ | ✗ |
+| Gestionar stock manual | ✓ | ✗ |
 | Ver/gestionar leads | ✓ | ✓ |
 | Crear presupuestos | ✓ | ✓ |
 | Registrar ventas | ✓ | ✓ |
 | Registrar entregas y cobros | ✓ | ✓ |
-| Emitir facturas AFIP | ✓ | ✓ |
-| Ver dashboard completo | ✓ | ✗ |
+| Emitir facturas ARCA | ✓ | ✓ |
+| Gestionar compras a proveedores | ✓ | ✗ |
+| Ver CC proveedores | ✓ | ✗ |
+| Gestionar cheques | ✓ | ✗ |
+| Registrar gastos varios | ✓ | ✗ |
+| Ver CC local y caja mensual | ✓ | ✗ |
+| Ver proyección financiera | ✓ | ✗ |
+| Ver dashboard completo | ✓ | Parcial (sin financiero) |
 | Gestionar usuarios | ✓ | ✗ |
 | Configurar bot WhatsApp | ✓ | ✗ |
 
 ---
 
-### Supuestos confirmados
+## Supuestos confirmados
 
-- Sistema web responsivo (no app nativa, pero debe funcionar desde celular para el vendedor en domicilio)
+- Sistema web responsivo — mobile-friendly obligatorio para vistas de entrega y cobro
 - Un único punto de venta AFIP (local)
-- La empresa es Responsable Inscripto (emite Factura A y B)
-- Las fotos de productos las provee el cliente
-- El bot de WhatsApp es el primer contacto; el vendedor retoma desde ahí
-- Pago puede suceder en el local O al momento de la entrega en domicilio
+- Responsable Inscripto — emite Factura A y B
+- Ventas solo al contado — no hay clientes con deuda / fiado (P5-A)
+- CC del local = balance interno, sin deudores de clientes (P1-A)
+- Gastos operativos (alquiler, servicios, sueldos, fletes) se registran en el sistema (P2-B)
+- Recepciones de OC siempre completas — sin entregas parciales de proveedores (P3-A)
+- Proyección calculada con promedio histórico + compromisos futuros (P4-B)
+- Un solo local / una sola caja
 
-### Exclusiones confirmadas (fuera de v1)
-- App móvil nativa (iOS/Android)
-- E-commerce / tienda online con carrito
-- Integración con sistemas contables externos (Tango, Contaplus)
+## Exclusiones confirmadas
+- App móvil nativa
+- E-commerce / carrito de compras
+- Integración con sistemas contables externos
 - Multi-sede / multi-punto de venta
-- Envíos con transportistas externos (OCA, Andreani)
+- Transportistas externos (OCA, Andreani)
+- Clientes con cuenta corriente / fiado (P5-A)
+- Recepciones parciales de OC (P3-A)
 
 ---
 
-### Banderas tempranas
+## Banderas tempranas — v2
 
-| Bandera | Estado | Impacto |
-|---|---|---|
-| Migración EF | Sí — proyecto nuevo | Bajo |
-| Integración AFIP WSFE + WSAA | **Confirmada** | Muy alto |
-| Integración WhatsApp Business Cloud API | **Confirmada** | Muy alto |
-| Máquina de estados (Leads, Presupuestos, Ventas, Entregas) | **Confirmada** | Alto |
-| Responsive / mobile-friendly obligatorio | **Confirmado** | Medio |
-| QuestPDF para presupuestos y facturas | Confirmada | Bajo |
+| Bandera | Estado |
+|---|---|
+| Migración EF | Sí — proyecto nuevo, ~22 entidades estimadas |
+| Integración ARCA WSAA + WSFE | Confirmada — con selección de ítems parciales |
+| Integración WhatsApp Cloud API | Confirmada — referral Meta + preguntas por producto |
+| IHostedService — acreditación automática cheques | **Nueva — job diario crítico** |
+| 6 máquinas de estado | Confirmadas |
+| Módulos financieros con lógica sensible | CC local, caja, cheques, proyección |
+| QuestPDF — presupuestos y facturas | Confirmada |
 
 ---
 
-### Riesgos y supuestos — ACTUALIZADOS 2026-06-29
+## Riesgos y supuestos
 
-| Riesgo | Nivel actualizado | Detalle |
+| Riesgo | Nivel | Detalle |
 |---|---|---|
-| Hosting incompatible con WhatsApp webhook o AFIP | ~~Alto~~ → **ELIMINADO** | SMARTEASP (olvidatasoft) ya corre BotPublicitario (webhook Meta) y delicias-naturales (AFIP WSFE). Infraestructura confirmada compatible. |
-| Aprobación Meta Business / número WhatsApp | ~~Medio~~ → **ELIMINADO** | Cliente ya tiene Meta Business Manager activo (confirmado 2026-06-29). Solo requiere asociar número WhatsApp Business dedicado al Business Manager existente. |
-| Certificado digital AFIP | Medio | Requiere CUIT del cliente, gestión en portal AFIP, y subida del .p12 al servidor. Patrón conocido (delicias-naturales). Solicitar al cliente desde el inicio. |
-| Sistema mobile-friendly para cobros en domicilio | Medio | Definir vistas críticas para mobile en etapa de diseño. |
-| Bot v1 con mensajes no estructurados | Medio | En v1 flujo guiado (preguntas cerradas); fallback "un representante te contactará pronto". |
+| Job acreditación cheques: idempotencia | Alto | Debe acreditar exactamente una vez por cheque. Patrón idéntico al job diario de ganadería. |
+| Proyección financiera: precisión percibida | Medio | El cliente puede esperar más precisión de la que un promedio simple puede dar. Fijar expectativas en el documento al cliente. |
+| Hosting SMARTEASP: job diario compatible | Bajo | Ganadería ya usa el mismo patrón. Compatible confirmado. |
+| Certificado ARCA (.p12) del cliente | Medio | Solicitar al cliente antes de iniciar módulo M7. |
+| Número WhatsApp dedicado | Medio | Solicitar antes de iniciar M8. |
+| Alcance de M9 dashboard puede crecer | Medio | Definir KPIs fijos antes del diseño — no dejar abierto. |
 
-### Componentes reutilizables identificados
+---
 
-| Componente | Fuente | Reutilización |
+## Componentes reutilizables identificados
+
+| Componente | Fuente | Reutilización en decorhogar |
 |---|---|---|
-| `WhatsAppClient.cs` (HTTP client Meta Graph API) | `C:\Sistemas\BotPublicitario\WhatsApp\` | Portar a .NET 10 MVC, adaptar para inbound + outbound |
-| `MessagingService.cs` (envío de templates, mensajes, PDFs) | `C:\Sistemas\BotPublicitario\WhatsApp\` | Adaptar y embeber en el nuevo sistema |
-| Patrón AFIP WSAA + WSFE (.p12, token 24h, FECAESolicitar) | `C:\Sistemas\delicias-naturales\` | Reimplementar en .NET 10 (delicias usa .NET 4.7.2 — SOAP client distinto, pero patrón idéntico) |
-| Infraestructura de hosting SMARTEASP | olvidatasoft-002 | Mismo servidor, sin cambios de infraestructura |
+| `WhatsAppClient.cs` + `MessagingService.cs` | BotPublicitario | M8 — portar a .NET 10 MVC |
+| Patrón AFIP WSAA + WSFE (.p12, token 24h) | delicias-naturales | M7 — reimplementar en .NET 10 |
+| Job diario idempotente + IHostedService | ganadería | M14 — acreditación automática de cheques |
+| Patrón cheques 30/60/90 (cuotas con vencimiento) | ganadería | M14 — referencia directa de implementación |
+| Aumento masivo de precios con previsualización | ShowroomGriffin | M16 — reutilizar patrón |
+| Stock manual con ajuste | ShowroomGriffin | M3 — reutilizar patrón |
 
 ---
 
 ## Historial de ajustes
-- 2026-06-29: Discovery inicial. Proceso actual relevado. Preguntas enviadas al cliente.
-- 2026-06-29: Análisis cerrado. Cliente confirmó todas las opciones de mayor alcance (P1-P7 opción B). 10 módulos confirmados. 4 máquinas de estados. 30 criterios de aceptación. Banderas: integración AFIP + WhatsApp (muy alto impacto).
+- 2026-06-29: Discovery v1. 10 módulos. Sistema de captación y ventas.
+- 2026-06-29: Análisis v1 cerrado. Presupuesto: $1,171 (con descuento 15% referido).
+- 2026-07-06: Discovery v2. Relevamiento del sistema actual (Contagram). Alcance ampliado a 18 módulos — sistema de gestión comercial completo. Presupuesto v1 invalidado. P1-A/P2-B/P3-A/P4-B/P5-A confirmados. Análisis v2 cerrado. Pendiente: nuevo presupuesto.

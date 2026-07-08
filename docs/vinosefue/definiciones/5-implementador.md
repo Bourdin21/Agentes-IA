@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: vinosefue
-## Ultima actualizacion: 2026-05-22
+## Ultima actualizacion: 2026-07-08
 
 > Documento de referencia rapida. La memoria detallada por feature con cambios por capa, migraciones y checklists vive en:
 > `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\5-implementador.md`
@@ -9,6 +9,30 @@
 ---
 
 ## Features completadas (cronologia inversa)
+
+### 2026-07-08 — Fix: excepcion 500 en Compras/Detalle por .Contains() sobre List<string> (provider MySql.EntityFrameworkCore)
+- Bug reportado: `Compras/Detalle` de una compra sin pagos tiraba `InvalidOperationException: Expression '@userIds' in the SQL tree does not have a type mapping assigned` al resolver los nombres de usuarios que registraron pagos (`ComprasController.Detalle`, query `_context.Users.Where(u => userIds.Contains(u.Id))` con `userIds` vacio).
+- **Diagnostico ampliado en runtime** (no se detuvo en el diagnostico original): el mismo error tambien ocurre con `userIds` NO vacio — se reprodujo con una compra real con 2 pagos. El problema no es especifico de listas vacias: el provider `MySql.EntityFrameworkCore` 10.0.1 (EF Core 10.0.2, no es Pomelo) no puede asignar type mapping a un parametro `List<string>` traducido a SQL via `.Contains()`, para cualquier tamaño.
+- Fix: se evita que el `.Contains()` sobre `List<string>` llegue a traducirse a SQL. Se trae la proyeccion completa de `Users` (tabla chica, 5 filas en dev — app interna de staff) con `.Select(...).ToListAsync()` y se filtra/arma el diccionario en memoria con LINQ-to-Objects. Se mantiene el guard de `userIds.Count == 0` como fast-path (evita el round-trip a DB cuando no hay pagos).
+- Unico archivo tocado: `VinoSeFue.Web/Controllers/ComprasController.cs` (metodo `Detalle`). Sin migracion EF.
+- Build OK, 0 errores (0 warnings nuevos). Verificado en runtime contra `VinoSeFue_dev`: compra sin pagos (id 8) → 200 OK ("Sin pagos registrados"); compra con 2 pagos (id 4) → 200 OK (antes tiraba 500 tambien, con el fix original de solo-guard-vacio). Cruzado contra DB: los 2 pagos de la compra 4 fueron creados por "Super Usuario", confirmado via join directo a `AspNetUsers`.
+- Riesgo: `.Contains()` sobre listas de `string` en otros puntos del código (no tocados en este fix) podría tener el mismo problema si el provider se comporta igual — los demás usos relevados usan `int` (`itemIds`, `ids`, `productoIdIds`), no `string`, por lo que no deberían estar afectados, pero no se auditó exhaustivamente.
+- Detalle completo en `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\5-implementador.md` (seccion "Fix: excepcion 500 en Compras/Detalle...").
+
+### 2026-07-08 — Reorganizacion visual de Pedidos/Detalle.cshtml (header + resumen horizontal + pestanas Bootstrap)
+- Refactor puramente visual/estructural aprobado via mockup: la pantalla de 2 columnas con ~9 cards sueltas pasa a header persistente (sin cambios) + tira de resumen horizontal compacta + 4 pestanas Bootstrap 5 nativas (Detalle, Estado, Pagos, Historial). Cero cambios de logica, endpoints, condicionales de negocio ni del `@section Scripts` (todos los ids/clases que usa el JS existente se preservaron, solo se movieron de lugar en el DOM).
+- "Revertir operacion" paso a ser una seccion `collapse` de Bootstrap colapsada por defecto dentro de la pestana Estado, en vez de una card siempre visible.
+- Unico archivo tocado: `Views/Pedidos/Detalle.cshtml` (reescritura completa, capa Web unicamente). Sin migracion EF.
+- Build OK, 0 errores. Verificado en runtime contra dev DB: 4 pedidos reales (Cancelado/En preparacion/Confirmado x2) devuelven 200 OK; se creo un pedido Borrador sintetico (eliminado al finalizar) para verificar las cards exclusivas de ese estado (Agregar stock propio, Agregar item rapido, Observaciones editable) — tambien 200 OK, sin excepcion de Razor.
+- Detalle completo en `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\5-implementador.md` (seccion "Reorganizacion visual de Pedidos/Detalle.cshtml").
+
+### 2026-07-08 — Fix: confirmar pedido pisaba precios editados en Borrador + inputs seguian editables post-confirmacion
+- Bug del cliente en `Pedidos/Detalle`: al editar precio/descuento/subtotal en Borrador y confirmar, los valores volvian al precio de catalogo y los inputs seguian editables en vez de pasar a solo lectura.
+- 3 fixes en `PedidoService.cs`: (1) `ConfirmarAsync` ya no pisa `PrecioUnitVentaSnapshot`/`SubtotalVenta` desde el catalogo (solo costo se sigue refrescando); (2) `EstadosEditables` pasa de `[Borrador, Confirmado, EnPreparacion]` a `[Borrador]` unicamente (decision explicita del cliente: solo lectura sin excepcion desde Confirmado); (3) `ActualizarCantidadItemAsync` recalcula `SubtotalVenta` respetando el descuento (antes lo ignoraba), con la misma formula que el JS de la vista.
+- Unico archivo tocado: `PedidoService.cs`. Sin cambios de Web/vista (la vista ya derivaba de `PuedeEditarItems`/`EstaEditable`). Sin migracion EF.
+- Caso borde: 2 ramas de codigo quedan inalcanzables (no se tocaron, no era el foco): ajuste de stock propio post-Borrador en `ActualizarCantidadItemAsync`, y `AplicarEfectosEdicionPostConfirmacionAsync` (ahora siempre retorna null).
+- Build OK, 0 errores. Probado en runtime contra dev DB con harness de consola descartable (datos sinteticos revertidos al final): valores de venta identicos antes/despues de confirmar, `PuedeEditarItems=False` post-confirmacion, y los 4 endpoints de edicion (ActualizarCantidad/ActualizarPreciosItem/EliminarItem) devuelven error server-side sobre pedido Confirmado.
+- Detalle completo en `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\5-implementador.md` (seccion "Fix: Confirmar pedido pisaba precios editados en Borrador...").
 
 ### 2026-07-03 (ajuste post-revision cliente, 3ra vuelta) — Simplificacion de Reportes/DeudaProveedor y Reportes/Riesgo
 - Decision del cliente sobre el pendiente que QA marco (columna de pago al proveedor en $0 hardcodeado en ambos reportes): sacar esa dimension en vez de aproximarla, enlazando al ledger nuevo (`Proveedor/CuentaCorriente`) como fuente de verdad.
