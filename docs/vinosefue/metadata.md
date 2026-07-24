@@ -7,6 +7,7 @@
 - descripcion: Gestion Comercial de Vinos VinoSeFue. 16 modulos funcionales + evoluciones post-cierre. Clean Architecture .NET 10 + MySQL.
 - ruta_repositorio: C:\Sistemas\vino-y-se-fue
 - docs_proyecto: C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue
+- manual_usuario: C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\manual-usuario.md (Mayo 2026, 17 secciones — sin equivalente ni puntero central hasta el barrido cross-proyecto del 2026-07-23; vive solo en el repo del proyecto, igual que 5-implementador.md/6-qa.md)
 - produccion: olvidatasoft-002-site6
 - ruta_definiciones: /docs/vinosefue/definiciones
 

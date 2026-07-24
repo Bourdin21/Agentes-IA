@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: ganaderia
-## Ultima actualizacion: 2026-05-07
+## Ultima actualizacion: 2026-07-23
 
 ## Contexto inicial
 
@@ -503,3 +503,53 @@ Notas para QA:
 - [ ] Smoke test de navegador real del autocomplete en ambas pantallas — pendiente, fuera del alcance de esta sesion (no se corrio la app).
 - [ ] Pruebas funcionales PF62–PF66 + PV17–PV18 ejecutadas por QA — pendiente.
 - [x] `ganaderia - fausto` no tocado (ningun archivo fuera de `ganaderia - emo` fue leido ni escrito en esta sesion).
+
+---
+
+## Iteracion v13 — Entrega de mejoras post-reunion con cliente (2026-07-23)
+
+Repositorio exclusivo: `C:\Sistemas\ganaderia - emo`. Analisis funcional previo en el repo del proyecto: `C:\Sistemas\ganaderia - emo\docs\ganaderia\definiciones\6-analisis-mejoras-entrega2.md` (fecha de analisis 2026-07-22, mergeado aca el 2026-07-23 durante el barrido de memorias cross-proyecto — ver `trazabilidad.md`).
+
+### Alcance funcional entregado
+
+1. **Fix bug transversal de formularios**: `asp-items` sin `asp-for` en grillas dinamicas indexadas (`Views/Egresos/_FilaPago.cshtml` combo `FormaDePago`, `Views/Facturas/Create.cshtml` combo `Items[i].GrupoId`) causaba que el combo visual se reseteara a la primera opcion tras un POST invalido, aunque el dato server-side estuviera intacto (los controllers ya recargaban `SelectList` y hacian `return View(vm)` correctamente — el bug era puramente de Razor no marcando `selected` en grillas indexadas sin `asp-for`). Confirmado por grep que estos eran los **unicos 2 casos** en toda la app; el resto de combos usa `asp-for` y no tiene el bug. Caso aparte no arreglable: `<input type="file">` del comprobante nunca puede repoblarse tras un POST fallido (limitacion de navegador, no bug de codigo).
+2. **Fila de totales en listados** (`Egresos/Index` y `Facturas/Index`): suma de `Importe`/`Total` sobre el filtro aplicado, calculada server-side. Mecanismo nuevo y reutilizable `data-dt-sum-cols` agregado a `datatables-defaults.js`.
+3. **Rename end-to-end `FacturaVentaCuota`/`Cuotas` → `FacturaVentaIngreso`/`Ingresos`**: entidad, enum `EstadoCuota`→`EstadoIngreso` (de paso alinea genero gramatical: Acreditada/Rechazada → Acreditado/Rechazado, igual que `EstadoPagoEgreso`), FK `MovimientoCaja.FacturaCuotaId`→`FacturaIngresoId`, tabla `FacturaVentaCuotas`→`FacturaVentaIngresos` (`RENAME TABLE`, metadata-only en MySQL/InnoDB), `ICuotaService`/`CuotaService`→`IIngresoService`/`IngresoService`, `CuotasController`→`IngresosController` (ruta `/Cuotas`→`/Ingresos`), vistas `Views/Cuotas/*`→`Views/Ingresos/*`, link de menu. Migracion **`RenameCuotaToIngreso`** (Option B, no destructiva, mismo patron que `RenameFacturaToFacturaVenta` del refactor de Etapa 8). Motivo: el cliente senalo que "Cuotas" (cobro de Factura de venta) se confunde con las cuotas/pagos de un Egreso — la estructura de fondo ya era simetrica con `EgresoPago` (el propio codigo ya documentaba `EgresoPagosController.cs:10` como *"Simetrico a CuotasController"*), solo hacia falta renombrar, no rediseñar. Redaccion acordada: "Ingresos" es el nombre del modulo/entidad/menu (donde ocurre la confusion real); "cuota" se mantiene como palabra descriptiva dentro del detalle de una factura puntual ("Cuota 1 de 3"), donde el contexto ya es inequivoco.
+4. **Dashboard dividido en dos pantallas**:
+   - `/Dashboard` (control de **stock puro**, sin plata): nuevo filtro Mes+Año (default mes/año actual). Tabla "Actividad de hacienda por grupo" del periodo filtrado: Nacimientos, Muertes, Compras, Vendidas (cabezas), **Kg vendidos** y **precio promedio ponderado por kg** (`Σ(KilosTotales·PrecioPorKilo) / Σ(KilosTotales)` del periodo — no promedio simple, para que una venta grande pese mas que una chica), Stock al cierre del periodo. Se mantiene la tabla de stock vivo actual (foto del presente, no depende del filtro). Se quitan las 4 cards de plata (pasan al Tablero Anual).
+   - `/Dashboard/TableroAnual` (control de **dinero puro**, sin cabezas): filtro Año (ya existia) + nuevo filtro Mes con opcion "Todos". KPIs de plata: Saldo de caja (antes oculto tras `Features:Etapa2`, ahora **siempre visible** en este tablero), Ingresos, Egresos, Resultado neto. Cambio de KPI: "Cuotas acreditadas"/"Pagos egreso acreditados" reemplazados por **Ingresos pendientes** (cantidad+monto) y **Pagos de egreso pendientes** (cantidad+monto — nuevo, mismo calculo que ingresos pendientes pero sobre `EgresoPagos.Estado=Pendiente`). Se quita la tabla/grafico de actividad de hacienda (pasa al Dashboard).
+   - Sin migracion EF para este punto: todo el dato fuente (`MovimientoStock`, `FacturaVentaItem`, `MovimientoCaja`, `EgresoPago`) ya existia.
+   - Sugerencias para dashboards futuros (no implementadas, quedan para priorizar con el cliente): flujo de caja proyectado 30/60/90 dias, cheques a vencer/depositar, evolucion del precio promedio por kg, peso promedio por cabeza vendida, egresos por rubro, composicion de stock por categoria.
+5. **Facturas de venta — impuestos y cuotas 100% editables**:
+   - `TasaIva` (enum cerrado 0/10,5/21/27% sobre `Subtotal` completo, no editable) reemplazado por 3 pares %+importe **independientes y editables** (IVA, Ingresos Brutos, Otras Percepciones), sincronizados en tiempo real client-side ("ultimo tocado manda"). Bases de calculo: IVA sobre `Subtotal` (sin cambios); IIBB y Otras Percepciones sobre `Subtotal + MontoIva` cada una (no se calculan una sobre la otra, evita circularidad). `Total = Subtotal + MontoIva + MontoIIBB + MontoOtrasPercepciones`. El enum `TasaImpuesto` se mantiene solo como preset de UI (botones de acceso rapido 0/10,5/21/27 que auto-completan el campo decimal), no como tipo de columna.
+   - Ingresos (ex-Cuotas) pasan de generacion 100% automatica por `Plazo` (reparto uniforme, vencimientos multiplos de 30 dias) a **grilla editable**: fecha e importe libres por linea, cantidad libre. El campo `Plazo` pasa a ser un helper de UI ("generar sugerido" que prellena con la logica vieja como punto de partida editable), deja de ser fuente de verdad. Validacion server-side: al menos 1 ingreso, todos los importes > 0, todas las fechas cargadas, `Σ Importe == Total` con tolerancia de redondeo de **$0,01 por ingreso** (ajustable si resulta muy estricta/laxa en la practica). `EditAsync` deja de regenerar automaticamente: recibe la lista editada igual que `CreateAsync`.
+   - Migracion **`FacturaVenta_ImpuestosEditables`** (no destructiva): puebla `MontoIva`/`PorcentajeIva` desde las columnas viejas `Iva`/`TasaIva` antes de borrarlas. La migracion scaffoldeada por defecto de EF hacia un `RenameColumn` **incorrecto** que hubiera asignado los montos de IVA historicos a la columna de Otras Percepciones — se reescribio a mano para evitar la perdida/corrupcion de datos historicos.
+6. **Correccion sobre el analisis original**: el punto "Caja: campo `Estado` redundante" (propuesto inicialmente) se **descarto** tras revisar `CuotaService`/`EgresoPagoService` con mas profundidad — `MovimientoCaja.Estado` si varia (rechazar muta el movimiento a `Pendiente` sin borrarlo, para preservar trazabilidad; regularizar "Error de carga" lo vuelve a `Acreditado`; regularizar "Cobro posterior" deja el original `Pendiente` y crea uno nuevo `Acreditado`). No era dead code — el analisis inicial solo habia grepeado los sitios de creacion (`new MovimientoCaja{...}`), no las mutaciones sobre movimientos existentes. Leccion de proceso: verificar mutaciones ademas de creaciones antes de descartar un campo como redundante.
+
+### Evidencia de build y migraciones
+
+- ✅ `dotnet build` sin errores en cada etapa intermedia y al cierre.
+- ✅ `dotnet ef database update` — ambas migraciones (`RenameCuotaToIngreso`, `FacturaVenta_ImpuestosEditables`) aplicadas contra `ganaderia_dev` real, con verificacion de "no pending model changes" tras cada una (migracion vacia de prueba generada y removida).
+- ⏳ Smoke test manual end-to-end (factura con impuestos/ingresos personalizados, dashboard con filtros, tablero anual) — pendiente en QA.
+- ⏳ `docs/qa/plan-qa-etapa7.md` (local al repo del proyecto) — pendiente de extender con casos de esta entrega.
+
+### ⚠️ Riesgo operativo abierto — migraciones aplicadas en produccion SIN backup previo
+
+**Las 4 migraciones pendientes (`FacturaVenta_MotivoTexto`, `AgregarReferenciaEgresoPago`, `RenameCuotaToIngreso`, `FacturaVenta_ImpuestosEditables`) ya fueron aplicadas contra la base de datos de PRODUCCION el 2026-07-23** (script acumulado `migration-prod-20260723-1200.sql`, aplicado via `dotnet ef database update` directo), **sin backup previo** — `mysqldump`/`mysql` CLI no estaban disponibles en el entorno de esa sesion. El cliente acepto explicitamente el riesgo. **El deploy del codigo nuevo (Web Deploy) todavia esta pendiente**: la base de prod ya tiene el esquema nuevo pero la app publicada todavia corre el codigo viejo — inconsistencia activa hasta completar el deploy. Accion de seguimiento: (1) programar backup manual de la base de prod cuanto antes aunque las migraciones ya se hayan aplicado (mitiga riesgo hacia adelante), (2) completar el deploy del codigo lo antes posible para cerrar la ventana de inconsistencia esquema/codigo, (3) evaluar instalar `mysql-client`/`mysqldump` en el entorno de despliegue para que este riesgo no se repita en la proxima entrega.
+
+### Riesgos y supuestos
+
+- Tolerancia de redondeo `Σ ingresos == Total`: $0,01 por ingreso — ajustable.
+- Flag `Features:Etapa2` (hoy `true` en produccion) no se toco; sigue ocultando Caja/Tablero Anual si se desactivara. Pregunta abierta con el cliente: ¿eliminar el flag ya que se considera funcionalidad estable, o mantenerlo?
+- Herramientas adicionales de dashboard (flujo de caja proyectado, cheques a vencer, etc.) quedaron sin implementar — sugerencias opcionales, no pedido explicito.
+
+### Checklist de salida (estado al cierre de esta iteracion)
+
+- [x] Build verde en cada paso.
+- [x] Sin referencias residuales a `Cuota`/`FacturaVentaCuota`/`EstadoCuota`/`TasaImpuesto`/`CalculoIvaHelper` en codigo activo (verificado por grep; solo quedan en migraciones historicas).
+- [x] Migraciones con `Up()`/`Down()` simetricos y no destructivos, validadas contra base real (dev).
+- [x] Manual de usuario del proyecto (`ganaderia - emo/docs/ganaderia/manual-usuario.md`) actualizado: seccion Ingresos, Facturas de venta (impuestos e ingresos editables).
+- [x] Migraciones aplicadas en produccion (ver riesgo operativo arriba — sin backup previo).
+- [ ] Deploy del codigo nuevo a produccion (Web Deploy) — **pendiente, prioridad alta** (base ya migrada, app todavia vieja).
+- [ ] Smoke test manual end-to-end en QA/prod.
+- [ ] Extender el plan de QA local del proyecto con casos de esta entrega (impuestos editables, ingresos personalizados, filtros de dashboard).

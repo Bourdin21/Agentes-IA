@@ -22,15 +22,16 @@ manual al incorporar nuevos empleados.
 
 ### 1.2 Objetivo del sistema
 
-Automatizar la conversión del **Informe de Liquidación** exportado desde Bejerman Web al formato
+Automatizar la conversión de la **Grilla Informe de Liquidación** exportado desde Bejerman Web al formato
 **STR** requerido por SERVICIO TERAPIA RENAL S.A., eliminando el trabajo manual y asegurando
 consistencia en el resultado.
 
 ### 1.3 Alcance de la versión 1.0
 
-- Conversión automática de Informe de Liquidación (`.xls` / `.xlsx`) al archivo STR destino
-- Enriquecimiento opcional con Grilla de Liquidación (Lugar de Pago, Centro de Costos, Obra Social)
-- Enriquecimiento opcional con Cubo de Liquidación (columna Costos)
+> **Corregido 2026-07-23** (barrido cross-proyecto de memorias): esta sección y las §2-§3 describian el diseño original de 3 archivos (Informe + Grilla + Cubo), previo a la reescritura completa en PHP 8.3 + PhpSpreadsheet (ver `trazabilidad.md`, entrada 2026-06-25). El sistema efectivamente entregado y en producción usa **un único archivo de entrada**: la Grilla Informe de Liquidación. Corregido para reflejar `Docs/Manual de Usuario.md` (fuente as-built).
+
+- Conversión automática de la **Grilla Informe de Liquidación** (`.xls` / `.xlsx`, formato tabla larga) al archivo STR destino
+- Un único archivo de entrada — no hay enriquecimiento opcional con otros reportes de Bejerman
 - Interfaz web sin instalación, sin usuario ni contraseña
 - Disponible desde cualquier navegador con acceso a internet
 
@@ -41,69 +42,51 @@ consistencia en el resultado.
 ```
 [Usuario]
     │
-    ├── Sube Informe de Liquidación (.xls)    ← obligatorio
-    ├── Sube Grilla de Liquidación (.xls)     ← opcional: Lugar de Pago, CC, OS
-    └── Sube Cubo de Liquidación (.xlsx)      ← opcional: columna Costos
+    └── Sube Grilla Informe de Liquidación (.xls/.xlsx)   ← único archivo, obligatorio
                     │
                     ▼
           [Conversor BMA — convert.php]
                     │
                     ▼
-          STR-INFORME-{nombre}.xlsx           ← descarga automática
+          STR-INFORME-{nombre}.xlsx                        ← descarga automática
 ```
 
-El sistema procesa los archivos en el servidor y devuelve el archivo STR al navegador del usuario
+El sistema procesa el archivo en el servidor y devuelve el archivo STR al navegador del usuario
 sin almacenar ningún dato.
 
 ---
 
-## 3. Archivos de entrada
+## 3. Archivo de entrada
 
-### 3.1 Informe de Liquidación (obligatorio)
+### 3.1 Grilla Informe de Liquidación (único archivo, obligatorio)
 
-Origen: exportación desde Bejerman Web (Onvio) → módulo Liquidación de Sueldos.  
+Origen: exportación desde Bejerman Web (Onvio) → módulo Liquidación de Sueldos → informe
+**"Grilla Informe de Liquidación"**.
 Formato: `.xls` o `.xlsx`.
 
-El Informe tiene formato **jerárquico por empleado**: cada empleado ocupa un bloque de filas
-con datos de identificación, fila SIPA, filas de conceptos y una fila de resumen.
+**No se acepta ningún otro archivo.** El sistema no utiliza el Cubo ni ningún otro reporte de
+Bejerman — el diseño original con 3 archivos (Informe jerárquico + Grilla + Cubo) fue reemplazado
+por este único archivo durante la reescritura a PHP.
 
-**Datos que extrae el sistema:**
+La Grilla tiene formato **tabla larga**: una fila por concepto por empleado (un empleado con 30
+conceptos genera 30 filas). El sistema agrupa automáticamente todos los conceptos de cada
+empleado en una sola fila del archivo de salida.
 
-| Dato | Origen en el Informe | Destino en STR |
+**Columnas que utiliza el sistema (de la Grilla):**
+
+| Columna en Grilla | Contenido | Destino en STR |
 |---|---|---|
-| Legajo | Fila empleado, col 3 | Col 1 |
-| Apellido y Nombre | Fila empleado, col 7 | Col 2 |
-| CUIL | Fila SIPA, col 67 | Col 4 |
-| Sector | Fila empleado, col 23 | Parte 1 de col 7 Especialidad |
-| Calificación | Fila empleado, col 32 | Parte 2 de col 7 Especialidad |
-| Categoría | Fila empleado, col 51 | Col 6 |
-| Fecha Ingreso | Fila empleado, col 41 | Col 9 |
-| Conceptos (izq. y der.) | Filas de concepto | Cols 10+ |
-| Haberes rem. / no rem. | Fila resumen | Total haberes, Bruto |
-| Retenciones | Fila resumen | Col Retenciones |
-| Neto a cobrar | Fila resumen | Cols Neto a Cobrar, Neto |
+| Nro. de Legajo | Identificador del empleado | Col 1 |
+| Apellido y Nombre | Nombre completo | Col 2 |
+| Lugar de Pago | Sucursal o lugar de pago | Col 3 |
+| CUIL | CUIL del empleado | Col 4 |
+| Centro de Costos | CC contable | Col 5 (número entero) |
+| Categoría | Categoría del empleado | Col 6 |
+| Sector + Puesto de Trabajo | Área/sector + cargo | Col 7 Especialidad (concatenado) |
+| Código Obra Social | OS del empleado | Col 8 |
+| Código Concepto / Importe Calc | Concepto liquidado + importe | Cols 10+ |
 
-### 3.2 Grilla de Liquidación (opcional)
-
-Origen: exportación desde Bejerman Web (Onvio).  
-Formato: `.xls` o `.xlsx`.  
-Uso: enriquece columnas que no están disponibles en el Informe.
-
-| Dato | Destino en STR |
-|---|---|
-| Lugar de Pago | Col 3 |
-| Centro de Costos | Col 5 (número entero) |
-| Código Obra Social | Col 8 |
-
-Si no se sube la Grilla, las columnas 3, 5 y 8 quedan vacías en el STR.
-
-### 3.3 Cubo de Liquidación (opcional)
-
-Origen: exportación desde Bejerman Web (Onvio).  
-Formato: `.xls` o `.xlsx`.  
-Uso: provee únicamente la columna **Costos** del STR.
-
-Si no se sube el Cubo, la columna Costos queda en 0 para todos los empleados.
+No hay columna Fecha Ingreso disponible en la Grilla — la col 9 (Fecha Ingreso) del STR queda vacía.
 
 ---
 
@@ -126,17 +109,19 @@ Si no se sube el Cubo, la columna Costos queda en 0 para todos los empleados.
 
 Siempre presentes, independientemente de los conceptos del período.
 
+> Corregido 2026-07-23: todas las columnas fijas provienen de la Grilla (único archivo de entrada) — no hay archivo "Informe" separado. Ver §3.1.
+
 | Col | Etiqueta | Fuente |
 |---|---|---|
-| 1 | Legajo | Informe |
-| 2 | Apellido y Nombre | Informe |
-| 3 | Lugar de Pago | Grilla (o vacío si no se sube) |
-| 4 | CUIL | Informe |
-| 5 | CC | Grilla (o vacío si no se sube) |
-| 6 | Categoría | Informe |
-| 7 | Especialidad | Informe: Sector + " - " + Calificación |
-| 8 | OS | Grilla (o vacío si no se sube) |
-| 9 | Fecha Ingreso | Informe (formato `d/m/A`) |
+| 1 | Legajo | Grilla — Nro. de Legajo |
+| 2 | Apellido y Nombre | Grilla |
+| 3 | Lugar de Pago | Grilla |
+| 4 | CUIL | Grilla |
+| 5 | CC | Grilla — Centro de Costos (número entero) |
+| 6 | Categoría | Grilla |
+| 7 | Especialidad | Grilla: Sector + " - " + Puesto de Trabajo |
+| 8 | OS | Grilla — Código Obra Social |
+| 9 | Fecha Ingreso | — *(no disponible en la Grilla, se deja vacío)* |
 
 ### 4.3 Columnas de conceptos (cols 10+)
 
@@ -153,14 +138,10 @@ El sistema calcula automáticamente estas columnas por etiqueta:
 |---|---|
 | TOTAL PROV | Provisión Vacaciones + Provisión SAC |
 | TOTAL CARGAS PROV | Cargas sobre Provisión Vac. + Cargas sobre Provisión SAC |
-| Redondeo | Concepto 9999 |
-| Neto a Cobrar | Neto cobrado según resumen del Informe |
-| Total haberes | Haberes remunerativos + no remunerativos |
-| Base Imponible | Concepto 399 |
-| Neto | Igual a Neto a Cobrar |
-| Retenciones | Total de retenciones según resumen del Informe |
-| Bruto | Igual a Total haberes |
-| Costos | Desde Cubo (o 0 si no se sube) |
+| Redondeo | Importe de redondeo del período (Concepto 9999) |
+| Neto a Cobrar | Total neto del empleado (haberes − retenciones), calculado desde los conceptos de la Grilla |
+
+> **Corregido 2026-07-23**: se eliminó la columna **Costos** (dependía del Cubo de Liquidación, que ya no existe como archivo de entrada — ver §3). Las filas "Total haberes", "Base Imponible", "Neto" y "Bruto" y "Retenciones" que figuraban acá en la versión anterior de este documento asumían campos de una "fila resumen" del Informe jerárquico original, que tampoco existe en el modelo actual de un único archivo (Grilla, tabla larga). El Manual de Usuario (`Docs/Manual de Usuario.md`, fuente as-built) solo confirma explícitamente las 4 columnas de esta tabla. **Pendiente de QA**: verificar contra el sistema real en producción si esas columnas adicionales (Total haberes, Base Imponible, Neto, Bruto, Retenciones) siguen existiendo en el STR de salida y, si es así, documentar aquí su fórmula real (probablemente agregada por código de concepto sobre las filas de la Grilla, no sobre una fila resumen que ya no existe).
 
 ### 4.5 Formato visual del archivo de salida
 
@@ -176,17 +157,17 @@ El sistema calcula automáticamente estas columnas por etiqueta:
 
 ### Empleados incluidos en el output
 
-Solo aparecen los empleados que tienen al menos un concepto en el Informe del período procesado.
+Solo aparecen los empleados que tienen al menos un concepto en la Grilla del período procesado.
 Empleados sin actividad ese mes no se incluyen.
 
 ### Empleados nuevos
 
-Si un empleado aparece en el Informe pero no estaba en períodos anteriores, se incluye
+Si un empleado aparece en la Grilla pero no estaba en períodos anteriores, se incluye
 automáticamente. No se requiere ninguna actualización manual del template.
 
 ### Orden de los empleados
 
-Los empleados aparecen en el mismo orden en que figuran en el Informe (primera aparición del legajo).
+Los empleados aparecen en el mismo orden en que figuran en la Grilla (primera aparición del legajo).
 
 ### Normalización de legajos
 
@@ -223,20 +204,18 @@ URL: `http://conversor.contadoresbma.com.ar`
 
 ### Pantalla principal
 
-Una sola pantalla con tres áreas de carga:
+> Corregido 2026-07-23: una sola área de carga (no tres) — ver §3.
+
+Una sola pantalla con un área de carga (arrastrar y soltar, o clic para abrir el explorador):
 
 | Área | Estado | Función |
 |---|---|---|
-| Informe de Liquidación | Requerido | Archivo principal de conversión |
-| Grilla de Liquidación | Opcional | Enriquece Lugar de Pago, CC, OS |
-| Cubo de Liquidación | Opcional | Enriquece columna Costos |
-
-Cada área acepta arrastrar el archivo o hacer clic para abrir el explorador.
+| Grilla Informe de Liquidación | Requerido (único archivo) | Archivo principal y único de conversión |
 
 ### Flujo de uso
 
 1. Acceder a la URL
-2. Subir el Informe de Liquidación (obligatorio) y los opcionales disponibles
+2. Subir la Grilla Informe de Liquidación (único archivo, obligatorio)
 3. Hacer clic en **"Convertir y Descargar"**
 4. Esperar entre 5 y 20 segundos (procesamiento con spinner visible)
 5. El navegador descarga automáticamente el archivo STR generado

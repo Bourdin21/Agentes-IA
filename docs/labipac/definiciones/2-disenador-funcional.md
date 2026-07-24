@@ -1,7 +1,94 @@
 ﻿# Memoria - Disenador funcional
 
 ## Proyecto: labipac
-## Ultima actualizacion: 2026-07-08 (sesion 2 — diseno de 3 mejoras: carga masiva, Unidad/PrecioPorUnidad, fix PDF)
+## Ultima actualizacion: 2026-07-23 (sesion 3 — diseno de Produccion Mensual por Centro de Salud)
+
+## Sesion 3 (2026-07-23) — Diseno funcional: Produccion Mensual por Centro de Salud
+
+Input: `1-analista-funcional.md` sesion 5, ANALISIS CERRADO, P11-P14 confirmadas.
+
+### 1. Alcance funcional resumido
+1. ABM nuevo de Centros de Salud (catalogo simple: Nombre, Tipo Privado/Mutual, Activo).
+2. `ProduccionMensual` gana selector opcional de Centro de Salud al crear el periodo; RN-11 pasa a validar unicidad por Mes+Anio+CentroSaludId.
+3. Listado/historial de Produccion Mensual: columna y filtro por Centro de Salud.
+4. Reporte PDF: nombre del Centro de Salud en el encabezado cuando el periodo lo tiene asignado.
+
+### 2. Flujo de pantallas y wireframes textuales
+
+**WF-13: Centros de Salud Index (pantalla nueva)**
+- Ruta: `GET /CentrosSalud`
+- Mismo patron que WF-01 (Unidades Bioquimicas Index): DataTables client-side, columnas Nombre / Tipo (badge Privado=secondary, Mutual=info) / Estado / Acciones (Editar, Baja logica, Reactivar).
+- Boton "Nuevo Centro de Salud" -> Create.
+
+**WF-14: Centros de Salud Create/Edit (pantalla nueva)**
+- Ruta: `GET/POST /CentrosSalud/Create`, `/CentrosSalud/Edit/{id}`
+- Mismo patron que WF-02: col-md-6, campo Nombre (text, requerido), campo Tipo (select Privado/Mutual), checkbox Activo (solo en Edit).
+
+**Ajuste WF-07 (Produccion Mensual — Crear Periodo):** se agrega campo "Centro de Salud" (Select2 opcional, con opcion vacia "Sin centro asignado (global)" seleccionada por defecto), poblado con `CentroSaludService.GetActivasAsync()`. Sin cambios en el resto del formulario (Mes, Anio, Notas).
+
+**Ajuste WF-06 (Produccion Mensual — Index/Historial):** se agrega columna "Centro de Salud" (muestra nombre o "— Global —" si es null) y un filtro dropdown sobre esa columna (patron DataTables client-side ya usado en otros listados del sistema, ej. filtro de Tipo en Unidades Bioquimicas si existiera, o filtro nuevo estandar `select` ligado a la columna).
+
+**WF-15: Ajuste reporte PDF (sin cambio de pantalla)**
+- En el encabezado del PDF de `ReportePdf`, si `ProduccionMensual.CentroSaludId != null`, se agrega una linea "Centro de Salud: {Nombre} ({Tipo})" debajo del titulo de periodo. Si es null, no se muestra la linea (sin cambio visual respecto a hoy).
+
+### 3. ViewModels propuestos
+
+| VM | Campos | Validaciones |
+|---|---|---|
+| VM-17 `CentroSaludCreateViewModel`/`EditViewModel` | Nombre, Tipo (enum), Activo (solo Edit) | Nombre requerido (<=150), Tipo requerido |
+| VM-18 `CentroSaludRowViewModel` | Id, Nombre, Tipo, Activo | — |
+| VM-06 `ProduccionMensualCreateViewModel` (modificado) | + `CentroSaludId` (int?), + `CentrosSaludDisponibles` (SelectList) | CentroSaludId opcional; si se informa, debe existir y estar activo |
+| VM-07 `ProduccionMensualRowViewModel` (modificado) | + `NombreCentroSalud` (string?, "— Global —" si null) | — |
+| VM-08 `ProduccionMensualDetalleViewModel` (modificado) | + `NombreCentroSalud` (string?) | — |
+
+### 4. Maquina de estados
+No aplica. Sin cambios respecto al alcance original (P4-A).
+
+### 5. Reglas de negocio y permisos
+
+| Ref | Regla | Capa |
+|---|---|---|
+| RN-22 | `CentroSalud.Nombre` obligatorio, <=150 caracteres | DataAnnotation |
+| RN-23 | `CentroSalud.Tipo` obligatorio (Privado o Mutual) | DataAnnotation |
+| RN-24 (reemplaza RN-11) | No puede existir mas de un periodo por combinacion Mes+Anio+CentroSaludId, tratando NULL como un valor propio (solo un periodo "global" sin centro por Mes+Anio) | Service |
+| RN-25 | `CentroSaludId` en `ProduccionMensual` es opcional; si se informa, debe corresponder a un `CentroSalud` activo y no eliminado | Service |
+
+**Permisos:** ABM de Centros de Salud usa `[Authorize]` sin politica especifica, igual que Unidades Bioquimicas y Practicas.
+
+### 6. Impacto funcional por capa
+- **Presentacion:** 1 controller nuevo (`CentrosSaludController`, acciones Index/Create/Edit/Delete/Restore igual que `UnidadesBioquimicasController`), 2 vistas nuevas (Index, Create/Edit compartido), ajustes en `ProduccionMensualController` (Create GET/POST agregan CentroSaludId), `Views/ProduccionMensual/Crear.cshtml` (selector nuevo), `Views/ProduccionMensual/Index.cshtml` (columna+filtro), `ReportePdf` (linea de encabezado condicional).
+- **Negocio:** nuevo contrato `ICentroSaludService` (mismo shape que `IUnidadBioquimicaService`: GetAllAsync, GetActivasAsync, GetByIdAsync, CreateAsync, UpdateAsync, DeleteAsync, RestoreAsync); `IProduccionMensualService.CreateAsync` ajusta la validacion de unicidad (RN-24 reemplaza RN-11).
+- **Datos:** nueva entidad `CentroSalud` (hereda SoftDestroyable) + nuevo enum `TipoCentroSalud` (Privado, Mutual). Campo nuevo `ProduccionMensual.CentroSaludId` (FK nullable). Migracion EF requerida.
+
+### 7. Riesgos y supuestos
+- DD-04: la unicidad Mes+Anio+CentroSaludId con NULL como valor propio no es un unique index nativo simple en MySQL — se resuelve en Service con una consulta explicita que distingue el caso NULL (mismo patron ya usado para RA-03 de la arquitectura original de Mes+Anio).
+- DD-05: se acepta la convivencia de nombres duplicados entre `CentroSalud` y `Mutual` (FABA) sin vinculo — decision explicita del cliente (P12), no es un defecto.
+- Riesgo heredado: ninguno nuevo sobre el flujo de snapshot de precios ni el calculo de totales (sin cambios).
+
+### 8. Plan funcional por etapas (para Arquitectura)
+- **Etapa unica** (alcance chico, sin dependencias internas entre los 3 items): ABM Centro de Salud (base) -> selector en Crear Periodo + RN-24 (depende del ABM) -> columna/filtro en Index + ajuste PDF (independientes entre si, pueden ir en paralelo).
+
+### Historias de usuario
+
+**HU-06** — Como usuario del sistema, quiero cargar un periodo de Produccion Mensual para un Centro de Salud especifico (privado o mutual), para poder llevar la produccion separada por cliente.
+- AC: al crear un periodo, puedo elegir opcionalmente un Centro de Salud de un listado de activos.
+- AC: puedo crear varios periodos para el mismo Mes/Anio si cada uno tiene un Centro de Salud distinto (o uno solo sin centro).
+- AC: si intento crear un periodo duplicado (mismo Mes+Anio+Centro, o mismo Mes+Anio sin centro ya existente), el sistema lo impide con un mensaje claro.
+
+**HU-07** — Como usuario del sistema, quiero administrar un catalogo simple de Centros de Salud, para poder darlos de alta antes de asignarlos a un periodo.
+- AC: puedo crear, editar y dar de baja logica un Centro de Salud con Nombre y Tipo (Privado/Mutual).
+- AC: el catalogo distingue visualmente el Tipo con un badge.
+
+**HU-08** — Como usuario del sistema, quiero ver y filtrar el historial de Produccion Mensual por Centro de Salud, para ubicar rapido los periodos de un cliente puntual.
+- AC: el listado muestra una columna con el nombre del Centro de Salud o "— Global —" si no tiene.
+- AC: puedo filtrar el listado por Centro de Salud.
+
+**HU-09** — Como usuario del sistema, quiero que el PDF de un periodo muestre el Centro de Salud al que corresponde, para poder identificarlo al imprimirlo o enviarlo.
+- AC: si el periodo tiene Centro de Salud asignado, el PDF lo muestra en el encabezado.
+- AC: si no tiene, el PDF se ve igual que hoy (sin la linea).
+
+### Estado
+DISENO FUNCIONAL DE SESION 3 CERRADO. Listo para revision del arquitecto.
 
 ## Sesion 2 (2026-07-08) — Diseno funcional de 3 mejoras
 

@@ -5,6 +5,42 @@
 
 ## Historial de sesiones
 
+### Sesión 4 — Implementación M10+M11+M12 (Produccion Mensual por Centro de Salud)
+**Fecha:** 2026-07-23
+**Estado:** ✅ BUILD OK — Migración generada y aplicada exitosamente a la base de desarrollo local (`labipac_dev`)
+
+**Nota operativa:** el subagent delegado (`agentes-ia-implementador`, ejecutado como agente en background) se cortó a mitad de la verificación manual por haber alcanzado el limite de gasto mensual de la cuenta de Claude (error de API, no un fallo de codigo). El orquestador retomo el trabajo directamente: revisó todo el diff generado antes del corte, corrió `dotnet build` (OK, 0 errores nuevos), verificó contra la base real (`mysqlsh`) que la migracion estaba aplicada y que los datos de prueba dejados por el subagent confirmaban la regla RN-24 (3 períodos para el mismo Mes+Año: 2 con distinto CentroSaludId + 1 global, todos coexistiendo sin conflicto), y limpió los datos de prueba (`Centro Salud Test A/B` y los 3 períodos de prueba Mayo 2031) y el log de debug (`run_app.log`) que quedaron en el working tree.
+
+**Cambio:** Implementado el alcance completo de M10 (ABM `CentroSalud`), M11 (`CentroSaludId` en `ProduccionMensual` + RN-24 + selector + columna en listado) y M12 (Centro de Salud en encabezado del PDF), según diseño/arquitectura de sesión 2026-07-23.
+
+**Archivos nuevos:**
+- `LabIPAC.Domain/Entities/CentroSalud.cs`, `LabIPAC.Domain/Enums/TipoCentroSalud.cs`
+- `LabIPAC.Application/Interfaces/ICentroSaludService.cs`
+- `LabIPAC.Infrastructure/Services/CentroSaludService.cs`
+- `LabIPAC.Web/Controllers/CentrosSaludController.cs`, `LabIPAC.Web/Models/CentroSaludViewModels.cs`
+- `LabIPAC.Web/Views/CentrosSalud/{Index,Create,Edit}.cshtml`
+- Migración `20260723214415_AddCentroSaludYProduccionMensualCentroSalud` (tabla `CentrosSalud`, columna nullable `CentroSaludId` + FK Restrict en `ProduccionMensuales`, sin backfill)
+
+**Archivos modificados:**
+- `LabIPAC.Domain/Entities/ProduccionMensual.cs` (+`CentroSaludId`, +nav `CentroSalud`)
+- `LabIPAC.Application/Interfaces/IProduccionMensualService.cs` (doc de RN-24/RN-25)
+- `LabIPAC.Infrastructure/Services/ProduccionMensualService.cs` (`CreateAsync` valida RN-24 unicidad Mes+Año+CentroSaludId y RN-25 centro activo; `GetAllAsync`/`GetByIdAsync` +`Include(CentroSalud)`)
+- `LabIPAC.Infrastructure/Data/AppDbContext.cs` (+`DbSet<CentroSalud>`, Fluent config)
+- `LabIPAC.Infrastructure/DependencyInjection.cs` (+registro `ICentroSaludService`)
+- `LabIPAC.Web/Controllers/ProduccionMensualController.cs` (Create GET/POST con selector de centro, GetData +`nombreCentroSalud`, `ReportePdf` +línea condicional de encabezado)
+- `LabIPAC.Web/Models/ProduccionMensualViewModels.cs` (+`CentroSaludId`/`CentrosSaludDisponibles` en Create VM, +`NombreCentroSalud` en Row VM)
+- `LabIPAC.Web/Views/ProduccionMensual/Create.cshtml` (selector), `Index.cshtml` (columna), `Views/Shared/_Layout.cshtml` (+entrada sidebar)
+
+**Build:** OK, 0 errores (mismos warnings preexistentes de NuGet — MailKit/MimeKit — y CS0114 de HomeController, ninguno introducido por esta sesión).
+
+**Migración EF:** generada y **aplicada exitosamente** a `labipac_dev`. Verificado contra la base real: tabla `CentrosSalud` creada, columna `ProduccionMensuales.CentroSaludId` presente, `__EFMigrationsHistory` confirma la migración aplicada. Pendiente aplicar a Producción en el próximo deploy.
+
+**Desvíos respecto al plan de Arquitectura:** el memo de arquitectura mencionaba DTOs de creación (`CentroSaludCreateDto`, etc.) — la implementación real siguió el patrón vigente del repo (Controller arma la entidad directo, Service recibe la entidad), consistente con `UnidadBioquimica`/`ProduccionMensual` existentes. No se crearon DTOs nuevos, es una simplificación correcta respecto al patrón real, no una desviación de riesgo.
+
+**Riesgos/supuestos:** ninguno nuevo. Períodos históricos quedan con `CentroSaludId = NULL` según lo definido en Análisis (P13), sin backfill.
+
+**Estado:** IMPLEMENTACIÓN CERRADA (build OK, migración aplicada y verificada contra base real, RN-24 verificada con datos reales de prueba — luego eliminados). Pendiente: QA funcional formal, aplicar migración en Producción, documento de cliente.
+
 ### Sesión 3 — Implementación M7+M8+M9 (Unidad/PrecioPorUnidad, Carga masiva + alta rápida, fix PDF)
 **Fecha:** 2026-07-08
 **Estado:** ✅ BUILD OK — Migración generada, aplicada exitosamente a la base de desarrollo local (`labipac_dev`)

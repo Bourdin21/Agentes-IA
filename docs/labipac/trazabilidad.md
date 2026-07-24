@@ -4,6 +4,68 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-07-23 - documentador — resumen de sprint M10+M11+M12 (Produccion Mensual por Centro de Salud)
+- Etapa: Documentacion
+- Cambio: Se redacto y entrego `docs/labipac/resumen-sprint-2026-07-23.md` con formato obligatorio de cliente (`31-formato-documento-cliente.instructions.md`), cubriendo Catalogo de Centros de Salud, selector opcional en Produccion Mensual, columna en historial y linea en PDF. Se aclara explicitamente que la carga es opcional y que los periodos historicos no requieren ninguna accion del cliente.
+- Motivo: verificacion directa del orquestador sin defectos bloqueantes (ver entrada de verificacion liviana arriba), habilita etapa de Documentacion.
+- Estado: DOCUMENTACION ENTREGADA. Pendiente: que el cliente pruebe el flujo (alta de Centro de Salud + periodo + PDF) y reporte horas reales para el cierre de calibracion. Pendiente aplicar migracion en Produccion en el proximo deploy.
+
+### 2026-07-23 - orquestador (barrido cross-proyecto) — spot-check formula F-001 y migracion a ruta canonica
+- Etapa: N/A (mantenimiento de memoria cross-proyecto)
+- Cambio: se verifico la formula exacta de F-001 (RN-F001-01, cascade UB→Practica) entre la copia local (`C:\Sistemas\labipac\docs\labipac\definiciones\analisis-funcional-F001-F002.md`) y la referencia ya existente en `1-analista-funcional.md` (que la mencionaba solo conceptualmente desde la nota de divergencia del 2026-07-08) — coinciden sin discrepancias. Se migro la formula textual completa (`delta_ub`, acumulacion por Practica, derogacion para Perfiles vigente desde P10) a la ruta canonica, cerrando la recomendacion pendiente que la propia nota de divergencia dejaba abierta.
+- Motivo: pedido explicito del usuario de auditar cada carpeta de proyecto individual en busca de contenido que debiera vivir en la memoria centralizada, y verificar/mergearlo.
+- Impacto en capas: N/A (documento de analisis funcional).
+- Riesgos/supuestos: sigue pendiente migrar el resto de la copia local (`5-implementador.md` con el detalle de implementacion de F-001/F-002) a la ruta canonica — no se hizo en este barrido por no haber encontrado discrepancias de contenido que lo ameriten con urgencia.
+
+### 2026-07-23 - orquestador/QA — verificacion directa post-implementacion (sin subagent QA formal)
+- Etapa: Pruebas funcionales (verificacion liviana, no delega a `agentes-ia-qa` para no repetir el corte por limite de gasto)
+- Cambio: Se verifico el trabajo de la sesion de implementador directamente: `dotnet build LabIPAC.Web` OK (0 errores nuevos); se confirmo via `mysqlsh` contra `labipac_dev` que la migracion `20260723214415_AddCentroSaludYProduccionMensualCentroSalud` esta aplicada (`__EFMigrationsHistory`), que la tabla `CentrosSalud` y la columna `ProduccionMensuales.CentroSaludId` existen; se reviso el diff completo de todos los archivos tocados (entidad, enum, servicio, controller, ViewModels, vistas, PDF) contra el patron real del repo, coincide con `UnidadBioquimica`/`UnidadesBioquimicasController` como se pidio. Los datos de prueba dejados por el subagent interrumpido (2 Centros de Salud + 3 periodos Mayo 2031) confirmaron RN-24 funcionando (coexisten periodos con distinto CentroSaludId y uno global en el mismo Mes+Anio) — se eliminaron esos datos de prueba y el log de debug (`run_app.log`) para dejar la base de desarrollo limpia.
+- Motivo: el subagent delegado se corto a mitad de su propia verificacion manual por limite de gasto mensual de la cuenta (no un fallo de codigo) — el orquestador completo la verificacion sin volver a delegar, para no repetir el mismo corte.
+- Hallazgos: ninguno bloqueante. Sin bugs encontrados.
+- Estado: VERIFICACION OK. Sin QA formal exhaustivo tipo sesion 2 (no se ejecutaron todos los flujos de UI en vivo con curl+cookie de Identity) — si el cliente quiere ese nivel de QA, pedirlo explicitamente antes de considerar el sprint totalmente cerrado.
+
+### 2026-07-23 - implementador-dotnet — SESION 4: implementacion M10+M11+M12 (Produccion Mensual por Centro de Salud) — IMPLEMENTACION CERRADA
+- Etapa: Implementacion
+- Cambio: Implementado el alcance completo aprobado (M10 ABM CentroSalud, M11 CentroSaludId+RN-24+selector+listado, M12 PDF). Ver detalle completo en `5-implementador.md` sesion 4.
+- Incidente operativo: el subagent `agentes-ia-implementador` (delegado via Agent tool en background) alcanzo casi todo el alcance pero se corto en medio de su propia verificacion manual (estaba probando el rechazo de un periodo duplicado) por haber llegado la cuenta de Claude a su limite de gasto mensual — error de infraestructura/cuenta, no un fallo de implementacion. El orquestador tomo el control, verifico el estado real del repo (`git status`/`git diff`), corrio el build, verifico la migracion contra la base real y limpio los residuos de la sesion cortada (datos de prueba + log).
+- Motivo: Presupuesto SESION 4 aprobado por el cliente.
+- Impacto en capas: Domain (+1 entidad `CentroSalud`, +1 enum `TipoCentroSalud`, +1 campo FK en `ProduccionMensual`), Application (+1 interfaz `ICentroSaludService`), Infrastructure (+1 servicio, `AppDbContext`+`DependencyInjection` modificados, `ProduccionMensualService` con RN-24/RN-25, 1 migracion EF), Web (+1 controller, +1 archivo ViewModels, +3 vistas nuevas, `ProduccionMensualController`+2 vistas+`ReportePdf`+sidebar modificados).
+- Migracion EF: `AddCentroSaludYProduccionMensualCentroSalud` — generada, sin backfill (no requerido, campo nullable), **aplicada exitosamente** a `labipac_dev`, verificado post-aplicacion contra la base real.
+- Build: OK, 0 errores (mismos warnings preexistentes, ninguno introducido).
+- Riesgos: ninguno nuevo detectado. Pendiente aplicar migracion en Produccion en el proximo deploy.
+- Estado: IMPLEMENTACION CERRADA. Pendiente: QA funcional formal completo (ver entrada de verificacion liviana arriba), aplicar migracion en Produccion, documento de cliente, cierre de calibracion con horas reales.
+
+### 2026-07-23 - presupuestador — SESION 4: presupuesto de Produccion Mensual por Centro de Salud — PRESUPUESTO CERRADO
+- Etapa: Presupuesto
+- Cambio: Presupuesto de 3 modulos (M10 ABM Centro de Salud 1.0h/$16.80, M11 CentroSaludId en Produccion Mensual + RN-24 + listado 2.2h/$36.96, M12 Centro de Salud en PDF 0.4h/$6.72). Total M=3.6h, PERT=3.71h, horas finales con contingencia=4.17h. USD desarrollo=$60.48. Sin cargo de Tokens IA (horas facturables 1.73h, por debajo del piso de 4h). Entrega propuesta en una sola etapa (sin division Etapa 1/Etapa 2, alcance chico sin dependencias fuertes). Nota abierta: la tabla nueva podria cruzar el umbral de Plan PRO a Plan PREMIUM de mantenimiento anual, pendiente confirmar conteo exacto de tablas al cierre.
+- Anclaje historico: SESION 3 propia de labipac (regla de "segunda/tercera ronda sobre el mismo modulo" — labipac va por su 4ta ronda de mejoras, se usa piso de rango en vez de mediana).
+- Motivo: Arquitectura sesion 3 aprobada, todas las etapas previas cerradas.
+- Estado: PRESUPUESTO CERRADO. Pendiente de aprobacion del cliente antes de iniciar Implementacion.
+
+### 2026-07-23 - arquitecto-mvc — SESION 3: arquitectura de Produccion Mensual por Centro de Salud — ARQUITECTURA CERRADA
+- Etapa: Arquitectura MVC
+- Cambio: 1 entidad nueva `CentroSalud` (hereda SoftDestroyable, calco de `UnidadBioquimica`), 1 enum nuevo `TipoCentroSalud` (Privado/Mutual), 1 campo nuevo `ProduccionMensual.CentroSaludId` (FK nullable, `DeleteBehavior.Restrict`). 1 interfaz de servicio nueva `ICentroSaludService` (mismo contrato que `IUnidadBioquimicaService`). `IProduccionMensualService`/`ProduccionMensualService` ajustados: RN-24 (unicidad Mes+Anio+CentroSaludId) reemplaza RN-11 (Mes+Anio), enforced en Service igual que el patron original. 1 migracion EF (`AddCentroSaludYProduccionMensualCentroSalud`) sin backfill (periodos historicos quedan sin centro, segun P13).
+- Motivo: Diseno funcional sesion 3 aprobado.
+- Impacto en capas: Domain (+1 entidad, +1 enum, +1 campo FK), Application (+1 interfaz, 2 interfaces/DTOs ajustados), Infrastructure (+1 servicio nuevo, AppDbContext +DbSet, ProduccionMensualService modificado, DependencyInjection +registro, 1 migracion), Web (+1 controller, +1 archivo de ViewModels, +2 vistas nuevas, ProduccionMensualController + 2 vistas + ReportePdf modificados, sidebar +1 entrada).
+- Riesgos: RA-10 (unicidad con NULL enforced en Service, mismo patron que RA-03 original, residual minimo), RA-11 (FK Restrict, sin impacto en operacion normal por ser baja logica), RA-12 (convivencia sin vinculo entre CentroSalud y Mutual FABA, aceptada por el cliente).
+- Estado: ARQUITECTURA CERRADA. Sin bloqueos. Listo para presupuesto.
+
+### 2026-07-23 - disenador-funcional — SESION 3: diseno de Produccion Mensual por Centro de Salud — DISENO CERRADO
+- Etapa: Diseno funcional
+- Cambio: Diseno completo. WF-13/WF-14 (ABM nuevo Centros de Salud, calco de Unidades Bioquimicas). Ajuste WF-07 (selector opcional de Centro de Salud en Crear Periodo). Ajuste WF-06 (columna + filtro por Centro de Salud en el historico). WF-15 (linea condicional de Centro de Salud en encabezado del PDF). 2 ViewModels nuevos (VM-17, VM-18) + 3 modificados (VM-06, VM-07, VM-08). 4 reglas de negocio nuevas (RN-22 a RN-25, incluye RN-24 que reemplaza RN-11). 4 historias de usuario con criterios de aceptacion (HU-06 a HU-09).
+- Motivo: Analisis funcional sesion 5 aprobado (P11-P14).
+- Impacto en capas: Presentacion (1 controller nuevo + 2 vistas nuevas, ajustes en 2 vistas y 1 controller existentes), Negocio (1 interfaz nueva `ICentroSaludService`, ajuste de validacion en `IProduccionMensualService`), Datos (1 entidad nueva + 1 enum + 1 campo FK nullable en ProduccionMensual, migracion EF pendiente de definir formato exacto en Arquitectura).
+- Riesgos: DD-04 (unicidad con NULL como valor propio, a resolver en Arquitectura), DD-05 (convivencia sin vinculo entre CentroSalud y Mutual FABA, aceptada por el cliente).
+- Estado: DISENO FUNCIONAL CERRADO. Listo para revision del arquitecto.
+
+### 2026-07-23 - analista-funcional — SESION 5: Produccion Mensual por Centro de Salud (Privado/Mutual) — ANALISIS CERRADO
+- Etapa: Discovery/Analisis
+- Cambio: Se releva el pedido del cliente de poder cargar Produccion Mensual por centro de salud privado o mutual. Se identifico que la entidad `Mutual` ya existente (integracion FABA) no era el fit correcto (es solo catalogo de sincronizacion externa para afiliados/analitos, no pensada como dimension de Produccion Mensual). Se definieron 4 preguntas bloqueantes (P11-P14) y se resolvieron con el cliente: (P11) un periodo de Produccion Mensual por cliente (CentroSaludId nullable en ProduccionMensual, permite varios periodos por Mes+Anio); (P12) catalogo nuevo unificado `CentroSalud` (Privado/Mutual), totalmente independiente de `Mutual`/FABA; (P13) campo opcional tambien para periodos nuevos (no obligatorio); (P14) nombre en UI "Centro de Salud".
+- Motivo: pedido directo del cliente, usando el flujo del orquestador (Discovery -> Analisis -> Diseno -> Arquitectura -> Presupuesto).
+- Impacto en capas: Domain (+1 entidad `CentroSalud`, +1 enum, +1 campo FK en `ProduccionMensual`), Application/Infrastructure (nuevo servicio de catalogo, ajuste de regla de unicidad RN-11 -> RN-24), Web (ABM nuevo, selector en Crear Periodo, columna/filtro en historico, ajuste de encabezado PDF).
+- Riesgos/supuestos: se acepta convivencia sin vinculo entre `CentroSalud` y `Mutual` (FABA) — mismo nombre puede existir en ambos catalogos sin relacion. Periodos historicos quedan sin centro asignado, sin migracion retroactiva.
+- Estado: ANALISIS CERRADO. Listo para Diseno funcional.
+
 ### 2026-07-08 - presupuestador — CIERRE DE CALIBRACION SESION 3 (M7+M8+M9 + 3 fixes)
 - Etapa: Cierre de calibracion estimado vs real
 - Cambio: Cliente confirmo verificacion funcional OK de los 3 fixes post-QA (Details con Unidad, combo de composicion corregido, columna Unidad en Detalle) y reporto horas reales: **2.0h totales** para todo el sprint (M7+M8+M9 + los 3 fixes). Estimado M base 11.5h (desvio -82.6%), con contingencia 13.69h (desvio -85.4%). Ratio PERT-contingencia/real = 6.84x y ratio formula-vigente/real = 2.76x — segundo lugar del dataset historico, detras de vinosefue (7.07x/2.86x).

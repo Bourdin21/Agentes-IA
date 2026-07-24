@@ -722,3 +722,196 @@ regresiones:
       - "Crear compra manual (Borrador) con 2 items -> cancelarla -> items vuelven a aparecer en Compras/Crear y la compra queda Cancelada con 0 items vinculados."
       - "Compra Generada con Factura posteada -> cancelar -> Factura se revierte (regresion, ya cubierto por prueba existente del implementador)."
       - "Compra Recibida -> intentar cancelar -> sigue rechazado (transicion invalida, sin cambios)."
+
+  # ── Entradas especificas del proyecto crm-olvidata (BlankProject/KoiDumplings base .NET 10 + EF Core + MySQL) ─────
+
+  - id: CRM-001
+    modulo: "Bot / Outbound (BotController.TogglePausa)"
+    titulo: "Pausar/reanudar el scheduler outbound no genera ningun registro en AuditLog: el toggle es un flag estatico en memoria, sin escritura a AppDbContext, por lo que SaveChanges (unico disparador del audit trail automatico) nunca corre"
+    severidad: major
+    reproducido_en: "crm-olvidata - main, revision estatica de codigo tras implementacion de la migracion de BotPublicitario (2026-07-17), no reproducido contra la app corriendo (requiere DB levantada)"
+    pasos:
+      - "Como Administrador o SuperUsuario, ir a Bot / Outbound (/Bot/Index)."
+      - "Click en 'Pausar outbound' (o 'Reanudar outbound'), confirmar el SweetAlert2."
+      - "Ir a Auditoria (/Audit/Index, requiere SuperUsuario) y buscar un registro con EntityName relacionado al scheduler/outbound alrededor de ese horario."
+    sintoma: "No aparece ningun registro en Audit/Index para la accion de pausar/reanudar. BotController.TogglePausa() solo hace 'OutboundSchedulerService.IsStandby = !OutboundSchedulerService.IsStandby;' (un 'static volatile bool' en memoria) y loguea por Serilog (_logger.LogInformation) — nunca toca _db ni llama a SaveChangesAsync, que es el unico lugar donde AppDbContext arma el audit trail automatico (OnBeforeSaveChanges solo se ejecuta dentro de SaveChanges/SaveChangesAsync, iterando ChangeTracker.Entries())."
+    expectativa: "docs/crm-olvidata/definiciones/2-disenador-funcional.md HU-10 CA2: 'pausar/reanudar requiere confirmacion y queda registrado en auditoria (via usuario autenticado, no header compartido)'. El propio implementador lo listo como prueba minima #7 en 5-implementador.md ('pausar/reanudar... queda en AuditLog, verificar en Audit/Index como SuperUsuario')."
+    causa_raiz: "IsStandby es un campo estatico sin representacion en base de datos (decision de Arquitectura, ver 3-arquitecto-mvc.md §2: 'flag Standby estatico leido/escrito desde BotController'). El unico mecanismo de auditoria automatica del sistema (AppDbContext.OnBeforeSaveChanges) solo captura cambios sobre EntityEntry del ChangeTracker durante SaveChanges; un toggle que no crea/modifica ninguna entidad nunca genera un AuditEntry, a diferencia de ContactosController.CambiarEstado (que si modifica Contacto.EstadoEmbudo, una entidad real, y por eso si audita correctamente)."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataCRM.Web/Controllers/BotController.cs
+        motivo: "PENDIENTE DE AUTORIZACION (Implementador): en TogglePausa, insertar manualmente un AuditLog (UserId/UserName desde User, Action='Update', EntityName='OutboundScheduler', NewValues=JSON con el nuevo valor de IsStandby, Timestamp=DateTime.UtcNow, IpAddress desde HttpContext) y llamar a _db.SaveChangesAsync() antes del redirect. Requiere volver la accion async (hoy es 'IActionResult' sincronico)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "BotController.TogglePausa() en OlvidataCRM.Web/Controllers/BotController.cs"
+      condicion_falla: "El metodo no contiene ninguna llamada a _db.SaveChangesAsync()/_db.AuditLogs.Add(...), por lo que un POST a /Bot/TogglePausa nunca puede producir una fila nueva en la tabla AuditLogs."
+    criterio_aceptacion:
+      - "Tras confirmar 'Pausar outbound' o 'Reanudar outbound', Audit/Index (SuperUsuario) muestra un registro nuevo con UserName del usuario autenticado y el valor resultante de Standby."
+      - "El toggle sigue funcionando igual (IsStandby cambia, el badge de estado en Bot/Index refleja el nuevo valor) — el fix es aditivo, no cambia el comportamiento actual del scheduler."
+    pruebas_minimas:
+      - "Pausar el outbound estando activo -> verificar badge 'En pausa' + nuevo registro en Audit/Index."
+      - "Reanudar el outbound estando en pausa -> verificar badge 'Activo' + nuevo registro en Audit/Index."
+    fix_aplicado:
+      fecha: "2026-07-17"
+      por: "implementador"
+      resultado: "aplicado"
+      archivos:
+        - path: OlvidataCRM.Web/Controllers/BotController.cs
+          motivo: "TogglePausa() vuelto async Task<IActionResult>; inserta AuditLog manual (Action=Update, EntityName=OutboundScheduler, NewValues=JSON de IsStandby, UserId/UserName/IpAddress desde el request) y llama _db.SaveChangesAsync() antes del redirect. Fix aditivo, el toggle en si no cambio."
+      build: "dotnet build OlvidataCRM.slnx -> Compilacion correcta, 0 Errores (mismos 9 warnings preexistentes, ninguno nuevo)."
+      verificacion: "Verificable por codigo y por prueba manual UI (pausar/reanudar + revisar Audit/Index como SuperUsuario), no requiere credenciales externas. Prueba manual UI queda como hand-off a QA."
+
+  - id: CRM-002
+    modulo: "Contactos / Details (selector 'Cambiar estado')"
+    titulo: "El selector manual de EstadoEmbudo en Contactos/Details es visible para el rol Vendedor pese a que la accion CambiarEstado exige RequireAdministracion (defensa en profundidad rota del lado de la vista)"
+    severidad: minor
+    reproducido_en: "crm-olvidata - main, revision estatica de codigo (Views/Contactos/Details.cshtml + ContactosController.cs), no reproducido contra la app corriendo"
+    pasos:
+      - "Login como Vendedor (rol sin Administrador/SuperUsuario)."
+      - "Ir a Contactos -> Details de cualquier contacto."
+      - "Observar la card 'Estado': aparece el selector 'Cambiar estado (manual)' con combo y boton 'Aplicar'."
+      - "Elegir un estado y confirmar el SweetAlert2."
+    sintoma: "El formulario/selector se renderiza igual para Vendedor que para Administrador+ (Views/Contactos/Details.cshtml no tiene ningun @if(User.IsInRole(...)) alrededor de la card de 'Cambiar estado'). Al confirmar, el POST a CambiarEstado es rechazado por la policy RequireAdministracion del controller (redirect a AccessDenied o 403), pero el usuario Vendedor ya vio y uso un control que nunca iba a funcionar para el."
+    expectativa: "docs/crm-olvidata/definiciones/2-disenador-funcional.md §4 (matriz de permisos): 'Contactos — Cambiar estado manual: SuperUsuario si, Administrador si, Vendedor NO'. El mismo documento aplica en otros lugares (sidebar de _Layout.cshtml, ya correcto) el patron de ocultar en la vista lo que la policy del controller ya bloquea (defensa en profundidad end-to-end, no solo del lado servidor)."
+    causa_raiz: "Views/Contactos/Details.cshtml construye la card 'Estado' completa (incluido el <form id=\"formCambiarEstado\">) sin envolverla en un chequeo de rol, a diferencia de _Layout.cshtml que si gatea cada seccion del sidebar por rol. El ViewModel EstadosDisponibles siempre se puebla en el controller (Details no discrimina por rol al armarlo), asi que la vista no tiene forma de saber que ocultar sin el chequeo explicito."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataCRM.Web/Views/Contactos/Details.cshtml
+        motivo: "PENDIENTE DE AUTORIZACION (Implementador): envolver la card 'Estado' (o al menos el <form id=\"formCambiarEstado\">) en '@if (User.IsInRole(\"Administrador\") || User.IsInRole(\"SuperUsuario\")) { ... } else { <span class=\"ov-badge neutral\">Solo Administracion puede cambiar el estado</span> }', igual criterio que la policy RequireAdministracion del controller."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "#formCambiarEstado en /Contactos/Details/{id} con sesion Vendedor"
+      condicion_falla: "El formulario 'Cambiar estado' es visible/interactuable para un usuario con rol Vendedor (sin Administrador/SuperUsuario)."
+    criterio_aceptacion:
+      - "Vendedor NO ve el formulario/selector 'Cambiar estado (manual)' en Contactos/Details."
+      - "Administrador y SuperUsuario si lo ven y pueden usarlo, sin cambios de comportamiento."
+    pruebas_minimas:
+      - "Login Vendedor -> Contactos/Details de cualquier contacto -> confirmar que no aparece el selector de estado (prueba manual UI, PASS/FAIL a reportar por el usuario)."
+      - "Login Administrador -> mismo flujo -> selector visible y funcional (regresion)."
+
+  - id: CRM-003
+    modulo: "Contactos / Index e Industrias / Index (DataTable server-side)"
+    titulo: "Click en el encabezado de una columna del DataTable no reordena los datos: GetData de ContactosController e IndustriasController ignoran los parametros order[0][column]/order[0][dir] que DataTables envia y siempre devuelven un orden fijo"
+    severidad: minor
+    reproducido_en: "crm-olvidata - main, revision estatica de codigo (ContactosController.GetData, IndustriasController.GetData), no reproducido contra la app corriendo"
+    pasos:
+      - "Ir a Contactos (o Industrias) y hacer click en el encabezado de cualquier columna orderable (ej. 'Nombre')."
+      - "Observar la flecha de orden en el encabezado (cambia visualmente) y los datos de la tabla."
+    sintoma: "La UI de DataTables muestra la flecha de orden cambiando (asc/desc) pero las filas devueltas por el servidor no cambian de orden: ContactosController.GetData siempre hace '.OrderByDescending(c => c.FechaUltimaActividad)' e IndustriasController.GetData siempre hace '.OrderBy(i => i.Orden)', sin leer Request.Form[\"order[0][column]\"]/Request.Form[\"order[0][dir]\"] que el DataTable si envia (a diferencia de AuditController.GetData, que si implementa GetSortColumn() + SortColumn/SortDirection)."
+    expectativa: "Un DataTable server-side estandar del Design System del estudio permite ordenar por cualquier columna orderable haciendo click en su encabezado (mismo patron ya implementado en AuditController.GetData)."
+    causa_raiz: "ContactosController.GetData e IndustriasController.GetData no fueron migrados con el mismo soporte de ordenamiento dinamico que ya existe en AuditController.GetData (patron ya validado en la base del estudio); ambos hardcodean un unico OrderBy fijo."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataCRM.Web/Controllers/ContactosController.cs
+        motivo: "PENDIENTE DE AUTORIZACION (Implementador): leer Request.Form[\"order[0][column]\"]/[\"order[0][dir]\"] + Request.Form[\"columns[{col}][data]\"] (mismo patron de AuditController.GetSortColumn) y aplicar un switch de OrderBy dinamico sobre las columnas visibles, con OrderByDescending(FechaUltimaActividad) como fallback."
+      - path: OlvidataCRM.Web/Controllers/IndustriasController.cs
+        motivo: "PENDIENTE DE AUTORIZACION (Implementador): mismo patron, con OrderBy(Orden) como fallback."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "POST /Contactos/GetData y POST /Industrias/GetData con order[0][column]/order[0][dir]"
+      condicion_falla: "La consulta del controller no referencia Request.Form[\"order[0][column]\"] ni Request.Form[\"order[0][dir]\"] en ningun punto (confirmado por lectura de codigo)."
+    criterio_aceptacion:
+      - "Click en el encabezado 'Nombre' (o cualquier columna orderable) reordena las filas devueltas segun esa columna, asc/desc segun el click."
+      - "El orden por defecto (sin click del usuario) se mantiene igual al actual (FechaUltimaActividad desc / Orden asc) — no es una regresion del comportamiento base, es una funcionalidad faltante."
+    pruebas_minimas:
+      - "Contactos/Index: click en encabezado 'Nombre' -> verificar que el orden de las filas cambia (prueba manual UI)."
+      - "Industrias/Index: click en encabezado 'Precio USD' -> verificar que el orden cambia (prueba manual UI)."
+
+  - id: CRM-004
+    modulo: "Bot / Outbound (BotController.BuscarProspectos — CU-11/HU-08)"
+    titulo: "La busqueda manual de prospectos por Google Maps no maneja DbUpdateException por telefono duplicado dentro del mismo batch, a diferencia de OutboundSchedulerService que si lo hace: un duplicado entre resultados de distintas queries del mismo rubro puede tirar abajo toda la carga"
+    severidad: major
+    reproducido_en: "crm-olvidata - main, revision estatica de codigo (BotController.BuscarProspectos vs. OutboundSchedulerService.RunPipelineAsync), no reproducido contra la app corriendo (requiere Olvidata_GoogleMaps:ApiKey real, ver riesgo de credenciales ya senalado por el implementador)"
+    pasos:
+      - "Como Administrador, ir a Bot/Index -> 'Buscar prospectos por rubro' -> elegir un rubro -> Buscar."
+      - "Caso en el que Google Places devuelve el mismo negocio (mismo telefono normalizado) para dos queries distintas del mismo rubro dentro de la misma corrida (ej. 'farmacia La Plata centro' y 'farmacia La Plata norte' listando el mismo local)."
+    sintoma: "BotController.BuscarProspectos arma todos los Contacto nuevos en memoria dentro de un foreach (chequeando duplicado solo contra la DB con AnyAsync, no contra los que el mismo loop ya agrego sin guardar) y recien llama a un unico _db.SaveChangesAsync() al final. Si dos prospectos del mismo batch comparten Telefono, el indice unico de Contactos.Telefono hace fallar ese SaveChangesAsync con DbUpdateException sin try/catch, lo que revienta la accion completa (los demas prospectos legitimos y unicos de esa busqueda tampoco se guardan)."
+    expectativa: "docs/crm-olvidata/definiciones/3-arquitecto-mvc.md §5 ('Concurrencia en alta de Contacto') ya establece el patron esperado: capturar la excepcion de duplicado y seguir (UPDATE o skip) en vez de tirar toda la operacion abajo. OutboundSchedulerService.RunPipelineAsync ya implementa exactamente ese patron (SaveChangesAsync por contacto + catch DbUpdateException + Detached). BotController.BuscarProspectos deberia seguir el mismo patron ya que ejecuta el mismo tipo de alta masiva desde el mismo servicio (IGoogleMapsService)."
+    causa_raiz: "BotController.BuscarProspectos usa un unico _db.SaveChangesAsync() al final del foreach en vez de guardar incrementalmente con manejo de excepcion por fila, patron ya resuelto en OutboundSchedulerService pero no reutilizado aqui."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataCRM.Web/Controllers/BotController.cs
+        motivo: "PENDIENTE DE AUTORIZACION (Implementador): mover el _db.SaveChangesAsync() dentro del foreach (por prospecto) con try/catch(DbUpdateException) que haga db.Entry(nuevoContacto).State = EntityState.Detached y continue, igual patron que OutboundSchedulerService.RunPipelineAsync."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "BotController.BuscarProspectos() en OlvidataCRM.Web/Controllers/BotController.cs"
+      condicion_falla: "El foreach que agrega Contacto no tiene SaveChangesAsync ni try/catch por iteracion; existe un unico SaveChangesAsync() fuera del loop sin manejo de DbUpdateException."
+    criterio_aceptacion:
+      - "Una busqueda cuyos resultados incluyen un telefono duplicado dentro del mismo batch guarda igual todos los prospectos unicos (el duplicado se ignora, no revienta la operacion completa)."
+      - "El mensaje final ('Búsqueda completada: X encontrados, Y contactos nuevos agregados') refleja correctamente Y como los realmente persistidos."
+    pruebas_minimas:
+      - "BLOQUEADA hasta contar con Olvidata_GoogleMaps:ApiKey real (ver riesgo de credenciales del implementador) — no ejecutable como prueba end-to-end en este ciclo de QA. Verificable por codigo/unit-level cuando se disponga de credenciales o de un doble de prueba para IGoogleMapsService."
+    fix_aplicado:
+      fecha: "2026-07-17"
+      por: "implementador"
+      resultado: "aplicado"
+      archivos:
+        - path: OlvidataCRM.Web/Controllers/BotController.cs
+          motivo: "BuscarProspectos(): el SaveChangesAsync() unico al final del foreach se movio dentro del loop, por prospecto, envuelto en try { await _db.SaveChangesAsync(); agregados++; } catch (DbUpdateException) { _db.Entry(nuevoContacto).State = EntityState.Detached; } — mismo patron ya usado en OutboundSchedulerService.RunPipelineAsync. El mensaje final de 'agregados' sigue reflejando solo los realmente persistidos."
+      build: "dotnet build OlvidataCRM.slnx -> Compilacion correcta, 0 Errores (mismos 9 warnings preexistentes, ninguno nuevo)."
+      verificacion: "El fix replica un patron ya probado en codigo (OutboundSchedulerService), verificable por revision estatica. La prueba end-to-end (forzar duplicado real de telefono dentro del mismo batch de Google Maps) SIGUE BLOQUEADA hasta contar con Olvidata_GoogleMaps:ApiKey real — no se pudo cerrar ese criterio de aceptacion en este ciclo, queda para cuando haya credenciales o un doble de prueba de IGoogleMapsService."
+
+  - id: CRM-005
+    modulo: "Bot — maquina de estados FaseConversacion (AwaitingIndustry)"
+    titulo: "Un rubro no reconocido en AwaitingIndustry no asigna Categoria=rent_other como especifica la tabla de Diseno; en su lugar cae a 'rent' (solo se asigna rent_other si el texto es exactamente 'Otro rubro')"
+    severidad: minor
+    reproducido_en: "crm-olvidata - main, revision estatica de codigo (BotFlowService.OnIndustryInputAsync), no reproducido contra WhatsApp real (bloqueado por falta de credenciales, ver riesgo del implementador)"
+    pasos:
+      - "Simular via POST /webhook/whatsapp una respuesta de texto libre no numerica en fase AwaitingIndustry (ej. el usuario escribe 'reparacion de bicicletas' en vez de elegir una opcion de la lista 1-8)."
+    sintoma: "OnIndustryInputAsync hace 'var industry = IndustryNames.TryGetValue(text, out var name) ? name : text;' y luego 'contacto.Categoria = industry == \"Otro rubro\" ? \"rent_other\" : \"rent\";'. Como el texto libre no matchea 'Otro rubro' textualmente, Categoria queda en 'rent' (no 'rent_other'), y el bot envia las preguntas de Questions[\"rent\"] (que asumen que el rubro ya es conocido) en vez de Questions[\"rent_other\"] (que arranca preguntando '¿A que se dedica exactamente tu negocio?', mas apropiado cuando el rubro no fue identificado)."
+    expectativa: "docs/crm-olvidata/definiciones/2-disenador-funcional.md §3, tabla FaseConversacion: 'AwaitingIndustry | Responde rubro (numero o texto) | AskingQuestions | — | Mapear a IndustriaCatalogo, enviar 1a pregunta | Rubro no reconocido -> Categoria=rent_other'."
+    causa_raiz: "La condicion 'industry == \"Otro rubro\"' solo cubre el caso en que el usuario elige explicitamente la opcion de lista '8' (Otro rubro); no cubre el caso de texto libre arbitrario no listado, que es el escenario real que la fila de la tabla de Diseno describe."
+    capa: Infrastructure
+    archivos_fix:
+      - path: OlvidataCRM.Infrastructure/Services/BotFlowService.cs
+        motivo: "PENDIENTE DE AUTORIZACION (Implementador): en OnIndustryInputAsync, la asignacion de Categoria deberia ser 'rent_other' tanto cuando industry == \"Otro rubro\" como cuando el texto no matcheo ningun IndustryNames conocido (es decir, cuando 'name' de IndustryNames.TryGetValue fue false), no solo en el primer caso."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "BotFlowService.OnIndustryInputAsync() en OlvidataCRM.Infrastructure/Services/BotFlowService.cs"
+      condicion_falla: "Con un 'text' que no es clave de IndustryNames y distinto de la cadena literal 'Otro rubro', Categoria resultante es 'rent' en vez de 'rent_other'."
+    criterio_aceptacion:
+      - "Un rubro no reconocido (texto libre no listado ni igual a 'Otro rubro') deja Categoria='rent_other' y el bot envia la primera pregunta de Questions['rent_other']."
+      - "Elegir una opcion valida de la lista (1-8, incluida '8'=Otro rubro) no cambia su comportamiento actual (regresion)."
+    pruebas_minimas:
+      - "BLOQUEADA hasta contar con credenciales de WhatsApp reales o un entorno de prueba del webhook — no ejecutable end-to-end en este ciclo de QA. Verificable por codigo cuando el Implementador aplique el fix."
+
+  - id: CRM-006
+    modulo: "Bot — notificacion a Joaquin (CU-05/HU-05)"
+    titulo: "La notificacion in-app (campanita) al calificar o pedir demo nunca se crea: BotFlowService solo envia el brief por WhatsApp (SendBriefToAdminAsync), INotificationService no esta inyectado ni se referencia en ningun punto del flujo del bot"
+    severidad: major
+    reproducido_en: "crm-olvidata - main, revision estatica de codigo (BotFlowService.cs, grep de INotificationService en toda la solucion), NO bloqueado por falta de credenciales de WhatsApp: la creacion de una Notification in-app es un INSERT en base de datos, no requiere ninguna API externa, por lo que es 100% verificable por codigo sin credenciales reales"
+    pasos:
+      - "Leer OlvidataCRM.Infrastructure/Services/BotFlowService.cs completo: el constructor solo recibe AppDbContext, IWhatsAppClient, IOptions<BotSettings> y ILogger — no INotificationService."
+      - "Buscar 'INotificationService' o 'NotificationService' en todo el proyecto (grep): solo aparece en DependencyInjection.cs (registro DI), NotificationsController.cs (pantalla de campanita existente) y NotificationService.cs (implementacion) — nunca en BotFlowService, OutboundCampaignService, BotController ni ContactosController."
+    sintoma: "Cuando el bot completa la calificacion de un lead (con o sin presupuesto automatico) o cuando alguien pide demo, SendBriefToAdminAsync manda unicamente el mensaje de WhatsApp a AdminNotifyPhone. La campanita de notificaciones in-app (ya construida y funcional en el sistema para otros modulos, ver NotificationsController/Notification entity) nunca recibe una fila nueva para este evento: si Joaquin no tiene el WhatsApp a mano o el mensaje de WhatsApp falla (try/catch silencioso en SendBriefToAdminAsync que solo logea el error), no queda ningun rastro visible dentro del CRM mismo."
+    expectativa: "docs/crm-olvidata/definiciones/2-disenador-funcional.md HU-05: 'CA1: recibo una notificacion in-app (campanita) con el resumen completo. CA2: recibo el mismo resumen por WhatsApp al numero admin configurado.' docs/crm-olvidata/definiciones/1-analista-funcional.md CU-05: 'Al calificar o pedir demo se crea una Notification in-app (campanita) + WhatsApp a ADMIN_NOTIFY_PHONE, mismo contenido en ambos canales.' Solo se implemento el canal WhatsApp; el canal in-app (CA1) no existe en el codigo."
+    causa_raiz: "BotFlowService.SendBriefToAdminAsync fue escrito unicamente como port del mensaje de WhatsApp existente en BotPublicitario (que nunca tuvo persistencia in-app, porque BotPublicitario no tiene base de datos). Al migrar, no se agrego la llamada a INotificationService.CreateAsync(...) pese a que CU-05/HU-05 la piden explicitamente y el servicio ya existe, probado, en la base (NotificationService), listo para inyectar."
+    capa: Infrastructure
+    archivos_fix:
+      - path: OlvidataCRM.Infrastructure/Services/BotFlowService.cs
+        motivo: "PENDIENTE DE AUTORIZACION (Implementador): inyectar INotificationService en el constructor y, dentro de SendBriefToAdminAsync (o inmediatamente despues), llamar a _notifications.CreateAsync(superUsuarioId, titulo, mensaje, url: \"/Contactos/Details/{id}\", icon: \"fas fa-user-plus\") con el mismo contenido armado para el WhatsApp. Requiere resolver que UserId recibe la notificacion (candidato: el/los usuarios con rol SuperUsuario/Administrador, via UserManager o una consulta a AspNetUsers por rol, ya que Contacto no tiene FK a un usuario especifico)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "BotFlowService.cs (grep de 'INotificationService')"
+      condicion_falla: "Ninguna referencia a INotificationService/NotificationService en BotFlowService.cs, OutboundCampaignService.cs, BotController.cs (confirmado por busqueda de texto en toda la solucion)."
+    criterio_aceptacion:
+      - "Al completarse la calificacion de un lead (con o sin presupuesto automatico) se crea una fila nueva en Notifications visible en la campanita del/los usuario(s) Administrador/SuperUsuario, con el mismo contenido que el mensaje de WhatsApp enviado a AdminNotifyPhone."
+      - "El fallo del envio de WhatsApp (ya manejado con try/catch) no debe impedir que la notificacion in-app se cree (son dos canales independientes, igual que exige CU-05)."
+    pruebas_minimas:
+      - "Simular POST /webhook/whatsapp completando un flujo de calificacion hasta el cierre (bloqueado hoy por falta de Olvidata_WhatsApp:AccessToken real para el ENVIO, pero la creacion de la Notification in-app no depende de esa credencial y deberia poder validarse en cuanto el Implementador aplique el fix, incluso simulando IWhatsAppClient)."
+      - "Verificar en Notifications/Index (o la campanita del topbar) que aparece un registro nuevo tras cada cierre de calificacion."
+    fix_aplicado:
+      fecha: "2026-07-17"
+      por: "implementador"
+      resultado: "aplicado"
+      archivos:
+        - path: OlvidataCRM.Infrastructure/Services/BotFlowService.cs
+          motivo: "Inyectados INotificationService y UserManager<ApplicationUser> en el constructor (ambos ya registrados en DI, sin cambios de registro). SendBriefToAdminAsync extrae el mensaje a una variable comun y llama al metodo nuevo NotifyAdminsInAppAsync(contacto, mensaje) antes del try/catch de WhatsApp. NotifyAdminsInAppAsync resuelve destinatarios via _userManager.GetUsersInRoleAsync(SuperUsuario) + GetUsersInRoleAsync(Administrador), deduplicados por Id, y llama _notifications.CreateAsync(userId, 'Nuevo lead calificado', mensaje, url: /Contactos/Details/{id}, icon: fas fa-user-plus) por cada uno. Envuelto en try/catch propio para que un fallo de notificacion tampoco bloquee el WhatsApp (simetria con el criterio ya exigido en sentido inverso)."
+      build: "dotnet build OlvidataCRM.slnx -> Compilacion correcta, 0 Errores (mismos 9 warnings preexistentes, ninguno nuevo)."
+      verificacion: "100% verificable por codigo y por prueba funcional SIN credenciales de WhatsApp reales (la creacion de Notification es un INSERT en base de datos, no depende de API externa) — no quedo nada bloqueado de este item. Prueba funcional (completar calificacion y verificar Notifications/Index para Administrador/SuperUsuario) queda como hand-off a QA."

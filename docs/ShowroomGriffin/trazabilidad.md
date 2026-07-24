@@ -246,6 +246,18 @@ Si no existen, **detener implementación** y solicitar al usuario que active los
 
 ---
 
+## 📌 Entrada 2026-07-23 — Barrido cross-proyecto: mergeados runbook + metadata + as-built desde memoria local del repo
+
+- **Cambio**: se detecto que `C:\Sistemas\ShowroomGriffin\docs\` (repo local del proyecto) tenia contenido no reflejado en Agentes-IA:
+  1. Runbook operativo de migraciones en produccion (host `mysql5045.site4now.net`, credenciales, Camino A/B, rollback, script `Apply-ProdMigrations.ps1`) → copiado a `docs/ShowroomGriffin/runbook-migraciones-produccion.md` (no existia ningun runbook centralizado para este proyecto).
+  2. `metadata.md` local (snapshot 2026-05-19) mucho mas completo y actualizado que el central (dated 2026-04-23, con items "⏳ Pendiente" ya completados) → `metadata.md` central reemplazado por el contenido as-built, preservando las decisiones tecnicas historicas del documento viejo en una seccion dedicada.
+  3. Resumen as-built de convenciones/decisiones por modulo + tabla de etapas E0-E5 (que no existia en el plan pre-implementacion R1-R12 ya guardado en `5-implementador.md`) → agregado como seccion nueva al final de `definiciones/5-implementador.md`.
+- **Motivo**: pedido explicito del usuario de auditar cada carpeta de proyecto individual en busca de especificaciones que debieran vivir en la memoria centralizada de Agentes-IA, y mergearlas.
+- **Impacto en capas**: N/A (documentos de memoria/operativos).
+- **Riesgos/supuestos**: el runbook copiado contiene una credencial de produccion en texto plano (ya presente en el repo del proyecto) — considerar rotarla periodicamente. Sigue pendiente sincronizar `2-disenador-funcional.md`/`3-arquitecto-mvc.md` con el modelo final (ver `analisis-alineacion-documentacion.md` para el detalle de discrepancias no resueltas).
+
+---
+
 ## 🔗 Referencias
 
 - **Código fuente:** `C:\Sistemas\ShowroomGriffin\`

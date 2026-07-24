@@ -81,6 +81,38 @@ Si se reparte el total real (4h) proporcionalmente al peso de cada item en el M 
 3. Los 2 "fixes" simples (items 1 y 2) confirmaron el piso del rango "Ajuste puntual" (0.5-1h) — sin sorpresas ahi.
 4. Los 2 fixes post-QA (item 6) y la simplificacion de 2 reportes (item 7) confirman que "modificar reglas de negocio o reportes sobre un modulo existente" sigue barato (1-2h) incluso cuando toca varias capas, siempre que no haya migracion nueva.
 
+## Cierre de calibracion — Feature "Filtro de categoria al exportar catalogo de Productos" (2026-07-13)
+
+**Real reportado por el cliente:** 1 h 30 min (1.5 h) totales, cubriendo diseño+analisis (identificar que no existia campo de categoria, decidir tabla nueva vs enum), implementacion completa (entidad, migracion, servicio, pantalla admin, modal de exportar) y el deploy de la migracion + script de clasificacion en produccion.
+
+### Reconstruccion PERT retroactiva por item (ancla ya corregida: "iteracion evolutiva", no "modulo nuevo")
+
+| # | Item | Anclaje | M | PERT | Riesgo | Final (h) |
+|---|---|---|---:|---:|---|---:|
+| 1 | Entidad `CategoriaProducto` + FK nullable + migracion (copia patron de `GrupoProducto`) | Iteracion evolutiva — ledger/entidad reutilizando patron existente (~1-1.5h) | 1.0 | 1.04 | Bajo +8% | 1.12 |
+| 2 | Extender `ProductoCatalogoService` (filtro `categoriaIds` + `GetCategoriasAsync`) | Agregar regla de negocio sobre modulo existente (~1-2h, tomado en el piso) | 0.75 | 0.78 | Bajo +8% | 0.85 |
+| 3 | Pantalla admin `Productos/Categorias` (tabla + autosave + contador) reutilizando patron de autosave ya construido en Compras/Detalle | ABM simple nuevo, con reutilizacion fuerte | 1.5 | 1.57 | Bajo +8% | 1.69 |
+| 4 | Modal de exportar: 4 checkboxes + validacion + JS (copia patron exacto de columnas ya existente) | Ajuste puntual sobre UI existente | 0.5 | 0.53 | Bajo +8% | 0.57 |
+| 5 | Script de clasificacion inicial (reglas + verificacion por SELECT antes de UPDATE) | Iteracion evolutiva — script de datos | 1.0 | 1.04 | Bajo +8% | 1.12 |
+| 6 | Deploy migracion + script en produccion (incluye backup, hallazgo del seed en `SeedData.cs`, discrepancia 123 vs 134 grupos) | Iteracion evolutiva — deploy con dato real | 1.0 | 1.04 | Medio +15% | 1.20 |
+
+**M total (formula):** 5.75 h. **PERT+contingencia (Paso B):** 6.55 h.
+
+### Comparacion estimado vs real
+
+| Metrica | Valor |
+|---|---:|
+| Horas PERT+contingencia | 6.55 h |
+| Horas reales | 1.5 h |
+| Ratio PERT-contingencia/real | **4.37x** |
+| Horas formula vigente (M/2.5×1.20) | 2.76 h |
+| Ratio formula/real | **1.84x** |
+
+### Lectura: la recalibracion anterior esta funcionando
+
+Este es el **segundo cierre real desde que se corrigio la regla de granularidad** ("iteracion evolutiva vs modulo nuevo", ver cierre del 2026-07-03). Los ratios de este cierre (4.37x / 1.84x) son mas bajos que el cierre anterior (7.07x / 2.86x) — es decir, anclar explicitamente en reutilizacion de patrones desde el arranque de la reconstruccion (en vez de partir de rangos de "modulo nuevo" y corregir despues) ya esta produciendo estimaciones mas ajustadas a la realidad, aunque todavia sobreestiman. Sigue habiendo margen de ajuste a la baja en los rangos de "iteracion evolutiva" (ver `27-presupuesto-parametros.instructions.md`).
+
 ## Historial de ajustes
 - 2025-07-01: cierre real registrado
 - 2026-07-03: cierre de calibracion (reconstruccion retroactiva) del sprint "Compras al proveedor: armado manual y cuenta corriente" — 4h reales vs 28.27h PERT reconstruido, ratio record 7.07x. Ver `27-presupuesto-parametros.instructions.md` para los ajustes de parametros derivados.
+- 2026-07-13: cierre de calibracion del feature "Filtro de categoria al exportar catalogo" — 1.5h reales vs 6.55h PERT reconstruido (ya anclado en "iteracion evolutiva"), ratio 4.37x — mas bajo que el cierre anterior, confirma que la recalibracion de granularidad esta reduciendo la sobreestimacion.

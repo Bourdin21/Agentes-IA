@@ -18,3 +18,4 @@ Registrar una fila por cada proyecto con memoria activa en /docs.
 | contadores-bma-conversor | 2026-06-24 | activo | /docs/contadores-bma-conversor |
 | century-21 | 2026-06-25 | activo | /docs/century-21 |
 | decorhogar | 2026-06-29 | activo | /docs/decorhogar |
+| crm-olvidata | 2026-07-14 | qa (defectos major pendientes) | /docs/crm-olvidata |

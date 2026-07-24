@@ -20,6 +20,7 @@ Proyectos de referencia disponibles:
 - /docs/ganaderia/definiciones/4-presupuestador.md (20 h reales, 8 modulos funcionales, 101.0 h PERT con contingencia estimadas — CIERRE REAL 2026-07-03, ratio PERT/real record del dataset: 5.05x. Precio comercial real: USD 950 total con 15% desc. referido + 1er año de mantenimiento incluido; desarrollo puro ≈ USD 650 ≈ USD 32.5/h efectivo, cercano al objetivo USD 35/h. **Proyecto de referencia comercial para alcances similares.**)
 - /docs/vinosefue/definiciones/4-presupuestador.md — sprint "Compras al proveedor: armado manual y cuenta corriente" (4 h reales total del lote, 8 items reconstruidos retroactivamente en 28.27 h PERT con contingencia — CIERRE REAL 2026-07-03, **nuevo record del dataset: ratio PERT/real 7.07x, ratio formula/real 2.86x**. Es una iteracion evolutiva (reutiliza CuentaCorriente/MovimientoCC de Cliente, AdjuntoService, MetodoPago), no un proyecto nuevo desde cero — ver regla de granularidad nueva abajo.)
 - /docs/labipac/definiciones/4-presupuestador.md — SESION 3 (3 modulos: Unidad/PrecioPorUnidad en Perfiles, Carga masiva + alta rapida, fix ancho columna PDF; 11.5 h M base / 13.69 h con contingencia — CIERRE REAL 2026-07-08, 2.0 h reales totales incluyendo 3 fixes post-QA. **Segundo lugar del dataset: ratio PERT-contingencia/real 6.84x, ratio formula/real 2.76x** (detras de vinosefue 7.07x/2.86x). Es la 3ra ronda de mejoras evolutivas sobre el mismo sistema (reutiliza el patron visual/AJAX de la card IVA de F-002, el AJAX GetPrecioItem y CreateAsync ya existentes) — ver regla de "segunda/tercera ronda sobre el mismo modulo" agregada abajo.)
+- /docs/vinosefue/definiciones/4-presupuestador.md — feature "Filtro de categoria al exportar catalogo de Productos" (6 items reconstruidos ya anclados en "iteracion evolutiva" desde el arranque — 5.75 h M base / 6.55 h con contingencia — CIERRE REAL 2026-07-13, 1.5 h reales totales incluyendo diseño, implementacion completa y deploy de migracion+script en produccion. **Ratio PERT-contingencia/real 4.37x, ratio formula/real 1.84x — el mas bajo del dataset entre los cierres "evolutivos"**, confirma que anclar la reconstruccion en reutilizacion de patrones desde el inicio (no solo corregir despues) sigue bajando el ratio de sobreestimacion.)
 
 ## Conclusion de calibracion
 
@@ -202,6 +203,7 @@ Patron confirmado de ratio PERT / real en proyectos con IA asistida:
 | contadores-bma-conversor | ~13.1 h (PERT) | 8 h | 1.6x | ~5.3 h (formula) | 0.66x |
 | vinosefue — sprint compras proveedor (CIERRE REAL 2026-07-03, reconstruccion retroactiva, sin presupuesto formal previo) | 28.27 h | 4 h (total del lote, sin desglose por item) | **7.07x — record del dataset** | ~11.42 h | **2.86x — record del dataset** |
 | labipac — SESION 3 (M7+M8+M9 + 3 fixes post-QA, CIERRE REAL 2026-07-08) | 13.69 h | 2.0 h (total, incluye 3 fixes post-QA) | **6.84x — segundo lugar del dataset** | 5.52 h | **2.76x — segundo lugar del dataset** |
+| vinosefue — feature filtro categoria en export catalogo (CIERRE REAL 2026-07-13, reconstruccion ya anclada en "iteracion evolutiva") | 6.55 h | 1.5 h (total, incluye deploy en produccion) | **4.37x — el mas bajo del grupo "evolutivo"** | 2.76 h | **1.84x — el mas bajo del grupo "evolutivo"** |
 
 Ganaderia reemplaza su dato previo de "~30 h total" (proyeccion) por el cierre real de 20 h — ahora el ratio PERT/real (5.05x) es el mas alto del dataset y el ratio formula/real (1.93x) es el segundo mas alto. El dato empuja levemente el factor de eficiencia hacia arriba de 2.5, pero no se ajusta el factor unilateralmente por este cierre (ver regla debajo).
 
@@ -214,6 +216,8 @@ sobre horas reales retroactivas, no sobre M estimado. No afecta la validez de la
 proyectos futuros donde se aplica correctamente desde el inicio con M real.
 
 Factor de calibracion 2.5: fijo hasta que Energy Nutrition cierre. Recalibrar con ese cierre. El cierre real de Ganaderia (ratio PERT-contingencia/real 5.05x, el mas alto del dataset) es evidencia adicional a favor de subir el factor por encima de 2.5 en esa recalibracion futura.
+
+**Tendencia confirmada por 2 cierres consecutivos (vinosefue 2026-07-13, y en menor medida labipac 2026-07-08):** cuando la reconstruccion PERT se ancla desde el arranque en "iteracion evolutiva / reutilizacion de patron existente" (en vez de partir de rangos de "modulo nuevo" y corregir despues), el ratio de sobreestimacion baja de forma consistente — de 7.07x/2.86x (vinosefue compras proveedor, la reconstruccion que origino la regla) a 6.84x/2.76x (labipac) a **4.37x/1.84x (vinosefue categoria, el mas bajo hasta ahora)**. La regla de granularidad sigue siendo correcta y vale la pena seguir aplicandola de entrada, no como correccion posterior — cada iteracion de calibracion la esta acercando mas a 1.0x.
 
 ## Alerta de subestimacion sistematica en deploy inicial (Junio 2026 — contadores-bma-conversor)
 

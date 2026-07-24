@@ -2163,3 +2163,42 @@ No aplica — sin cambios de modelo/datos.
 - [x] Sin cambios en permisos ni validaciones.
 - [x] Vista `Ajuste.cshtml` revisada, sin logica dependiente del origen.
 - [x] Cambio acotado a una linea en `StockController.cs`.
+
+---
+
+## Resumen as-built del proyecto (mergeado 2026-07-23 desde memoria local, snapshot 2026-05-19)
+
+> Nota de mergeo: todo lo anterior en este archivo es el **plan** pre-implementacion (R1-R12, detallado y code-heavy). Esta seccion es el resumen **as-built** real encontrado en `C:\Sistemas\ShowroomGriffin\docs\ShowroomGriffin\definiciones\5-implementador.md` (memoria local del proyecto), que documenta convenciones y decisiones tal como quedaron implementadas — util para no tener que releer las 2000+ lineas de plan para entender el estado actual del codigo.
+
+### Estado general al 2026-05-19
+- Version v1 entregada, en produccion activa.
+- Build OK. Sin migraciones pendientes conocidas al momento del relevamiento.
+
+### Convenciones establecidas (as-built)
+- **Nomenclatura**: entidades en español PascalCase (`Venta`, `CompraDetalle`, `VarianteProducto`); DTOs/ViewModels en `Application/DTOs/{Modulo}/` con sufijo `ViewModel`/`Dto`; interfaces en `Application/Interfaces/` prefijo `I` + sufijo `Service`; servicios concretos en `Infrastructure/Services/`; un controller por modulo en `Web/Controllers/`.
+- **Capas**: Domain solo entidades/enums/value objects sin dependencias externas; Application solo contratos+DTOs sin logica compleja; Infrastructure con las implementaciones (EF Core, email, export); Web con controllers delgados que delegan a servicios.
+- **Patrones en uso**: `IRepository<T>` generico con un unico repositorio concreto (`Repository<T>`); `ServiceResult<T>` como envelope de respuesta (evita excepciones en controllers); `SoftDestroyable` para borrado logico; `AuditLog` para cambios relevantes.
+- **Manejo de errores**: `GlobalExceptionHandler` captura excepciones no manejadas → respuesta amigable; `ErrorEmailNotifierMiddleware` envia email al equipo ante errores 5xx; logs estructurados con Serilog en `Logs/ShowroomGriffin-errors-{env}-{date}.log`.
+- **Seguridad**: todas las rutas requieren `[Authorize]` minimo; policies por rol en `Program.cs`; sin secretos en repo (User Secrets en dev, variables de entorno en prod).
+
+### Decisiones de implementacion por modulo (as-built)
+- **Productos/Variantes/Modelos** (V2-V7, 2026-05-18): `Modelo` es la entidad base del catalogo (`Producto` tiene FK `ModeloId`); `VarianteProducto` tiene FK `TalleConfigId` (ya no string libre); `Modelo` define `TipoTalle` (enum) y `TipoPrecio` (FK `TipoPrecioZapatillaId`); concurrencia optimista en `VarianteProducto` via `RowVersion` (byte[]).
+- **Ventas** (V5, 2026-05-18): campo de anotaciones libre; `VentaPago.CantidadCuotas` (migracion M2c); adjuntos en `wwwroot/uploads/ventas/` con GUID como nombre de archivo.
+- **Compras** (M1): adjuntos en `wwwroot/uploads/compras/` con GUID; ciclo Borrador → Confirmada → Recepcionada.
+- **Stock**: `MovimientoStock` registra cada entrada/salida (enum `TipoMovimiento`); `AjusteStock` para correcciones manuales con auditoria.
+- **Notificaciones**: entidad `Notification` en Domain; `INotificationService`/`NotificationService` (notificaciones internas, no push); JS de polling en `wwwroot/js/notifications.js`.
+- **PDF (Remitos)**: QuestPDF Community, licencia configurada en `Program.cs`; `IRemitoService`/`RemitoService` en Infrastructure.
+- **Export Excel**: `IExportService`/`ExportService` con ClosedXML, usado en ResumenSemanal y AumentoMasivo.
+
+### Etapas de implementacion registradas (as-built)
+| Etapa | Descripcion | Fecha | Estado |
+|---|---|---|---|
+| E0 | Bootstrap solucion + Identity + modulos base | 2026-03-02 | Cerrada |
+| E1 | Maestros comerciales (Marca, Modelo, Categoria, Talle, Precio) | 2026-04-16 | Cerrada |
+| E2 | Concurrencia optimista + CantidadCuotas | 2026-04-29 | Cerrada |
+| E3 | Dashboard, PDF, Excel, Notificaciones, Health Checks, PWA | 2026-05-09 | Cerrada |
+| E4 | Refactor taxonomia V2-V7 (Modelo como base, TalleConfig, V6 campos redundantes) | 2026-05-18 | Cerrada |
+| E5 | Actualizacion documentacion del proyecto | 2026-05-19 | Cerrada |
+
+### Nota pendiente heredada (sin resolver al momento del mergeo)
+El propio repo de Agentes-IA ya tenia un archivo `analisis-alineacion-documentacion.md` (dentro de `docs/ShowroomGriffin/`, fechado 2026-04-23) que señalaba un gap plan-vs-realidad entre este documento (el plan R1-R12) y lo efectivamente implementado. Este mergeo (2026-07-23) resuelve parte de ese gap incorporando el as-built real, pero **sigue pendiente** sincronizar `2-disenador-funcional.md` y `3-arquitecto-mvc.md` de este proyecto con el modelo final (Modelo como entidad base, taxonomia V2-V7) — ver ese archivo de analisis para el detalle completo de discrepancias no resueltas.

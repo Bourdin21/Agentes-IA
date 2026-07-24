@@ -91,3 +91,38 @@ Riesgos de liberacion principales: reportes `DeudaProveedor`/`Riesgo` con column
 - Feature Reversion estados pedido: **pendiente QA manual** (build OK, pendiente migracion en produccion).
 - Feature Stock propio: **pendiente QA manual** (build OK, pendiente migracion en produccion).
 - Lote "Compras al proveedor — desacople y cuenta corriente" (2026-07-03): **GO condicionado** — build OK, 9 HU + 5 CU PASS, maquina de estados cubierta, 2 defectos encontrados y corregidos (VSF-001, VSF-002). Pendiente: aplicar migraciones/scripts en produccion (aprobacion cliente), smoke manual en navegador, decision sobre reportes DeudaProveedor/Riesgo degradados. Detalle completo en `C:\Sistemas\vino-y-se-fue\docs\vino-y-se-fue\definiciones\6-qa.md`.
+
+---
+
+## Anexo historico (mergeado 2026-07-23 desde `docs/vino-y-se-fue/definiciones/6-qa.md` — carpeta stale con este unico archivo, encontrada durante el barrido cross-proyecto de memorias)
+
+### Sesion 2026-05-29/30 — Reconciliacion deuda proveedor Area 520
+
+**Punto cero:** 12/05/2026, saldo = $0 (confirmado por Rec.16431 que cierra el periodo anterior).
+
+**Base de comparacion:**
+- Sistema (PROD): $4.151.951,50 de deuda total.
+- Ledger proveedor (al 29/05): $3.233.878.
+- Diferencia: $918.073,50 (el sistema sobreestima).
+
+**CMPs reconciliadas:**
+- CMP-000003 (pre-12/5): pagada $3.499.456 efectivo. Saldo 0. Fuera de scope del punto cero.
+- CMP-000005: match exacto. FAC R4-14535 − NCR R4-14536 = $3.085.008. Pago Rec.16729 = $1.655.879. Saldo $1.429.129 = proveedor.
+
+**CMPs con discrepancia:**
+- CMP-000004: Snapshot $1.473.290 / Real $1.520.120 / Proveedor FAC aprox. $1.419.105 (R4-14539+14540+14617+14618) → diff $101.015.
+- CMP-000006+007 (sin pedidos vinculados): sistema $793.964 vs FAC R4-14760+14761 ($385.644) → diff $408.320.
+- CMP-000009 (Borrador): $399.720 sin correlato en el ledger de proveedor provisto (post-29/05 o pendiente de facturacion).
+
+**Anomalias detectadas:**
+- CMP-000006 y CMP-000007 no tienen pedidos vinculados (creadas manualmente).
+- PED-000013: `PrecioUnitCostoSnapshot × Cantidad ≠ SubtotalCosto` en 2 items (posible aplicacion de descuento no reflejada).
+- "corona 330 cc porron" (cerveza) incluida en CMP-000004 (proveedor de vinos Area 520) → $142.560 de productos de proveedores mixtos.
+
+**Preguntas que quedaron abiertas en esa sesion (no se encontro resolucion registrada en memoria posterior — verificar con el cliente/analista si siguen vigentes):**
+1. ¿Como se crearon CMP-000006 y CMP-000007? ¿Son correctos los importes?
+2. ¿"corona 330 cc porron" corresponde a Area 520 o a otro proveedor?
+3. ¿CMP-000009 tiene FAC del proveedor posterior al 29/05?
+4. ¿El pago de CMP-000003 ($3.499.456) cubre deuda pre-27/03 no incluida en el extracto?
+
+> Nota: la carpeta `docs/vino-y-se-fue/` (con guiones, distinta de `docs/vinosefue/` que es la carpeta vigente) quedo con este unico archivo residual tras la migracion de nomenclatura del proyecto. Contenido ya mergeado aca; la carpeta vieja puede eliminarse para evitar confusion futura sobre cual es la carpeta autoritativa (no se elimina en este barrido sin confirmacion explicita).

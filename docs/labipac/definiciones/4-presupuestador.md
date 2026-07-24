@@ -1,7 +1,101 @@
 ﻿# Memoria - Presupuestador
 
 ## Proyecto: labipac
-## Ultima actualizacion: 2026-07-08 — SESION 3 CERRADA con cierre de calibracion real (2.0h reales vs 11.5h M / 13.69h con contingencia)
+## Ultima actualizacion: 2026-07-23 — SESION 4: presupuesto de Produccion Mensual por Centro de Salud — PRESUPUESTO CERRADO, pendiente aprobacion cliente
+
+## SESION 4 (2026-07-23) — Presupuesto: Produccion Mensual por Centro de Salud
+
+Input: `1-analista-funcional.md` sesion 5, `2-disenador-funcional.md` sesion 3, `3-arquitecto-mvc.md` sesion 3 — todos cerrados.
+
+### PASO 0 — Anclaje historico
+Referencia primaria: la propia memoria de labipac, en particular SESION 3 (2026-07-08), que confirmo el patron de "ronda evolutiva sobre sistema ya maduro" con ratio PERT-contingencia/real 6.84x. Este pedido es la **4ta ronda de mejoras** sobre labipac — aplica la regla de "segunda/tercera ronda sobre el mismo modulo" (27-presupuesto-parametros.instructions.md): usar el piso de "Modificacion sobre modulo existente" en vez de la mediana, incluso para el ABM que aparenta ser "nuevo" (reutiliza 100% el patron ya construido 2 veces en este proyecto para Unidades Bioquimicas y Practicas).
+
+### PASO 1-3 — Modulos funcionales identificados y drivers
+
+| Modulo | Tipo | Drivers |
+|---|---|---|
+| M10 ABM Centro de Salud | ABM simple nuevo, calco de patron existente | Entidad de 2 campos utiles (Nombre, Tipo enum) + Activo, sin relaciones ni validaciones numericas — calco directo de `UnidadBioquimicaService`/`UnidadesBioquimicasController` ya construidos 2 veces en este proyecto (M1 original y su propio patron reutilizado en Practicas) |
+| M11 CentroSaludId en Produccion Mensual (FK + selector + RN-24 + columna/filtro listado) | Modificacion sobre modulo existente | +1 FK nullable, selector Select2 en Crear Periodo (reutiliza patron ya usado en modales de Produccion Mensual), ajuste de regla de unicidad ya existente (RN-11 -> RN-24, mismo patron de validacion en Service ya usado), columna + filtro en listado (patron DataTables ya usado en el sistema) |
+| M12 Centro de Salud en encabezado PDF | Ajuste puntual | 1 linea condicional nueva en `ReportePdf` ya existente, sin logica de negocio nueva |
+
+### PASO 4-5 — M ajustado, O y P
+
+| Modulo | Referencia / mediana base | Ratio M/mediana | O | M | P |
+|---|---|---|---|---|---|
+| M10 | M1 Unidades Bioquimicas (mismo proyecto, ABM simple con precio+validacion numerica: 1.5h) | 0.67 (mas simple: sin campo decimal ni validacion de rango) | 0.65 | 1.0 | 1.55 |
+| M11 | Tabla "Modificacion sobre modulo existente" (agregar campo simple 0.5h + regla de negocio 1-2h + nuevo filtro/columna 1-2h + migracion 0.5h), piso de cada rango por ser 4ta ronda evolutiva | — (suma de items de tabla, no de mediana unica) | 1.4 | 2.2 | 3.4 |
+| M12 | Ajuste puntual (mediana ~0.5h, ya usado en M9 de sesion 3) | 0.80 | 0.25 | 0.4 | 0.62 |
+
+**Justificacion de M10 por debajo de la mediana M1:** `CentroSalud` no tiene campo de precio ni validacion decimal (a diferencia de `UnidadBioquimica`), es un calco casi literal del CRUD ya construido, con menos superficie de validacion.
+
+**Justificacion de M11 (piso de rango, no mediana):** por ser la 4ta ronda evolutiva sobre labipac (regla agregada en la calibracion de SESION 3), se usa el piso de cada item de "Modificacion sobre modulo existente" en vez de la mediana: campo simple (0.5h, piso de rango 0.5h), regla de negocio (1.0h, piso del rango 1-2h aunque en este caso es un ajuste sobre una regla ya existente, mas simple que una regla nueva desde cero), filtro/columna en listado (0.5h adicional, reutiliza el patron DataTables ya presente en todos los listados del sistema, mas bajo que el piso generico 1h por tratarse de una sola columna+filtro simple), migracion EF (0.5h, sin backfill). Suma ajustada a M=2.2h.
+
+### PASO 6 — PERT y contingencia
+
+| Modulo | PERT = (O+4M+P)/6 | Riesgo | Cont. | Hs finales |
+|---|---:|---|---:|---:|
+| M10 | 1.033 | Bajo | 8% | 1.116 |
+| M11 | 2.267 | Medio | 15% | 2.607 |
+| M12 | 0.412 | Bajo | 8% | 0.445 |
+| **TOTAL** | **3.712** | | | **4.168** |
+
+Riesgo M11 clasificado Medio (no Bajo) porque modifica una regla de unicidad ya viva en produccion (RN-11 -> RN-24) sobre una entidad con datos reales; riesgo de edge case en el manejo de NULL, mitigado por reutilizar el mismo patron de Service ya validado en la arquitectura original.
+
+Sin doble contingencia (aplicada una unica vez por item, sobre PERT).
+
+### PASO 7 — Sanity check por item
+M10 (0.67) y M12 (0.80) estan por debajo de 0.85 pero justificados por reutilizacion literal de patron ya construido 2 veces en el mismo proyecto (regla de "segunda/tercera ronda"). M11 no tiene ratio M/mediana unico por construirse como suma de items de la tabla de modificaciones (ya son pisos de rango por diseno).
+
+### PASO 8 — Sanity check del total del proyecto
+Lote muy chico (3.6h M) comparado con SESION 3 (11.5h M, 3 modulos) y con el presupuesto inicial (26.0h M, 6 modulos). Coherente: este pedido es una sola dimension nueva (un catalogo + una FK opcional), sin pantalla dinamica ni logica de calculo nueva, muy por debajo de cualquier modulo de las rondas anteriores. Sin correccion adicional.
+
+### PASO 9 — Cierre numerico
+Paso A (preliminar) = Paso B (final): sin ajuste adicional post sanity-check. M base total = 3.6h.
+
+### Resumen economico (formula vigente: Costo = M x $16.80)
+
+| Modulo | M (h) | USD base |
+|---|---:|---:|
+| M10 ABM Centro de Salud | 1.0 | $16.80 |
+| M11 CentroSaludId en Produccion Mensual (FK + selector + RN-24 + listado) | 2.2 | $36.96 |
+| M12 Centro de Salud en encabezado PDF | 0.4 | $6.72 |
+| **Subtotal desarrollo** | **3.6** | **$60.48** |
+
+Horas facturables internas (M/2.5x1.20): 1.728h — **por debajo del piso de 4h**, por lo que **no aplica cargo de Tokens IA** (regla vigente: "No aplica a iteraciones evolutivas menores a 4 h facturables, salvo indicacion contraria").
+
+| Concepto | USD |
+|---|---:|
+| Subtotal desarrollo | 60.48 |
+| Tokens IA | No aplica (bajo piso de 4h facturables) |
+| **TOTAL CLIENTE** | **60.48** |
+
+### Division por etapas
+Alcance chico sin dependencias fuertes entre items (M11 depende solo de que M10 este resuelto para poblar el selector). Se propone **entrega en una sola etapa** (igual que la SESION 3 anterior, donde el cliente prefirio no dividir la entrega tecnica): M10+M11+M12 juntos. Subtotal unico: **USD 60.48**.
+
+### Mantenimiento anual
+**Atencion:** la tabla nueva `CentrosSalud` sube el conteo de tablas del sistema (~15 segun ultimo registro de SESION 3) a ~16, lo que **cruzaria el umbral del Plan PRO (6-15 tablas, USD 300/año) hacia Plan PREMIUM (16-30 tablas, USD 400/año)**. Se deja como punto a confirmar con el cliente al cierre — no se factura el upgrade automaticamente sin confirmar el conteo exacto de tablas vigente.
+
+### Riesgos y supuestos
+- Riesgo de regla de unicidad (RA-10 de arquitectura): mitigado por reutilizar el mismo patron de validacion en Service ya usado para Mes+Anio, cubierto dentro de la contingencia Medio (15%) de M11.
+- Supuesto: no se pide vincular `CentroSalud` con el catalogo `Mutual` de FABA (decision explicita del cliente, P12) — si se pide en el futuro, es alcance adicional a presupuestar aparte.
+- Supuesto: no se pide migrar/asignar retroactivamente los periodos historicos a un Centro de Salud (P13) — si se pide, es alcance adicional (tarea de datos, no de desarrollo).
+
+### Pruebas minimas requeridas
+- M10: crear, editar y dar de baja logica un Centro de Salud de cada Tipo (Privado/Mutual); verificar que aparece/desaparece del selector de Produccion Mensual segun su estado Activo.
+- M11: crear 2 periodos para el mismo Mes/Anio con distinto Centro de Salud (debe permitirlo); intentar crear un duplicado exacto (mismo Mes+Anio+Centro, y tambien mismo Mes+Anio sin centro ya existente) y verificar que el sistema lo bloquea; verificar columna y filtro por Centro de Salud en el listado.
+- M12: generar el PDF de un periodo con Centro de Salud asignado y de uno sin asignar, verificar que la linea aparece solo en el primero.
+
+### Checklist de salida para merge
+- Migracion EF generada y aplicada a base de desarrollo (sin backfill requerido).
+- Build OK sin warnings nuevos.
+- Verificacion manual de los 3 flujos (M10, M11, M12) segun pruebas minimas.
+- `docs/labipac/definiciones/5-implementador.md` y `6-qa.md` actualizados al cierre.
+
+### Condiciones comerciales
+50% al inicio / 50% a la entrega. Sin clausula de validez de oferta (regla vigente).
+
+### Estado
+**PRESUPUESTO CERRADO Y APROBADO POR EL CLIENTE** (2026-07-23, USD 60.48, entrega en una sola etapa). Gate abierto — implementacion delegada y cerrada, ver `5-implementador.md` sesion 4. Pendiente: cierre de calibracion con horas reales.
 
 ## SESION 3 (2026-07-08) — Presupuesto de 3 mejoras
 

@@ -1,10 +1,66 @@
 ﻿# Memoria - Analista funcional
 
 ## Proyecto: labipac
-## Ultima actualizacion: 2026-07-08 (sesion 4 — 3 mejoras funcionales: carga masiva, Unidad/precio por Unidad, fix PDF — analisis CERRADO)
+## Ultima actualizacion: 2026-07-23 (sesion 5 — Produccion Mensual por Centro de Salud (Privado/Mutual) — analisis CERRADO)
 
-## NOTA — divergencia documental detectada (2026-07-08)
-El repo `C:\Sistemas\labipac\docs\labipac\` contiene una copia local de las definiciones (incluye `analisis-funcional-F001-F002.md`, no replicado aqui) generada por una sesion previa que no escribio en la ruta canonica `C:/Sistemas/Agentes-IA/docs/labipac/`. Esa copia documenta F-001 (Aumento masivo de precios, `Precios/AumentoMasivo`) y F-002 (IVA en resumen mensual) — **ambas ya implementadas y en produccion** segun `docs/labipac/definiciones/5-implementador.md` (copia local, sesion 2026-06-25). Se toma esa informacion como valida (verificada contra el codigo real) y se referencia aqui, pero se recomienda migrar esa copia local a la ruta canonica en una proxima sesion para evitar que la memoria del estudio quede desactualizada.
+## Sesion 5 (2026-07-23) — Produccion Mensual por Centro de Salud (Privado/Mutual)
+
+### Resumen del problema
+Hoy `ProduccionMensual` es un unico periodo global por Mes+Anio, sin ninguna nocion de a que centro/pagador corresponde. El cliente pidio poder cargar Produccion Mensual separada por centro de salud privado o por mutual (obra social).
+
+### Definicion escogida (P11-P14, confirmadas por el cliente via preguntas dirigidas)
+- **P11 (granularidad):** CONFIRMADO — un periodo por cliente. `ProduccionMensual` pasa a tener `CentroSaludId` (FK nullable). Se permiten varios periodos para el mismo Mes+Anio, uno por cada centro/mutual, mas un periodo "global" sin centro.
+- **P12 (catalogo):** CONFIRMADO — entidad nueva unificada `CentroSalud` (Nombre, Tipo enum `Privado`/`Mutual`, Activo), **totalmente independiente** del catalogo `Mutual` ya existente (sincronizado desde FABA para integracion de afiliados/analitos). Se acepta convivencia de nombres duplicados entre ambos catalogos (ej. "IOMA" en `Mutual` y en `CentroSalud`) sin vinculo entre ellos — el cliente prefirio simplicidad sobre evitar duplicacion.
+- **P13 (obligatoriedad):** CONFIRMADO — el campo sigue siendo opcional para periodos nuevos (no solo para el historico). El usuario puede seguir creando periodos sin centro asignado ("global") de aca en mas.
+- **P14 (nombre en UI):** CONFIRMADO — el concepto se llama "Centro de Salud" en toda la interfaz (menu, catalogo, selector). La entidad Domain se llama `CentroSalud` (sin inversion de terminologia, a diferencia de Practica/UnidadBioquimica).
+
+### Impacto en alcance funcional vigente
+- RN-11 se actualiza: unicidad ya no es solo Mes+Anio, pasa a ser **Mes+Anio+CentroSaludId** (tratando NULL como un valor propio: solo puede existir un periodo "global" sin centro por Mes+Anio, ademas de un periodo por cada CentroSalud distinto).
+- Nuevo caso de uso: CU-09 Administrar Centros de Salud (ABM simple, mismo patron que Unidades Bioquimicas).
+- CU-04 (Cargar produccion mensual) se extiende: al crear un periodo, selector opcional de Centro de Salud.
+- CU-06 (Consultar historial) se extiende: filtro y columna por Centro de Salud en el listado.
+- Reporte PDF de Produccion Mensual: si el periodo tiene centro asignado, se muestra su nombre en el encabezado.
+
+### Riesgos y supuestos
+- R-CS1: duplicacion semantica entre `Mutual` (FABA) y `CentroSalud` tipo Mutual — aceptado explicitamente por el cliente (P12), sin vinculo entre ambos catalogos.
+- R-CS2: la unicidad Mes+Anio+CentroSaludId (con NULL como valor propio) no es expresable como constraint parcial en MySQL — se enforcea en Service, mismo patron ya usado para la unicidad original de Mes+Anio (RA-03 de la arquitectura original).
+- S-CS1: no se requiere migrar ni asignar retroactivamente los periodos historicos existentes — quedan sin centro (P13/respuesta de migracion).
+
+### Preguntas resueltas en sesion 5
+| Ref | Pregunta | Respuesta confirmada |
+|---|---|---|
+| P11 | Granularidad: un periodo por cliente o clasificacion por linea | Un periodo por cliente (CentroSaludId en ProduccionMensual) |
+| P12 | Catalogo a usar | Entidad nueva unificada `CentroSalud` (Privado/Mutual), independiente de `Mutual` (FABA) |
+| P13 | Obligatoriedad del campo en periodos nuevos | Opcional, tambien para periodos nuevos |
+| P14 | Nombre en UI | "Centro de Salud" |
+
+### Estado
+ANALISIS FUNCIONAL DE SESION 5 CERRADO. Sin preguntas pendientes. Listo para Diseno funcional.
+
+## NOTA — divergencia documental detectada (2026-07-08), resuelta (2026-07-23)
+El repo `C:\Sistemas\labipac\docs\labipac\` contiene una copia local de las definiciones (incluye `analisis-funcional-F001-F002.md`) generada por una sesion previa que no escribio en la ruta canonica `C:/Sistemas/Agentes-IA/docs/labipac/`. Esa copia documenta F-001 (Aumento masivo de precios, `Precios/AumentoMasivo`) y F-002 (IVA en resumen mensual) — **ambas ya implementadas y en produccion** segun `docs/labipac/definiciones/5-implementador.md` (copia local, sesion 2026-06-25).
+
+**Formula exacta de F-001 (RN-F001-01, CASCADE PRECIO), migrada aca el 2026-07-23 tras spot-check contra la copia local — coincide sin discrepancias:**
+
+Al aumentar una Unidad Bioquimica (UB), todas las Practicas/Perfiles que la contengan aumentan automaticamente en el mismo monto en pesos (delta $), ponderado por la cantidad de esa UB dentro de la Practica:
+
+```
+delta_ub       = round(PrecioActual_UB × pct / 100, 2)
+UB.PrecioActual += delta_ub
+
+Para cada PracticaDetalle donde UnidadBioquimicaId == UB.Id:
+    Practica.PrecioActual += delta_ub × PracticaDetalle.Cantidad
+```
+
+Si multiples UBs de la misma seleccion forman parte de la misma Practica, esta acumula la suma de los deltas de todas ellas:
+
+```
+Practica.PrecioActual += Σ (delta_ub_i × Cantidad_i)   ∀ UB_i seleccionada en esa Practica
+```
+
+Nota vigente (ver P10 mas abajo, sesion 2026-07-08): este cascade **se deroga para Perfiles** bajo el nuevo modelo (precio de Perfil pasa a ser 100% derivado de `Unidad × PrecioPorUnidad`), pero **sigue vigente sin cambios para Practicas (UnidadBioquimica) sueltas**.
+
+Se recomienda de todos modos migrar la copia local completa (`analisis-funcional-F001-F002.md`, `5-implementador.md`) a la ruta canonica en una proxima sesion para no depender de dos ubicaciones.
 
 ## Sesion 4 (2026-07-08) — 3 mejoras funcionales sobre labipac
 

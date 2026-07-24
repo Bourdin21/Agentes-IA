@@ -1,7 +1,69 @@
 ﻿# Memoria - Arquitecto MVC
 
 ## Proyecto: labipac
-## Ultima actualizacion: 2026-07-08 (sesion 2 — arquitectura de 3 mejoras: carga masiva, Unidad/PrecioPorUnidad, fix PDF)
+## Ultima actualizacion: 2026-07-23 (sesion 3 — arquitectura de Produccion Mensual por Centro de Salud)
+
+## Sesion 3 (2026-07-23) — Arquitectura: Produccion Mensual por Centro de Salud
+
+Input: `1-analista-funcional.md` sesion 5 y `2-disenador-funcional.md` sesion 3, ambos cerrados.
+
+### 1. Alcance funcional resumido
+Ver `2-disenador-funcional.md` sesion 3. Nueva entidad catalogo `CentroSalud` (Privado/Mutual), FK opcional en `ProduccionMensual`, RN-24 (unicidad Mes+Anio+CentroSaludId reemplaza RN-11), columna/filtro en listado, linea condicional en PDF.
+
+### 2. Impacto tecnico por capa
+
+#### Domain (`LabIPAC.Domain`)
+- `Entities/CentroSalud.cs` — **nuevo**, hereda `SoftDestroyable`: `Nombre` (string, requerido), `Tipo` (`TipoCentroSalud`), `Activo` (bool, default true). Mismo shape que `UnidadBioquimica.cs` salvo el campo `Tipo`.
+- `Enums/TipoCentroSalud.cs` — **nuevo**: `Privado = 1`, `Mutual = 2`.
+- `Entities/ProduccionMensual.cs` — **modificado**: agregar `public int? CentroSaludId { get; set; }` + `public CentroSalud? CentroSalud { get; set; }` (nav nullable).
+
+#### Application (`LabIPAC.Application`)
+- `Interfaces/ICentroSaludService.cs` — **nuevo**: `GetAllAsync`, `GetActivasAsync`, `GetByIdAsync`, `CreateAsync`, `UpdateAsync`, `DeleteAsync`, `RestoreAsync` — mismo contrato que `IUnidadBioquimicaService`.
+- `DTOs/CentroSaludDtos.cs` — **nuevo**: `CentroSaludSummaryDto` (Id, Nombre, Tipo, Activo), `CentroSaludCreateDto`/`UpdateDto` (Nombre, Tipo).
+- `Interfaces/IProduccionMensualService.cs` — **modificado**: `CreateAsync` recibe `CentroSaludId` (int?) en su DTO de entrada; la validacion de unicidad interna pasa de "existe Mes+Anio" a "existe Mes+Anio+CentroSaludId" (RN-24).
+- `DTOs/ProduccionMensualDtos.cs` — **modificado**: DTO de creacion +`CentroSaludId`; `ProduccionMensualSummaryDto` +`NombreCentroSalud`.
+
+#### Infrastructure (`LabIPAC.Infrastructure`)
+- `Services/CentroSaludService.cs` — **nuevo**, implementa `ICentroSaludService`, calco directo de `UnidadBioquimicaService.cs` (mismo patron CRUD + soft delete/restore).
+- `Data/AppDbContext.cs` — **modificado**: +`DbSet<CentroSalud> CentrosSalud`, Fluent API (`Nombre` MaxLength 150 requerido; FK `ProduccionMensual.CentroSaludId` -> `CentroSalud`, `OnDelete(DeleteBehavior.Restrict)` para no arrastrar baja fisica sobre historial).
+- `Services/ProduccionMensualService.cs` — **modificado**: `CreateAsync` — la consulta de unicidad existente (`Where(p => p.Mes == mes && p.Anio == anio)`) se extiende a `&& p.CentroSaludId == centroSaludId` (comparando explicitamente el caso `centroSaludId == null` con `p.CentroSaludId == null`, ya que EF traduce `==` con nulls correctamente a SQL `IS NULL` — no requiere lógica especial adicional a la ya usada). `GetAllAsync`/`GetByIdAsync` agregan `.Include(p => p.CentroSalud)` para poblar `NombreCentroSalud`.
+- `DependencyInjection.cs` — **modificado**: registrar `ICentroSaludService` como Scoped.
+- Nueva migracion EF: `AddCentroSaludYProduccionMensualCentroSalud` (detalle en seccion 4).
+
+#### Web (`LabIPAC.Web`)
+- `Controllers/CentrosSaludController.cs` — **nuevo**: acciones Index, Create, Edit, Delete, Restore — calco de `UnidadesBioquimicasController.cs`.
+- `Controllers/ProduccionMensualController.cs` — **modificado**: `Create` GET pasa `CentrosSaludDisponibles` (SelectList desde `GetActivasAsync`) al ViewModel; `Create` POST pasa `CentroSaludId` al Service; `Index`/`Historial` pasan `NombreCentroSalud` mapeado; `ReportePdf` agrega linea condicional de encabezado si `CentroSaludId != null`.
+- `Models/CentroSaludViewModels.cs` — **nuevo**: `CentroSaludCreateViewModel`/`EditViewModel`, `CentroSaludRowViewModel`.
+- `Models/ProduccionMensualViewModels.cs` — **modificado**: `ProduccionMensualCreateViewModel` +`CentroSaludId`, +`CentrosSaludDisponibles`; `ProduccionMensualRowViewModel` +`NombreCentroSalud`; `ProduccionMensualDetalleViewModel` +`NombreCentroSalud`.
+- Vistas nuevas: `Views/CentrosSalud/Index.cshtml`, `Views/CentrosSalud/Create.cshtml` (compartida con Edit via partial, mismo patron que Unidades Bioquimicas).
+- Vistas modificadas: `Views/ProduccionMensual/Crear.cshtml` (selector Centro de Salud), `Views/ProduccionMensual/Index.cshtml` (columna + filtro DataTables), sidebar `_Layout.cshtml` (+1 entrada "Centros de Salud").
+
+### 3. Modelo de permisos
+Sin roles/policies nuevos. `CentrosSaludController` usa `[Authorize]` sin politica, igual que `UnidadesBioquimicasController` y `PracticasController`.
+
+### 4. Migraciones EF requeridas
+**SI** — 1 migracion: `AddCentroSaludYProduccionMensualCentroSalud`.
+```
+dotnet ef migrations add AddCentroSaludYProduccionMensualCentroSalud --project LabIPAC.Infrastructure --startup-project LabIPAC.Web
+```
+Cambios de esquema:
+- `CREATE TABLE CentrosSalud` (Id, Nombre nvarchar(150), Tipo int, Activo bit, + columnas estandar `SoftDestroyable`)
+- `ALTER TABLE ProduccionMensuales ADD COLUMN CentroSaludId int NULL` + FK a `CentrosSalud` (`ON DELETE RESTRICT`)
+- Sin backfill de datos: los periodos existentes quedan con `CentroSaludId = NULL` (comportamiento esperado, confirmado en Analisis P13).
+
+Riesgo de rollback: BAJO (tabla nueva + columna nullable, sin tocar datos existentes).
+
+### 5. Riesgos y supuestos
+- **RA-10:** unicidad Mes+Anio+CentroSaludId con NULL como valor propio se enforcea en Service (no en DB, MySQL no soporta unique index parcial de forma nativa sin filtered index) — mismo patron de riesgo ya aceptado para RA-03 original (Mes+Anio), residual MINIMO (monousuario).
+- **RA-11:** `DeleteBehavior.Restrict` en la FK `ProduccionMensual.CentroSaludId -> CentroSalud` implica que no se puede eliminar fisicamente un `CentroSalud` referenciado por periodos existentes — coherente con el patron de baja logica (`DeleteAsync` de `CentroSaludService` hace soft-delete, no delete fisico, por lo que este caso no deberia disparar en operacion normal).
+- **RA-12:** convivencia sin vinculo entre `CentroSalud` (nuevo) y `Mutual` (FABA existente) — deuda conceptual aceptada explicitamente por el cliente (P12/DD-05), no se corrige en este alcance.
+- Sin riesgos nuevos sobre el mecanismo de snapshot de precios ni el calculo de totales del periodo (sin cambios).
+
+### 6. Gate de aprobacion
+ARQUITECTURA CERRADA. Sin bloqueos tecnicos. Listo para generar presupuesto.
+
+## Historial de ajustes (agregado 2026-07-23)
+- 2026-07-23: Arquitectura de Produccion Mensual por Centro de Salud. 1 entidad nueva (`CentroSalud`), 1 enum nuevo (`TipoCentroSalud`), 1 campo nuevo (`ProduccionMensual.CentroSaludId`, FK nullable). 1 interfaz de servicio nueva (`ICentroSaludService`, calco de `IUnidadBioquimicaService`), `IProduccionMensualService` ajustado (RN-24 reemplaza RN-11). 1 migracion EF sin backfill. Gate de aprobacion: CERRADO, listo para presupuesto.
 
 ## Sesion 2 (2026-07-08) — Arquitectura de 3 mejoras
 

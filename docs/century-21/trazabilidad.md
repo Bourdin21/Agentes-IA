@@ -4,6 +4,13 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-07-23 - orquestador (barrido cross-proyecto) — bug de template promovido a instrucciones compartidas
+- Etapa: N/A (mantenimiento de memoria cross-proyecto)
+- Cambio: `C:\Sistemas\Century 21\.github\copilot-instructions.md` documentaba localmente un bug del template base BlankProject (`GlobalExceptionHandler` registrado con `AddExceptionHandler<>` falla en runtime al inyectar `IErrorNotifier`, porque el extension method registra el handler como Singleton pero `IErrorNotifier` es Scoped). Promovido a `.github/instructions/10-blankproject-base.instructions.md` (seccion "Bugs conocidos del template base") para que todo proyecto nuevo lo aplique desde el bootstrap, no solo century-21.
+- Motivo: pedido explicito del usuario de auditar cada carpeta de proyecto individual en busca de contenido que debiera vivir en la memoria centralizada de Agentes-IA, y mergearlo; este bug es del template compartido, no especifico de este proyecto.
+- Impacto en capas: Web (registro de DI en `Program.cs`).
+- Riesgos/supuestos: ninguno nuevo — el fix ya estaba aplicado en este proyecto, solo se centralizo la documentacion.
+
 ### 2026-06-25 - bootstrap
 - Etapa: Discovery
 - Cambio: Inicialización del proyecto en el sistema de agentes
