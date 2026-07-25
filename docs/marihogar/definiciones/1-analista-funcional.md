@@ -1,6 +1,6 @@
 # Memoria - Analista funcional
 
-## Proyecto: decorhogar *(nombre provisional — confirmar con cliente)*
+## Proyecto: marihogar *(nombre provisional — confirmar con cliente)*
 ## Ultima actualizacion: 2026-07-06
 
 ---
@@ -229,7 +229,7 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 
 ## Componentes reutilizables identificados
 
-| Componente | Fuente | Reutilización en decorhogar |
+| Componente | Fuente | Reutilización en marihogar |
 |---|---|---|
 | `WhatsAppClient.cs` + `MessagingService.cs` | BotPublicitario | M8 — portar a .NET 10 MVC |
 | Patrón AFIP WSAA + WSFE (.p12, token 24h) | delicias-naturales | M7 — reimplementar en .NET 10 |

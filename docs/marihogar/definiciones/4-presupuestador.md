@@ -1,7 +1,15 @@
 # Memoria - Presupuestador
 
-## Proyecto: decorhogar *(nombre provisional)*
-## Ultima actualizacion: 2026-07-06
+## Proyecto: marihogar
+## Ultima actualizacion: 2026-07-24 (cierre de calibracion Etapa 1)
+
+## Cierre de calibracion — Etapa 1 (2026-07-24)
+
+- **Estado: Etapa 1 aprobada por el cliente, implementada 100% (16/16 modulos, 6 sprints, QA GO en todos), documentacion de alcance entregada.**
+- Alcance: sin desvio. Ningun modulo agregado ni recortado respecto de lo presupuestado.
+- Horas: no comparable al dataset historico de `27-presupuesto-parametros.instructions.md`. Este proyecto se ejecuto con implementacion y QA 100% delegadas a agentes IA orquestados (ver detalle completo en `trazabilidad.md`, entrada "cierre de calibracion estimado vs real"), sin horas de desarrollador humano registradas — a diferencia de todo el dataset de referencia, que mide tiempo humano (asistido por IA). No se fuerza un numero de "horas reales" homologable para no violar la regla de no inventar datos de calibracion.
+- Precio: USD 700 (Etapa 1) dentro del total fijo de USD 900, ya cobrado por precio cerrado — no afectado por el hallazgo anterior.
+- **Recomendacion para el estudio**: si este modelo de entrega (implementacion agentic de punta a punta) se repite en otros proyectos, abrir una categoria de calibracion separada en `27-presupuesto-parametros.instructions.md` anclada en costo/tiempo de computo de agentes, no en horas humanas — recien despues de tener 2-3 cierres con este mismo patron para poder anclar un rango confiable.
 
 ## Perfil del proyecto
 
@@ -137,13 +145,13 @@ Código confirmado reutilizable de proyectos del estudio — mismo stack, mismo 
 
 ## Sanity check del total (PASO 3)
 
-| Comparable | Módulos | M total | Ratio vs decorhogar |
+| Comparable | Módulos | M total | Ratio vs marihogar |
 |---|---:|---:|---:|
-| ShowroomGriffin (11 módulos + infra) | 11 | 86.6h | 0.77 ✅ — decorhogar tiene 7 módulos adicionales + 2 integraciones |
-| Energy Nutrition (14 + 4 integ.) est. | 18 | ~100h | 1.13 ✅ — decorhogar más módulos financieros; EN más catálogo |
-| ganadería (8 módulos) | 8 | ~81h | 0.72 ✅ — ganadería tiene mayor complejidad transaccional; decorhogar más módulos simples |
+| ShowroomGriffin (11 módulos + infra) | 11 | 86.6h | 0.77 ✅ — marihogar tiene 7 módulos adicionales + 2 integraciones |
+| Energy Nutrition (14 + 4 integ.) est. | 18 | ~100h | 1.13 ✅ — marihogar más módulos financieros; EN más catálogo |
+| ganadería (8 módulos) | 8 | ~81h | 0.72 ✅ — ganadería tiene mayor complejidad transaccional; marihogar más módulos simples |
 
-**Conclusión:** 113h M para 18 módulos es coherente. Ratio por módulo: 6.3h/mod (decorhogar) vs 10.1h/mod (ganadería) — correcto dado que decorhogar incluye módulos livianos (caja, gastos, CC proveedores).
+**Conclusión:** 113h M para 18 módulos es coherente. Ratio por módulo: 6.3h/mod (marihogar) vs 10.1h/mod (ganadería) — correcto dado que marihogar incluye módulos livianos (caja, gastos, CC proveedores).
 
 ## Cierre numérico (PASO 4)
 

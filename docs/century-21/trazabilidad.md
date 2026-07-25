@@ -73,7 +73,7 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ### 2026-07-02 - presupuestador
 - Etapa: Presupuesto (etapa 4)
-- Cambio: Presupuesto PERT completo con anclaje historico (decorhogar, ShowroomGriffin, Energy Nutrition, labipac). 11 modulos, 64.0h M base, 77.94h con contingencia, $1.076 desarrollo + $100 tokens IA = $1.176 total (Etapa 1 $764 / Etapa 2 $412)
+- Cambio: Presupuesto PERT completo con anclaje historico (marihogar, ShowroomGriffin, Energy Nutrition, labipac). 11 modulos, 64.0h M base, 77.94h con contingencia, $1.076 desarrollo + $100 tokens IA = $1.176 total (Etapa 1 $764 / Etapa 2 $412)
 - Motivo: Continuar el flujo tras Arquitectura aprobada; pedido explicito del cliente de tambien armar plan de venta SaaS Basico/Pro/Enterprise
 - Decisiones: mantenimiento anual Plan PREMIUM $400/ano (~17 tablas); plan de venta propuesto (Basico USD 49/mes hasta 3 asesores, Pro USD 129/mes hasta 10, Enterprise USD 299/mes + USD 15/asesor extra) marcado como hipotesis comercial sin validacion de mercado; checkpoint tecnico recomendado a los 15-20 agencias pagas para confirmar limite real de conexiones MySQL del hosting antes de escalar el plan Enterprise
 - Impacto en capas: sin cambio de capas (documento de negocio), referencia directa a riesgos tecnicos ya documentados en Arquitectura (RP1 limite de conexiones)
@@ -116,7 +116,7 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ### 2026-07-02 - presupuestador (documento cliente)
 - Etapa: Entrega — documento de presupuesto para Century 21 La Plata
-- Cambio: Se crea `docs/century-21/presupuesto-cliente.md`, version comercial sin jerga tecnica, siguiendo el formato de `decorhogar/presupuesto-cliente.md`
+- Cambio: Se crea `docs/century-21/presupuesto-cliente.md`, version comercial sin jerga tecnica, siguiendo el formato de `marihogar/presupuesto-cliente.md`
 - Decision de precio: por pedido del cliente de no mencionar el esquema multiusuario/multi-agencia, se excluyo del presupuesto facturado a Century21 el modulo "Plataforma SuperAdmin (Agencias, Planes, metricas)" (USD 109 del presupuesto interno) porque no tiene valor funcional para Century21 — lo absorbe Olvidata como inversion propia en el producto revendible. Se mantuvo el modulo de tenancy transversal (USD 76) pero relabeled como "Seguridad y control de accesos", porque SI entrega valor real a Century21 (permisos por rol, trazabilidad) independientemente del motivo multi-tenant de fondo
 - Total facturado a Century21: USD 1.067 (vs. USD 1.176 del presupuesto interno completo) — diferencia de USD 109 (mas los USD 100 tokens IA que se mantienen). Esta es una decision de precio tomada con criterio propio, senializada explicitamente al usuario para su confirmacion/ajuste
 - Se agrego nota de "Qué no está incluido" para la conexion de solo lectura a la BD externa de propiedades de Century21 (no tenia item de presupuesto propio en el WBS interno) y para el costo operativo de Apify (~USD 10-15/mes), ambos a coordinar aparte
@@ -136,7 +136,7 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Etapa: Presupuesto (etapa 4) — reestimacion completa por gatillo de cambio de reglas de negocio y permisos
 - Cambio: 13 modulos (se quita M8 standalone Config. WhatsApp, absorbido en M2; se agregan M12 Mi perfil y M13 Perfil de grupo, pantallas nuevas pedidas por el cliente). Total interno 69.0h M / USD 1.259 (incluye Tokens IA). Total facturado a Century21: USD 1.041 (excluye M1 Plataforma SuperAdmin + M2 Gestion de Grupos/Asesores, USD 218 combinados, que ahora son 100% gestion de Olvidata sin pantalla visible para el cliente)
 - Motivo: Cascada del cambio de modelo de roles (ver entrada anterior de disenador-funcional + arquitecto-mvc)
-- Detalle de ajustes por modulo: M2 crece (6.5h, absorbe config. WhatsApp), M3 crece (+1h por concurrencia RowVersion), M5 crece (+0.5h por patron de bandeja compartida), M6 baja (-0.5h, resolucion de grupo mas simple que la ambiguedad agencia-grupo anterior). Sanity check contra decorhogar/ShowroomGriffin/EN sigue en rango sin ajuste adicional
+- Detalle de ajustes por modulo: M2 crece (6.5h, absorbe config. WhatsApp), M3 crece (+1h por concurrencia RowVersion), M5 crece (+0.5h por patron de bandeja compartida), M6 baja (-0.5h, resolucion de grupo mas simple que la ambiguedad agencia-grupo anterior). Sanity check contra marihogar/ShowroomGriffin/EN sigue en rango sin ajuste adicional
 - Se actualiza plan de venta SaaS (seccion 17): unidad de contratacion pasa de Agencia a Grupo — una franquicia multi-sucursal ahora genera un plan pago por sucursal, mejora la economia de reventa sin cambiar precios de lista
 - Se actualiza `presupuesto-cliente.md` en paralelo: se quita la fila "Usuarios, equipos y accesos" (ya no facturable, es gestion interna de Olvidata), se agregan "Mi perfil" y "Perfil de equipo", rol Gerente eliminado de la tabla de roles, nuevo total USD 1.041 (antes USD 1.067)
 - Estado: Presupuesto (etapa 4) reestimado y cerrado. Sigue en BORRADOR pendiente de aprobacion del cliente.

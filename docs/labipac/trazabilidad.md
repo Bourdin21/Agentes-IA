@@ -4,6 +4,13 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-07-23 - implementador-dotnet — migracion AddCentroSaludYProduccionMensualCentroSalud aplicada en PRODUCCION
+- Etapa: Deploy (post-implementacion)
+- Cambio: se corrio `dotnet ef database update` con el connection string real de produccion (host `MYSQL5044.site4now.net`, DB `db_a7251f_labipac`, sitio `https://portal.lab-ipac.com.ar/`) contra `LabIPAC.Infrastructure`/`LabIPAC.Web`. Se verifico antes con `dotnet ef migrations list` que `20260708175303_AddPracticaUnidadYPrecioPorUnidad` (sesion 3) ya estaba aplicada en produccion (quedo pendiente ese deploy en su momento, ya resuelto por el cliente fuera de esta sesion) y que solo faltaba `20260723214415_AddCentroSaludYProduccionMensualCentroSalud`. Se aplico esa unica migracion, sin backfill. Se re-verifico con `migrations list` post-aplicacion: sin migraciones pendientes.
+- Motivo: pedido directo del cliente ("correr migracion en prod"), con acceso directo por connection string (el cliente eligio esta via en vez del proceso manual con backup+script documentado en el `deploy/README-produccion.md` borrado del working tree). Cliente confirmo que ya cuenta con backups automaticos, por lo que no se corrio un `mysqldump` manual previo.
+- Riesgos: sin backup manual explicito de esta sesion (cliente confirmo backups automaticos existentes). Migracion de bajo riesgo (tabla nueva + columna nullable, sin alterar datos existentes).
+- Estado: MIGRACION APLICADA EN PRODUCCION Y VERIFICADA. El sprint M10+M11+M12 (Produccion Mensual por Centro de Salud) queda desplegado end-to-end. Pendiente unicamente: cierre de calibracion con horas reales del cliente.
+
 ### 2026-07-23 - documentador — resumen de sprint M10+M11+M12 (Produccion Mensual por Centro de Salud)
 - Etapa: Documentacion
 - Cambio: Se redacto y entrego `docs/labipac/resumen-sprint-2026-07-23.md` con formato obligatorio de cliente (`31-formato-documento-cliente.instructions.md`), cubriendo Catalogo de Centros de Salud, selector opcional en Produccion Mensual, columna en historial y linea en PDF. Se aclara explicitamente que la carga es opcional y que los periodos historicos no requieren ninguna accion del cliente.

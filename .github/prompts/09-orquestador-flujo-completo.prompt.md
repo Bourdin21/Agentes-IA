@@ -29,6 +29,7 @@ Ejecutar la secuencia obligatoria sin saltos, garantizando trazabilidad, consist
 9. .github/prompts/08-cierre-calibracion.prompt.md
 
 # Reglas de orquestacion
+- En las etapas de Diseño y Arquitectura, exigir que el agente escanee /docs/*/definiciones/ de todos los proyectos del historial para detectar si la funcionalidad ya fue diseñada/implementada en otro proyecto; priorizar reutilizar ese diseño/codigo por sobre construir desde cero (mismo criterio que ya aplica el implementador en la etapa 5).
 - No iniciar una etapa sin la salida minima de la etapa anterior.
 - Si faltan datos criticos, marcar bloqueo y solicitar la informacion puntual.
 - Mantener trazabilidad: cada decision debe referenciar alcance, riesgo y capa afectada.

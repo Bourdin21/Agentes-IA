@@ -86,6 +86,7 @@ Leer según el agente activo:
 
 ## Reglas base (siempre aplican)
 
+- Reutilización cross-proyecto: en Diseño, Arquitectura e Implementación, escanear `docs/*/definiciones/` de todos los proyectos del historial antes de proponer algo nuevo — si la funcionalidad ya fue diseñada/implementada en otro proyecto, reutilizar y adaptar ese diseño/código (ver `ruta_repositorio` en el `metadata.md` de origen) en vez de construir desde cero
 - Lógica de negocio: en Services, nunca en Controllers
 - Controllers: solo coordinan request/response
 - Acceso a datos: en DbContext, repositorios o infraestructura

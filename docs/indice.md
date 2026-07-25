@@ -17,5 +17,5 @@ Registrar una fila por cada proyecto con memoria activa en /docs.
 | labipac | 2026-06-12 | activo | /docs/labipac |
 | contadores-bma-conversor | 2026-06-24 | activo | /docs/contadores-bma-conversor |
 | century-21 | 2026-06-25 | activo | /docs/century-21 |
-| decorhogar | 2026-06-29 | activo | /docs/decorhogar |
-| crm-olvidata | 2026-07-14 | qa (defectos major pendientes) | /docs/crm-olvidata |
+| marihogar | 2026-06-29 | Etapa 1 completa (QA GO) — pendiente verificación manual del cliente y certificado ARCA; Etapa 2 en pausa | /docs/marihogar |
+| crm-olvidata | 2026-07-14 | en producción, operativo | /docs/crm-olvidata |

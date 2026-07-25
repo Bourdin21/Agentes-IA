@@ -45,7 +45,7 @@ Fuente: barrido completo de `docs/qa/regresiones-manuales.yml` y los `6-qa.md` d
 ## Visibilidad de sidebar vs autorizacion real (REG-010, KOI-003, KOI-005, KOI-006)
 
 - Todo link de sidebar esta respaldado por `[Authorize(Roles=...)]`/policy equivalente en el controller/action de destino (defensa en profundidad) — nunca ocultar un link sin proteger tambien el endpoint, ni agregar un rol a la vista sin agregar su link correspondiente en el sidebar.
-- **Pre-merge obligatorio:** antes de dar por terminado un modulo con entrada en sidebar, verificar que el controller/action referenciado existe y responde 200 para cada rol que deberia verlo (smoke minimo de cada link nuevo o modificado). No asumir que el link funciona solo porque el proyecto compila.
+- **Pre-merge obligatorio:** antes de dar por terminado un modulo con entrada en sidebar, verificar **por revision de codigo** (nunca ejecutando la app — el Implementador no hace smoke test, ver `00-operativa-global.instructions.md`) que el controller/action referenciado existe, la ruta coincide con el link del sidebar, y el atributo de autorizacion (`[Authorize(Roles=...)]`/policy) es el esperado para cada rol que deberia verlo. No asumir que el link funciona solo porque el proyecto compila. La verificacion en caliente (que efectivamente responda 200 para cada rol) queda a cargo del usuario/cliente de forma manual.
 
 ## Confirmaciones SweetAlert2 fuera del `<form>` (KOI-001)
 

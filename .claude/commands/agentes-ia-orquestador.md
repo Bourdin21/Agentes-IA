@@ -34,6 +34,7 @@ Las etapas 0–4, 7 y 8 (modo Ask) se ejecutan en esta misma conversacion adopta
 
 ## Reglas de orquestacion
 
+- **Reutilizacion cross-proyecto obligatoria en Diseño y Arquitectura:** antes de proponer un diseño/arquitectura nuevo, exigir que el agente escanee `docs/*/definiciones/` de todos los proyectos del historial para detectar si la funcionalidad ya fue diseñada/implementada en otro proyecto; si hay coincidencia, reutilizar y adaptar ese diseño/codigo (referenciando `ruta_repositorio` en el `metadata.md` del proyecto de origen) en vez de construir desde cero. Mismo criterio que ya aplica el implementador en la etapa 5.
 - Antes de cada etapa: leer la definicion vigente del agente en `docs/<proyecto>/definiciones/` y verificar que la etapa previa cerro su archivo.
 - **Gates duros:** no iniciar Diseño sin Analisis aprobado; ni Arquitectura sin Diseño; ni Presupuesto sin Arquitectura; ni Implementacion sin presupuesto aprobado **por el cliente**.
 - Al cerrar cada etapa: editar el archivo existente (nunca duplicar) y registrar en `trazabilidad.md`.

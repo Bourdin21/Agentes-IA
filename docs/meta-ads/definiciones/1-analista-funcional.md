@@ -35,7 +35,7 @@
 5. Bot pregunta cantidad de usuarios (variable de ajuste de precio, ver N4).
 6. Bot calcula el presupuesto (precio base + ajuste) y lo envía por WhatsApp.
 7. Bot ofrece agendar demo de 15' (proceso ya documentado, Paso 4-5 de `plan_contacto_whatsapp.md`); si acepta, notifica a Joaquín (ya existe `ADMIN_NOTIFY_PHONE` en la config del Webhook).
-8. Si la respuesta del prospecto no matchea ninguna opción esperada (texto libre fuera de guion) → fallback "un representante te va a contactar" + notificación a Joaquín. Igual que el criterio ya usado en decorhogar M8.
+8. Si la respuesta del prospecto no matchea ninguna opción esperada (texto libre fuera de guion) → fallback "un representante te va a contactar" + notificación a Joaquín. Igual que el criterio ya usado en marihogar M8.
 
 ### Módulos a construir (extensión de `BotPublicitario`)
 
@@ -67,7 +67,7 @@ Desde cualquier estado, fallback → `DerivadoManual`.
 |---|---|---|
 | `WhatsAppClient.cs`, `MessagingService.cs` | `BotPublicitario/WhatsApp/` | Envío de preguntas y presupuesto — sin cambios |
 | `TemplateCreationService.cs` | `BotPublicitario/WhatsApp/` | Si se necesitan nuevas plantillas para reabrir ventana de 24h |
-| Patrón M8 decorhogar (calificación por categoría + `referral`) | `docs/decorhogar/definiciones/1-analista-funcional.md` | Mismo enfoque conceptual, aplicado a 13 industrias reales en vez de categorías de decoración |
+| Patrón M8 marihogar (calificación por categoría + `referral`) | `docs/marihogar/definiciones/1-analista-funcional.md` | Mismo enfoque conceptual, aplicado a 13 industrias reales en vez de categorías de decoración |
 | `ADMIN_NOTIFY_PHONE`, config `.env` | `BotPublicitario/Webhook/Program.cs` | Ya existe, reusar tal cual |
 
 ---

@@ -12,6 +12,7 @@ Objetivo:
 - definir el modelo de permisos (roles/claims/policies) afectado o nuevo
 
 Reglas:
+- antes de proponer arquitectura tecnica para un componente/entidad nuevo, escanear /docs/*/definiciones/{3-arquitecto-mvc,5-implementador}.md de todos los proyectos para detectar si un componente equivalente ya fue resuelto en algun proyecto del historial; si hay coincidencia, referenciar esa arquitectura y la ruta_repositorio del proyecto de origen (ver metadata.md) como base de reutilizacion explicita para el implementador, en vez de diseñar una solucion nueva desde cero
 - preservar comportamiento legacy salvo indicacion contraria
 - exigir reutilizar todos los componentes, servicios, paquetes, pipelines y configuraciones de la solucion que ya esten resueltos o configurados antes de proponer piezas nuevas
 - indicar explicitamente si requiere migracion EF
@@ -26,6 +27,7 @@ Input esperado:
 - /docs/<proyecto>/definiciones/2-disenador-funcional.md aprobado
 
 Salida minima:
+0. Resultado del escaneo de reutilizacion: proyectos con componente/entidad equivalente identificados y decision (reutilizar arquitectura/codigo existente / diseñar desde cero con justificacion).
 1. Alcance funcional resumido.
 2. Impacto tecnico por capa (Domain, Application, Infrastructure, Web).
 3. Modelo de permisos (roles/claims/policies) afectado o nuevo.

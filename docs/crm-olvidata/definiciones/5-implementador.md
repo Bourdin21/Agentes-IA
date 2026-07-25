@@ -281,6 +281,63 @@ CU-13 (crear campaña), CU-14 (editar/pausar/reanudar), CU-15 (gestionar queries
 - [ ] QA funcional (CU-13/14/15, HU-12 a HU-16) — pendiente, éste es el hand-off para el agente QA.
 - [ ] Prueba end-to-end real del pipeline outbound con campañas — sigue bloqueada mientras el scheduler esté en `Standby=true` (decisión operativa de Joaquín, no de esta implementación).
 
+## Ajuste UI — ícono y confirmación SweetAlert2 en eliminar notificaciones (2026-07-25)
+
+### 0. Escaneo de reutilización
+
+No aplica desarrollo desde cero — es un ajuste puntual de presentación sobre una vista ya existente y funcionando (`Views/Notifications/Index.cshtml`), con el patrón de confirmación a copiar ya identificado explícitamente en el pedido y verificado en código real: `Views/Campanas/Index.cshtml` (`$('#campanasTable').on('click', '.btn-delete', ...)`, `Swal.fire({icon:'warning', showCancelButton:true, confirmButtonColor:'#ef4444'}).then(...)`). Se replicó ese mismo patrón textual (colores, textos de botones, estructura del `.then()`), adaptado a interceptar el `submit` de un `<form>` en vez de un click de botón dentro de una tabla, porque acá no hay DataTable de por medio, son 2 forms simples server-rendered.
+
+### 1. Alcance funcional resumido
+
+Ajuste 100% de Vista sobre `Notifications/Index.cshtml`, sin tocar Negocio ni Datos: (1) ícono `fas fa-trash` → `fas fa-xmark` en el botón de eliminar individual (dentro del `foreach` de notificaciones) y en el botón "Eliminar leídas" del header; (2) reemplazo del `confirm()` nativo (`onsubmit="return confirm(...)"` inline en ambos `<form>`) por un modal SweetAlert2, manejado desde una sección `Scripts` nueva (la vista no tenía ninguna hasta ahora). `NotificationsController.Delete(id)`/`DeleteAllRead()` (POST) no se tocaron — ya existían y funcionaban de una sesión anterior del mismo día.
+
+### 2. Plan de ejecución técnica ejecutado
+
+1. Cambio de clase del ícono en los 2 `<i>` (`fas fa-trash` → `fas fa-xmark`), sin tocar clases del `<button>` padre ni el texto de "Eliminar leídas" — OK.
+2. Se sacó el `onsubmit="return confirm(...)"` de ambos `<form>` y se agregó `class="form-delete-notif"` al form individual y `class="form-delete-all-read"` al form de lote, para poder targetearlos por selector CSS desde JS — OK.
+3. Se agregó `@section Scripts { ... }` al final del archivo (nueva, no existía) con 2 handlers `$(document).on('submit', '.form-delete-notif' / '.form-delete-all-read', function(e) {...})`: cada uno hace `e.preventDefault()`, captura `var form = this;` (el form nativo, no el wrapper jQuery, para poder llamar `form.submit()` sin volver a disparar el listener), muestra `Swal.fire({icon:'warning', title, [text], showCancelButton:true, confirmButtonText:'Sí, eliminar', cancelButtonText:'Cancelar', confirmButtonColor:'#ef4444'})` y en `.then(result => { if (result.isConfirmed) form.submit(); })` — mismo patrón exacto de `Campanas/Index.cshtml` — OK.
+4. Build de la solución completa — OK, 0 errores.
+
+### 3. Cambios por capa
+
+**Web** (`OlvidataCRM.Web`) — único archivo tocado:
+- `Views/Notifications/Index.cshtml`:
+  - Línea del botón "Eliminar leídas": `<form>` pierde `onsubmit="..."`, gana `class="form-delete-all-read"`; ícono `fas fa-trash me-1` → `fas fa-xmark me-1`.
+  - Línea del botón eliminar individual (dentro del `foreach`): `<form>` pierde `onsubmit="..."`, gana `class="form-delete-notif"`; ícono `fas fa-trash` → `fas fa-xmark`.
+  - Nueva `@section Scripts { <script> $(function(){ ... }); </script> }` al final del archivo, con los 2 handlers de `submit` descriptos arriba.
+- Nada tocado en Domain/Application/Infrastructure (`NotificationsController`, `INotificationService`/`NotificationService` intactos, sin cambios de firma ni de comportamiento).
+
+### 4. Migración EF
+
+Ninguna — no se tocó el modelo de datos ni el esquema.
+
+### 5. Evidencia de build
+
+`dotnet build OlvidataCRM.slnx` desde `C:\Sistemas\olvidatasoft-crm`: **Compilación correcta, 0 Errores**, 9 warnings — todos preexistentes (`NU1902` MailKit/MimeKit x4, `CS0114` `HomeController.StatusCode`), ninguno nuevo introducido por este cambio. Sin smoke test funcional propio (regla del estudio) — revisión de código línea por línea del archivo modificado hecha como evidencia de cierre (ver guía de prueba manual en la entrada de trazabilidad).
+
+### 6. Riesgos y supuestos
+
+- Cambio puramente cosmético/UX sobre una funcionalidad ya probada — el riesgo técnico es mínimo (no hay lógica de negocio nueva).
+- Se usó `$(document).on('submit', '.clase', ...)` (delegado) en vez de `$('.clase').on('submit', ...)` directo — importa poco en esta vista porque los forms no se recrean dinámicamente (no hay DataTable acá), pero es el patrón más robusto y consistente con el resto del proyecto.
+- Supuesto: SweetAlert2/jQuery/Font Awesome 6.5.1 ya cargados globalmente en `_Layout.cshtml` antes del `@RenderSectionAsync("Scripts", required: false)` (línea 258) — verificado leyendo el layout antes de escribir el script, no se agregó ningún script/CDN nuevo.
+
+### 7. Pruebas mínimas requeridas para QA
+
+1. Ver `Notifications/Index` con al menos 1 notificación leída y 1 no leída: confirmar que el ícono de "Eliminar" (individual) y de "Eliminar leídas" (header) se ve como una X (`fa-xmark`), no una papelera.
+2. Click en "Eliminar" de una notificación individual → aparece modal SweetAlert2 (`warning`, título "¿Eliminar esta notificación?", botones "Sí, eliminar"/"Cancelar"). Cancelar no elimina nada (recargar y verificar que sigue la notificación). Confirmar sí la elimina (recarga y desaparece de la lista).
+3. Con al menos 1 notificación leída, click en "Eliminar leídas" → modal con título "¿Eliminar todas las notificaciones leídas?" y texto "Esta acción no se puede deshacer.". Cancelar no elimina nada. Confirmar elimina todas las leídas (las no leídas quedan intactas).
+4. Verificar que no aparece ningún `confirm()` nativo del navegador (el gris feo de Chrome/Edge) en ninguno de los 2 flujos.
+5. Regresión: "Marcar todas leídas" y "Marcar leída" (individual) siguen funcionando igual que antes (no se tocaron, pero comparten la misma vista).
+
+### 8. Checklist de salida para merge
+
+- [x] Único archivo tocado: `Views/Notifications/Index.cshtml` (Presentación).
+- [x] Sin cambios en Controllers/Services/Domain.
+- [x] `dotnet build OlvidataCRM.slnx` → 0 errores, sin warnings nuevos.
+- [x] Sin migración EF (no aplica).
+- [x] Patrón SweetAlert2 replicado de `Campanas/Index.cshtml` (mismo `confirmButtonColor`, mismos textos de botones).
+- [ ] Prueba manual de usuario (ícono + modal, ver guía de QA arriba) — pendiente, hand-off al usuario/cliente.
+
 ## Historial de ajustes
 - 2026-07-14: Bootstrap técnico inicial — copia de KoiDumplings saneada de lógica de negocio de KOI, a pedido explícito del cliente como base previa a Análisis. Ver detalle completo en `trazabilidad.md`.
 - 2026-07-17: Implementación completa de la migración de BotPublicitario (Domain/Application/Infrastructure/Web + 1 migración EF aplicada). Build en verde. Ver sección completa arriba. Pendiente: QA funcional, configuración de credenciales reales de Meta/Google Maps, validación del mapeo rubro→catálogo de precios, y el runbook de corte de producción (fuera de alcance de esta sesión).

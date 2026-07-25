@@ -29,11 +29,11 @@ Aplicar los cambios aprobados con trazabilidad por capa y sin romper comportamie
 2. Implementar en orden: Datos -> Negocio -> Presentacion.
 3. Mantener cambios acotados al alcance aprobado.
 4. Indicar si hay migracion EF y generar artefactos necesarios.
-5. Ejecutar build y pruebas funcionales minimas.
+5. Ejecutar build (sin smoke test funcional propio — nunca levantar la app ni probar flujos por navegador/API; dejar una guia de pasos para que el usuario los verifique manualmente).
 
 # Salida
 1. Lista de archivos modificados por capa
 2. Resumen tecnico del cambio
-3. Resultado de build y pruebas funcionales
+3. Resultado de build (sin smoke test propio) + guia de pasos para verificacion manual del usuario
 4. Riesgos residuales
 5. Proximos pasos

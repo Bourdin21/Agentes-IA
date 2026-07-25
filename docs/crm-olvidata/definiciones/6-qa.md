@@ -1,7 +1,7 @@
 # Memoria - QA
 
 ## Proyecto: crm-olvidata — migración de BotPublicitario
-## Ultima actualizacion: 2026-07-17
+## Ultima actualizacion: 2026-07-25
 
 ## Definiciones vigentes
 
@@ -292,6 +292,79 @@ Se reevaluaron solo los items potencialmente relevantes a la superficie nueva (e
 
 **GO** para uso interno (gestión de campañas/industrias/queries vía UI) — no depende de credenciales externas ni de defectos pendientes. El pipeline outbound real con estas campañas sigue sujeto al mismo criterio ya vigente en el proyecto: no activar `Standby=false` sin que Joaquín haya verificado manualmente el cronograma migrado y confirmado las credenciales de Meta/Google Maps.
 
+## QA — ajuste UI de Notificaciones: ícono X + SweetAlert2 (2026-07-25)
+
+### 0. Alcance funcional validado
+
+Ajuste de UI puntual sobre `Views/Notifications/Index.cshtml`, feature ya en producción ("eliminar notificaciones"): (1) reemplazo de ícono `fas fa-trash` → `fas fa-xmark` en el botón de eliminar individual y en "Eliminar leídas"; (2) reemplazo del `confirm()` nativo del navegador por un modal `Swal.fire`, sobre el patrón de confirmación ya validado en `Campanas/Index.cshtml`. Base leída: `1-analista-funcional.md` (Discovery+Análisis exprés 2026-07-24), `2-disenador-funcional.md` (Diseño exprés 2026-07-24), `5-implementador.md` (implementación 2026-07-25). Cliente pidió pasar este ajuste cosmético por el flujo completo del orquestador (Presupuesto salteado, mismo precedente ya usado 2 veces en el proyecto).
+
+**Método:** revisión de código completa del único archivo tocado + diff contra `HEAD` de los 4 archivos con cambios pendientes de commit (`INotificationService.cs`, `NotificationService.cs`, `NotificationsController.cs`, `Views/Notifications/Index.cshtml`) para aislar qué pertenece a esta tarea vs. a la feature previa de "eliminar notificaciones" (2026-07-24) + recompilación independiente de la solución. **No se probó en navegador** (regla del estudio) — verificación 100% por código, con procedimiento manual entregado para que el cliente la ejecute a mano.
+
+**Build:** `dotnet build OlvidataCRM.slnx --no-incremental` desde `C:\Sistemas\olvidatasoft-crm` → **Compilación correcta, 0 errores**, 9 warnings — todos preexistentes y confirmados idénticos a los ya documentados (`NU1902` MailKit/MimeKit ×4, `CS0114` `HomeController.StatusCode` ×2 por doble referencia de proyecto). Confirmado por este QA en corrida independiente (no solo por el reporte del implementador).
+
+### 1. Cobertura por criterio de aceptación
+
+| Criterio (pedido del cliente / Diseño 2026-07-24) | Resultado | Evidencia |
+|---|---|---|
+| Ícono del botón de eliminar individual = X, no papelera | **PASS** | `Views/Notifications/Index.cshtml` línea 61: `<i class="fas fa-xmark"></i>` dentro del form `Delete`. `grep "fas fa-trash"` sobre el archivo → 0 coincidencias. |
+| Ícono del botón "Eliminar leídas" = X, no papelera | **PASS** | Línea 18: `<i class="fas fa-xmark me-1"></i>`. |
+| `confirm()` nativo reemplazado 100% por SweetAlert2 en ambos flujos de borrado | **PASS** | `grep "confirm("` sobre el archivo → 0 coincidencias; `grep "onsubmit"` → 0 coincidencias. Los 2 `<form>` (`form-delete-notif`, `form-delete-all-read`) perdieron el atributo `onsubmit` y la confirmación pasa 100% por los 2 handlers `$(document).on('submit', ...)` en `@section Scripts`. |
+| Patrón `Swal.fire` + `.then(isConfirmed → submit)` bien formado y consistente con el resto del proyecto | **PASS** | Comparado línea a línea contra `Views/Campanas/Index.cshtml` (`icon:'warning'`, `showCancelButton:true`, `confirmButtonText:'Sí, eliminar'`, `cancelButtonText:'Cancelar'`, `confirmButtonColor:'#ef4444'`, `.then(result => if(result.isConfirmed) ...)`). Mismos textos y color, mismo criterio funcional; única diferencia justificada: acá se intercepta el evento `submit` de un `<form>` real (no hay DataTable/botón suelto de por medio), en vez de armar un `<form>` dinámico como hace `Campanas/Index.cshtml` — patrón más simple y igual de robusto para este caso (2 forms server-rendered, no filas dinámicas). |
+| `NotificationsController.cs`/`NotificationService.cs`/`INotificationService.cs` sin tocar por esta tarea | **PASS** | `git diff HEAD` sobre los 3 archivos: el único contenido son `DeleteAsync`/`DeleteAllReadAsync` (interfaz + implementación) y las acciones `Delete(id)`/`DeleteAllRead()` del controller — exactamente lo que documenta la entrada previa "eliminar notificaciones" (2026-07-24), sin ninguna línea adicional atribuible a la tarea de ícono/SweetAlert2 de hoy. |
+| Comportamiento funcional de fondo (qué se elimina, cuándo, antiforgery) idéntico a antes del cambio | **PASS** | Los `<form>` conservan `asp-controller`/`asp-action`/`asp-route-id`/`method="post"` sin modificar (tag helper sigue inyectando el token antiforgery automáticamente); único cambio en cada `<form>` es agregar una `class` para poder targetearlos por selector CSS. `Delete(id)`/`DeleteAllRead()` conservan `[ValidateAntiForgeryToken]` sin cambios. |
+
+### 2. Máquina de estados
+
+No aplica — confirmado en Análisis y Diseño de este ajuste ("Activa"/flags no forman parte de este cambio; no hay máquina de estados involucrada, es un ajuste cosmético sobre una acción de borrado ya existente).
+
+### 3. Cobertura del catálogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
+
+Se reevaluaron solo los items potencialmente relevantes a la superficie tocada (el resto ya fue evaluado N/A para este proyecto en pasadas anteriores y no cambia con este ajuste puntual de un solo archivo de Vista):
+
+| id | aplica (sí/no/N/A) | resultado | acción |
+|---|---|---|---|
+| KOI-001 (botón SweetAlert2 fuera del `<form>`, `closest('form')` falla) | Sí (patrón revisado) | **PASS** | No aplica el bug: acá no hay un botón *fuera* de su form apoyándose en `closest('form')` — el botón `type="submit"` vive *dentro* del propio `<form>` y el JS escucha el evento `submit` del form mismo (`$(document).on('submit', '.form-delete-notif', ...)`), captura `var form = this` y llama `form.submit()` tras confirmar. Patrón distinto y más simple que el de KOI-001, sin su causa raíz. |
+| REG-010 / KOI-003/005/006 (sidebar / rutas rotas) | No | **N/A** | Sin cambios de sidebar ni de rutas — mismo controller/acciones ya existentes. |
+| CRM-002 (control visible para rol sin permiso) | No | **N/A** | Sistema opera con único rol (`SuperUsuario`) desde 2026-07-21; no hay gating por rol en esta pantalla. |
+| Resto del catálogo (REG-001/002/003/005/006/007/008/009, KOI-002, DN-001/002, GAN-001/002/003/004, VSF-001/002, CRM-001/003/004/005/006) | No | **N/A** | Sin cambios en las superficies que esos items cubren (Compras/Ventas/Devoluciones/pagos/backfills/máquinas de estado del bot/outbound/Google Maps) — evaluación sin cambios respecto a las pasadas anteriores de este proyecto. |
+
+### 4. Defectos detectados
+
+**Ninguno.** El ajuste es cosmético, acotado a un solo archivo de Vista, y coincide exactamente con lo definido en Diseño (2026-07-24) e implementado (2026-07-25). No se encontró ningún caso donde el ícono siga siendo papelera, quede algún `confirm()` residual, o donde el patrón `Swal.fire` esté mal formado.
+
+### 5. Auto-fixes aplicados
+
+Ninguno — no se detectó ningún defecto a corregir en esta pasada.
+
+### 6. Riesgos de liberación y mitigaciones
+
+- **Riesgo técnico mínimo:** cambio 100% de presentación sobre una acción de borrado ya probada y en producción; no hay lógica de negocio nueva ni cambio de contrato de datos.
+- **Sin prueba de navegador propia (regla del estudio):** la verificación en caliente (ver el ícono real, abrir el modal, cancelar/confirmar) queda a cargo del cliente — ver procedimiento manual abajo.
+- **Working tree con 4 archivos sin commitear** (`INotificationService.cs`, `NotificationService.cs`, `NotificationsController.cs`, `Views/Notifications/Index.cshtml`, todos correspondientes a la feature "eliminar notificaciones" + este ajuste, ninguno de otra tarea) — no bloquea el GO funcional, pero se deja registrado para que el cliente decida cuándo commitear/deployar.
+
+### 7. Pruebas mínimas ejecutadas por este QA
+
+- `git diff HEAD` de los 4 archivos modificados, para aislar exactamente qué pertenece a esta tarea vs. a la feature previa de borrado de notificaciones.
+- `grep` sobre `Views/Notifications/Index.cshtml`: 0 coincidencias de `fas fa-trash`, `confirm(`, `onsubmit`; 2 coincidencias de `fas fa-xmark` (una por cada botón de eliminar).
+- Comparación línea a línea del bloque `Swal.fire(...).then(...)` contra `Views/Campanas/Index.cshtml`.
+- `dotnet build OlvidataCRM.slnx --no-incremental` (rebuild completo, no incremental) → 0 errores, 9 warnings preexistentes confirmados idénticos a los ya documentados, ninguno nuevo.
+
+**No ejecutado (fuera de alcance de este agente):** prueba en navegador real (ver el modal, clickear, confirmar/cancelar) — regla del estudio, queda como hand-off al cliente.
+
+### 8. Procedimiento de prueba manual (para Joaquín)
+
+1. Ir a Notificaciones con al menos 1 notificación leída y 1 no leída. **Esperado:** el ícono de "Eliminar" (individual, a la derecha de cada notificación) y de "Eliminar leídas" (header) se ven como una X, no como una papelera.
+2. Click en "Eliminar" de una notificación individual. **Esperado:** aparece un modal (no el diálogo gris nativo del navegador) con título "¿Eliminar esta notificación?", botones "Sí, eliminar" (rojo) / "Cancelar".
+3. Click en "Cancelar". **Esperado:** no pasa nada, la notificación sigue en la lista al recargar.
+4. Repetir el borrado y click en "Sí, eliminar". **Esperado:** la notificación desaparece de la lista.
+5. Con al menos 1 notificación leída, click en "Eliminar leídas". **Esperado:** modal con título "¿Eliminar todas las notificaciones leídas?" y texto "Esta acción no se puede deshacer.". Cancelar no borra nada; confirmar borra solo las leídas (las no leídas quedan intactas).
+6. Regresión: "Marcar todas leídas" y "Marcar leída" (individual) siguen funcionando igual que antes (no se tocaron en este ajuste).
+
+### Estado go/no-go
+
+**GO** para que Joaquín pruebe manualmente y, si el resultado visual coincide con lo esperado en los 6 pasos de arriba, dé por cerrado el ajuste. Sin defectos encontrados, build limpio, sin cambios fuera del alcance de presentación autorizado.
+
 ## Historial de ajustes
+- 2026-07-25: QA del ajuste de UI en `Notifications/Index.cshtml` (ícono `fas fa-xmark` + modal SweetAlert2 reemplazando `confirm()` nativo). Método: revisión de código + diff contra HEAD para aislar el alcance de esta tarea de la feature previa de borrado (2026-07-24) + rebuild completo independiente (`dotnet build --no-incremental` → 0 errores, 9 warnings preexistentes idénticos a lo ya documentado). Confirmado: 2 íconos `fa-xmark` (0 `fa-trash` residual), 0 `confirm()`/`onsubmit` residual, patrón `Swal.fire` consistente con `Campanas/Index.cshtml`, `NotificationsController`/`NotificationService`/`INotificationService` sin ningún cambio atribuible a esta tarea (solo contienen lo ya documentado de "eliminar notificaciones"). Catálogo cross-proyecto reevaluado para items relevantes (KOI-001 PASS, resto N/A sin cambios). **Cero defectos.** Estado: **GO** para prueba manual del cliente.
 - 2026-07-17: Primera pasada de QA funcional sobre la migración de BotPublicitario (HU-01 a HU-11, CU-01 a CU-06 y CU-10 a CU-12). Método: revisión de código completa por capa + recompilación + verificación de migraciones + playbook cross-proyecto (24 items preexistentes evaluados + 6 items nuevos catalogados: CRM-001 a CRM-006). Validados los 3 riesgos que señaló el implementador (CU-04 sin bug de lógica, Farmacia/Contabilidad comportamiento esperado, credenciales ausentes confirmado como bloqueo). Detectados 6 defectos nuevos no catalogados previamente (3 major: CRM-001 sin auditoría del toggle outbound, CRM-004 sin manejo de duplicado en batch de Google Maps, CRM-006 notificación in-app nunca implementada; 3 minor: CRM-002 UI de cambio de estado visible para Vendedor, CRM-003 ordenamiento de columna ignorado, CRM-005 categoría de fallback incorrecta en máquina de estados del bot). Por instrucción explícita del orquestador para esta tarea, ningún defecto nuevo (no catalogado previamente) fue auto-corregido en esta pasada — los 6 quedan documentados en `docs/qa/regresiones-manuales.yml` con `archivos_fix` sugeridos, pendientes de una pasada del Implementador. Recomendación: NO-GO para producción/uso comercial real hasta resolver los 3 defectos major; GO condicional para uso interno de Contactos/Industrias sin bot activo.
 - 2026-07-21: QA de "campañas de contacto frío configurables" (CU-13/14/15, HU-12 a HU-16). Método: revisión de código completa contra Análisis/Diseño/Arquitectura + recompilación independiente + verificación de migración aplicada + corrida real de 20s confirmando seed (13 campañas) sin excepciones. Cobertura del catálogo cross-proyecto reevaluada para los items relevantes a la superficie nueva (KOI-001 PASS, 32-estándares N/A justificado — la pantalla no usa combo multi-select tradicional, GAN-003 PASS, resto sin cambios respecto a la pasada anterior). **Cero defectos funcionales detectados** — solo 2 observaciones de UX no bloqueantes (inconsistencia reload vs. DOM-update entre AgregarIndustria y el resto de las acciones AJAX; comparación de `ClaveRubro` no fuerza case-insensitive a nivel SQL, sin impacto real porque todas las claves ya se generan en minúsculas). Estado: **GO** para uso interno; pipeline outbound real queda sujeto al mismo criterio ya vigente (no activar `Standby=false` sin verificación manual + credenciales confirmadas).

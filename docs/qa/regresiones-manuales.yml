@@ -915,3 +915,80 @@ regresiones:
           motivo: "Inyectados INotificationService y UserManager<ApplicationUser> en el constructor (ambos ya registrados en DI, sin cambios de registro). SendBriefToAdminAsync extrae el mensaje a una variable comun y llama al metodo nuevo NotifyAdminsInAppAsync(contacto, mensaje) antes del try/catch de WhatsApp. NotifyAdminsInAppAsync resuelve destinatarios via _userManager.GetUsersInRoleAsync(SuperUsuario) + GetUsersInRoleAsync(Administrador), deduplicados por Id, y llama _notifications.CreateAsync(userId, 'Nuevo lead calificado', mensaje, url: /Contactos/Details/{id}, icon: fas fa-user-plus) por cada uno. Envuelto en try/catch propio para que un fallo de notificacion tampoco bloquee el WhatsApp (simetria con el criterio ya exigido en sentido inverso)."
       build: "dotnet build OlvidataCRM.slnx -> Compilacion correcta, 0 Errores (mismos 9 warnings preexistentes, ninguno nuevo)."
       verificacion: "100% verificable por codigo y por prueba funcional SIN credenciales de WhatsApp reales (la creacion de Notification es un INSERT en base de datos, no depende de API externa) — no quedo nada bloqueado de este item. Prueba funcional (completar calificacion y verificar Notifications/Index para Administrador/SuperUsuario) queda como hand-off a QA."
+
+  # ── Entradas especificas del proyecto marihogar (BlankProject .NET 10 + EF Core + MySQL 8) ─────
+
+  - id: MH-001
+    modulo: "Stock / GetData (listado de movimientos, IN de coleccion local)"
+    titulo: "500 en listado de movimientos de stock al resolver nombres de usuario: el provider MySQL de EF Core 10 no soporta un IN generado desde una coleccion local (Contains sobre HashSet<string>)"
+    severidad: major
+    reproducido_en: "marihogar - master, Sprint 1 (M3 Control de stock), smoke test funcional real del implementador contra marihogar_dev (MySQL local), confirmado y catalogado por QA el 2026-07-24"
+    pasos:
+      - "Como Administrador, ir a Stock -> Index (listado de movimientos) con al menos un movimiento registrado por un usuario (UsuarioId no nulo)."
+      - "Observar la respuesta del POST /Stock/GetData."
+    sintoma: "InvalidOperationException: Expression '@usuarioIds' in the SQL tree does not have a type mapping assigned, lanzada por StockService.ListarMovimientosAsync al intentar '_db.Users.Where(u => usuarioIds.Contains(u.Id))' con usuarioIds como HashSet<string> local."
+    expectativa: "El listado de movimientos de stock resuelve el nombre de usuario de cada movimiento sin error, incluso contra MySQL con EF Core 10."
+    causa_raiz: "El provider MySQL de EF Core 10 no puede asignar type mapping a un parametro IN generado a partir de una coleccion local (List/HashSet) dentro de un Where(...Contains(...)). Mismo patron ya presente y ya resuelto en UsersController.GetData del propio proyecto (comentario preexistente en el codigo), no reutilizado la primera vez que se escribio StockService."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/StockService.cs
+        motivo: "ListarMovimientosAsync: en vez de '_db.Users.Where(u => usuarioIds.Contains(u.Id))', se trae la tabla de usuarios completa a memoria con ToListAsync() y se filtra en-proceso contra el HashSet<string> local, igual patron que UsersController.GetData."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /Stock/GetData con al menos un MovimientoStock.UsuarioId no nulo"
+      condicion_falla: "Respuesta 500 / InvalidOperationException sobre '@usuarioIds' al resolver UsuarioNombre."
+    criterio_aceptacion:
+      - "POST /Stock/GetData responde 200 con UsuarioNombre resuelto correctamente para movimientos con UsuarioId."
+      - "Cualquier Service nuevo (de este u otro proyecto BlankProject/.NET 10/MySQL) que necesite un IN sobre una coleccion local aplica el patron 'traer a memoria + filtrar con HashSet', nunca Where(coleccionLocal.Contains(...)) traducido a SQL."
+    pruebas_minimas:
+      - "Ajuste de stock registrado por un usuario -> Stock/Index muestra su nombre sin error 500."
+    fix_aplicado:
+      fecha: "2026-07-24"
+      por: "implementador (durante smoke test de Sprint 1, previo al ciclo de QA)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/StockService.cs
+          motivo: "usuarioIds materializado en memoria (ToListAsync + Where en-proceso) en vez de Contains() traducido a SQL IN sobre una coleccion local."
+      build: "dotnet build MariHogar.slnx -> Compilacion correcta, 0 Errores (re-verificado por QA el 2026-07-24)."
+      verificacion: "Verificado por QA via revision de codigo (MariHogar.Infrastructure/Services/StockService.cs lineas 49-57): el fix esta presente y sigue el mismo patron ya usado en UsersController.GetData. Grep de '.Contains(' sobre todos los Services/Controllers nuevos del sprint (CategoriaService/MarcaService/ProductoService/StockService/ProductosController) no encontro otra ocurrencia del patron riesgoso. Item no estaba catalogado todavia en este archivo pese a que el fix ya se habia aplicado — QA lo cataloga ahora para cumplir la obligacion de trazabilidad cross-proyecto (30-qa-regresiones.instructions.md)."
+    nota_qa_sprint4: "Refinamiento de alcance (marihogar, Sprint 4, 2026-07-24): QA encontro un nuevo caso del patron generico 'Where(coleccionLocal.Contains(...))' en CCProveedorService.ObtenerSaldosAsync ('_db.MovimientosCCProveedor.Where(m => ids.Contains(m.ProveedorId))' con ids como HashSet<int> local, consumido por ProveedorService.ListarAsync para la columna Saldo de Proveedores/Index) y lo reprodujo empiricamente contra marihogar_dev (MySQL real, provider MySql.EntityFrameworkCore 10.0.1 tal cual usa el proyecto, NO Pomelo) con un programa C# standalone que invoca el Service real. Resultado: el patron con HashSet<int>/List<int> (tipo primitivo con type mapping trivial) NO reproduce el error -- la consulta se traduce y ejecuta correctamente. Se reprodujo en el mismo experimento, como control, el patron ORIGINAL exacto de este item (HashSet<string> contra _db.Users.Contains) y ESE SI lanza la misma InvalidOperationException ('Expression @usuarioIds ... no type mapping assigned'). Conclusion: el riesgo real de MH-001 es especifico de colecciones locales de tipo string (probablemente por ambiguedad de charset/collation al parametrizar el arreglo), no de int/otros primitivos con mapping directo. CCProveedorService.ObtenerSaldosAsync se confirma seguro (PASS), sin necesidad de auto-fix. Se deja esta nota para que futuros ciclos de QA no traten como bloqueante cada '.Contains()' sobre coleccion local de tipo primitivo (int/long/etc.), y sigan poniendo el foco de grep en colecciones de string (ids de Identity, codigos, etc.)."
+
+  - id: MH-002
+    modulo: "Stock / Listado de movimientos (DTO Tipo)"
+    titulo: "Enum TipoMovimientoStock serializado como int rompe el badge de color del listado de movimientos"
+    severidad: minor
+    reproducido_en: "marihogar - master, Sprint 1 (M3 Control de stock), smoke test funcional real del implementador, confirmado y catalogado por QA el 2026-07-24"
+    pasos:
+      - "Como Administrador, ir a Stock -> Index."
+      - "Observar la columna Tipo de cualquier movimiento (ej. un ajuste manual recien registrado)."
+    sintoma: "El JS del grid indexa el color por el nombre del enum (clases = {Compra:'bg-success', Venta:'bg-primary', Ajuste:'bg-warning text-dark'}); si System.Text.Json serializa TipoMovimientoStock como el int subyacente (ej. 3) en vez del nombre, 'clases[3]' no matchea ninguna clave y el badge cae al color por defecto (bg-secondary) sin texto reconocible."
+    expectativa: "El badge de color y el texto del tipo de movimiento (Compra/Venta/Ajuste) se muestran correctamente en cada fila del listado."
+    causa_raiz: "MovimientoStockListItemDto.Tipo estaba originalmente tipado como el enum TipoMovimientoStock; System.Text.Json lo serializaba como numero en vez de nombre por default."
+    capa: Application
+    archivos_fix:
+      - path: MariHogar.Application/DTOs/StockDtos.cs
+        motivo: "MovimientoStockListItemDto.Tipo cambiado de TipoMovimientoStock a string."
+      - path: MariHogar.Infrastructure/Services/StockService.cs
+        motivo: "Mapeo con Tipo = m.Tipo.ToString() en la proyeccion del listado."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /Stock/GetData"
+      condicion_falla: "El campo 'tipo' de cada fila del JSON de respuesta es numerico (ej. 3) en vez de textual (ej. 'Ajuste')."
+    criterio_aceptacion:
+      - "El campo 'tipo' de la respuesta de /Stock/GetData es siempre el nombre textual del enum (Compra/Venta/Ajuste)."
+      - "El badge de color en Stock/Index coincide con el tipo real de cada movimiento."
+    pruebas_minimas:
+      - "Registrar un ajuste de stock -> verificar en Stock/Index que la fila muestra badge amarillo 'Ajuste' con el texto visible (no un badge gris vacio de texto)."
+    fix_aplicado:
+      fecha: "2026-07-24"
+      por: "implementador (durante smoke test de Sprint 1, previo al ciclo de QA)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Application/DTOs/StockDtos.cs
+          motivo: "Tipo tipado como string."
+        - path: MariHogar.Infrastructure/Services/StockService.cs
+          motivo: "Tipo = m.Tipo.ToString() en el mapeo del listado."
+      build: "dotnet build MariHogar.slnx -> Compilacion correcta, 0 Errores (re-verificado por QA el 2026-07-24)."
+      verificacion: "Verificado por QA via revision de codigo (MariHogar.Application/DTOs/StockDtos.cs linea 15, MariHogar.Infrastructure/Services/StockService.cs linea 65): DTO.Tipo es string y el Service mapea con .ToString(). Item no estaba catalogado todavia en este archivo pese a que el fix ya se habia aplicado — QA lo cataloga ahora para cumplir la obligacion de trazabilidad cross-proyecto (30-qa-regresiones.instructions.md)."

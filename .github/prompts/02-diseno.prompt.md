@@ -20,6 +20,7 @@ Convertir el analisis aprobado en diseno implementable sin romper reglas de capa
 - Restricciones tecnicas
 
 # Tareas
+0. Escanear /docs/*/definiciones/{2-disenador-funcional,5-implementador}.md de todos los proyectos para detectar si un flujo/pantalla equivalente ya fue diseñado e implementado; si hay coincidencia, tomarlo como base y adaptarlo en vez de diseñar desde cero.
 1. Definir flujo de pantalla y navegacion.
 2. Definir validaciones de UI y mensajes.
 3. Definir ViewModels y contratos de entrada/salida.
@@ -28,6 +29,7 @@ Convertir el analisis aprobado en diseno implementable sin romper reglas de capa
 6. Redactar todas las historias de usuario derivadas del analisis y diseno funcional establecido. Cada historia debe seguir el formato: "Como <rol>, quiero <accion> para <beneficio>", con criterios de aceptacion verificables asociados. Cubrir todos los flujos, estados, permisos y casos de borde relevantes.
 
 # Salida
+0. Resultado del escaneo de reutilizacion: proyectos con flujo/pantalla equivalente identificados y decision tomada.
 1. Propuesta de pantallas/acciones
 2. Reglas de validacion
 3. ViewModels propuestos

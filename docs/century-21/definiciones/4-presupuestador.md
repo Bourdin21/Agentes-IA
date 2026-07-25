@@ -39,7 +39,7 @@ Cliente piloto: Century 21 La Plata. Objetivo: construir una plataforma SaaS mul
 
 ## 5. PASO 0 — Anclaje histórico
 
-Referencias seleccionadas: **decorhogar** (76h M / 10 módulos, bot WhatsApp + catálogo con fotos, misma era de tasa/formula), **Energy Nutrition** (integraciones batch/webhook, sin cierre real — solo método y rangos), **ShowroomGriffin** (86.57h base / 11 módulos, infra transversal), **labipac** (integración parcial API, cierre real reciente).
+Referencias seleccionadas: **marihogar** (76h M / 10 módulos, bot WhatsApp + catálogo con fotos, misma era de tasa/formula), **Energy Nutrition** (integraciones batch/webhook, sin cierre real — solo método y rangos), **ShowroomGriffin** (86.57h base / 11 módulos, infra transversal), **labipac** (integración parcial API, cierre real reciente).
 
 ## 6. WBS con PERT completo
 
@@ -47,12 +47,12 @@ Referencias seleccionadas: **decorhogar** (76h M / 10 módulos, bot WhatsApp + c
 
 | # | Módulo | Tipo | Ref. histórica (base) | O | M | P | PERT | Riesgo | Cont. | Hrs fin. | Hrs fact. | USD |
 |---|---|---|---|---:|---:|---:|---:|---|---:|---:|---:|---:|
-| M1 | Plataforma SuperAdmin (Agencias, Planes, métricas) | ABM intermedio + reporte | decorhogar Usuarios/roles (5.5h) + proxy métricas | 4.5 | **6.5** | 9.5 | 6.67 | Medio | 15% | 7.67 | 3.12 | $109 |
-| M2 | Gestión de Grupos y Asesores (SuperAdmin — absorbe alta de asesores + config. WhatsApp, antes en Gerente) | ABM intermedio ×2 + regla de cupo por grupo | decorhogar/ganadería Usuarios (5.5h) + antiguo M8 (1.5h) | 4.5 | **6.5** | 9.5 | 6.67 | Medio | 15% | 7.67 | 3.12 | $109 |
+| M1 | Plataforma SuperAdmin (Agencias, Planes, métricas) | ABM intermedio + reporte | marihogar Usuarios/roles (5.5h) + proxy métricas | 4.5 | **6.5** | 9.5 | 6.67 | Medio | 15% | 7.67 | 3.12 | $109 |
+| M2 | Gestión de Grupos y Asesores (SuperAdmin — absorbe alta de asesores + config. WhatsApp, antes en Gerente) | ABM intermedio ×2 + regla de cupo por grupo | marihogar/ganadería Usuarios (5.5h) + antiguo M8 (1.5h) | 4.5 | **6.5** | 9.5 | 6.67 | Medio | 15% | 7.67 | 3.12 | $109 |
 | M3 | Tenancy transversal (query filter por GrupoId, ITenantContext, migraciones, seed roles, **concurrencia optimista RowVersion**) | Infra transversal — sin precedente en el estudio | ShowroomGriffin infra (3h/6 migr.) + complejidad nueva + concurrencia | 3.5 | **5.5** | 8.5 | 5.67 | Alto | 25% | 7.09 | 2.64 | $92 |
 | M4 | Clientes y Preferencias (perfil, fechas clave) | ABM intermedio | Dataset genérico ABM intermedio (3.1–5.4h) | 3.5 | **5.0** | 7.5 | 5.17 | Bajo | 8% | 5.58 | 2.40 | $84 |
-| M5 | Consultas (bandeja compartida, self-assign, reasignación peer-to-peer) | Workflow con estados + concurrencia | decorhogar CRM Leads (7.7h, 6 estados) | 6.0 | **8.0** | 11.5 | 8.25 | Medio | 15% | 9.49 | 3.84 | $134 |
-| M6 | Bot WhatsApp entrante (webhook Meta, flujo de menú, resolución **directa de Grupo** por número) | Integración webhook | decorhogar Bot WhatsApp (M=7h) / EN Sync webhook (8.3h) | 5.0 | **6.5** | 9.5 | 6.75 | Alto | 25% | 8.44 | 3.12 | $109 |
+| M5 | Consultas (bandeja compartida, self-assign, reasignación peer-to-peer) | Workflow con estados + concurrencia | marihogar CRM Leads (7.7h, 6 estados) | 6.0 | **8.0** | 11.5 | 8.25 | Medio | 15% | 9.49 | 3.84 | $134 |
+| M6 | Bot WhatsApp entrante (webhook Meta, flujo de menú, resolución **directa de Grupo** por número) | Integración webhook | marihogar Bot WhatsApp (M=7h) / EN Sync webhook (8.3h) | 5.0 | **6.5** | 9.5 | 6.75 | Alto | 25% | 8.44 | 3.12 | $109 |
 | M7 | Alertas de fechas clave (job diario + plantillas Meta, itera grupos) | Job programado + integración menor | ShowroomGriffin Resumen Semanal (M=2h) | 1.5 | **2.0** | 3.0 | 2.08 | Medio | 15% | 2.39 | 0.96 | $34 |
 | M12 | Mi perfil — estadísticas personales del asesor | Reporte simple | Sin precedente exacto — proxy ajuste con widgets (~2h) | 1.5 | **2.0** | 3.0 | 2.08 | Bajo | 8% | 2.25 | 0.96 | $34 |
 | M13 | Perfil de grupo — estadísticas agregadas del equipo | Reporte con agregación | ShowroomGriffin Dashboard (M=2h) + agregación multi-usuario | 2.0 | **2.5** | 3.5 | 2.58 | Bajo | 8% | 2.79 | 1.20 | $42 |
@@ -65,7 +65,7 @@ Referencias seleccionadas: **decorhogar** (76h M / 10 módulos, bot WhatsApp + c
 | # | Módulo | Tipo | Ref. histórica (base) | O | M | P | PERT | Riesgo | Cont. | Hrs fin. | Hrs fact. | USD |
 |---|---|---|---|---:|---:|---:|---:|---|---:|---:|---:|---:|
 | M9 | Agregador de portales (MercadoLibre directo + Apify ZonaProp/ArgenProp + orquestador + cache global + job + botón forzar) | Integración batch múltiple | EN Catálogo TN+ML batch (16.7h) | 10.0 | **13.0** | 18.0 | 13.33 | Alto | 25% | 16.66 | 6.24 | $218 |
-| M10 | Catálogo propio CRUD (cabecera + fotos) | ABM complejo con galería | decorhogar Catálogo+fotos (M=7h) | 5.0 | **7.0** | 9.5 | 7.08 | Medio | 15% | 8.14 | 3.36 | $118 |
+| M10 | Catálogo propio CRUD (cabecera + fotos) | ABM complejo con galería | marihogar Catálogo+fotos (M=7h) | 5.0 | **7.0** | 9.5 | 7.08 | Medio | 15% | 8.14 | 3.36 | $118 |
 | M11 | Búsqueda unificada (filtros multi-fuente, tag de origen, aplicar preferencias) | Reporte/consulta compleja | Sin precedente exacto — proxy reporte complejo (~4h) | 3.0 | **4.5** | 7.0 | 4.67 | Medio | 15% | 5.37 | 2.16 | $76 |
 | **Subtotal E2** | | | | | **24.5** | | **25.08** | | | **30.17** | **11.76** | **$412** |
 
@@ -89,7 +89,7 @@ Referencias seleccionadas: **decorhogar** (76h M / 10 módulos, bot WhatsApp + c
 | M2 | 0.93 ✅ | Mantener | 6.5h vs referencia combinada 7h (5.5+1.5) — leve sinergia por construirse en la misma pantalla |
 | M3 | 1.06 ✅ | Mantener | Sin precedente exacto — riesgo Alto declarado aparte cubre la incertidumbre; +1h por concurrencia optimista |
 | M4 | 1.11 ✅ | Mantener | En banda del dataset genérico |
-| M5 | 1.04 ✅ | Mantener | +0.5h vs versión anterior por patrón de bandeja compartida; sigue en banda de decorhogar CRM Leads |
+| M5 | 1.04 ✅ | Mantener | +0.5h vs versión anterior por patrón de bandeja compartida; sigue en banda de marihogar CRM Leads |
 | M6 | 0.93 ✅ | Mantener | −0.5h vs versión anterior — resolución directa de Grupo por número es más simple que la ambigüedad agencia→grupo previa |
 | M7 | 1.00 ✅ | Mantener | Coincide con referencia directa |
 | M9 | 0.80 ⚠️ justificado | Mantener | Apify absorbe Cloudflare/proxies — menor esfuerzo propio que integrar TN+ML directo (caso EN) |
@@ -102,7 +102,7 @@ Referencias seleccionadas: **decorhogar** (76h M / 10 módulos, bot WhatsApp + c
 
 | Comparable | Módulos | Hrs M | Ratio vs century-21 |
 |---|---:|---:|---:|
-| decorhogar (bot WhatsApp + catálogo con fotos, sin AFIP) | 10 | 76h | 0.91 ✅ |
+| marihogar (bot WhatsApp + catálogo con fotos, sin AFIP) | 10 | 76h | 0.91 ✅ |
 | ShowroomGriffin (multi-rol, sin integraciones externas) | 11 | 86.57h | 0.80 — justificado: century-21 no tiene módulo financiero pesado tipo "Ventas" |
 | Energy Nutrition (4 integraciones externas) | 18 | 117.3h | avg 5.3h/módulo vs 6.5h/módulo EN — coherente (century-21 tiene 13 módulos ahora, más chicos en promedio) |
 

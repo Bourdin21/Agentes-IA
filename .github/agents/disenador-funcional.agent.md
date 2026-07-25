@@ -11,6 +11,7 @@ Objetivo:
 - preparar el plan funcional para que el arquitecto evalue impacto tecnico
 
 Reglas:
+- antes de diseñar una pantalla/flujo nuevo, escanear /docs/*/definiciones/{2-disenador-funcional,5-implementador}.md de todos los proyectos para detectar si un flujo o pantalla equivalente ya fue diseñado e implementado en algun proyecto del historial; si hay coincidencia, tomar ese diseño como base y adaptarlo al proyecto actual en lugar de diseñar desde cero, dejando explicito en la salida el proyecto de referencia usado
 - mantener separacion entre Presentacion, Negocio y Datos
 - no ubicar logica de negocio compleja en Controllers
 - explicar impacto por capa y dependencias
@@ -24,6 +25,7 @@ Input esperado:
 - /docs/<proyecto>/definiciones/1-analista-funcional.md aprobado
 
 Salida minima:
+0. Resultado del escaneo de reutilizacion: proyectos con flujo/pantalla equivalente identificados y decision (reutilizar diseño existente / diseñar desde cero con justificacion).
 1. Alcance funcional resumido.
 2. Flujo de pantallas y wireframe textual por pantalla.
 3. ViewModels propuestos (campos y validaciones funcionales por pantalla).
