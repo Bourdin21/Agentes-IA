@@ -282,6 +282,10 @@ Sobre arquitectura v4. Mismo criterio que CR-8/CR-9/CR-13: adenda de bajo esfuer
 
 **Nuevo total acumulado del Change Request #1: USD 638 + USD 91 = USD 729.** Mismas condiciones ya acordadas (100% al aprobar, sin Tokens IA).
 
+## Cierre — Change Request #1 completo, ejecutado en producción (2026-07-28)
+
+**Estado: CERRADO.** Los 20 ítems del Change Request #1 (CR-1 a CR-20, total **USD 729**, sin incluir CR-19/CR-20 que fueron pedidos adicionales sin cargo por ser correcciones/mejoras de bajo esfuerzo sobre el mismo lote) están implementados, con QA en GO, y **ejecutados contra producción real** el 2026-07-28: 12 migraciones EF aplicadas, 20 tablas vaciadas y reimportadas con el histórico real (31 Proveedores/239 OC/634 Ventas/480 Gastos/207 Productos/286 Comprobantes AFIP), código deployado, certificado AFIP real conectado y verificado con un login WSAA exitoso contra AFIP producción. Detalle completo de la ejecución en `trazabilidad.md`, entrada "EJECUCIÓN REAL EN PRODUCCIÓN — Change Request #1 completo, CR-1 a CR-20".
+
 ## Historial de ajustes
 - 2026-07-28: Adenda CR-14 a CR-18 (mejoras post-migración) + refinamiento de CR-13 — USD 91 adicionales. Nuevo total acumulado del Change Request #1: USD 729. CR-17 (unificación de Proveedor duplicado) y la normalización de mayúsculas sobre datos ya cargados se ejecutaron directamente contra `marihogar_dev` el mismo día. Sin gate de presupuesto nuevo — se implementa junto con el resto del lote (Sprint CR-F).
 - 2026-07-27: Cliente aprobó el presupuesto de la ampliación CR-10/CR-11/CR-12 (USD 84) **pero pidió esperar antes de implementar** — no es un rechazo, es aprobación con implementación diferida. Nuevo total acumulado del Change Request #1: **USD 638, aprobado**. **Estado: APROBADO — implementación en espera de que el cliente dé la orden de arranque explícita** (no se inicia Implementación solo por esta aprobación; se necesita una confirmación nueva puntual, mismo criterio que la ejecución de CR-6 en producción, que también está en espera).

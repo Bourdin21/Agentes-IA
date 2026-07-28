@@ -218,3 +218,46 @@ Nuevo ──(1er mensaje, cualquier tipo)──▶ AwaitingCategory ──(elige
   punta a punta (mensaje no-procesable → categoría → rubro → 3 preguntas → cierre con
   `DerivadoManual`), verificado en base de producción y en el log de errores, sin excepciones.
   Datos de prueba borrados al finalizar. Ver `trazabilidad.md`, entrada 2026-07-27.
+
+---
+
+## Límites de Meta/WhatsApp — dos sistemas independientes (definición a tener en cuenta)
+
+Investigado 2026-07-28 a raíz de una duda real del cliente ("por qué me tira 131049 si en el panel
+de Meta veo margen de sobra"). Importante para cualquier decisión futura de volumen de campañas —
+**son dos mecanismos separados, con ejes distintos, y confundirlos lleva a conclusiones erróneas**:
+
+1. **Límite de cuenta (Messaging Limits / tier)** — cuántas conversaciones **nuevas** puede
+   *iniciar* el número de negocio en una ventana móvil de 24hs. Es lo que se ve en el panel de Meta
+   ("Current: 2000", "182 conversaciones con clientes únicos en los últimos 7 días" vs. el umbral de
+   1.000/7 días para subir de tier). Estado real verificado el 28/7: **muchísimo margen**, muy lejos
+   de ambos números. Este límite **no tiene nada que ver** con el error 131049.
+
+2. **Límite por destinatario (frecuencia de plantillas Marketing)** — el que dispara el error
+   **131049** ("this message was not delivered to maintain healthy ecosystem engagement"). Cada
+   persona en WhatsApp tiene un tope propio de cuántos mensajes de plantilla *Marketing* puede
+   recibir en total, **sumando todas las empresas que le escriben**, no solo Olvidata. Si ese
+   contacto puntual ya viene saturado de marketing de otros negocios, WhatsApp le bloquea el mensaje
+   a él específicamente — sin importar cuánto margen tenga la cuenta de Olvidata en el punto 1.
+   Confirmado 16 ocurrencias reales en los logs de producción entre el 22/7 y el 28/7 (agrupadas
+   exactamente en las ventanas de las corridas de envío: 3 el 24/7, 10 el 25/7 — ambas corridas
+   manuales de prueba —, 3 el 28/7 en el envío automático real de hoy, ~5% de los 59 enviados). No es
+   evitable del todo — es estructural al outbound frío en WhatsApp (Meta exige categoría MARKETING
+   para el primer contacto a un desconocido, no hay plantilla alternativa). El código ya se comporta
+   bien ante esto: un contacto que falla por este error queda `EstadoEmbudo=Pendiente` y recién se
+   reintenta en la próxima corrida programada de esa campaña (días después, nunca el mismo día),
+   que es justamente lo que recomienda Meta (no reintentar antes de 24hs).
+
+3. **El cuestionario de calificación (las preguntas que manda el bot después de que el contacto
+   responde) NO consume ninguno de los dos límites.** Confirmado contra la documentación oficial de
+   WhatsApp Business Platform: apenas el contacto responde, se abre una ventana de 24hs de
+   "conversación iniciada por el usuario" — todo lo que se manda ahí es **texto libre** (no
+   plantilla, `SendCurrentQuestionAsync`/`SendTextAsync` en `BotFlowService`), y los mensajes de
+   texto libre dentro de esa ventana quedan **exentos** tanto del límite de cuenta (punto 1, que solo
+   cuenta conversaciones *business-initiated*) como del límite por destinatario (punto 2, que solo
+   aplica a plantillas Marketing). En la práctica: no hace falta "dejar margen" para el cuestionario
+   al planificar volumen de campañas — es efectivamente gratis en términos de estos límites, siempre
+   que la respuesta a cada pregunta llegue dentro de las 24hs de la última actividad del contacto
+   (si pasan más de 24hs sin que el contacto escriba, `HandleIncomingAsync` ya maneja el reinicio de
+   conversación, ver §B.2 arriba — en ese caso cualquier mensaje *nuevo* que la empresa quiera
+   iniciar sí volvería a necesitar plantilla).

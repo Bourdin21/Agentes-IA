@@ -5,21 +5,33 @@ electrónica (M7, `AfipService.cs`). Mismo procedimiento ya usado en `delicias-n
 (ver `../delicias-naturales/certificado-afip.md` y el template genérico en
 `../templates/afip-certificado-digital.md`), adaptado a MariHogar.
 
-**Estado: PENDIENTE — falta el CUIT del negocio y hacer el trámite completo con el cliente.**
-Esta guía se completa a medida que se van teniendo los datos reales.
+**Estado: Certificado de PRODUCCIÓN completo, conectado a `appsettings.Production.json` y
+VERIFICADO con un login real contra el WSAA de AFIP (2026-07-28) — AFIP devolvió token/sign
+válidos, confirmando que el certificado y la relación de servicio WSFE funcionan de punta a
+punta. Falta únicamente: subir `marihogarprod.p12` al servidor real (paso manual, se hace en la
+próxima ventana de deploy) y, opcionalmente, repetir el trámite en el portal de Homologación si
+se quiere probar sin facturar en real.**
 
 ---
 
-## Datos a completar (todavía vacíos)
+## Datos completados
 
 | Campo | Valor |
 |---|---|
-| CUIT del negocio | *(pendiente — pedirlo al cliente)* |
-| Alias del certificado | *(sugerido: `MARIHOGAR`, a definir)* |
-| DN completo | *(se completa en el Paso 2, lo genera AFIP)* |
-| Password del .p12 | *(a elegir en el Paso 4 — no reutilizar la de otros proyectos)* |
-| Ruta local (HML/dev) | `C:\Sistemas\marihogar\Certificados\marihogar.p12` |
-| Ruta servidor (PROD) | *(a definir junto con el deploy — mismo patrón que `deliciasnaturales/Certificados/aliasprod.p12` en el hosting)* |
+| CUIT del negocio | `20331136132` (20-33113613-2) — confirmado por el cliente 2026-07-28 |
+| Alias del certificado | `marihogar` |
+| DN del certificado emitido | `CN=marihogar, serialNumber=CUIT 20331136132` (emisor: AFIP, `Not Before: 28/07/2026`, `Not After: 27/07/2028`) |
+| Password del .p12 | `Olvidata2026!` (elegida por el cliente 2026-07-28 — también está en `appsettings.Production.json`, gitignored) |
+| Ambiente | **Producción** (el trámite se hizo en el portal de Producción de AFIP, no en Homologación — este certificado NO sirve para probar contra el ambiente de homologación) |
+| Punto de Venta configurado | `1` (valor por defecto ya cargado — **no confirmado explícitamente con el cliente**, verificar antes de emitir el primer comprobante real) |
+| Ruta local | `C:\Sistemas\marihogar\Certificados\marihogarprod.p12` |
+| Ruta configurada en `appsettings.Production.json` | `Certificados/marihogarprod.p12` (relativa a la raíz del sitio en el servidor — **falta subir el archivo ahí manualmente, ver Paso 5**) |
+
+**Archivos generados** (en `C:\Sistemas\marihogar\Certificados\`, excluidos de git):
+- `privada.key` — clave privada, nunca se comparte.
+- `pedido.csr` — el CSR ya subido a AFIP.
+- `certificado.crt` — descargado desde el portal de AFIP el 2026-07-28.
+- `marihogarprod.p12` — certificado final, listo para usar.
 
 ---
 
@@ -100,29 +112,43 @@ separado (mismo `privada.key` sirve para ambos si se usó la misma clave para lo
 
 ---
 
-## Paso 4 — Conectarlo con la aplicación
+## Paso 4 — Conectarlo con la aplicación ✅ hecho (2026-07-28)
 
-En `MariHogar.Web/appsettings.Development.json` (para probar en Homologación) o
-`MariHogar.Web/appsettings.Production.json` (para el ambiente real, en el servidor):
+`MariHogar.Web/appsettings.Production.json` ya tiene la sección `Afip` cargada:
 
 ```json
 "Afip": {
-  "Ambiente": "Homologacion",
-  "CertificadoPath": "C:\\Sistemas\\marihogar\\Certificados\\marihogarhml.p12",
-  "CertificadoPassword": "{la password elegida en el Paso 3}",
-  "CUIT": "{CUIT_DEL_NEGOCIO}",
+  "Ambiente": "Produccion",
+  "CertificadoPath": "Certificados/marihogarprod.p12",
+  "CertificadoPassword": "Olvidata2026!",
+  "CUIT": "20331136132",
   "PuntoVenta": 1,
   "PorcentajeIva": 21
 }
 ```
 
-Para producción, `"Ambiente": "Produccion"` + la ruta del `.p12` de producción (subido al
-servidor junto con el resto del deploy, **nunca commiteado a git** — ya excluido en
-`.gitignore` con el patrón `*.p12`/`Certificados/`).
+`CertificadoPath` es **relativo a la raíz del sitio** (`ContentRootPath`) — no una ruta
+absoluta del servidor, para no depender de la estructura exacta de carpetas del hosting.
 
-Después de cargar esto, `AfipService.EmitirAsync` deja de devolver el error controlado de
-"certificado no configurado" (ver comentario en `appsettings.json`) y puede intentar emitir
-comprobantes reales contra AFIP.
+---
+
+## Paso 5 — Subir el .p12 al servidor (manual, pendiente)
+
+`appsettings.Production.json` ya apunta a `Certificados/marihogarprod.p12`, pero ese archivo
+todavía no está en el servidor — falta:
+
+1. Vía FTP/File Manager de SmarterASP (mismas credenciales del hosting ya usadas en
+   `scripts/deploy-prod.ps1`), crear la carpeta `Certificados/` en la raíz del sitio
+   `olvidatasoft-002-site16` (mismo nivel que `MariHogar.Web.dll`).
+2. Subir `C:\Sistemas\marihogar\Certificados\marihogarprod.p12` ahí.
+3. Confirmar que `appsettings.Production.json` (con la sección `Afip` ya cargada) esté
+   incluido en el próximo deploy — es un archivo gitignored, así que no viaja con el `dotnet
+   publish` normal del código: verificar que el paso de publish/deploy lo copie igual (mismo
+   tratamiento que ya se le da a la connection string real de producción, que vive en el mismo
+   archivo).
+
+No hace falta un deploy de código para esto — es exclusivamente subir el archivo del
+certificado y confirmar el `appsettings.Production.json` ya actualizado.
 
 ---
 
@@ -137,4 +163,4 @@ comprobantes reales contra AFIP.
 
 | Fecha | Ambiente | Vencimiento | Realizado por |
 |---|---|---|---|
-| *(pendiente — completar cuando se emita el primer certificado)* | | | |
+| 28/07/2026 | Producción | 27/07/2028 | Claude Code (orquestador, con el cliente completando el trámite manual en el portal de AFIP) |

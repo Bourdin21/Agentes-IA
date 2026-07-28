@@ -1150,3 +1150,47 @@ regresiones:
           motivo: "Inyectado IComprobanteAfipService en VentaService; GenerarRemitoPdfPorTokenAsync consulta el Comprobante AFIP Emitido mas reciente de la Venta y delega en IComprobanteAfipService.GenerarPdfAsync si existe, cae al remito si no. Sin cambio en GenerarRemitoPdfAsync (boton autenticado, sigue siendo siempre remito)."
       build: "dotnet build MariHogar.slnx --no-incremental -> Compilacion correcta, 0 Errores (mismos 9 warnings preexistentes, ninguno nuevo) — confirmado por el orquestador tras aplicar el fix."
       verificacion: "Sin match circular de DI confirmado antes del cambio (ComprobanteAfipService no depende de IVentaService). Sin cambio de firma publica de IVentaService (mismos metodos, misma logica interna). No reproducido en navegador (regla de proceso vigente) — verificacion por revision de codigo de la nueva consulta y del orden Emitido-mas-reciente-primero."
+
+  - id: MH-007
+    modulo: "Caja mensual / Proyeccion financiera (CajaService, ProyeccionFinancieraService) — CR-18 ajuste de apertura"
+    titulo: "El movimiento de ajuste de apertura (CR-18, lleva el saldo de CC Local a $0 tras importar el historico) se sumaba como Egreso/Ingreso real del mes en que se postea, distorsionando Caja mensual y Proyeccion financiera"
+    severidad: major
+    reproducido_en: "marihogar - master (working tree, Sprint CR-F / CR-18), reportado por el usuario tras correr por primera vez el importador actualizado contra marihogar_dev el 2026-07-28 ('Egresos del periodo $71.189.862,62, 846,5% vs periodo anterior, quiero saber a que se debe'); diagnosticado y corregido por el orquestador el mismo dia"
+    pasos:
+      - "Correr tools/ImportarHistorico/ (CR-6 con CR-18 ya incorporado) contra una base vaciada — el bloque final postea 1 movimiento MovimientoCCLocal (y 1 por cada MovimientoCCProveedor con saldo != 0) con OrigenTipo='AjusteApertura', Fecha=fecha del ultimo movimiento importado."
+      - "Abrir Caja/Index (Caja mensual) para el mes calendario que contiene esa fecha de corte."
+    sintoma: "Egresos del periodo (o Ingresos, segun el signo del saldo acumulado real) aparece inflado en el monto exacto del ajuste de apertura — caso real: $64.132.215,31 de ajuste + $7.057.647,31 de Gastos reales de julio = $71.189.862,62 mostrados como 'Egresos del periodo', con un comparativo '846,5% vs periodo anterior' sin sentido de negocio (el mes anterior no tenia ningun ajuste, solo Gastos reales de ~$7,5M)."
+    expectativa: "El ajuste de apertura es una correccion de saldo puntual (equivalente a un saldo inicial), no un flujo de caja real de ningun mes — no debe participar de ningun total ni comparativo por periodo en Caja mensual ni en el promedio historico de Proyeccion financiera. El saldo ACUMULADO (CR-14, columna 'Saldo' de CCLocalService/CCProveedorService) si debe seguir incluyendolo — ahi el proposito es justamente que el saldo total llegue a $0."
+    causa_raiz: "CajaService.ObtenerTotalesAsync (usado tanto para el periodo actual como para el periodo anterior del comparativo) y ProyeccionFinancieraService.ObtenerAsync (ventana de promedio historico de 1/3/6 meses) sumaban TODOS los movimientos de MovimientosCCLocal del rango de fechas sin excluir OrigenTipo='AjusteApertura' — el riesgo ya habia sido identificado en Arquitectura v4 ('el movimiento de ajuste podria interpretarse como un ingreso/egreso real en Caja mensual del periodo donde se lo postea') pero la mitigacion documentada entonces (Descripcion explicita para que el Administrador lo identifique) no era suficiente: no evitaba que el numero distorsionado se mostrara igual."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/CajaService.cs
+        motivo: "ObtenerTotalesAsync y ObtenerDesgloseFacturadoAsync excluyen explicitamente OrigenTipo='AjusteApertura' de sus queries sobre MovimientosCCLocal (el segundo, por consistencia con la identidad ya exigida por MH-004: facturados+noFacturados debe seguir coincidiendo exacto con IngresosPeriodo)."
+      - path: MariHogar.Infrastructure/Services/ProyeccionFinancieraService.cs
+        motivo: "La query de totalesHistoricos (promedio de 1/3/6 meses) excluye OrigenTipo='AjusteApertura'. La query de ingresosVentaHistoricos ya filtraba OrigenTipo='Venta' explicitamente, por lo que ya excluia el ajuste sin cambios."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: manual
+      selector_o_endpoint: "Caja/Index — card 'Egresos del periodo' y comparativo '% vs periodo anterior'"
+      condicion_falla: "Egresos (o Ingresos) del periodo que contiene la fecha del ajuste de apertura son mayores al total real de Gastos/Ventas de ese mes en el monto exacto del ajuste."
+    criterio_aceptacion:
+      - "Caja mensual del periodo con el ajuste de apertura: Egresos/Ingresos del periodo coinciden exacto con la suma de movimientos reales (Venta/Gasto/etc.), sin el monto del ajuste."
+      - "Comparativo '% vs periodo anterior' da un numero de negocio razonable (no un salto de cientos de % por el ajuste)."
+      - "Proyeccion financiera (1/3/6 meses, si la ventana incluye el mes del ajuste): el promedio historico tampoco incluye el monto del ajuste."
+      - "CCLocalService/CCProveedorService (CR-14, columna Saldo acumulado): SIGUE incluyendo el ajuste — el saldo total llega a $0 exacto, sin cambio de comportamiento ahi."
+    pruebas_minimas:
+      - "Con los datos reales de marihogar_dev (ajuste de $64.132.215,31 en julio 2026): Caja/Index de julio 2026 debe mostrar Egresos=$7.057.647,31 (no $71.189.862,62)."
+      - "Caja/Index de junio 2026 (periodo anterior, sin ajuste): sin cambio, $7.521.225,85."
+      - "Saldo acumulado de CC Local (CCLocal/Index, ultima fila): sigue en $0,00 exacto."
+      - "CC Proveedores de un proveedor con ajuste aplicado: saldo acumulado sigue en $0,00 exacto."
+    fix_aplicado:
+      fecha: "2026-07-28"
+      por: "orquestador (hallazgo reportado directamente por el usuario tras la primera corrida real del importador actualizado)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/CajaService.cs
+          motivo: "Agregado 'm.OrigenTipo != \"AjusteApertura\"' a los Where de ObtenerTotalesAsync y ObtenerDesgloseFacturadoAsync."
+        - path: MariHogar.Infrastructure/Services/ProyeccionFinancieraService.cs
+          motivo: "Agregado 'm.OrigenTipo != \"AjusteApertura\"' al Where de totalesHistoricos."
+      build: "dotnet build MariHogar.Infrastructure/MariHogar.Infrastructure.csproj -> Compilacion correcta, 0 Errores. Build de la solucion completa (MariHogar.slnx) no pudo correrse en el momento del fix porque el usuario tenia la app corriendo en modo debug (DLL de Infrastructure bloqueada por el proceso) — no es un error de codigo, es un lock de archivo esperado mientras la app esta viva; sin impacto en la verificacion (el proyecto que cambio compila limpio de forma aislada)."
+      verificacion: "Simulado con SQL real contra marihogar_dev (replicando exactamente la nueva condicion del Where): julio 2026 pasa de $71.189.862,62 a $7.057.647,31 de Egresos (coincide con el Gasto real del mes); junio 2026 sin cambio ($7.521.225,85, -6,2% en vez de +846,5%). Saldo acumulado de CC Local confirmado sin cambio (sigue en $0,00 exacto, la query de CCLocalService no fue tocada)."

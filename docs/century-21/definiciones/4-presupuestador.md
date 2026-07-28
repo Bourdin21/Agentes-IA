@@ -264,7 +264,9 @@ Mecanismo: **facturación exclusivamente anual**, calculada como 10 meses del pr
 |---|---:|---:|
 | Básico | $60/mes | **$600/año** |
 | Pro | $185/mes | **$1.850/año** |
-| Enterprise | $185/mes + $15/mes por asesor extra sobre 10 | **$1.850/año** + $150/año por asesor extra sobre 10 (ej. 11 asesores = $2.000/año, 15 asesores = $2.600/año) |
+| Enterprise | $185/mes + $20/mes por asesor extra sobre 10 | **$1.850/año** + $200/año por asesor extra sobre 10 (ej. 11 asesores = $2.050/año, 15 asesores = $2.850/año) |
+
+**Ajuste 2026-07-24 (research competitivo):** el upsell de asesor extra en Enterprise sube de USD 150/año a **USD 200/año** — comparado contra Tokko Broker (USD 260–2.700/año según tramo) y Follow Up Boss (USD 400–828/asesor/año), el valor anterior dejaba margen sin capturar en el tramo de mayor volumen. Básico y Pro quedan sin cambios en esta ronda.
 
 **No se ofrece facturación mensual** (eliminada 2026-07-02 a pedido del cliente) — la anual es la única modalidad de cobro disponible.
 

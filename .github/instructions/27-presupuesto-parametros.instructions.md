@@ -124,12 +124,16 @@ Reglas practicas de uso del dataset:
 
 Incluir siempre en el presupuesto como linea separada post-desarrollo. El plan corresponde al servicio continuo del servidor y soporte, NO es parte del costo de desarrollo.
 
+**Vigente desde 2026-07-24** (suba aplicada tras research competitivo — ver `docs/analisis-pricing-2026-07.md` si existe, o el historial de la sesion que la evaluo). Reemplaza la tabla anterior (250/300/400/750).
+
 | Plan     | Tablas BD        | USD/año | Incluye                                                  |
 |----------|------------------|---------|----------------------------------------------------------|
-| STARTER  | 1 – 5            | 250     | 1 admin, soporte email, actualizaciones de seguridad     |
-| PRO      | 6 – 15           | 300     | Hasta 2 usuarios, soporte WhatsApp, 1 ronda de ajuste    |
-| PREMIUM  | 16 – 30          | 400     | Hasta 3 usuarios, soporte prioritario, 2 rondas ajuste   |
-| SCALE    | 31+              | 750     | Hasta 10 sesiones, usuarios ilimitados, 3 rondas ajuste  |
+| STARTER  | 1 – 5            | 300     | 1 admin, soporte email, actualizaciones de seguridad     |
+| PRO      | 6 – 15           | 400     | Hasta 2 usuarios, soporte WhatsApp, 1 ronda de ajuste    |
+| PREMIUM  | 16 – 30          | 500     | Hasta 3 usuarios, soporte prioritario, 2 rondas ajuste   |
+| SCALE    | 31+              | 850     | Hasta 10 sesiones, usuarios ilimitados, 3 rondas ajuste  |
+
+Upsells vigentes (fuera del alcance de la formula de Build, ver seccion "Extras opcionales" para lo que sí se calcula con `M x $16.80`): usuario adicional USD 125/año, módulo nuevo desde USD 250. Reflejado en `src/pages/precios.astro` del sitio (`C:\Sistemas\olvidatasoft-new`).
 
 Reglas de aplicacion:
 - Determinar el plan según la cantidad de tablas del sistema entregado.
