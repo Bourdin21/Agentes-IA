@@ -184,7 +184,110 @@ Código confirmado reutilizable de proyectos del estudio — mismo stack, mismo 
 - Plan comercial: **PREMIUM USD 400/año** — conservado por tratarse de referido (SCALE sería USD 750/año)
 - Primer año incluido en el total al cliente ($1,020). Desde 2do año: USD 400/año.
 
+## Presupuesto — Change Request #1: feedback primera demo (2026-07-27)
+
+Sobre arquitectura v2 aprobada (`3-arquitecto-mvc.md`). Es un presupuesto de **modificación sobre módulo ya entregado** (Etapa 1 en producción), no un módulo nuevo — se ancla en la tabla "Modificación sobre módulo existente" de `27-presupuesto-parametros.instructions.md`, con excepción de CR-6 (import de histórico), que es esfuerzo comparable a un parser propietario nuevo.
+
+### PASO 0 — Anclaje histórico
+- CR-1/CR-2: reutilización directa de patrones ya resueltos en `ganaderia - emo` (`FacturaVenta`/`FacturaVentaIngreso`) — banda "Modificación sobre módulo existente" (0.5–2h), no "módulo nuevo".
+- CR-3/CR-5/CR-7: campo condicional de un select / regla de negocio nueva sobre pantalla existente — banda 0.5–2h.
+- CR-4: mezcla de campo nuevo + endpoint público — sin referencia 1 a 1 exacta, ancla entre "ajuste puntual" y "integración WS simple" (3–4h) por el componente de seguridad nuevo.
+- CR-6: comparable a "Parser Excel propietario" (contadores-bma-conversor, 4h reales por archivo simple) pero con 4 archivos de estructura distinta y reglas de negocio propias cada uno (matching de producto, mapeo de categoría, saldo inicial) — se estima por encima del piso de esa banda, no como 4 parsers independientes completos.
+
+### WBS con PERT
+
+| Ítem | Tipo | O | M | P | PERT | Riesgo | USD (M×$16.80) |
+|---|---|---:|---:|---:|---:|---|---:|
+| CR-1 OC: tipo comprobante + impuestos (IVA/IIBB/Otros) + migración datos | Modificación módulo existente | 3.5 | **5** | 7.5 | 5.17 | Medio 15% | $84 |
+| CR-2 Cheque: fecha de emisión + autocálculo vencimiento | Ajuste puntual con lógica derivada | 1.5 | **2** | 3 | 2.08 | Bajo 8% | $34 |
+| CR-3 Venta: tarjeta de crédito (cuotas+interés) + Banco Carrefour | Campo condicional de un select | 2 | **3** | 4.5 | 3.08 | Bajo 8% | $50 |
+| CR-4 Descargar/enviar comprobante por WhatsApp + endpoint público con token | Ajuste + mini-integración (seguridad) | 3 | **4** | 6 | 4.17 | Medio 15% | $67 |
+| CR-5 Categorías de gasto (nuevo set + migración de datos existentes) | Regla de negocio + migración de datos | 2 | **3** | 4.5 | 3.08 | Medio 15% | $50 |
+| CR-6 Importador de histórico (4 archivos reales: proveedores/compras/ventas/gastos) | Parser propietario multi-archivo | 7 | **10** | 15 | 10.33 | Alto 25% | $168 |
+| CR-7 Cheques: acreditación manual (job pasa de acreditar a solo notificar) | Ajuste puntual de lógica | 1.5 | **2** | 3 | 2.08 | Bajo 8% | $34 |
+| **Total** | | | **29h** | | **30.0h** | | **$487** |
+
+### Autocorrección por ítem
+Todos los ítems dentro de rango (ratio 0.85–1.15) respecto de la banda de referencia elegida — sin ajustes adicionales. CR-6 es el único sin referencia histórica exacta (parser multi-archivo con reglas de negocio distintas por archivo, no un solo parser homogéneo) — aceptado con incertidumbre declarada (Alto 25%), sujeto a reestimación si al analizar los 4 archivos en profundidad durante la implementación aparecen más casos de borde de los ya relevados en el análisis.
+
+### Cierre numérico
+- Tokens IA: **no aplica** — mismo criterio que el presupuesto original de Etapa 1 de este cliente (excluido explícitamente, no se introduce ahora un cargo nuevo no visto antes por el cliente).
+- Sin descuento.
+- **Total Change Request #1: USD 487.**
+- Condición comercial: 100% al aprobar (a diferencia del 50/50 por etapa de un proyecto nuevo — es un ajuste puntual de alcance menor, no una etapa completa).
+
+### Requisitos previos del cliente antes de implementar — **los 3 resueltos el 2026-07-27**
+- **CR-4** ✅: confirmado — el PDF cuando no hay Comprobante AFIP emitido es el **comprobante remito de la venta**.
+- **CR-5** ✅: confirmado — "Marketing"→Publicidad y "APR"→APR son correctos.
+- **CR-6** ✅: confirmado, con una decisión adicional del cliente — los Excel son la fuente de verdad, no lo que hay hoy cargado en producción (incluida la propia actividad de prueba del cliente). **Se vacían las tablas de producción de las entidades con dato en los Excel antes de importar** (plan y salvaguardas en `3-arquitecto-mvc.md`, sección CR-6). Sin cambio de presupuesto por esta decisión — el vaciado es una operación de datos de bajo esfuerzo (`DELETE` scripteado), ya contemplado dentro del ítem CR-6 ($168).
+
+### Riesgos y supuestos
+Ver tabla de riesgos técnicos completa en `3-arquitecto-mvc.md` (sección Arquitectura v2). Riesgo comercial: CR-6 es el ítem de mayor incertidumbre del lote — si durante la implementación se detectan más de ~5 reglas de negocio adicionales no relevadas en el análisis (ej. formatos de fecha inconsistentes, productos con el mismo nombre pero distinto precio en distintas filas, etc.), se declara gatillo de reestimación explícito para ese ítem puntual, no para el resto del change request.
+
+## Presupuesto — Adenda Change Request #1: CR-8 y CR-9 (2026-07-27)
+
+Sobre análisis v4 (`1-analista-funcional.md`). Ambos ítems se pliegan al Sprint CR-B (todavía no arrancado) — no reabren el presupuesto ya aprobado de CR-1/2/7 (Sprint CR-A, ya en implementación).
+
+| Ítem | Tipo | M | USD (M×$16.80) |
+|---|---|---:|---:|
+| CR-8 Sugerir total como monto de pago por defecto | Ajuste puntual de UI | 1h | $17 |
+| CR-9 Reportes: desglose facturado/no facturado | Regla de negocio + ajuste de reporte | 3h | $50 |
+| **Subtotal adenda** | | **4h** | **$67** |
+
+**Nuevo total del Change Request #1: USD 487 + USD 67 = USD 554.** Mismas condiciones ya acordadas (100% al aprobar, sin Tokens IA). Sin necesidad de un nuevo gate de aprobación separado — son ítems menores que se suman al mismo Change Request ya aprobado por el cliente, informados en la misma conversación en la que se pidieron; se documenta el monto actualizado para que quede trazado, no para volver a pedir aprobación de cero.
+
+## Presupuesto — Ampliación CR-10/CR-11/CR-12: auditoría de columnas del histórico (2026-07-27)
+
+Sobre arquitectura v3 (`3-arquitecto-mvc.md`). Mismo criterio de anclaje que el resto del Change Request #1: "modificación sobre módulo existente", banda 0,5-2h por ítem (campo nullable simple sobre entidad ya existente, sin lógica de negocio nueva ni migración de datos sobre filas ya cargadas).
+
+### WBS con PERT
+
+| Ítem | Tipo | O | M | P | PERT | Riesgo | USD (M×$16.80) |
+|---|---|---:|---:|---:|---:|---|---:|
+| CR-10 OC: Punto de Venta + Nº de comprobante | Campo condicional sobre bloque ya existente | 1 | **1,5** | 2,5 | 1,58 | Bajo 8% | $25 |
+| CR-11 Gasto: Subcategoría (campo + ajuste importador CR-6) | Campo nuevo + ajuste script | 1 | **1,5** | 2,5 | 1,58 | Bajo 8% | $25 |
+| CR-12 Venta: Nota interna (campo + ajuste importador CR-6, con verificación de no-filtración a PDF) | Campo nuevo + ajuste script + verificación de seguridad | 1,5 | **2** | 3 | 2,08 | Bajo 8% | $34 |
+| **Total** | | | **5h** | | **5,25h** | | **$84** |
+
+### Autocorrección por ítem
+Los 3 ítems dentro de rango (ratio 0,85-1,15) respecto de la banda "modificación sobre módulo existente" ya usada para CR-2/CR-3/CR-5/CR-7. CR-12 lleva 0,5h adicional sobre CR-10/CR-11 por la verificación explícita de que `NotaInterna` no aparezca en ningún PDF generado (control de seguridad/alcance, no complejidad de campo).
+
+### Cierre numérico
+- Tokens IA: no aplica (mismo criterio del resto del proyecto).
+- Sin descuento.
+- **Total ampliación CR-10/11/12: USD 84.**
+- Condición comercial: 100% al aprobar, mismo criterio que el resto del Change Request #1.
+
+**Nuevo total acumulado del Change Request #1: USD 554 + USD 84 = USD 638.** (CR-1 a CR-7: $487; adenda CR-8/CR-9: $67; ampliación CR-10/11/12: $84.)
+
+### Requisitos previos del cliente antes de implementar
+Ninguno — los 3 ítems no tienen preguntas abiertas (a diferencia de CR-4/CR-5/CR-6, que sí las tuvieron). **Estado: APROBADO por el cliente el 2026-07-27** (con implementación diferida a pedido del cliente — "apruebo, pero esperar" — y orden de arranque explícita dada después, ver `trazabilidad.md`). Implementado en Sprint CR-E, con QA GO.
+
+### Riesgos y supuestos
+Riesgo bajo en los 3 ítems — son campos `string?` nullable sin lógica de negocio ni migración de datos sobre filas ya cargadas (CR-6 aún no corrió en producción). Sin gatillo de reestimación previsto.
+
+## Adenda — CR-14 a CR-18: mejoras post-migración (2026-07-28)
+
+Sobre arquitectura v4. Mismo criterio que CR-8/CR-9/CR-13: adenda de bajo esfuerzo sobre el Change Request #1 ya aprobado, sin gate de presupuesto nuevo (se informa el costo agregado, no se vuelve a pedir aprobación de cero).
+
+| Ítem | Tipo | M | USD (M×$16.80) |
+|---|---|---:|---:|
+| CR-14 Saldo calculado en CC Local + CC Proveedores | Cálculo derivado sobre listado existente | 1,5h | $25 |
+| CR-15 Cheque OC: fecha de emisión por defecto | Ajuste puntual de JS | 0,5h | $8 |
+| CR-16 Mayúsculas Proveedor/Producto (normalización + datos existentes) | Regla de negocio simple + fix de datos | 1h | $17 |
+| CR-17 Unificación de Proveedor duplicado | Operación de datos (sin código) | 0,5h | $8 |
+| CR-18 Ajuste de apertura saldo $0 | Extensión de script existente | 1,5h | $25 |
+| CR-13 (refinamiento) ClienteCUIT en factura histórica | Ajuste menor sobre CR-13 ya presupuestado | 0,5h | $8 |
+| **Subtotal adenda** | | **5,5h** | **$91** |
+
+**Nuevo total acumulado del Change Request #1: USD 638 + USD 91 = USD 729.** Mismas condiciones ya acordadas (100% al aprobar, sin Tokens IA).
+
 ## Historial de ajustes
+- 2026-07-28: Adenda CR-14 a CR-18 (mejoras post-migración) + refinamiento de CR-13 — USD 91 adicionales. Nuevo total acumulado del Change Request #1: USD 729. CR-17 (unificación de Proveedor duplicado) y la normalización de mayúsculas sobre datos ya cargados se ejecutaron directamente contra `marihogar_dev` el mismo día. Sin gate de presupuesto nuevo — se implementa junto con el resto del lote (Sprint CR-F).
+- 2026-07-27: Cliente aprobó el presupuesto de la ampliación CR-10/CR-11/CR-12 (USD 84) **pero pidió esperar antes de implementar** — no es un rechazo, es aprobación con implementación diferida. Nuevo total acumulado del Change Request #1: **USD 638, aprobado**. **Estado: APROBADO — implementación en espera de que el cliente dé la orden de arranque explícita** (no se inicia Implementación solo por esta aprobación; se necesita una confirmación nueva puntual, mismo criterio que la ejecución de CR-6 en producción, que también está en espera).
+- 2026-07-27: Presupuesto ampliación CR-10/CR-11/CR-12 (auditoría columna por columna del histórico) — USD 84 adicionales. Nuevo total acumulado del Change Request #1: USD 638. **Estado: BORRADOR — pendiente aprobación del cliente (gate duro antes de Implementación).**
+- 2026-07-27: Adenda CR-8 + CR-9 al Change Request #1 — USD 67 adicionales (total USD 554), a implementar en Sprint CR-B.
+- 2026-07-27: Presupuesto Change Request #1 cerrado — feedback primera demo (CR-1 a CR-7). Total USD 487, sin Tokens IA (mismo criterio del presupuesto original), 100% al aprobar. Ítem de mayor riesgo: CR-6 (importador de histórico, Alto 25%, sin referencia histórica exacta 1 a 1). **Estado: BORRADOR — pendiente aprobación del cliente (gate duro antes de Implementación).**
 
 - 2026-06-29: Presupuesto v1 ejecutado. 10 módulos (6 E1 + 4 E2). Total bruto $1,378. Neto $1,171 con descuento 15% referido. Estado: borrador. Presupuesto v1 **reemplazado por v2**.
 - 2026-07-06: Presupuesto v2 — iteración 1. 18 módulos (13 E1 + 5 E2). Tasa fórmula M×$16.80. Total bruto $2,088. Neto $1,775. Reemplazado en la misma sesión por v2 iteración 2.

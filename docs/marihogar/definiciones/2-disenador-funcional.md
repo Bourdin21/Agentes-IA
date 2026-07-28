@@ -1,7 +1,7 @@
 # Memoria - Disenador funcional
 
 ## Proyecto: marihogar
-## Ultima actualizacion: 2026-07-24
+## Ultima actualizacion: 2026-07-27 (Diseño v3 — Sprint CR-B)
 
 ## Definiciones vigentes
 
@@ -330,6 +330,148 @@ Tabla base = tabla "Permisos por rol" ya cerrada en `1-analista-funcional.md`. A
 - `VentaService.ConfirmarAsync`, `OrdenCompraService.RecibirAsync`, `ChequeService.AcreditarAsync/RechazarAsync`, `GastoService.CrearAsync` son los puntos donde se genera movimiento de stock y/o CC — deben ejecutar en una unica transaccion de base de datos (todo o nada).
 - `ChequeAcreditacionHostedService` (IHostedService, patron ganaderia) corre diariamente, es idempotente (no reacredita un cheque ya Acreditado) y dispara `INotificationService` al finalizar cada acreditacion.
 
+## Diseño v2 — Change request feedback primera demo (2026-07-27, CR-1 a CR-7)
+
+Sobre análisis v3 aprobado (`1-analista-funcional.md`). No reabre ni contradice el diseño v1 — son extensiones puntuales sobre pantallas ya existentes.
+
+### CR-1 — Orden de compra: tipo de comprobante + impuestos
+
+**Pantalla afectada**: `OrdenesCompra/Create` (alta, ver diseño v1 "Orden de compra (alta)"). Se agrega, debajo de la tabla de ítems y antes del total:
+- Card "Comprobante": radio Facturada / No facturada (en negro). Si Facturada → combo Tipo (A/B/C), requerido.
+- Card "Impuestos" (solo si Facturada, colapsada/deshabilitada si No facturada — impuestos = 0 automático en OC no facturada): 3 filas Porcentaje + Monto (IVA, Ingresos Brutos, Otros), cada Monto se recalcula en vivo al tipear el Porcentaje (base: Subtotal para IVA; Subtotal+IVA para IIBB/Otros) pero el Monto queda editable a mano si el cálculo sugerido no coincide con la factura real (mismo criterio "sugerido pero editable" de ganadería).
+- Total de la card pasa a mostrar: Subtotal (de los ítems) + los 3 montos de impuesto = Total final, en la misma jerarquía visual que ya tiene el total de la pantalla.
+
+- HU-12.5: Como Administrador, quiero indicar si la compra que cargo tiene factura (A/B/C) o es en negro, y cargar los impuestos discriminados cuando corresponde, para que el total de la OC refleje lo que realmente pagué y no solo el precio de los productos.
+  - CA: Tipo obligatorio solo si Facturada=true. Los 3 campos de impuesto se pre-calculan pero son editables. Total = Subtotal + suma de montos de impuesto.
+- HU-12.6: Como sistema, quiero que las OC ya cerradas antes de este cambio mantengan su saldo pendiente sin alteración, para no generar deudas o saldos a favor fantasma con proveedores tras la migración.
+  - CA: migración de datos fija impuesto 0% en las OC históricas (Total sin cambio).
+
+### CR-2 — Cheque: fecha de emisión
+
+**Pantalla afectada**: sub-formulario de pago con cheque (dentro de `OrdenesCompra/Details` → Registrar pago, ver diseño v1). Se agrega el campo **Fecha de emisión** (date picker) junto a los ya existentes (Numero/Banco/Cuota). Al elegir la Cuota (30/60/90) y ya tener la Fecha de emisión cargada, **Fecha de vencimiento se autocompleta** (Emisión + Cuota) pero sigue siendo un campo editable (mismo criterio "sugerido, editable" de CR-1).
+
+- HU-14.5: Como Administrador, quiero cargar la fecha real de emisión del cheque además de su vencimiento, para que el registro coincida exactamente con el cheque físico que tengo en la mano.
+  - CA: Fecha de emisión requerida. Fecha de vencimiento se sugiere automáticamente (Emisión + días de la Cuota elegida) y se puede corregir a mano.
+
+### CR-3 — Ventas: Tarjeta de crédito en cuotas + Banco Carrefour
+
+**Pantalla afectada**: sección "Formas de pago" de `Ventas/Create` (ver "Especificación UX elevada — Pantalla de Ventas"). Se agregan 2 opciones al selector de método de pago existente (Efectivo/Transferencia/MercadoPago):
+- **Tarjeta de crédito**: al elegirla, la fila despliega 2 campos inline (sin salir de la pantalla, mismo criterio ya usado para el sub-formulario de cheque en OC): combo Cuotas (3/6/9/12) y campo % Interés (opcional, vacío = sin interés).
+- **Banco Carrefour**: sin campos adicionales, mismo comportamiento que Efectivo/Transferencia/MercadoPago.
+
+- HU-5.10: Como Vendedor, quiero registrar un pago con tarjeta de crédito indicando la cantidad de cuotas y, si corresponde, el interés de la financiación, para que la venta refleje cómo pagó realmente el cliente.
+  - CA: Cuotas obligatorio si Metodo=TarjetaCredito (3/6/9/12, sin otros valores). % Interés opcional, default vacío/0.
+- HU-5.11: Como Vendedor, quiero poder cobrar con Banco Carrefour como un medio de pago más, igual que efectivo o transferencia.
+  - CA: aparece en el selector de métodos de Ventas; NO aparece en el selector de métodos de Compras a proveedores (ver nota de alcance abajo).
+
+**Nota de alcance (aclarada en Arquitectura)**: `MetodoPago` es compartido entre Venta y OC — Tarjeta de crédito y Banco Carrefour se agregan al enum pero la lista de métodos habilitados por pantalla (ya filtrada hoy en el ViewModel/Controller, ver `3-arquitecto-mvc.md`) NO los incluye para Compras — son exclusivos de Ventas salvo que el cliente pida lo contrario.
+
+### CR-4 — Descargar y enviar comprobante por WhatsApp
+
+**Pantalla afectada**: `Ventas/Details` (agrega lo que hoy ya existe en Presupuestos y Comprobantes AFIP, unificado). Dos botones nuevos junto a los ya existentes:
+- **"Descargar PDF"**: mismo comprobante ya generado (Comprobante AFIP si existe, o el detalle de la venta como remito/recibo simple si todavía no fue facturada — a definir con el cliente cuál PDF exacto se descarga cuando no hay factura AFIP emitida, marcado como hipótesis abierta abajo).
+- **"Enviar por WhatsApp"**: visible solo si `Venta.ClienteTelefono` tiene dato. Abre `wa.me/<telefono>?text=<mensaje prellenado con el link de descarga>` en una pestaña nueva. El vendedor confirma el envío manualmente desde WhatsApp Web/App — el sistema no envía nada por sí mismo (confirmado con el cliente, ver `1-analista-funcional.md` CR-4).
+
+- HU-7.5: Como Vendedor, quiero mandarle al cliente el comprobante de su compra por WhatsApp con un clic, sin tener que buscar el archivo y adjuntarlo a mano en otra app, para agilizar la postventa.
+  - CA: botón oculto (no solo deshabilitado) si no hay teléfono cargado. El link generado abre WhatsApp con el número correcto y un mensaje en español claro ("Hola! Te paso el comprobante de tu compra: <link>").
+
+**Confirmado por el cliente (2026-07-27)**: cuando la venta no tiene Comprobante AFIP emitido, el PDF a descargar/enviar es el **comprobante remito de la venta** (documento interno de entrega, no fiscal — mismo estilo visual que el resto de los PDF del sistema, listando ítems/cantidades/total y los datos del cliente, sin CAE). Si la venta ya tiene un Comprobante AFIP emitido, se descarga ese (ya existe desde Sprint 6). El botón "Descargar PDF"/"Enviar por WhatsApp" en `Ventas/Details` elige automáticamente cuál de los dos corresponde según si hay o no un `ComprobanteAfip` con Estado=Emitido asociado a la venta.
+
+### CR-5 — Gastos: categorías nuevas
+
+**Pantalla afectada**: `Gastos/Create` e `Index` (filtro de Categoría). Sin cambio de estructura de pantalla — solo cambia la lista de opciones del combo Categoría: Sueldos, Impuestos, Luz, APR, Publicidad, Otro (6, ver análisis CR-5 para el resguardo "Otro").
+
+- HU-18.3: Como Administrador, quiero elegir la categoría de gasto de una lista corta y clara (Sueldos/Impuestos/Luz/APR/Publicidad/Otro) para no tener que interpretar categorías libres inconsistentes como en el sistema anterior.
+  - CA: combo cerrado de 6 opciones, sin texto libre.
+
+### CR-6 — Importación de datos históricos
+
+No es una pantalla nueva de uso diario — es una herramienta de una sola vez (mismo patrón que `tools/SeedTestData/`, pero leyendo los 4 Excel reales de `Importacion/` en vez de generar datos ficticios). Plan funcional (detalle técnico en Arquitectura):
+1. Proveedores (32): mapeo directo a la entidad `Proveedor` ampliada (CR ya acordado con el cliente).
+2. Compras (239, 464 líneas): requiere resolver primero qué Producto de línea corresponde a qué Producto del catálogo real del cliente — **no se puede automatizar 100% sin intervención humana** (nombres de producto en texto libre del sistema viejo). Plan: generar un Producto nuevo por cada nombre distinto no reconocido (con precio de compra = el del histórico, precio de venta a completar después por el cliente), en vez de bloquear el import completo por productos faltantes.
+3. Ventas (634, 983 líneas): igual criterio de Producto. Se importan como Ventas ya Pagadas (histórico cerrado), **sin generar Comprobante AFIP** (columna "ARCA" del histórico confirma que casi ninguna fue facturada realmente — no se re-factura retroactivo).
+4. Gastos (481): mapeo de categoría libre → una de las 6 categorías nuevas (ver tabla de mapeo propuesta en `1-analista-funcional.md` CR-5, a confirmar con el cliente antes de correr el import).
+
+- HU-Import.1: Como Administrador, quiero que mi historial de compras, ventas, gastos y proveedores del sistema anterior aparezca cargado en marihogar, para no perder mi historial comercial ni arrancar de cero en las cuentas corrientes y reportes.
+  - CA: los 4 archivos se importan en el orden Proveedores → Productos (derivados) → Compras → Ventas → Gastos (por dependencias de FK). Reporte final de importación: cuántas filas se importaron OK, cuántas requirieron crear un Producto nuevo, cuántas quedaron con categoría "Otro" por no matchear el mapeo.
+
+### CR-7 — Cheques: acreditación manual
+
+**Pantalla afectada**: `Cheques/Details` (el botón "Acreditar" ya existe en el diseño v1 — hoy no se ejercita porque el job lo hacía solo). Sin cambio de pantalla. Cambia el comportamiento del job de fondo (ver Arquitectura) y el contenido de la notificación in-app: pasa de "Se acreditaron N cheques" a "El cheque Nº X venció hoy, pendiente de acreditar" (una notificación por cheque, no agrupada, para que el Administrador pueda ir directo al cheque desde la notificación).
+
+- HU-14.6: Como Administrador, quiero que el sistema me avise cuando un cheque llega a su fecha de vencimiento, pero que la acreditación quede en mis manos, para poder confirmar primero con el banco que el cheque efectivamente se cobró antes de darlo por acreditado en el sistema.
+  - CA: el cheque NO cambia de estado solo al vencer. La notificación aparece una única vez por cheque (no se repite todos los días mientras siga Pendiente). "Acreditar" sigue siendo una acción manual explícita, disponible en cualquier momento desde que vence (no solo el día exacto).
+
+## Diseño v3 — Sprint CR-B: CR-8 (sugerir monto) + CR-9 (desglose facturado/no facturado)
+
+Sobre análisis v4 (`1-analista-funcional.md`, "Discovery + Análisis v4"). Extensiones puntuales sobre pantallas ya existentes (Ventas/Create, OrdenesCompra/Details, Dashboard, Caja, Proyección financiera) — no reabren diseño v1/v2.
+
+### CR-8 — Sugerir el total/saldo pendiente como monto de pago por defecto
+
+**Pantallas afectadas**: sub-formulario de pago de `Ventas/Create.cshtml` y de `OrdenesCompra/Details.cshtml` (registrar pago).
+
+- HU-5.12: Como Vendedor, quiero que al agregar una fila de pago nueva en la venta el campo Monto ya venga completado con lo que falta cobrar, para no tener que calcularlo ni tipearlo a mano en el caso más común (pago único).
+  - CA: al click en "Agregar" (forma de pago), el Monto se precompleta con `Total − suma de filas de pago ya cargadas` (nunca negativo — si ya está cubierto, el campo queda vacío); el valor sigue siendo editable libremente. No cambia el comportamiento de "Todo efectivo"/"Todo transferencia" (ya autocompletan con el total).
+- HU-12.7: Como Administrador, quiero el mismo comportamiento al registrar un pago de Orden de compra, para no tener que calcular a mano el saldo pendiente cada vez que agrego una forma de pago.
+  - CA: idéntico criterio que HU-5.12, usando el saldo pendiente de la OC como base en vez del total de la venta.
+
+### CR-9 — Reportes: distinguir ventas facturadas de no facturadas
+
+**Pantallas afectadas**: `Dashboard/Admin.cshtml` (card "Ventas del período"), `Caja/Index.cshtml` (resumen del período), `ProyeccionFinanciera/Index.cshtml` (card "Ingresos proyectados").
+
+- HU-9.3: Como Administrador, quiero ver cuánto de lo vendido en el período está facturado y cuánto no, en la card de Ventas del período del Dashboard, para dimensionar la proporción real de venta en blanco del negocio.
+  - CA: desglose Facturado/No facturado (cantidad y monto) según si la Venta tiene un `ComprobanteAfip` con `Estado=Emitido` asociado (clasificación binaria por venta, facturada total o parcialmente cuenta como "facturada" — CA-CR9.1). La suma de ambos segmentos coincide siempre con el total ya mostrado (no duplica ni omite ventas).
+- HU-15.3: Como Administrador, quiero ver el mismo desglose en el resumen de Caja mensual, para que el cierre del período distinga ingresos facturados de no facturados.
+  - CA: mismo criterio que HU-9.3, aplicado a los ingresos del período (CA-CR9.2).
+- HU-17.3: Como Administrador, quiero ver, junto al ingreso promedio histórico de la Proyección financiera, qué proporción de ese promedio corresponde a ventas ya facturadas, para no interpretar el ingreso proyectado como si fuera todo en blanco.
+  - CA: dato informativo (porcentaje), no altera ninguna fórmula de proyección ya definida en M17 (CA-CR9.3).
+
+## Diseño v4 — CR-10/CR-11/CR-12: auditoría de columnas del histórico
+
+Sobre análisis v5 (`1-analista-funcional.md`, "Discovery + Análisis v5"). 3 campos nuevos sobre pantallas ya existentes — no reabre diseño v1/v2/v3.
+
+### CR-10 — Orden de compra: Punto de Venta + Número de comprobante
+
+**Pantalla afectada**: `OrdenesCompra/Create.cshtml` y `Details.cshtml` — el bloque de comprobante ya existente desde CR-1 (checkbox Facturada + select Tipo A/B/C) suma 2 campos de texto.
+
+- HU-12.8: Como Administrador, quiero poder cargar el punto de venta y número de comprobante de la factura del proveedor al confirmar una Orden de Compra facturada, para poder ubicar esa factura física o conciliarla con un reclamo del proveedor más adelante.
+  - CA: los 2 campos (Punto de Venta, Número de Comprobante) solo se muestran/habilitan cuando Facturada = true (mismo patrón condicional ya usado para el select Tipo). Ambos opcionales — no bloquean la confirmación de la OC. Se muestran como columna en `OrdenesCompra/Index` (buscable) y en el detalle.
+
+### CR-11 — Gasto: Subcategoría
+
+**Pantalla afectada**: `Gastos/Create.cshtml`/`Edit` y `Gastos/Index.cshtml`.
+
+- HU-18.4: Como Administrador, quiero poder anotar una subcategoría de texto libre al cargar un Gasto, además de la categoría fija, para poder identificar el detalle real del gasto (ej. "Gastos bancarios PCIA", "Sueldo Juan") sin forzarlo dentro de una de las 6 categorías cerradas.
+  - CA: campo de texto libre opcional, debajo del select de Categoría. Se muestra en el listado de Gastos como columna secundaria (bajo el nombre de categoría) y es filtrable por texto junto al filtro de categoría ya existente (mismo cuadro de búsqueda, sin filtro dedicado nuevo).
+
+### CR-12 — Venta: Nota interna
+
+**Pantalla afectada**: `Ventas/Create.cshtml` (campo nuevo, colapsado/opcional) y `Ventas/Details.cshtml` (visible).
+
+- HU-5.13: Como Vendedor, quiero poder dejar una nota interna de texto libre al cargar una venta, para anotar aclaraciones que no van en el remito del cliente (ej. una condición de pago especial, un pedido puntual del cliente).
+  - CA: campo de texto libre opcional, fuera del bloque de pago/productos (no interrumpe el flujo POS ya optimizado de Ventas — ver "Especificación UX elevada"). Visible en `Ventas/Details` para Administrador y Vendedor. **Nunca** se incluye en el PDF del remito ni del comprobante AFIP (`GenerarRemitoPdfInterno`/`ComprobanteAfipService` no la leen) — es exclusivamente interna.
+
+### Nota de alcance
+Los 3 ítems son extensiones de un campo sobre un formulario ya diseñado — no generan wireframe nuevo ni cambian ninguna máquina de estados. El diseño de detalle de UI (posición exacta del campo, si va colapsado detrás de un "Agregar nota") queda a criterio del implementador dentro del patrón visual ya establecido, sin volver a este gate.
+
+## Diseño v5 — CR-14/CR-15/CR-16/CR-18: mejoras post-migración
+
+Sobre análisis v7. Extensiones puntuales sobre pantallas ya existentes, sin wireframe nuevo.
+
+- HU-11.4 (CR-14): Como Administrador, quiero ver el saldo acumulado junto a cada movimiento del listado de CC Local, para leer el estado de la cuenta en cualquier punto del historial sin sumar a mano.
+  - CA: columna "Saldo" nueva en el listado, ordenado cronológicamente, acumulado desde el primer movimiento.
+- HU-13.3 (CR-14): mismo criterio que HU-11.4, aplicado al detalle de CC de cada Proveedor.
+- HU-12.9 (CR-15): Como Administrador, quiero que al elegir "Cheque" como forma de pago de una OC la fecha de emisión ya venga en la fecha de hoy, para no tener que completarla a mano en el caso más común (pago inmediato con cheque del día).
+  - CA: al cambiar el método a Cheque, si no hay fecha cargada, se precompleta con hoy + Cuota=30 (ambos editables), disparando el autocálculo de vencimiento ya existente (CR-2).
+- HU-2.5 (CR-16): Como Administrador, quiero que el nombre de Proveedores y Productos se guarde siempre en mayúsculas, para mantener el catálogo prolijo y consistente sin depender de cómo lo tipeen distintos usuarios.
+  - CA: normalización automática al guardar (crear/editar), sin pedir nada nuevo en el formulario.
+
+CR-17 no requiere diseño (operación de datos, sin pantalla nueva ni cambio de flujo). CR-18 no requiere diseño (cambio interno del script de importación, sin UI).
+
 ## Historial de ajustes
+- 2026-07-28: Diseño v5 cerrado — CR-14 (saldo calculado en CC Local/Proveedores), CR-15 (fecha de emisión de cheque por defecto en OC), CR-16 (mayúsculas Proveedor/Producto). 4 historias de usuario nuevas (HU-11.4, HU-13.3, HU-12.9, HU-2.5). Sin wireframe nuevo.
+- 2026-07-27: Diseño v4 cerrado — CR-10 (Nº comprobante en OC), CR-11 (Subcategoría de Gasto), CR-12 (Nota interna de Venta), sobre análisis v5. 3 historias de usuario nuevas (HU-12.8, HU-18.4, HU-5.13). Alcance menor, sin wireframe nuevo. Pendiente: Arquitectura y Presupuesto antes de habilitar implementación.
+- 2026-07-27: Diseño v3 cerrado — Sprint CR-B (CR-8 sugerir monto de pago por defecto, CR-9 desglose facturado/no facturado en Dashboard/Caja/Proyección). Historias de usuario nuevas HU-5.12, HU-12.7, HU-9.3, HU-15.3, HU-17.3, definidas por el implementador siguiendo el mismo formato del resto del documento (alcance menor, ya presupuestado y aprobado en la adenda de `4-presupuestador.md`, sin gate de aprobación nuevo).
+- 2026-07-27: Diseño v2 cerrado — change request feedback primera demo (CR-1 a CR-7). Historias de usuario nuevas HU-12.5/12.6 (OC impuestos), HU-14.5 (cheque fecha emisión), HU-5.10/5.11 (nuevas formas de pago), HU-7.5 (WhatsApp), HU-18.3 (categorías gasto), HU-Import.1 (importación histórico), HU-14.6 (acreditación manual). 1 hipótesis abierta marcada explícitamente (qué PDF se envía por WhatsApp cuando no hay Comprobante AFIP emitido) — a confirmar con el cliente antes de implementar esa parte puntual, no bloquea el resto del change request.
 - 2026-07-24: Diseno funcional v1 cerrado. 18 modulos, historias de usuario completas (con criterios de aceptacion) cubriendo flujos, estados, permisos y casos de borde. Patron transversal de filtros persistidos en sesion definido. Maquinas de estado detalladas (Lead, Presupuesto, Venta, Entrega, OC, Cheque). ViewModels y wireframes textuales por pantalla. Listo para Arquitectura.
 - 2026-07-24: Elevacion de estandar UX para M5 Gestion de ventas, pedido explicito del cliente por ser la pantalla de mayor uso diario del sistema. Agregadas HU-5.5 a HU-5.9 (busqueda instantanea, resumen sticky con total, edicion inline sin recarga, advertencia no bloqueante de stock, pantalla de exito con acciones siguientes) y seccion dedicada "Especificacion UX elevada — Pantalla de Ventas" con layout de dos columnas (desktop/tablet) y checkout mobile de una columna, detalle de interacciones tipo POS profesional. No afecta ViewModels ni maquina de estados ya definidos (mismo contrato funcional, mayor inversion en interaccion/presentacion). Impacto: Sprint 2 de implementacion (Presupuestos + Ventas + CC local, aun no iniciado) debe tratar Ventas con prioridad de esfuerzo superior al resto de los ABMs de ese sprint.

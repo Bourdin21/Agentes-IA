@@ -120,5 +120,110 @@ Indices recomendados: `Producto.CategoriaId`, `Producto.MarcaId`, `MovimientoSto
 
 Arquitectura cerrada y consistente con el presupuesto ya vigente (`4-presupuestador.md`, iteracion 6: E1 $700 / E2 $200 / Total $900, 18 modulos). No se detectan cambios de alcance respecto del presupuesto vigente — el presupuesto **no requiere reestimacion**. Habilitado el paso a Implementacion.
 
+## Arquitectura v2 — Change request feedback primera demo (2026-07-27, CR-1 a CR-7)
+
+Sobre diseño v2 aprobado (`2-disenador-funcional.md`). Solo se listan cambios/adiciones — todo lo no mencionado aquí sigue igual que en v1.
+
+### Cambios de esquema (Domain + migraciones)
+
+| Entidad | Cambio | Módulo |
+|---|---|---|
+| `OrdenCompra` | + `TipoComprobante` (enum nuevo `TipoComprobanteCompra`: A/B/C, nullable), `Facturada` (bool), `PorcentajeIva`/`MontoIva`, `PorcentajeIIBB`/`MontoIIBB`, `PorcentajeOtrosImpuestos`/`MontoOtrosImpuestos` (decimal, default 0). `Total` pasa a calcularse como Subtotal + suma de impuestos (antes era solo suma de líneas). | CR-1 |
+| `Cheque` | + `FechaEmision` (DateTime, requerido). Migración de datos: cheques ya existentes sin este dato → `FechaEmision = FechaVencimiento - Cuota` (recalculado hacia atrás, ya que se conoce Cuota y Vencimiento). | CR-2 |
+| `Cheque` | + `Notificado` (bool, default false) — evita que el job dispare la misma notificación de "venció, pendiente de acreditar" más de una vez por cheque. | CR-7 |
+| `MetodoPago` (enum compartido) | + `TarjetaCredito=6`, `BancoCarrefour=7`. | CR-3 |
+| `PagoVenta` | + `CantidadCuotas` (int?, solo si Metodo=TarjetaCredito — validación en Service, no en BD), `PorcentajeInteres` (decimal?, nullable = sin interés). | CR-3 |
+| `CategoriaGasto` | **Breaking change de valores**: pasa de (Alquiler=1/Servicios=2/Sueldos=3/Flete=4/Otro=5) a (Sueldos=1/Impuestos=2/Luz=3/APR=4/Publicidad=5/Otro=6) — se reordena para que "Otro" quede último de forma consistente con el resto del proyecto. Requiere **migración de datos explícita** (no solo de esquema) sobre los `Gasto` ya existentes: mapeo Alquiler→Otro, Servicios→Luz, Sueldos→Sueldos, Flete→Otro, Otro→Otro, aplicado por `UPDATE` explícito ANTES de que el nuevo enum entre en vigencia (para no dejar valores int apuntando a la categoría equivocada por el reordenamiento). | CR-5 |
+| `Proveedor` | + `Nombre`/`Apellido` (string?, persona física de contacto — distinto de `RazonSocial`), `CondicionIva` (enum nuevo `CondicionIva`: ResponsableInscripto/Monotributo/ExentoNoResponsable, según lo visto en el Excel real), `DomicilioFiscal`/`LocalidadFiscal`/`ProvinciaFiscal`/`CodigoPostalFiscal` (string?, separados de los ya existentes Dirección genérica), `Observaciones` (string?). | CR-6 (campos de Proveedor) |
+| `MovimientoCCProveedor` | Nuevo `OrigenTipo="SaldoInicial"` para el movimiento de apertura al importar un proveedor con saldo previo (`Proveedor.SaldoInicial` decimal, + `FechaSaldoInicial` DateTime?, ambos nuevos). | CR-6 |
+
+Migración EF: `AddImpuestosOCyChequeEmision` (CR-1+CR-2), `AddMetodoPagoTarjetaCarrefour` (CR-3, solo enum+columnas nullable, sin cambio de esquema en tablas existentes salvo columnas nuevas en `PagosVenta`), `AddCategoriaGastoV2` (CR-5, con script de `UPDATE` de datos incluido en la misma migración, antes de que el nuevo mapeo de valores quede vigente), `AddProveedorCamposFiscales` (CR-6).
+
+### CR-4 — Endpoint público de descarga (riesgo de seguridad, mitigación obligatoria)
+
+El link que se comparte por WhatsApp sale del sistema (lo abre el cliente final, sin login). Reglas de arquitectura:
+- Nunca exponer el `Id` incremental de `Venta`/`ComprobanteAfip` en la URL pública (enumerable — cualquiera podría probar ids consecutivos y ver comprobantes ajenos).
+- Cada comprobante compartido genera un **token opaco** (`Guid`, columna nueva `TokenDescargaPublica` en `Venta` y en `ComprobanteAfip`, generado la primera vez que se pide el link, reutilizado después — no un token por click).
+- Endpoint nuevo `GET /Comprobante/Descargar/{token}` **sin `[Authorize]`**, `AllowAnonymous` explícito (única acción de todo el sistema con este atributo fuera de Login/AccessDenied) — devuelve solo el PDF, nunca datos de otras ventas, nunca un listado. Rate limiting de la policy `general` ya vigente aplica igual (protección básica contra fuerza bruta del token).
+- El PDF servido por este endpoint es de solo lectura — no expone ninguna acción (editar/cancelar/etc.), reduce superficie de riesgo al mínimo.
+- **Confirmado por el cliente (2026-07-27)**: cuando la venta no tiene `ComprobanteAfip` emitido, el PDF es un **remito de venta** nuevo (`IExportService`/`PresupuestoService`-style: QuestPDF, mismo patrón visual que el resto), sin CAE ni datos fiscales — solo ítems, cantidades, total y datos del cliente. Nuevo método `IVentaService.GenerarRemitoAsync`/`ComprobanteAfipService` decide cuál PDF servir (remito vs. factura AFIP) según si existe un `ComprobanteAfip` con Estado=Emitido para esa Venta.
+
+### CR-6 — Importador de histórico (herramienta, no pantalla)
+
+Mismo patrón que `tools/SeedTestData/` (proyecto de consola aparte, fuera de `MariHogar.slnx`, sin secretos hardcodeados): `tools/ImportarHistorico/`, lee los 4 `.xlsx` de `Importacion/` con `ClosedXML` (ya referenciado por `ExportService` del proyecto principal, se reutiliza el paquete) en vez de Excel COM (COM no es viable en el servidor de producción ni en CI, es solo lo que usó el orquestador para el análisis exploratorio). Orden de import: Proveedores → Productos derivados (por nombre no reconocido) → Compras → Ventas → Gastos. Idempotente por un marcador propio (no reutiliza el de `SeedTestData`), reporta al final cuántas filas por archivo se importaron vs. requirieron intervención manual (producto nuevo creado, categoría de gasto forzada a "Otro").
+
+**Decisión del cliente (2026-07-27) — vaciar producción antes de importar (los Excel son la fuente de verdad, no lo que hay hoy cargado)**: antes de correr `ImportarHistorico`, se vacían en producción las tablas de las entidades que tienen dato en los Excel — incluye lo que quedó de la copia local→prod del 27/07 (datos ficticios) **y** lo que el cliente cargó explorando el sitio (su Proveedor "Prueba" + 2 OC reales), porque el propio cliente confirmó que todo eso es de prueba.
+- **Tablas a vaciar** (en orden que respeta FK, `DELETE` no `TRUNCATE` por los `AUTO_INCREMENT` que conviene resetear también vía `ALTER TABLE ... AUTO_INCREMENT = 1` después de cada `DELETE`): `MovimientosCCProveedor`, `Cheques`, `PagosOrdenCompra`, `OrdenCompraItems`, `OrdenesCompra`, `Proveedores`, `MovimientosCCLocal`, `PagosVenta`, `VentaItems`, `Ventas`, `PresupuestoItems`, `Presupuestos`, `Gastos`, `MovimientosStock`, `ProductoFotos`, `Productos`, `Marcas`, `Categorias`.
+- **Tablas que NO se tocan**: `AspNetUsers`/`AspNetRoles`/`AspNetUserRoles` (usuarios reales, incluida la cuenta real `tatoibiza@icloud.com`), `AuditLogs`, `Notifications`, `Entregas`/`EntregaIntentos` (0 filas, sin impacto), `ComprobantesAfip`/`ComprobanteAfipItems` (0 filas).
+- **Salvaguarda obligatoria antes de ejecutar**: dump de respaldo de producción (`mysqldump` completo, no solo las tablas a vaciar) guardado localmente antes de correr el `DELETE`, por si hace falta revertir. Esta limpieza es una acción destructiva sobre producción — **requiere confirmación explícita del cliente en el momento de ejecutarla** (ya fue autorizada en principio el 2026-07-27, pero se re-confirma antes del `DELETE` real, no se ejecuta solo por haber quedado escrito acá).
+
+### CR-7 — `ChequeAcreditacionHostedService`: de acreditar a notificar
+
+Cambio de lógica interna (`EjecutarSiCorrespondeAsync`), sin cambio de la interfaz `IChequeService` ni de la máquina de estados ya definida (`Acreditar`/`Rechazar` siguen siendo las únicas transiciones válidas desde `Pendiente`, ya expuestas en la UI desde Sprint 4). El job pasa de `chequeService.AcreditarVencidosAsync(...)` a una consulta de solo lectura (`Cheques` con `Estado=Pendiente AND FechaVencimiento<=hoy AND Notificado=false`) + `INotificationService.CrearAsync` por cada uno + marcar `Notificado=true`. Ya no llama a ningún método que cambie `Estado`.
+
+### Riesgos técnicos de este change request
+
+| Riesgo | Nivel | Mitigación |
+|---|---|---|
+| CR-1: OC ya cerradas con Total recalculado (impuestos) pueden mostrar saldo distinto al histórico | Medio | Migración fija impuesto 0% en OC existentes — Total no cambia para nada ya cerrado, confirmado en Diseño. |
+| CR-5: mapeo automático del enum viejo→nuevo de `CategoriaGasto` sobre datos ya en producción | Medio-Alto | Mapeo explícito por `UPDATE` documentado, revisado antes de aplicar — no una migración EF ciega de valores. Recomendado que el Administrador revise los 29 gastos ya cargados después de la migración. |
+| CR-4: endpoint público sin autenticación | Medio | Token opaco no adivinable + `AllowAnonymous` explícito y aislado a un único endpoint de solo lectura + rate limiting ya vigente. |
+| CR-6: 239 compras + 634 ventas con productos en texto libre sin catálogo 1 a 1 | Alto (esfuerzo, no seguridad) | Creación automática de Producto nuevo por nombre no reconocido, con precio de venta pendiente de completar — evita bloquear el import completo, documentado como intervención manual post-import. |
+| CR-6: ventas históricas nunca se re-facturan ante AFIP | Bajo | Confirmado con el cliente (columna "ARCA" del histórico). Se importan sin `ComprobanteAfip` asociado, documentado explícitamente. |
+
+### Gate de aprobación
+
+Arquitectura v2 cerrada. Impacto de alcance real sobre lo ya presupuestado en Etapa 1 (no estaba contemplado) — **requiere presupuesto propio como change request**, ver `4-presupuestador.md`. No habilitado el paso a Implementación hasta que el cliente apruebe ese presupuesto (gate duro, `00-operativa-global.instructions.md`).
+
+## Arquitectura v3 — CR-10/CR-11/CR-12: auditoría de columnas del histórico
+
+Sobre diseño v4 (`2-disenador-funcional.md`). 3 campos nuevos, todos `string?` nullable, sobre entidades ya existentes — sin entidades nuevas, sin cambio de máquina de estados, sin impacto en servicios de dominio (`VentaService`/`OrdenCompraService`/`GastoService` no cambian su lógica, solo persisten un campo más).
+
+### CR-10 — `OrdenCompra.PuntoVenta` + `OrdenCompra.NumeroComprobante`
+- `OrdenCompra` gana `PuntoVenta` (`string?`, largo máx. 10) y `NumeroComprobante` (`string?`, largo máx. 20) — texto, no numérico, porque el histórico real trae ceros a la izquierda (ej. "0001-00001234") que un `int` perdería.
+- Sin validación de unicidad ni de formato a nivel de BD (el punto de venta/número real de AFIP no lo emite este sistema para compras, es un dato que el Administrador transcribe de la factura del proveedor — mismo criterio de "dato informativo, no fuente de verdad fiscal" que ya aplica a `TipoComprobante`/`Facturada` de CR-1).
+- Migración EF: `AddOrdenCompraNumeroComprobante` (2 columnas nullable, sin script de datos — nulo para todo lo ya cargado).
+
+### CR-11 — `Gasto.Subcategoria`
+- `Gasto` gana `Subcategoria` (`string?`, largo máx. 100).
+- El importador de CR-6 (`tools/ImportarHistorico/Program.cs`, sección Gastos) se ajusta: hoy usa la columna "Subcategoría" del Excel como *fallback* de `Descripcion` cuando esta viene vacía (línea ~548-552 del script) — pasa a cargar `Subcategoria` = columna real siempre que tenga dato, sin tocar la lógica de `Descripcion` (que sigue igual). **CR-6 todavía no corrió contra producción** (pendiente del "todavía no" del cliente), así que este ajuste se aplica directamente al script antes de la corrida real, sin migración de datos sobre filas ya existentes.
+- Migración EF: `AddGastoSubcategoria` (1 columna nullable).
+
+### CR-12 — `Venta.NotaInterna`
+- `Venta` gana `NotaInterna` (`string?`, largo máx. 500).
+- **Punto de seguridad/alcance explícito**: `VentaService.GenerarRemitoPdfInterno` y `ComprobanteAfipService` (generación de PDF) **no leen este campo** — se verifica en Implementación que ningún template QuestPDF lo incluya, para que nunca aparezca en un documento que ve el cliente final. Mismo criterio de "dato interno vs. dato de cara al cliente" que ya separa `Venta.MotivoCancelacion` (interno) de lo que sí se imprime.
+- El importador de CR-6 (sección Ventas) se ajusta para volcar la columna "Nota Interna" del Excel en este campo en vez de descartarla — no cambia la resolución ya definida de `PagoVenta` consolidado en Efectivo.
+- Migración EF: `AddVentaNotaInterna` (1 columna nullable).
+
+### Riesgos técnicos de esta ampliación
+| Riesgo | Nivel | Mitigación |
+|---|---|---|
+| CR-12: filtración accidental de `NotaInterna` a un documento visible por el cliente | Medio | Verificación explícita en QA: generar un PDF de remito de una Venta con `NotaInterna` cargada y confirmar que no aparece en el PDF. |
+| CR-10/11/12: los 3 campos son opcionales — riesgo de que el Administrador los deje vacíos y se repita el mismo problema de dato disperso que motivó este análisis | Bajo | Fuera de alcance técnico — es un hábito de uso, no un control de sistema. No se fuerza obligatoriedad porque en el histórico real ninguno de los 3 llega al 100% (CR-10 depende de si está Facturada; CR-11/12 no son siempre completados por el usuario real, ver fill-rate en `1-analista-funcional.md`). |
+
+### Gate de aprobación
+Arquitectura v3 cerrada. Sin impacto en lo ya presupuestado del Change Request #1 (CR-1 a CR-9) — es una ampliación propia, nueva, sobre el mismo change request en curso. **Requiere presupuesto propio**, ver `4-presupuestador.md`. No habilitado el paso a Implementación hasta que el cliente lo apruebe (gate duro).
+
+## Arquitectura v4 — CR-14/CR-15/CR-16/CR-18: mejoras post-migración
+
+Sobre diseño v5. **Sin migración EF** — todos los cambios son de comportamiento (cálculo/normalización), no de esquema.
+
+- **CR-14**: `CCLocalService`/`CCProveedorService` calculan el saldo acumulado en memoria al armar el DTO de listado (ordenar por `Fecha, Id` ascendente, acumular `+Monto` en Ingreso / `-Monto` en Egreso). Sin índice ni columna nueva — costo O(n) sobre movimientos ya traídos, volumen bajo (decenas/cientos por cuenta).
+- **CR-15**: cambio de JS puro en `OrdenesCompra/Details.cshtml` — sin impacto de capas de servidor.
+- **CR-16**: `ProveedorService.CrearAsync`/`EditarAsync` y `ProductoService.CrearAsync`/`EditarAsync` aplican `.Trim().ToUpperInvariant()` a `RazonSocial`/`Nombre` antes de persistir. Sin cambio de validación (los `[StringLength]` ya existentes siguen aplicando sobre el valor normalizado).
+- **CR-18**: nuevo bloque al final de `tools/ImportarHistorico/Program.cs` (después de Gastos) que calcula el saldo final de CC Local y de cada CC Proveedor con movimientos, y postea un movimiento de ajuste de signo contrario por el monto exacto del saldo, con `OrigenTipo="AjusteApertura"` (nuevo valor de texto libre, mismo patrón ya usado por `OrigenTipo` en el resto del ledger) y `OrigenId=0` (sin entidad de origen real). No participa de ninguna máquina de estados ni entidad nueva.
+
+### Riesgos técnicos
+| Riesgo | Nivel | Mitigación |
+|---|---|---|
+| CR-14: coherencia del saldo acumulado si dos movimientos comparten `Fecha` exacta | Bajo | Desempate determinístico por `Id` (orden de creación), mismo criterio en ambos servicios. |
+| CR-18: el movimiento de ajuste podría interpretarse como un ingreso/egreso real en Caja mensual del período donde se lo postea | Medio | Fecha del ajuste = fecha de corte de la importación (no una fecha operativa real) — documentar en el reporte final del script para que el Administrador lo identifique fácilmente por su `Descripcion` explícita. |
+
+### Gate de aprobación
+Arquitectura v4 cerrada. Sin migración EF, sin impacto de esquema. Mismo criterio que CR-8/CR-9/CR-13 — sin gate de presupuesto nuevo, adenda de bajo esfuerzo sobre el Change Request #1 ya aprobado (ver `4-presupuestador.md`).
+
 ## Historial de ajustes
+- 2026-07-28: Arquitectura v4 cerrada — CR-14 (saldo calculado), CR-15 (cheque emisión default), CR-16 (mayúsculas), CR-18 (ajuste de apertura). Sin migración EF en ningún ítem. Riesgos documentados. Sin gate de presupuesto nuevo.
+- 2026-07-27: Arquitectura v3 cerrada — CR-10 (Nº comprobante en OC), CR-11 (Subcategoría de Gasto), CR-12 (Nota interna de Venta). 3 migraciones EF nuevas, todas columnas nullable sin script de migración de datos (CR-6 todavía no corrió contra producción). Sin entidades nuevas ni cambio de servicios de dominio. Gate de presupuesto pendiente antes de habilitar implementación.
+- 2026-07-27: Arquitectura v2 cerrada — change request feedback primera demo (CR-1 a CR-7). 4 migraciones EF nuevas (2 con script de migración de datos explícito, no solo de esquema). 1 endpoint público nuevo (`AllowAnonymous`) con mitigación de seguridad por token opaco. 1 herramienta de importación nueva (`tools/ImportarHistorico/`, mismo patrón que `SeedTestData`). Cambio de comportamiento del job de cheques (de acreditar a notificar). Riesgos técnicos documentados por ítem. Gate de presupuesto pendiente antes de habilitar implementación.
 - 2026-07-24: Arquitectura tecnica v1 cerrada. Mapa completo de 24 entidades nuevas + reutilizacion de base BlankProject ya bootstrapeada (ApplicationUser/AuditLog/Notification/Repository/AppDbContext). 11 migraciones EF agrupadas por modulo funcional. Modelo de permisos con 2 policies (RequireAdministracion existente + RequireVentas nueva). Riesgos tecnicos y estrategia de pruebas definidos. Validado contra presupuesto vigente sin desvio de alcance — gate habilitado para Implementacion.

@@ -992,3 +992,161 @@ regresiones:
           motivo: "Tipo = m.Tipo.ToString() en el mapeo del listado."
       build: "dotnet build MariHogar.slnx -> Compilacion correcta, 0 Errores (re-verificado por QA el 2026-07-24)."
       verificacion: "Verificado por QA via revision de codigo (MariHogar.Application/DTOs/StockDtos.cs linea 15, MariHogar.Infrastructure/Services/StockService.cs linea 65): DTO.Tipo es string y el Service mapea con .ToString(). Item no estaba catalogado todavia en este archivo pese a que el fix ya se habia aplicado — QA lo cataloga ahora para cumplir la obligacion de trazabilidad cross-proyecto (30-qa-regresiones.instructions.md)."
+
+  - id: MH-003
+    modulo: "Compras / Pago de OC con cheque (PagoOrdenCompraService.RegistrarPagoAsync)"
+    titulo: "Fecha de emision del cheque acepta una fecha futura via POST directo: el date picker restringe max=hoy solo en el cliente, sin revalidacion server-side equivalente"
+    severidad: minor
+    reproducido_en: "marihogar - master (working tree, Sprint CR-A / CR-2), confirmado por revision de codigo el 2026-07-27, no reproducido en navegador (regla de proceso: QA no automatiza UI)"
+    pasos:
+      - "Como Administrador, ir a OrdenesCompra/Details de una OC Confirmada o Recibida -> Registrar pago -> elegir Cheque."
+      - "Sin usar el date picker (que restringe max=hoy), hacer POST directo a /OrdenesCompra/RegistrarPago/{id} con pagosJson conteniendo un pago Cheque cuyo fechaEmisionCheque sea una fecha futura (ej. hoy + 30 dias) y fechaVencimientoCheque coherente (posterior a la emision)."
+      - "Observar la respuesta y, si tuvo exito, el registro persistido en Cheques."
+    sintoma: "El pago se registra sin error: PagoOrdenCompraService.RegistrarPagoAsync valida FechaVencimientoCheque >= hoy y FechaEmisionCheque <= FechaVencimientoCheque, pero no valida FechaEmisionCheque <= hoy. El cheque queda persistido con una fecha de emision en el futuro, dato incoherente con un cheque fisico real (no se puede emitir un cheque que todavia no existe)."
+    expectativa: "La fecha de emision de un cheque, al representar un documento fisico ya entregado por el proveedor/pagado por el local, nunca puede ser posterior a la fecha en la que se registra el pago (hoy) — mismo criterio que ya exige el date picker del formulario (max=hoy, OrdenesCompra/Details.cshtml, input .inp-cheque-emision)."
+    causa_raiz: "El guard server-side de PagoOrdenCompraService.RegistrarPagoAsync (agregado en CR-2 junto con el resto de la validacion de FechaEmisionCheque) revalido 'obligatorio' y 'no posterior al vencimiento', pero no replico la cota 'no posterior a hoy' que el input HTML5 (type=date, max=...) ya aplica del lado cliente — violando el principio explicito del propio diseño del proyecto ('revalidacion server-side obligatoria antes de persistir, nunca confiar solo en client-side', 2-disenador-funcional.md seccion 'Validaciones de UI acordadas')."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/PagoOrdenCompraService.cs
+        motivo: "RegistrarPagoAsync: agregar guard 'linea.FechaEmisionCheque.Value.Date > DateTime.Today -> error La fecha de emision del cheque no puede ser futura.', simetrico al ya existente para FechaVencimientoCheque."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /OrdenesCompra/RegistrarPago/{id} con un pago Cheque y fechaEmisionCheque futura"
+      condicion_falla: "La respuesta es success=true (o el registro persiste) con un Cheque.FechaEmision posterior a DateTime.Today."
+    criterio_aceptacion:
+      - "POST con fechaEmisionCheque futura devuelve success=false con el mensaje 'La fecha de emision del cheque no puede ser futura.'"
+      - "POST con fechaEmisionCheque = hoy o anterior sigue funcionando sin regresion (caso ya cubierto por CR-2)."
+    pruebas_minimas:
+      - "Pago con cheque, fecha de emision = hoy -> se registra correctamente (regresion)."
+      - "Pago con cheque, fecha de emision = hoy + 1 dia -> rechazado con el mensaje nuevo."
+      - "Pago con cheque, fecha de emision posterior a fecha de vencimiento -> sigue rechazado (regresion, guard ya existente sin cambios)."
+    fix_aplicado:
+      fecha: "2026-07-27"
+      por: "QA (auto-fix, Sprint CR-A)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/PagoOrdenCompraService.cs
+          motivo: "Agregado guard 'FechaEmisionCheque.Value.Date > DateTime.Today' antes de abrir la transaccion de registro de pago, simetrico a los guards ya existentes de vencimiento/emision-vs-vencimiento."
+      build: "dotnet build MariHogar.slnx -> Compilacion correcta, 0 Errores (re-verificado por QA el 2026-07-27)."
+      verificacion: "Verificado por QA via revision de codigo (el guard nuevo esta en la misma cadena de validaciones que los 2 guards preexistentes de fecha, mismo patron de retorno ServiceResult.CreateError). No reproducido en navegador (regla de proceso QA), pero el patron es identico al ya validado del guard de vencimiento (mismo metodo, misma forma)."
+
+  - id: MH-004
+    modulo: "Caja mensual / Desglose facturado-no facturado (CajaService.ObtenerDesgloseFacturadoAsync)"
+    titulo: "El desglose Facturado/No facturado de Caja mensual puede sumar menos que el total de Ingresos del periodo mostrado, si dentro del periodo se anulo algun Gasto"
+    severidad: minor
+    reproducido_en: "marihogar - master (working tree, Sprint CR-B / CR-9), confirmado por revision de codigo el 2026-07-27, no reproducido en navegador ni con datos reales (marihogar_dev no tiene ningun Gasto anulado todavia — confirmado por query SELECT Id FROM Gastos WHERE Anulado=1, 0 filas); reproducible por codigo con certeza."
+    pasos:
+      - "Como Administrador, registrar un Gasto con fecha dentro del mes actual."
+      - "Anular ese Gasto (Gastos/Anular) el mismo dia o cualquier dia dentro del mismo periodo."
+      - "Ir a Caja mensual (Caja/Index) con el filtro de fecha cubriendo ese periodo."
+      - "Comparar 'Ingresos del periodo' (card principal) contra la suma de los 2 badges del desglose Facturado + No facturado."
+    sintoma: "'Ingresos del periodo' es mayor que Facturado+No facturado. CajaService.ObtenerTotalesAsync suma TODOS los MovimientoCCLocal con Tipo=Ingreso del periodo (sin filtrar por OrigenTipo), mientras que ObtenerDesgloseFacturadoAsync (version previa al fix) solo consideraba movimientos con OrigenTipo='Venta' para el desglose — un Gasto anulado genera un contramovimiento Tipo=Ingreso/OrigenTipo='Gasto' (GastoService.AnularAsync, reversion del Egreso original) que quedaba contado en el total pero excluido del desglose."
+    expectativa: "CA-CR9.2 (mismo criterio que CA-CR9.1/HU-9.3): 'la suma de ambos segmentos coincide siempre con el total ya mostrado (no duplica ni omite ninguna Venta)'. El desglose debe partir exactamente el mismo conjunto de movimientos que ya suma 'Ingresos del periodo', sin importar su OrigenTipo."
+    causa_raiz: "Decision de implementacion documentada como cierta en 5-implementador.md (Sprint CR-B, decision #6) resulto incompleta: el grep de llamadores de ICCLocalService.RegistrarMovimientoAsync que declaraba 'solo VentaService escribe Ingreso, siempre con OrigenTipo=Venta; GastoService solo escribe Egreso' no contemplo que GastoService.AnularAsync (reversion de un Gasto ya registrado) tambien escribe Tipo=Ingreson con OrigenTipo='Gasto' (linea ~131-133 de GastoService.cs) — la reversion de un Egreso es, por definicion contable del ledger con signo, un Ingreso. El mismo patron (ObtenerDesgloseFacturadoAsync filtrando solo OrigenTipo=Venta) fue reutilizado en DashboardService (sin problema ahi, porque esa card se calcula desde la tabla Venta directamente, no desde MovimientoCCLocal) y de forma informativa en ProyeccionFinancieraService (donde el impacto es una dilucion menor del porcentaje informativo, no un incumplimiento de un CA explicito de suma exacta — no se aplico fix ahi, documentado como observacion menor separada)."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/CajaService.cs
+        motivo: "ObtenerDesgloseFacturadoAsync: en vez de partir solo los movimientos OrigenTipo=Venta en facturados/no-facturados, ahora trae TODOS los Ingreso del periodo, calcula facturados igual que antes (subset Venta con ComprobanteAfip Emitido) y noFacturados = totalIngresos - facturados, garantizando por construccion que facturados+noFacturados == IngresosPeriodo sin importar que otros OrigenTipo existan."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "CajaService.ObtenerResumenAsync(desde,hasta) con al menos 1 Gasto anulado dentro del rango"
+      condicion_falla: "CajaPeriodoDto.IngresosFacturados + CajaPeriodoDto.IngresosNoFacturados != CajaPeriodoDto.IngresosPeriodo"
+    criterio_aceptacion:
+      - "En cualquier periodo, IngresosFacturados + IngresosNoFacturados == IngresosPeriodo exacto, incluso con Gastos anulados dentro del rango."
+      - "Sin Gastos anulados en el periodo, el comportamiento es identico al previo (regresion)."
+    pruebas_minimas:
+      - "Periodo sin Gastos anulados: desglose suma igual al total (ya cubierto, sin cambio)."
+      - "Periodo con 1 Gasto anulado: desglose (Facturado+No facturado) suma exactamente IngresosPeriodo, con el monto de la reversion del Gasto contado como No facturado."
+    fix_aplicado:
+      fecha: "2026-07-27"
+      por: "QA (auto-fix, Sprint CR-B)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/CajaService.cs
+          motivo: "ObtenerDesgloseFacturadoAsync reescrito para calcular noFacturados como resta contra el total real de Ingreso del periodo (no como suma de un subconjunto potencialmente incompleto), cerrando el gap para cualquier OrigenTipo presente o futuro."
+      build: "dotnet build MariHogar.slnx --no-incremental -> Compilacion correcta, 0 Errores (mismos 9 warnings preexistentes, ninguno nuevo) — verificado por QA tras el fix."
+      verificacion: "Verificado por QA via revision de codigo del metodo reescrito y confirmacion de que DashboardService.ObtenerVentasPeriodoAsync (unica otra card con el mismo requisito de suma exacta) NO tiene el mismo problema porque particiona la misma lista de Ventas ya sumada por construccion (no una segunda query con un filtro distinto). No reproducido en navegador ni contra marihogar_dev con datos reales (no hay Gastos anulados en el dev actual) — el fix se valida por logica de codigo (facturados+noFacturados=totalIngresos es una identidad algebraica garantizada por la resta, no depende de que caso de dato se ejecute)."
+
+  - id: MH-005
+    modulo: "Ventas / Remito publico (VentaService.GenerarRemitoPdfAsync / ObtenerOCrearTokenDescargaPublicaAsync / GenerarRemitoPdfPorTokenAsync)"
+    titulo: "El remito de una Venta (descarga autenticada por Id, generacion de link publico, y el endpoint publico por token) no revalidaba el estado de la Venta server-side — una Venta Cancelada (o Pendiente sin pago real) seguia sirviendo el PDF pese a que Ventas/Details.cshtml oculta la card entera para Cancelada y muestra un mensaje en vez de los botones para Pendiente"
+    severidad: minor
+    reproducido_en: "marihogar - master (working tree, Sprint CR-C / CR-4), confirmado por revision de codigo el 2026-07-27 por QA de forma independiente (no reportado por el implementador), no reproducido en navegador (regla de proceso: QA no automatiza UI)"
+    pasos:
+      - "Como Vendedor/Administrador autenticado, con una Venta en estado Pagada o PagadaParcial, generar el link publico (boton 'Enviar por WhatsApp' o POST directo a Ventas/ObtenerLinkPublico/{id}) para obtener y guardar el token."
+      - "Cancelar esa misma Venta (boton 'Cancelar venta', motivo obligatorio) — Ventas/Details.cshtml ya no muestra la card 'Remito de venta' para esta Venta a partir de aca."
+      - "Abrir el link publico ya generado (GET /Comprobante/Descargar/{token}), en una ventana sin sesion iniciada, o hacer GET directo a /Ventas/DescargarRemito/{id} estando autenticado."
+      - "Observar la respuesta."
+    sintoma: "El PDF del remito se descarga igual (200 con el PDF), tanto por el link publico ya compartido como por la descarga autenticada por Id, pese a que la Venta esta Cancelada y la UI ya no ofrece ningun boton para volver a generarlo o descargarlo. Lo mismo aplica, en la practica menos alcanzable, para una Venta en estado Pendiente (sin ningun pago real) via POST directo a ObtenerLinkPublico/DescargarRemito con un Id manipulado."
+    expectativa: "El remito solo deberia poder descargarse (autenticado o publico) mientras la Venta este Pagada o PagadaParcial — mismo criterio que ya aplica Ventas/Details.cshtml para decidir si muestra los botones (linea 'EstadoReal == Pagada || EstadoReal == PagadaParcial'). Una Venta Cancelada no deberia seguir sirviendo su remito, ni por Id (autenticado) ni por un link publico compartido antes de la cancelacion."
+    causa_raiz: "GenerarRemitoPdfAsync(int id), ObtenerOCrearTokenDescargaPublicaAsync(int id) y GenerarRemitoPdfPorTokenAsync(Guid token) (las 3 nuevas de CR-4 en VentaService.cs) solo validaban 'la Venta existe' (v == null), sin revalidar v.Estado — el gate de EstadoReal Pagada/PagadaParcial vive unicamente en Ventas/Details.cshtml (capa de presentacion), violando el principio explicito ya establecido en el propio proyecto ('revalidacion server-side obligatoria antes de persistir/servir, nunca confiar solo en client-side', 2-disenador-funcional.md seccion 'Validaciones de UI acordadas'). No cruza ningun limite de autorizacion (DescargarRemito/ObtenerLinkPublico siguen exigiendo RequireVentas; el endpoint publico sigue resolviendo exclusivamente por el token exacto de esa misma Venta) — es un gap de consistencia de estado, no de exposicion de datos de otra Venta."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/VentaService.cs
+        motivo: "Agregar guard 'v.Estado != EstadoVenta.Pagada && v.Estado != EstadoVenta.PagadaParcial -> return null' en GenerarRemitoPdfAsync, ObtenerOCrearTokenDescargaPublicaAsync y GenerarRemitoPdfPorTokenAsync, replicando el gate que ya usa Ventas/Details.cshtml. El null se traduce en NotFound() generico en ambos controllers (ComprobanteController/VentasController), sin distinguir 'no existe' de 'estado no habilitado' — no debilita el requisito de seguridad #4 (404 sin fuga de informacion)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "GET /Ventas/DescargarRemito/{id} o GET /Comprobante/Descargar/{token} sobre una Venta en estado Cancelada"
+      condicion_falla: "La respuesta es 200 con el PDF en vez de 404, para una Venta cuyo EstadoReal es Cancelada (o Pendiente sin pago real)."
+    criterio_aceptacion:
+      - "Venta Cancelada: tanto DescargarRemito/{id} (autenticado) como el link publico ya generado devuelven 404, sin distincion del 404 generico ya usado para token inexistente."
+      - "ObtenerLinkPublico/{id} sobre una Venta Cancelada devuelve 404 (no genera/reutiliza ningun token)."
+      - "Venta Pagada/PagadaParcial: sin regresion, sigue funcionando exactamente igual que antes del fix (mismo PDF, mismo link, mismo token reutilizado)."
+    pruebas_minimas:
+      - "Venta Pagada: descargar remito autenticado y generar link publico -> ambos OK (regresion)."
+      - "Venta Pagada con link ya generado, luego Cancelada: reabrir el link publico ya compartido -> 404."
+      - "Venta Cancelada: GET DescargarRemito/{id} directo -> 404."
+      - "Venta Cancelada: POST ObtenerLinkPublico/{id} directo -> 404, sin crear/tocar TokenDescargaPublica."
+    fix_aplicado:
+      fecha: "2026-07-27"
+      por: "QA (auto-fix, Sprint CR-C)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/VentaService.cs
+          motivo: "Agregado el guard 'Estado != Pagada && Estado != PagadaParcial -> null' en los 3 metodos de CR-4 (GenerarRemitoPdfAsync, ObtenerOCrearTokenDescargaPublicaAsync antes de generar/reutilizar el token, GenerarRemitoPdfPorTokenAsync), con comentario inline explicito referenciando este id (MH-005) y el gate equivalente ya existente en Ventas/Details.cshtml."
+      build: "dotnet build MariHogar.slnx --no-incremental -> Compilacion correcta, 0 Errores (mismos 9 warnings preexistentes, ninguno nuevo) — verificado por QA antes y despues del fix."
+      verificacion: "Verificado por QA via revision de codigo: el guard nuevo usa exactamente la misma condicion (Pagada || PagadaParcial) que ya evalua Ventas/Details.cshtml para mostrar los botones, y retorna null de la misma forma que el caso 'Venta no encontrada' ya manejado por ambos controllers (ComprobanteController.Descargar / VentasController.DescargarRemito / ObtenerLinkPublico), preservando el 404 generico sin distincion. No reproducido en navegador ni con datos reales (regla de proceso QA vigente en este proyecto desde Sprint 3) — el fix se sostiene por lectura directa del guard nuevo, identico en forma a los guards de estado ya usados en el resto de VentaService (ej. CancelarAsync)."
+
+  - id: MH-006
+    modulo: "Ventas / Comprobante publico por WhatsApp (VentaService.GenerarRemitoPdfPorTokenAsync)"
+    titulo: "El link publico de 'Enviar por WhatsApp' siempre servia el remito interno, incluso cuando la Venta ya tenia una factura AFIP emitida — el diseño aprobado exigia que el link eligiera automaticamente cual de los dos documentos corresponde"
+    severidad: major
+    reproducido_en: "marihogar - master (working tree, Sprint CR-C / CR-4), hallazgo de QA (revision de codigo, no reproducido en navegador) el 2026-07-27, escalado sin auto-fix por requerir logica de negocio nueva (eleccion de documento) en vez de un guard puntual; resuelto por el orquestador el mismo dia como cierre del sprint"
+    pasos:
+      - "Confirmar y cobrar una Venta (Pagada o PagadaParcial)."
+      - "Emitir un Comprobante AFIP (Factura A o B) para esa Venta desde Ventas/Details."
+      - "Volver a Ventas/Details y usar el boton 'Enviar por WhatsApp' (o llamar directo a Ventas/ObtenerLinkPublico/{id} y despues GET /Comprobante/Descargar/{token})."
+    sintoma: "El PDF servido por el link publico es siempre el remito interno (sin CAE ni datos fiscales), incluso cuando la Venta ya tiene un ComprobanteAfip con Estado=Emitido asociado — el cliente final recibe por WhatsApp un documento interno en vez de su factura fiscal real."
+    expectativa: "El link publico de WhatsApp debe elegir automaticamente cual documento corresponde: si la Venta tiene un ComprobanteAfip Emitido, debe servir ESE (la factura fiscal); si no, sirve el remito (2-disenador-funcional.md / 3-arquitecto-mvc.md, seccion CR-4: 'el boton elige automaticamente cual de los dos corresponde segun si hay o no un ComprobanteAfip con Estado=Emitido asociado a la venta'). El boton autenticado 'Descargar remito' (Ventas/Details) sigue siendo siempre el remito, sin excepcion — es un documento de entrega independiente, ese comportamiento es correcto y no cambia."
+    causa_raiz: "GenerarRemitoPdfPorTokenAsync (el metodo que resuelve el PDF del link publico) llamaba directo a GenerarRemitoPdfInterno(v) sin consultar antes si existia un ComprobanteAfip Emitido para esa Venta — el diseño pedia la eleccion automatica solo para este flujo (el link que ve el cliente final), no para el boton autenticado de remito, pero la implementacion original trato ambos flujos igual."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/VentaService.cs
+        motivo: "GenerarRemitoPdfPorTokenAsync ahora consulta ComprobantesAfip por VentaId+Estado=Emitido (el mas reciente por Fecha si hay mas de uno, por facturacion parcial acumulativa) antes de generar el remito; si existe, delega en IComprobanteAfipService.GenerarPdfAsync(comprobante.Id) y devuelve esa factura en vez del remito. Se resuelve en cada descarga (no al generar el link), para que un link ya compartido empiece a servir la factura sola apenas se emite despues. GenerarRemitoPdfAsync (boton autenticado) queda sin cambios a proposito."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "GET /Comprobante/Descargar/{token} sobre una Venta con ComprobanteAfip Estado=Emitido"
+      condicion_falla: "El PDF devuelto no trae CAE/datos fiscales (es el remito) pese a existir un ComprobanteAfip Emitido para esa Venta."
+    criterio_aceptacion:
+      - "Venta con ComprobanteAfip Emitido: el link publico sirve el PDF de la factura AFIP (con CAE), no el remito."
+      - "Venta sin ComprobanteAfip Emitido (o solo con intentos en Error): el link publico sigue sirviendo el remito, sin regresion."
+      - "Venta con mas de un ComprobanteAfip Emitido (facturacion parcial acumulativa): el link publico sirve el mas reciente por Fecha."
+      - "El boton autenticado 'Descargar remito' en Ventas/Details sigue devolviendo siempre el remito, con o sin factura emitida — sin cambio de comportamiento."
+    pruebas_minimas:
+      - "Venta Pagada sin facturar: link publico -> remito (regresion, debe seguir igual)."
+      - "Venta Pagada + Comprobante AFIP Emitido: link publico -> factura AFIP con CAE (comportamiento nuevo)."
+      - "Misma Venta, boton 'Descargar remito' autenticado -> sigue siendo el remito (sin cambio)."
+      - "Venta con 2 Comprobantes AFIP Emitidos (facturacion parcial): link publico -> el de Fecha mas reciente."
+    fix_aplicado:
+      fecha: "2026-07-27"
+      por: "orquestador (cierre de Sprint CR-C, hallazgo escalado por QA sin auto-fix)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/VentaService.cs
+          motivo: "Inyectado IComprobanteAfipService en VentaService; GenerarRemitoPdfPorTokenAsync consulta el Comprobante AFIP Emitido mas reciente de la Venta y delega en IComprobanteAfipService.GenerarPdfAsync si existe, cae al remito si no. Sin cambio en GenerarRemitoPdfAsync (boton autenticado, sigue siendo siempre remito)."
+      build: "dotnet build MariHogar.slnx --no-incremental -> Compilacion correcta, 0 Errores (mismos 9 warnings preexistentes, ninguno nuevo) — confirmado por el orquestador tras aplicar el fix."
+      verificacion: "Sin match circular de DI confirmado antes del cambio (ComprobanteAfipService no depende de IVentaService). Sin cambio de firma publica de IVentaService (mismos metodos, misma logica interna). No reproducido en navegador (regla de proceso vigente) — verificacion por revision de codigo de la nueva consulta y del orden Emitido-mas-reciente-primero."
