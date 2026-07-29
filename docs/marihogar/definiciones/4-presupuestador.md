@@ -286,7 +286,32 @@ Sobre arquitectura v4. Mismo criterio que CR-8/CR-9/CR-13: adenda de bajo esfuer
 
 **Estado: CERRADO.** Los 20 ítems del Change Request #1 (CR-1 a CR-20, total **USD 729**, sin incluir CR-19/CR-20 que fueron pedidos adicionales sin cargo por ser correcciones/mejoras de bajo esfuerzo sobre el mismo lote) están implementados, con QA en GO, y **ejecutados contra producción real** el 2026-07-28: 12 migraciones EF aplicadas, 20 tablas vaciadas y reimportadas con el histórico real (31 Proveedores/239 OC/634 Ventas/480 Gastos/207 Productos/286 Comprobantes AFIP), código deployado, certificado AFIP real conectado y verificado con un login WSAA exitoso contra AFIP producción. Detalle completo de la ejecución en `trazabilidad.md`, entrada "EJECUCIÓN REAL EN PRODUCCIÓN — Change Request #1 completo, CR-1 a CR-20".
 
+## Presupuesto — Change Request #2: CR-21/CR-22, doble precio + edición de precio/subtotal en Ventas (2026-07-28)
+
+Primer ítem fuera del Change Request #1 (que ya cerró en producción) — nuevo pedido del cliente sobre el sistema ya operando con datos reales. Se ancla igual que el resto del historial: "modificación sobre módulo existente" para CR-21 (campo + rename), y "financiero workflow sensible" para CR-22 (toca el service crítico de Ventas + un control de seguridad nuevo).
+
+### WBS con PERT
+
+| Ítem | Tipo | O | M | P | PERT | Riesgo | USD (M×$16.80) |
+|---|---|---:|---:|---:|---:|---|---:|
+| CR-21 Producto: Precio Efectivo + Precio de Lista calculado (rename + UI catálogo) | Modificación módulo existente | 2 | **3** | 4,5 | 3,08 | Bajo 8% | $50 |
+| CR-22 Ventas: precio/subtotal editables (solo Admin) + selector IVA por línea + control de seguridad server-side | Financiero workflow sensible + control de acceso | 5 | **7** | 10,5 | 7,25 | Alto 25% (manejo de dinero + control de fraude) | $118 |
+| **Total** | | | **10h** | | **10,33h** | | **$168** |
+
+### Autocorrección por ítem
+CR-21 dentro de la banda estándar de campo+rename ya usada en el proyecto (ratio 1,0). CR-22 se ancla por encima de un ajuste puntual típico porque, a diferencia del resto del historial de change requests, toca directamente el control de autorización de un flujo que maneja dinero real (riesgo de fraude si se implementa mal) — mismo criterio de "Alto 25%" ya usado para CR-6 (el otro ítem de mayor riesgo del historial), aunque por una razón distinta (seguridad, no incertidumbre de datos).
+
+### Cierre numérico
+- Tokens IA: no aplica (mismo criterio del resto del proyecto).
+- Sin descuento.
+- **Total Change Request #2: USD 168.**
+- Condición comercial: 100% al aprobar, mismo criterio que el resto.
+
+### Riesgos y supuestos
+Riesgo principal ya identificado y mitigado en el diseño: el control de precio/subtotal debe revalidarse 100% server-side por rol, nunca confiar en que la UI oculte el campo — QA debe probar explícitamente un intento de bypass (POST directo simulando Vendedor con precio manipulado) antes de dar este ítem por cerrado.
+
 ## Historial de ajustes
+- 2026-07-28: Presupuesto Change Request #2 (CR-21/CR-22) — USD 168. Primer ítem del proyecto fuera del Change Request #1 ya cerrado en producción. Orden de implementación ya dada por el cliente en el pedido original (aprobación implícita del alcance, mismo criterio que adendas de bajo monto anteriores).
 - 2026-07-28: Adenda CR-14 a CR-18 (mejoras post-migración) + refinamiento de CR-13 — USD 91 adicionales. Nuevo total acumulado del Change Request #1: USD 729. CR-17 (unificación de Proveedor duplicado) y la normalización de mayúsculas sobre datos ya cargados se ejecutaron directamente contra `marihogar_dev` el mismo día. Sin gate de presupuesto nuevo — se implementa junto con el resto del lote (Sprint CR-F).
 - 2026-07-27: Cliente aprobó el presupuesto de la ampliación CR-10/CR-11/CR-12 (USD 84) **pero pidió esperar antes de implementar** — no es un rechazo, es aprobación con implementación diferida. Nuevo total acumulado del Change Request #1: **USD 638, aprobado**. **Estado: APROBADO — implementación en espera de que el cliente dé la orden de arranque explícita** (no se inicia Implementación solo por esta aprobación; se necesita una confirmación nueva puntual, mismo criterio que la ejecución de CR-6 en producción, que también está en espera).
 - 2026-07-27: Presupuesto ampliación CR-10/CR-11/CR-12 (auditoría columna por columna del histórico) — USD 84 adicionales. Nuevo total acumulado del Change Request #1: USD 638. **Estado: BORRADOR — pendiente aprobación del cliente (gate duro antes de Implementación).**

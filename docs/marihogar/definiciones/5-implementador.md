@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: marihogar
-## Ultima actualizacion: 2026-07-28 (CR-20 — correccion de tildes en todo el proyecto)
+## Ultima actualizacion: 2026-07-29 (Sprint CR-G — CR-21/CR-22: doble precio + edicion de precio/subtotal en Ventas)
 
 ## Definiciones vigentes
 
@@ -1151,6 +1151,76 @@ Ninguna — confirmado contra la Arquitectura v4 antes de tocar código: los 5 �
 - [x] `tools/ImportarHistorico/Program.cs` ajustado pero **no ejecutado**.
 - [x] Producción no tocada en ningún momento.
 - [ ] Verificación manual en navegador de los 4 puntos de UI (columna Saldo en CC Local y en Proveedores, autocompletado de cheque en OC, mayúsculas en Proveedor/Producto) — pendiente del usuario, ver "Pruebas mínimas" arriba.
+
+---
+
+## Sprint CR-G (2026-07-29) — CR-21/CR-22: doble precio de Producto + precio/subtotal editables en Ventas (solo Administrador)
+
+Sobre Arquitectura v5 (`3-arquitecto-mvc.md`), Diseño v6 (`2-disenador-funcional.md`, HU-2.6/5.14/5.15/5.16). Gate de presupuesto tratado como aprobación implícita (el cliente ya dio la orden de implementar en el pedido original), mismo criterio que adendas anteriores de bajo monto.
+
+**Escaneo de reutilización**: `docs/*/definiciones/5-implementador.md` sin coincidencias — ni el patrón "doble precio calculado" ni "precio/subtotal editable condicionado por rol en una venta" existen en otro proyecto del historial (ShowroomGriffin, KOI, delicias-naturales, ganaderia, vinosefue, BotPublicitario, elevenlaplata). Implementado desde cero.
+
+#### CR-21 — `Producto`: Precio Efectivo + Precio de Lista (+21%)
+- **Domain** (`MariHogar.Domain/Entities/Producto.cs`): rename `PrecioVenta`→`PrecioEfectivo`. Nueva propiedad `PrecioLista => Math.Round(PrecioEfectivo * 1.21m, 2)`, `[NotMapped]` (nunca columna, nunca puede desincronizarse).
+- **Infrastructure** (`AppDbContext.cs`): Fluent config renombrada a `PrecioEfectivo`; sin configuración adicional para `PrecioLista` (ya excluida por `[NotMapped]`).
+- **Rename mecánico completo** (grep exhaustivo antes de tocar nada, después re-grep de verificación — 0 referencias activas a `PrecioVenta` fuera de migraciones históricas y comentarios/ids intencionales): `ProductoDtos.cs` (`ProductoListItemDto`, `ProductoFiltro.PrecioEfectivoMin/Max`, `ProductoDetailDto`, `ProductoInput`, `ProductoBusquedaDto` +`PrecioLista` nuevo), `AumentoMasivoDtos.cs` (enum `TargetPrecioAumento.PrecioVenta`→`PrecioEfectivo`, `AumentoMasivoPreviewItemDto.PrecioEfectivoActual/Nuevo`), `ProductoService.cs`, `AumentoMasivoPrecioService.cs`, `ProductoViewModels.cs`, `ProductosController.cs`, vistas `Productos/{Index,Create,Edit}.cshtml`, `AumentoMasivoPrecios/Index.cshtml`, `tools/ImportarHistorico/Program.cs`, `tools/SeedTestData/Program.cs`.
+- **Hallazgo no listado explícitamente por el pedido pero necesario para no romper nada**: `ProductoBusquedaDto` (el buscador instantáneo de productos) es compartido por Ventas **y** Presupuestos — el rename de su campo `PrecioVenta`→`PrecioEfectivo` exigía actualizar también `Presupuestos/Create.cshtml` y `Presupuestos/Edit.cshtml` (JS que leía `p.precioVenta`), aunque esos archivos no estaban en la lista original del pedido. Corregido para no dejar una regresión silenciosa (Presupuestos habría dejado de precargar el precio al agregar un producto).
+- **UI**: `Productos/Index` agrega columna "Precio lista" de solo lectura (sin filtro propio — es 1:1 función de Precio Efectivo, el filtro de rango de Precio Efectivo ya cubre ambos, decisión de diseño documentada para no duplicar un filtro redundante). `Productos/Create`/`Edit`: input único "Precio efectivo" + texto auxiliar "Precio de lista: $X (calculado automático, +21%)" actualizado en vivo por JS en el evento `input`, sin round-trip al servidor.
+
+#### CR-22 — `VentaItem.Subtotal` + `VentaService.ConfirmarAsync` por rol
+- **Domain** (`VentaItem.cs`): nuevo campo `Subtotal` (`decimal`, no nullable).
+- **Application** (`VentaDtos.cs`): `VentaItemInput.Subtotal` (`decimal?`, opcional). `VentaItemDto.Subtotal` pasa de propiedad calculada (`Cantidad*PrecioUnitario`) a campo seteable — ahora refleja el valor realmente persistido (puede diferir por un override de Administrador). `VentaItemDto` gana `PrecioEfectivo`/`PrecioLista` (precio de catálogo del producto, usado por el toggle "+IVA" también en filas precargadas desde un Presupuesto convertido).
+- **`IVentaService.ConfirmarAsync`**: firma gana `bool esAdministrador`.
+- **`VentaService.ConfirmarAsync` — punto de seguridad central, blindaje verificado línea por línea**: `esAdministrador` es la única puerta que habilita leer `item.PrecioUnitario`/`item.Subtotal` del payload (validados ambos > 0, sin exigir que `Subtotal == Cantidad×PrecioUnitario` — override intencional). Si `esAdministrador` es `false` (Vendedor o cualquier otro caller), el precio **siempre** se recalcula desde `producto.PrecioEfectivo` y el subtotal **siempre** es `Cantidad×ese precio`, descartando sin excepción cualquier valor que venga en el JSON — comportamiento idéntico al que ya existía antes de este sprint para todos los roles. No hay ningún otro camino en el método que lea esos 2 campos del input. `venta.Total` pasa a ser `Σ VentaItem.Subtotal` (antes `Σ Cantidad×PrecioUnitario` calculado aparte).
+- **Blindaje del `esAdministrador`**: resuelto exclusivamente en `VentasController.Confirmar` vía `User.IsInRole(SeedData.RolSuperUsuario) || User.IsInRole(SeedData.RolAdministrador)` (mismo patrón ya usado en `ProductosController`/`PresupuestosController`/`DashboardController`) — leído del `ClaimsPrincipal` de la request autenticada, nunca de un campo del body/JSON. Un Vendedor (o un POST armado a mano contra el endpoint) no tiene ningún camino para hacer que el servidor crea que es Administrador.
+- **`GenerarRemitoPdfInterno`**: ajustado para imprimir `item.Subtotal` persistido (antes recalculaba `Cantidad*PrecioUnitario` en el propio template) — necesario para que el remito refleje un override real de Administrador.
+- **UI** (`Ventas/Create.cshtml`): `VentaCreateViewModel.EsAdministrador` (resuelto en `VentasController.Create`, mismo criterio cosmético — la protección real es 100% server-side). Si Administrador: Precio Unit. y Subtotal de cada fila pasan a `<input type="number">` editables + botón "IVA" por fila que alterna el precio entre `precioEfectivo`/`precioLista` del producto (ambos ya viajan en el JSON del buscador `ProductoBusquedaDto`). El Subtotal se recalcula automáticamente como `Cantidad×PrecioUnitario` mientras `it.subtotalManual` sea `false`; en cuanto el usuario edita el input de Subtotal directamente, `subtotalManual` pasa a `true` y ese valor queda fijo hasta que se vuelva a tocar — con un ícono sutil (`fa-pen`) indicando que es manual. Todo recálculo actualiza solo el nodo DOM afectado (`actualizarSubtotalDom`), nunca re-renderiza la fila/tabla completa (patrón REG-008). Si no es Administrador: sin cambios de UI respecto de antes (texto fijo, sin controles). El Total General (`totalVenta()`) pasa de sumar `Cantidad×Precio` a sumar `Subtotal` de cada fila, recalculado en vivo con el mismo patrón ya usado (`actualizarResumen()`).
+
+#### Migraciones EF
+Una sola migración combinada `RenameProductoPrecioVentaAPrecioEfectivo` (EF Core detectó y scaffoldeó ambos cambios de esquema en la misma pasada al correr `dotnet ef migrations add` sobre el modelo con ambas entidades ya editadas):
+1. `RenameColumn` real (`Productos.PrecioVenta`→`PrecioEfectivo`, no Drop+Add — EF lo detectó como rename genuino, sin pérdida de datos).
+2. `AddColumn` `VentaItems.Subtotal` (`decimal(18,2)`, `defaultValue: 0`) + `migrationBuilder.Sql("UPDATE VentaItems SET Subtotal = Cantidad * PrecioUnitario;")` agregado a mano después de generar la migración (el `defaultValue` de `AddColumn` no alcanza — dejaría todo en 0, hacía falta el backfill real).
+
+Aplicada contra `marihogar_dev` con `dotnet ef database update`. Verificado por query real (cliente `mysql.exe` de MySQL Server 8.0, sin usar la app):
+- `DESCRIBE Productos` → columna `PrecioEfectivo` presente (ex `PrecioVenta`), `PrecioLista` correctamente ausente (confirma que `[NotMapped]` funcionó).
+- `DESCRIBE VentaItems` → columna `Subtotal` presente. 974 `VentaItems` totales, **0 con `Subtotal = 0`** (backfill aplicado a todas las filas).
+- **Chequeo crítico pedido explícitamente**: `SELECT` comparando `Venta.Total` vs `SUM(VentaItems.Subtotal)` agrupado por `VentaId` para las 635 Ventas existentes (con `LEFT JOIN` adicional confirmando 0 Ventas sin items, es decir el chequeo cubre el 100%) → **0 Ventas desalineadas** (diferencia > $0,01). Ninguna Venta histórica cambió de Total tras la migración.
+- 207 Productos verificados con `PrecioEfectivo` en rango $5.790,26–$840.985,50 (sin nulos ni valores fuera de rango esperado).
+
+#### Evidencia de build
+- `dotnet build MariHogar.slnx` → **0 errores**, 9 warnings preexistentes (NU1902 MailKit/MimeKit + CS0114 `HomeController`), ninguno nuevo.
+- `dotnet build tools/ImportarHistorico/ImportarHistorico.csproj` → 0 errores.
+- `dotnet build tools/SeedTestData/SeedTestData.csproj` → 0 errores.
+- Build corrido antes y después de generar la migración, ambas limpias.
+
+#### Riesgos y supuestos
+| Riesgo | Nivel | Mitigación |
+|---|---|---|
+| Bypass del control de precio por un Vendedor forjando el request | Alto (ya documentado en Arquitectura v5) | Verificado por revisión de código línea por línea: `esAdministrador` es un `bool` resuelto 100% server-side en el Controller vía `User.IsInRole`, nunca leído de `input`/JSON; es la única condición que habilita usar `item.PrecioUnitario`/`item.Subtotal` en `ConfirmarAsync`. Sin lectura de esos campos en ningún otro punto del método para el caso no-Administrador. QA debe probar explícitamente un POST directo simulando Vendedor con precio manipulado (no ejecutado por el Implementador, ver regla de no smoke test). |
+| `ProductoBusquedaDto` compartido con Presupuestos, no listado en el pedido original | Bajo (detectado y corregido durante el escaneo, no llegó a producirse) | `Presupuestos/Create.cshtml`/`Edit.cshtml` actualizados en el mismo sprint para no romper la precarga de precio al buscar un producto. |
+| Migración combinada en un solo archivo (CR-21+CR-22 en vez de 2 migraciones separadas) | Bajo | EF Core las generó juntas al scaffoldear con ambas entidades ya modificadas; el contenido de `Up()`/`Down()` es correcto y fue revisado a mano (rename real, backfill agregado). Documentado explícitamente para que quede claro que no es un descuido. |
+| Precio Lista sin filtro propio en `Productos/Index` (posible lectura literal de la regla "toda columna visible tiene su filtro") | Bajo | Decisión de diseño explícita: al ser `PrecioLista` una función fija 1:1 de `PrecioEfectivo` (×1,21), el filtro de rango ya existente sobre Precio Efectivo cubre ambos valores proporcionalmente — agregar un segundo filtro sería redundante/confuso, no un dato independiente. |
+
+#### Pruebas mínimas para QA
+1. **Seguridad (crítico)**: loguear como Vendedor, armar una venta, inspeccionar/editar el JSON del POST a `Ventas/Confirmar` con un `precioUnitario`/`subtotal` manipulado (herramientas de desarrollador del navegador) → la Venta debe confirmarse con el precio real de catálogo, ignorando el valor manipulado.
+2. Como Administrador: `Ventas/Create`, editar Precio Unit. y Subtotal de una línea a mano → el Total General se actualiza en vivo; editar Cantidad después de tocar el Subtotal a mano → el Subtotal editado NO se recalcula solo (queda fijo, ícono de "manual" visible).
+3. Botón "IVA" por línea (Administrador): alterna el precio entre Precio Efectivo y Precio de Lista del producto correctamente (+21% exacto).
+4. Como Vendedor: `Ventas/Create` sin ningún input editable de precio/subtotal ni botón IVA visible (texto fijo, como antes).
+5. `Productos/Create`/`Edit`: tipear un Precio Efectivo y confirmar que el texto "Precio de lista" se actualiza en vivo con el +21% correcto, sin recargar la página.
+6. `Productos/Index`: columna "Precio lista" visible y correcta para varios productos ya cargados.
+7. `Presupuestos/Create`: buscar y agregar un producto, confirmar que el precio se precarga correctamente (regresión del hallazgo de `ProductoBusquedaDto` compartido).
+8. Aumento masivo de precios: aplicar un aumento sobre "Precio efectivo", confirmar en la previsualización y tras aplicar que el valor correcto cambia (ex-PrecioVenta, ahora PrecioEfectivo) y que el Precio de Lista del producto sigue automáticamente (recalculado, sin tocarlo).
+
+#### Checklist de salida para merge
+- [x] Build `MariHogar.slnx` limpio, 0 errores.
+- [x] Build `tools/ImportarHistorico/ImportarHistorico.csproj` limpio, 0 errores.
+- [x] Build `tools/SeedTestData/SeedTestData.csproj` limpio, 0 errores.
+- [x] Migración `RenameProductoPrecioVentaAPrecioEfectivo` generada y aplicada contra `marihogar_dev`.
+- [x] Verificación por query real: `DESCRIBE` de ambas tablas, 0 `VentaItems.Subtotal` en 0, 0 Ventas desalineadas Total vs Σ Subtotal (635/635 Ventas, 974 items).
+- [x] Revisión de código línea por línea del punto de seguridad en `VentaService.ConfirmarAsync` — sin bypass posible por rol.
+- [x] Grep final de `PrecioVenta` sobre todo el repo — sin hallazgos activos fuera de migraciones históricas (intencionalmente intactas) y comentarios/ids sin impacto funcional.
+- [x] Regresión de `Presupuestos/Create`/`Edit` corregida (dependencia no listada del `ProductoBusquedaDto` compartido).
+- [ ] Verificación visual manual del usuario en navegador (los 8 puntos de "Pruebas mínimas" arriba) — pendiente, no ejecutada por el Implementador (regla de no smoke test).
 
 ---
 

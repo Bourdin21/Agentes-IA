@@ -131,6 +131,7 @@ Politica de facturacion al cliente (OBLIGATORIO — no usar otro calculo):
 - Las horas facturables internas (M / 2.5 x 1.20) no se exponen al cliente.
 - Al cliente se presenta solo USD por area funcional agrupada.
 - Verificar tasa vigente y formula en .github/instructions/27-presupuesto-parametros.instructions.md antes de cada presupuesto.
+- Para Build inicial de cliente NUEVO (o rewrite de sistema de terceros): despues de clasificar todos los items, calcular el ratio de reutilizacion R (seccion "Descuento de expansion agresiva por reutilizacion cross-proyecto" de 27-presupuesto-parametros) y aplicar el tier correspondiente (30% / 15% / 0%) sobre el Subtotal Etapa1+Etapa2 antes de sumar Tokens IA. Tokens IA se calcula siempre sobre el subtotal SIN descontar. Aplicar piso absoluto USD 280. Verificar primero el estado del tablero de ciclos economicos (checkpoint octubre 2027): si esta en rojo, no aplicar tiers 1/2, cotizar a precio de lista. No aplica a Mantenimiento, Extras opcionales ni Merge.
 
 Salida minima (presupuesto inicial):
 1. Introduccion y contexto de relevamiento: descripcion del cliente, necesidad relevada y objetivo del sistema.
@@ -144,7 +145,7 @@ Salida minima (presupuesto inicial):
 9. Riesgos y supuestos.
 10. Pruebas minimas requeridas.
 11. Checklist de salida para merge.
-12. Tabla simple para el cliente dividida en Etapa 1 (MVP) y Etapa 2 (resto del alcance): Area | USD con subtotal por etapa y total del proyecto (horas son internas, no se exponen). El cargo de Tokens IA es el 10% del total presupuestado (Subtotal Etapa 1 + Subtotal Etapa 2) y se muestra EXPLICITO como linea individual en la seccion "Total del proyecto" — no se prorratea en los modulos ni se oculta.
+12. Tabla simple para el cliente dividida en Etapa 1 (MVP) y Etapa 2 (resto del alcance): Area | USD con subtotal por etapa y total del proyecto (horas son internas, no se exponen). Si aplica el descuento de expansion agresiva (Build inicial, cliente nuevo), mostrar linea propia "Descuento por eficiencia de desarrollo" antes de Tokens IA. El cargo de Tokens IA es el 25% del subtotal de lista SIN descontar (Subtotal Etapa 1 + Subtotal Etapa 2) y se muestra EXPLICITO como linea individual en la seccion "Total del proyecto" — no se prorratea en los modulos ni se oculta.
 13. Plan de mantenimiento anual recomendado segun cantidad de tablas (ver 27-presupuesto-parametros). Presentar como linea separada post-desarrollo: "Mantenimiento anual — Plan X: USD Y/año".
 14. Condiciones comerciales (50/50 por etapa, sin clausula de validez de oferta) y exclusiones.
 

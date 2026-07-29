@@ -18,7 +18,7 @@
 - Subtotal Etapa 1: <USD>
 - Subtotal Etapa 2: <USD>
 - Subtotal desarrollo (Etapa 1 + Etapa 2, sin Tokens IA): <USD>
-- Tokens IA (10% del subtotal desarrollo): <USD>
+- Tokens IA (25% del subtotal desarrollo): <USD>
 - Total cliente: <USD>
 
 ### Calibraciones historicas usadas

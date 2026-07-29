@@ -222,6 +222,35 @@ Sobre diseño v5. **Sin migración EF** — todos los cambios son de comportamie
 ### Gate de aprobación
 Arquitectura v4 cerrada. Sin migración EF, sin impacto de esquema. Mismo criterio que CR-8/CR-9/CR-13 — sin gate de presupuesto nuevo, adenda de bajo esfuerzo sobre el Change Request #1 ya aprobado (ver `4-presupuestador.md`).
 
+## Arquitectura v5 — CR-21/CR-22: doble precio + edición de precio/subtotal en Ventas
+
+Sobre diseño v6. **Con migración EF** (a diferencia de la mayoría del lote anterior) — cambio de esquema real en `Producto` y `VentaItem`.
+
+### CR-21 — `Producto`
+- Rename de columna `PrecioVenta` → `PrecioEfectivo` (migración `RenameColumn`, sin script de datos — mismo valor, mismo tipo `decimal(18,2)`, sin pérdida).
+- `Producto.PrecioLista` — propiedad C# de solo lectura (`=> Math.Round(PrecioEfectivo * 1.21m, 2)`), **no mapeada a EF** (`[NotMapped]` o `.Ignore()` en `AppDbContext`). Se expone en los DTOs de listado/detalle como un valor ya calculado, nunca se recibe desde el cliente en ningún request de escritura.
+- Todo lugar que hoy lee `Producto.PrecioVenta` (búsqueda de producto en Ventas, `AumentoMasivoPrecioService`, `ProductoDtos`, `tools/ImportarHistorico/`, `tools/SeedTestData/`) pasa a leer `PrecioEfectivo` — rename mecánico, sin cambio de comportamiento (Aumento Masivo sigue ajustando el mismo campo, `PrecioLista` lo sigue automáticamente por ser calculado).
+
+### CR-22 — `VentaItem` + `VentaService.ConfirmarAsync`
+- `VentaItem` gana `Subtotal` (`decimal`) — migración aditiva con script de datos: `UPDATE VentaItems SET Subtotal = Cantidad * PrecioUnitario` para backfillear las 973 líneas ya existentes (dev y producción), de forma que ninguna Venta ya cerrada cambie de Total tras la migración.
+- **`VentaService.ConfirmarAsync` — cambio de la regla de precio, con el punto de seguridad como foco central**:
+  - Firma cambia para recibir el rol del usuario (o resolverlo internamente vía `ClaimsPrincipal`/`IHttpContextAccessor` ya disponible en el controller, pasado explícito al service — seguir el patrón ya usado en el proyecto para no introducir una dependencia nueva de `HttpContext` en la capa Infrastructure).
+  - Si el rol es Administrador: usa `item.PrecioUnitario`/`item.Subtotal` tal como llegan en el `VentaInput` (con validación: ambos > 0, y una tolerancia — `Subtotal` puede diferir de `Cantidad×PrecioUnitario` a propósito, no se valida esa igualdad).
+  - Si el rol NO es Administrador (Vendedor u otro): **sin cambios respecto del comportamiento actual** — `PrecioUnitario = producto.PrecioEfectivo` siempre recalculado server-side, `Subtotal = Cantidad × PrecioUnitario`, ignorando cualquier valor que venga en el payload. Esto se aplica **siempre**, sin importar qué mande el cliente — un Vendedor (o un request forjado a mano contra el endpoint) nunca puede colar un precio propio, aunque el campo exista en el DTO.
+  - `venta.Total = Σ VentaItem.Subtotal` (antes: `Σ Cantidad×PrecioUnitario` calculado aparte) — cambio de la fórmula del total, ya cubierto por el backfill de la migración para que las Ventas históricas no cambien.
+- `VentaInput`/`VentaItemInput` (Application DTOs) ganan `Subtotal` (`decimal?`, opcional — si no viene o el rol es Vendedor, se ignora y se calcula server-side).
+
+### Riesgos técnicos
+| Riesgo | Nivel | Mitigación |
+|---|---|---|
+| Bypass del control de precio por un Vendedor forjando el request (no vía UI) | **Alto** | Validación exclusivamente server-side por rol, nunca solo ocultar el input — el mismo criterio ya usado en el resto del sistema para roles (`[Authorize(Policy=...)]`, revalidación de reglas de negocio nunca confiadas al cliente). QA debe probar explícitamente un POST directo simulando un Vendedor con precio manipulado. |
+| Migración de `Subtotal`: alguna de las 973 líneas ya existentes con `Cantidad`/`PrecioUnitario` nulos o inconsistentes | Bajo | Ambos campos son `NOT NULL` desde el modelo original, sin nulos posibles — el backfill es determinístico. |
+| Rename de columna `PrecioVenta`→`PrecioEfectivo` en producción, con datos reales ya cargados (207 productos) | Bajo | `RenameColumn` de EF Core es una operación de esquema pura (no reescribe datos), mismo mecanismo ya usado sin incidentes en migraciones anteriores del proyecto. |
+| `Producto.PrecioLista` desincronizado si en el futuro alguien agrega un campo de columna real con ese nombre por error | Bajo | Documentado explícitamente en el doc-comment de la entidad que es una propiedad calculada, nunca debe pasar a ser columna. |
+
+### Gate de aprobación
+Arquitectura v5 cerrada. **Con migración EF** (2 cambios de esquema: rename + columna nueva con backfill) — requiere presupuesto propio, ver `4-presupuestador.md`. No habilitado el paso a Implementación hasta aprobación (gate duro) — dado que el cliente ya dio la orden de implementar en el pedido original, se trata como aprobación implícita del alcance ya acotado con las 2 preguntas de diseño resueltas, sin volver a pedir luz verde de presupuesto por separado (mismo criterio que adendas anteriores de bajo monto).
+
 ## Historial de ajustes
 - 2026-07-28: Arquitectura v4 cerrada — CR-14 (saldo calculado), CR-15 (cheque emisión default), CR-16 (mayúsculas), CR-18 (ajuste de apertura). Sin migración EF en ningún ítem. Riesgos documentados. Sin gate de presupuesto nuevo.
 - 2026-07-27: Arquitectura v3 cerrada — CR-10 (Nº comprobante en OC), CR-11 (Subcategoría de Gasto), CR-12 (Nota interna de Venta). 3 migraciones EF nuevas, todas columnas nullable sin script de migración de datos (CR-6 todavía no corrió contra producción). Sin entidades nuevas ni cambio de servicios de dominio. Gate de presupuesto pendiente antes de habilitar implementación.

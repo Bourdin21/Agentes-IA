@@ -468,6 +468,24 @@ Sobre análisis v7. Extensiones puntuales sobre pantallas ya existentes, sin wir
 
 CR-17 no requiere diseño (operación de datos, sin pantalla nueva ni cambio de flujo). CR-18 no requiere diseño (cambio interno del script de importación, sin UI).
 
+## Diseño v6 — CR-21/CR-22: doble precio + edición de precio/subtotal en Ventas (solo Administrador)
+
+Sobre análisis v8. Extiende `Productos/{Create,Edit,Index}` y la pantalla de mayor uso diario (`Ventas/Create`) — se mantiene el layout ya elevado (dos columnas desktop/checkout mobile), solo se agregan controles dentro de la fila de cada línea.
+
+### CR-21 — Catálogo de productos
+- HU-2.6: Como Administrador, quiero ver el Precio de Lista (con el 21% ya calculado) junto al Precio Efectivo en el catálogo, para no tener que calcularlo a mano al cotizar en blanco.
+  - CA: `Productos/Index` agrega una columna "Precio Lista" (solo lectura, calculada). `Productos/Create`/`Edit` muestran "Precio Efectivo" como el único campo editable de precio de venta, con un texto auxiliar bajo el campo ("Precio de Lista: $X, calculado automático") que se actualiza en vivo mientras se tipea.
+
+### CR-22 — Ventas: precio/subtotal editables (Administrador) + selector de IVA por línea
+- HU-5.14: Como Administrador, quiero poder editar el precio unitario y el subtotal de cualquier línea de la venta, para poder aplicar descuentos puntuales o corregir el precio en casos excepcionales.
+  - CA: en el carrito de `Ventas/Create`, si el usuario es Administrador, "Precio Unit." y "Subtotal" de cada fila son inputs numéricos editables (antes eran texto fijo). El Total General se recalcula en vivo (mismo patrón que ya existe para Cantidad).
+- HU-5.15: Como Administrador, quiero un botón rápido por línea para pasar el precio de esa línea entre Precio Efectivo y Precio de Lista (con IVA), para no tener que calcular el 21% a mano cuando la venta es en blanco.
+  - CA: cada fila tiene un toggle/botón "+IVA" — al activarlo, Precio Unit. de esa línea pasa de `Producto.PrecioEfectivo` a `Producto.PrecioLista`; al desactivarlo, vuelve a Precio Efectivo. Es un atajo de carga — el Administrador puede seguir editando el número a mano después, el toggle no bloquea el input.
+  - CA: si el Subtotal de una línea fue editado a mano, dejar de recalcularse automáticamente al cambiar Cantidad/Precio de esa línea (queda "fijado" hasta que el Administrador lo vuelva a tocar). Indicador visual sutil (ej. un icono) en la fila para que quede claro que ese subtotal es manual, no calculado.
+- HU-5.16: Como Vendedor, quiero seguir viendo el precio de catálogo tal cual está, sin poder editarlo, para no tener margen de error ni de manipulación en mis ventas del día a día.
+  - CA: para el rol Vendedor, sin cambios respecto del comportamiento actual — Precio Unit. y Subtotal de cada línea siguen siendo texto fijo (no input), calculados server-side, sin ningún control de IVA visible.
+- **Nota de seguridad explícita para Arquitectura**: la restricción de edición no puede ser solo de UI (ocultar/mostrar el input según el rol) — el servidor debe revalidar el rol en `VentaService.ConfirmarAsync` y descartar cualquier precio/subtotal recibido de un usuario que no sea Administrador, igual que hace hoy para todos los roles.
+
 ## Historial de ajustes
 - 2026-07-28: Diseño v5 cerrado — CR-14 (saldo calculado en CC Local/Proveedores), CR-15 (fecha de emisión de cheque por defecto en OC), CR-16 (mayúsculas Proveedor/Producto). 4 historias de usuario nuevas (HU-11.4, HU-13.3, HU-12.9, HU-2.5). Sin wireframe nuevo.
 - 2026-07-27: Diseño v4 cerrado — CR-10 (Nº comprobante en OC), CR-11 (Subcategoría de Gasto), CR-12 (Nota interna de Venta), sobre análisis v5. 3 historias de usuario nuevas (HU-12.8, HU-18.4, HU-5.13). Alcance menor, sin wireframe nuevo. Pendiente: Arquitectura y Presupuesto antes de habilitar implementación.

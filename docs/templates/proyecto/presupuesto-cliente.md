@@ -70,7 +70,7 @@
 | Subtotal Etapa 1 | USD <monto> |
 | Subtotal Etapa 2 | USD <monto> |
 | **Subtotal desarrollo (sin Tokens IA)** | **USD <monto>** |
-| **Tokens IA (10% del subtotal desarrollo)** | **USD <monto>** |
+| **Tokens IA (25% del subtotal desarrollo)** | **USD <monto>** |
 | **Total proyecto** | **USD <monto>** |
 
 ---
@@ -111,7 +111,7 @@
 
 - Forma de pago: 50% al inicio y 50% a la entrega de cada etapa.
 - Moneda: USD.
-- El cargo de Tokens IA equivale al 10% del subtotal de desarrollo (Etapa 1 + Etapa 2) y se informa como item individual, separado del mantenimiento anual.
+- El cargo de Tokens IA equivale al 25% del subtotal de desarrollo (Etapa 1 + Etapa 2) y se informa como item individual, separado del mantenimiento anual.
 - Cambio de alcance disponible en cualquier momento si el proyecto crece (se cotiza aparte).
 
 ---
