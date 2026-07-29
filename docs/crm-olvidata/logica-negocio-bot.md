@@ -115,16 +115,34 @@ Por cada mensaje del payload:
    al bot sin haber sido contactado por outbound entra como lead "inbound directo").
 3. Si el contacto **ya existía** y estaba en `Pendiente`/`MensajeEnviado`/`FollowUpEnviado` (es
    decir, venía de outbound y todavía no había respondido), pasa a `EstadoEmbudo=Respondido`.
-4. **Mensajes no procesables** (imagen, audio, video, documento, ubicación, sticker, reacción): se
+4. **Si el contacto ya está `Descartado`** (baja voluntaria o corte automático, ver más abajo):
+   el mensaje se guarda como `"Mensaje recibido (contacto ya descartado)"` y **no se dispara
+   ninguna respuesta ni notificación** — corte total, no solo un mensaje menos. Fix 2026-07-29
+   (incidente real, ver `trazabilidad.md`).
+5. **Solicitud de baja voluntaria**: se chequea el texto libre contra `FrasesDeBaja` (~35
+   fragmentos en español: "no me interesa", "dar de baja", "no nos contacten", "reportar este
+   número", "atendemos únicamente", etc. — deliberadamente amplia, mejor un falso positivo que
+   seguir insistiéndole a alguien que ya dijo que no) **en cualquier fase de la conversación**, no
+   solo al final. Si matchea: `EstadoEmbudo → Descartado` (ya excluido por construcción de todo
+   envío/follow-up outbound futuro), se loguea el motivo, se manda **una sola** confirmación
+   ("Listo, no vas a recibir más mensajes...") y no se le vuelve a escribir nunca más.
+6. **Mensajes no procesables** (imagen, audio, video, documento, ubicación, sticker, reacción): se
    registran igual como `ContactoRespuesta` (pedido explícito del cliente: "guardar todas las
    respuestas") con una etiqueta tipo `[Imagen]`, disparan notificación in-app, y **no avanzan la
    máquina de estados** — el contacto sigue esperando una respuesta de texto/interactiva válida en
    la misma fase en que estaba. Esto se guarda con su propio `SaveChangesAsync` independiente,
    antes de tocar el resto del flujo.
-5. Si la conversación ya estaba `Completed`:
+7. Si la conversación ya estaba `Completed`:
    - **Menos de 24hs** desde que se completó: responde "ya registramos tu consulta", loguea el
      mensaje como "Mensaje adicional (post-cierre)" y se lo reenvía al admin por texto libre
      (best-effort, en `try/catch` para no perder el registro recién guardado si falla el envío).
+     **Corte automático**: si ya hay 2+ mensajes "post-cierre" previos de este contacto, el
+     siguiente ya no repite este ciclo — dispara directo el mismo corte de baja voluntaria del
+     punto 5 (`Descartado` + única confirmación), sin importar si el texto matchea alguna frase.
+     Pensado para el caso de un auto-responder del otro lado con texto impredecible: sin este
+     corte, un incidente real (Kremia Moda, 2026-07-29) generó un loop de 30 mensajes en 18
+     minutos, con 26 reenvíos no deseados al WhatsApp personal del admin, hasta que alguien lo
+     descartó a mano.
    - **Más de 24hs**: se **reabre** la conversación (`FaseConversacion → Nuevo`, se resetea
      `Categoria`/`QuestionIndex`), conservando el historial de respuestas previo.
 

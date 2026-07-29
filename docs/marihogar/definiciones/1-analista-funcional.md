@@ -430,7 +430,42 @@ Pedido explícito del cliente, ya en producción con datos reales. Impacta la pa
 - **CA-CR22.4**: el Total de la venta = suma de los Subtotales de línea (ya no Cantidad×Precio recalculado aparte), y se actualiza en pantalla "on demand" (en vivo, sin recargar) a medida que se edita cualquier campo de cualquier línea — mismo patrón ya usado para cantidad.
 - **Impacto**: `VentaItem.Subtotal` nuevo (migración con backfill `Cantidad×PrecioUnitario` para las 973 líneas ya existentes, sin cambiar ningún Total de Venta ya cerrada). `VentaService.ConfirmarAsync` cambia su regla de precio de "siempre servidor" a "servidor si Vendedor, cliente-validado si Administrador".
 
+## Discovery + Análisis v9 — CR-23: corrección exhaustiva del importe y forma de pago de Ventas históricas (2026-07-29)
+
+Pedido explícito del cliente tras revisar los datos ya migrados en producción: "el precio de las ventas migradas que se cargaron no coincide con el precio en el sistema [...] el metodo de pago tampoco coincide [...] Hacer un analisis mas exaustivo sobre las ventas para emparejar los datos."
+
+### Hallazgo 1 — el importe migrado no incluía IVA ni descuento
+Reconteo exhaustivo con muestras reales cruzadas contra columnas no usadas hasta ahora en detalle: "Precio Unitario" (col. 18) es el **precio neto por unidad, sin IVA** — verificado exacto contra "Importe Neto Gravado" (col. 29) en filas con `Cantidad=1`, y contra `Cantidad×PrecioUnitario = Importe Neto Gravado` en filas con `Cantidad>1` (ej. fila real: `PU=$14.876,00 × 2 = $29.752,00 = Importe Neto Gravado`). **"Total Venta" (col. 40) = Importe Neto Gravado × 1,21** (IVA 21%) — verificado exacto en múltiples muestras (`$29.752,00 × 1,21 = $35.999,92 = Total Venta` real de esa fila). CR-6/CR-22 usaban `Cantidad×PrecioUnitario` (sin IVA) como el monto de cada línea — el sistema quedó sistemáticamente por debajo del monto real facturado en cada venta migrada.
+
+### Hallazgo 2 — el campo "Descuento en $" ya está absorbido en "Total Venta", no hace falta modelarlo aparte
+31 líneas reales (de 973) tienen `Descuento en $` distinto de 0 — verificado que `Importe Neto Gravado = Subtotal sin Descuento − Descuento` (ej. `$24.628,00 − $17.239,60 = $7.388,40 = Importe Neto Gravado` de esa fila) y que "Total Venta" ya se calcula sobre ese neto post-descuento. **No se necesita un campo `Descuento` nuevo en `VentaItem`** — al usar directamente "Total Venta" como `Subtotal` de la línea (campo ya existente desde CR-22), el descuento queda reflejado automáticamente en la diferencia entre `Cantidad×PrecioUnitario` (bruto, sin descuento) y `Subtotal` (neto real cobrado) — exactamente el mismo mecanismo de "override" que CR-22 ya había diseñado para otro propósito (descuentos manuales del Administrador), reutilizado acá para el dato histórico real. 4 líneas tienen descuento del 100% (venta regalada/ajuste) — dan `Total Venta=$0`, correctamente reflejado, no es un dato faltante.
+
+### Hallazgo 3 — la forma de pago real está en "Nota Interna" en más de la mitad de las ventas
+CR-6 asumía "el Excel no discrimina forma de pago" y cargaba todo como Efectivo. Auditoría exhaustiva sobre las 634 ventas: **432 (68%) tienen Nota Interna con datos reales**, catalogados por patrón:
+
+| Patrón detectado | Ocurrencias | Mapeo a `MetodoPago` |
+|---|---:|---|
+| "eft"/"efec" | ~160 | Efectivo |
+| "mpo"/"mp"/"mercado pago" | ~125 | MercadoPago |
+| "visa" | ~79 | TarjetaCredito (con cuotas si trae "Np") |
+| "debito" | 15 | Transferencia (no hay TarjetaDebito en el enum; débito es movimiento bancario directo, no crédito) |
+| "transf carre"/variantes con typo | ~11 | BancoCarrefour (más específico que Transferencia genérica) |
+| "naranja" | 9 | TarjetaCredito |
+| "master" | 8 | TarjetaCredito |
+| "transf"/"trasnf" sin "carre" | 7 | Transferencia |
+| Resto (nombres propios, "saldo", "cheque" ×2, "donacion", texto ambiguo) | ~17 | Catch-all Efectivo (documentado, mismo criterio que `CategoriaGasto`/`FormaPagoGasto`) |
+| Sin Nota Interna | 202 (32%) | Catch-all Efectivo (sin dato disponible) |
+
+**8 ventas reales tienen más de una forma de pago** en la misma Nota Interna, en líneas separadas con monto explícito (ej. `"$100.000 mpo\n$250000 visa 6p"`, suma exacta contra el Total real) — se importan como múltiples `PagoVenta`, igual que si se hubieran cargado a mano en el sistema. **2 ventas reales declaran un saldo pendiente** (`"eft\nrestan$29999"`) — antes se marcaban `Pagada` a la fuerza; ahora quedan `PagadaParcial` con el monto pendiente real, sin contar ese saldo como pago.
+
+### Confirmado — Nota Interna → `Venta.NotaInterna` ya estaba correctamente migrado desde CR-12
+No requirió cambio — se verificó que el campo ya se guarda tal cual desde la corrida anterior (432/634 con dato). La corrección de este análisis es exclusivamente sobre el **uso adicional** de esa misma columna para derivar la forma de pago real, no sobre el guardado del texto en sí.
+
+### Impacto
+Cambio exclusivo en `tools/ImportarHistorico/Program.cs` (sección Ventas): `VentaItem.Subtotal` pasa a leerse de "Total Venta" (antes `Cantidad×PrecioUnitario`); nuevo parser `ParsearFormasPagoVenta`/`MapearMetodoPagoVenta` reemplaza el pago único Efectivo hardcodeado; `Venta.Estado` se resuelve después de parsear los pagos (antes hardcodeado `Pagada`). Sin cambio de modelo — todos los campos ya existían (creados por CR-6/CR-12/CR-22). Requiere una nueva corrida completa del importador (vaciar + reimport) tanto en `marihogar_dev` como, con confirmación explícita del cliente, en producción — misma operación ya repetida varias veces en este proyecto.
+
 ## Historial de ajustes
+- 2026-07-29: Discovery + Análisis v9 — CR-23, corrección exhaustiva de Ventas históricas tras reporte del cliente de que el precio y la forma de pago migrados no coincidían con la realidad. 3 hallazgos: (1) el monto usado no incluía IVA (Precio Unitario es neto, Total Venta = neto×1,21); (2) el campo Descuento ya queda absorbido al usar Total Venta directo, sin necesitar modelarlo aparte; (3) la forma de pago real está en Nota Interna en 68% de las ventas, parseable con un catálogo de patrones (eft/mpo/visa/master/naranja/transf carre/debito), incluyendo 8 ventas con múltiples formas de pago y 2 con saldo pendiente real. Sin gate de presupuesto nuevo — corrección de un dato ya migrado, mismo criterio que MH-006/MH-007.
 - 2026-07-28: Discovery + Análisis v8 — CR-21 (Producto: Precio Efectivo + Precio de Lista +21%, derivado) y CR-22 (Ventas: precio unitario/subtotal editables solo para Administrador, selector de IVA por línea, Total on-demand). Resueltas 2 decisiones de diseño con el cliente antes de tocar código: alcance del toggle de IVA (por línea) y naturaleza del subtotal editable (override manual real). Identificado y resuelto con el cliente un punto de seguridad real (el server hoy nunca confía en el precio del cliente) antes de implementar. Pendiente: Diseño, Arquitectura y Presupuesto.
 - 2026-07-28: CR-19 — a pedido del cliente, el importador registra pago total (Efectivo) por cada Orden de Compra histórica. Verificado con la re-corrida real contra `marihogar_dev`: 239/239 OC con saldo pendiente $0, CC Proveedores en $0 sin necesitar ajuste de apertura (0 ajustes posteados, la lógica de CR-18 se auto-desactiva porque ya no hace falta), CC Local sin cambio (1 ajuste de apertura, sigue siendo necesario). Sin gate de presupuesto nuevo.
 - 2026-07-28: Discovery + Análisis v7 — CR-14 (saldo calculado en CC Local/Proveedores), CR-15 (fecha de emisión de cheque por defecto en OC), CR-16 (mayúsculas Proveedor/Producto), CR-17 (unificación de Proveedor duplicado, resuelta directamente como dato), CR-18 (ajuste de apertura para saldo $0 post-import) y refinamiento de CR-13 (ClienteCUIT). CR-16 y CR-17 con componente de datos ya ejecutado en `marihogar_dev`. Sin gate de presupuesto nuevo — mismo criterio que CR-8/CR-9/CR-13 (adenda de bajo esfuerzo sobre el Change Request #1 ya aprobado).
