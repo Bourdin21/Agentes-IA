@@ -24,7 +24,7 @@
 15. **Dashboard — "foto completa del negocio" (CONFIRMADO, pantalla más importante del sistema)**: el cliente pidió explícitamente una vista integral en base a todo el modelo de datos, priorizando diseño y estructura por sobre otras pantallas. Ver §6.4 y §6.6 — se trata como la pieza de mayor prioridad de diseño de todo el proyecto, no como un dashboard genérico de KPIs sueltos.
 16. **Devoluciones de mercadería + Notas de crédito/débito AFIP (NUEVO — confirmado 2026-07-30)**: aplican devoluciones de mercadería (NO aplican cambios/canjes por otro producto). La venta facturada puede anularse mediante nota de crédito. Ver §6.5.
 17. **Migración de catálogo de productos — POSPUESTA, fuera de este presupuesto (ACTUALIZADO 2026-07-30)**: se saca como etapa del presupuesto actual. Motivo: (a) el problema real que la motivaba —no tener stock confiable— ya queda resuelto por el módulo de puesta a punto de stock inicial (§6.7, dentro de Etapa 1); (b) Joaquín va a hacer un **segundo relevamiento tras la aprobación de este presupuesto** para evaluar acceso directo a la base de datos del sistema actual del cliente, lo que bajaría el costo real de importación al mínimo comparado con depender de un archivo Excel exportado de formato desconocido. Se cotiza aparte, en una fase posterior, con datos reales en mano. Ver §6.2 y `4-presupuestador.md`.
-18. **Código de barras — etiquetado con ticketeadora + lectura rápida en la venta (NUEVO — confirmado 2026-07-30)**: el cliente tiene una ticketeadora de código de barras y códigos de barra propios además de reutilizar los de fábrica de los productos. El sistema debe permitir imprimir etiquetas (código + nombre + precio) y, en la pantalla de venta, agregar un ítem automáticamente al escanear su código — para hacer la carga de la venta más rápida. Ver §6.8.
+18. **Código de barras — vinculación del código escaneado al producto (NUEVO — confirmado y simplificado 2026-07-30)**: el cliente tiene una ticketeadora **manual** (no se integra con el sistema — es un aparato físico independiente que ya usa para etiquetar). El sistema solo necesita vincular el código de barras escaneado a un producto (propio o de fábrica) y agregarlo automáticamente en la pantalla de venta. **No hay desarrollo de generación/impresión de etiquetas** — eso lo sigue haciendo el cliente con su ticketeadora, fuera del sistema. Ver §6.8.
 
 ### Funcionalidad adicional detectada (no pedida explícitamente — a validar, NO incluida en presupuesto salvo confirmación)
 
@@ -69,14 +69,13 @@
 - PF13 (nueva): un producto sin stock verificado puede venderse igual (stock queda en negativo con aviso), no bloquea la venta.
 - PF14 (nueva): un empleado puede ajustar manualmente el stock de un producto con motivo, y el ajuste queda auditado (quién, cuándo, motivo).
 - PF15 (nueva): al escanear el código de barras de un producto en la pantalla de venta, se agrega automáticamente al carrito (propio o de fábrica, sin distinción para el usuario).
-- PF16 (nueva): se puede generar e imprimir una etiqueta con código de barras, nombre y precio de un producto, lista para la ticketeadora.
 
 ### Supuestos y dependencias
 
 - ~~Supuesto: un solo punto de venta/caja física~~ → **Confirmado por el cliente.**
 - Supuesto: AFIP/ARCA se factura desde el arranque del proyecto (pedido explícito del cliente, no exclusión).
 - **Migración de catálogo pospuesta (ya no es dependencia de este presupuesto):** se saca como etapa — se cotiza aparte más adelante, después del segundo relevamiento donde Joaquín evaluará acceso directo a la base de datos del sistema actual (ver módulo 17). No bloquea la aprobación ni el inicio de Etapa 1/Etapa 2.
-- Nueva dependencia: marca/modelo de la ticketeadora del cliente — define si la impresión de etiquetas puede resolverse como una impresora estándar de Windows (PDF/imagen, más simple y barato) o si requiere protocolo propietario (ZPL/EPL, más costoso) — ver §6.8 y pregunta abierta nueva.
+- ~~Dependencia: marca/modelo de la ticketeadora~~ → **Ya no aplica: la ticketeadora es manual, no se integra con el sistema.** Solo hace falta vincular el código escaneado al producto — ver §6.8.
 - Dependencia para cerrar el dashboard: el cliente pidió "foto completa del negocio en base al modelo de datos" como la pantalla más importante — se recomienda una sesión de diseño dedicada para priorizar qué KPIs van primero (ver §6.4), en vez de presuponer un set cerrado.
 - ~~Dependencia: confirmar si el repartidor ve todas las entregas o solo las propias~~ → **Resuelto: ve todas.**
 - ~~Dependencia: confirmar si aplican devoluciones/cambios de mercadería~~ → **Resuelto: aplican devoluciones, no cambios.**
@@ -90,7 +89,7 @@
 - Cambios/canjes de mercadería por otro producto — solo devolución simple.
 - Reservas de stock/apartados, historial de precios por producto y alerta de lista de proveedor vencida quedan excluidos del presupuesto hasta confirmación explícita del cliente.
 - Migración de catálogo de productos — pospuesta, se cotiza aparte en una fase posterior (ver módulo 17).
-- Integración con hardware externo distinto de la ticketeadora/lector de código de barras (balanzas, otros dispositivos) — sigue excluida salvo confirmación explícita.
+- Integración con hardware externo (balanzas, ticketeadora de etiquetas u otros dispositivos) — sigue excluida; el único punto de contacto con hardware es el lector de código de barras en la venta, que funciona como teclado estándar (sin integración real).
 
 ## 6. Puntos de diseño actualizados
 
@@ -129,11 +128,11 @@ Ya no se propone un set fijo de antemano — dado que el cliente lo definió com
 
 **Qué es desarrollo y qué es proceso del cliente:** los puntos 1 (clasificación ABC), 2 (conteo físico) y 5 (conteo cíclico) son trabajo operativo del propio negocio — el cliente decide y ejecuta, no llevan horas de desarrollo por sí mismos. Lo que sí es desarrollo es que el sistema **permita configurar** esa clasificación (campo editable) y sostener el resto del flujo — puntos 3, 4 y 6 — ver el módulo ampliado de Stock (Etapa 1) en `4-presupuestador.md`. *Nota: al sacarse la migración como etapa de este presupuesto, la funcionalidad de ajuste manual de stock queda como el mecanismo principal (no complementario) para que el cliente construya un stock confiable desde el arranque.*
 
-### 6.8 Código de barras — etiquetado con ticketeadora + lectura en venta (nuevo módulo, 2026-07-30)
+### 6.8 Código de barras — vinculación al producto + lectura en venta (módulo simplificado, 2026-07-30)
 
-- **Etiquetado**: generar e imprimir una etiqueta (código de barras + nombre + precio) para pegar en el producto — ya sea con el código de fábrica reutilizado o un código propio asignado por el negocio. Se resuelve como un documento imprimible estándar (mismo patrón que la generación de PDF ya prevista en Presupuestos/Cotizaciones), no como una integración de bajo nivel con el protocolo de la impresora — esto asume que la ticketeadora funciona como una impresora estándar de Windows (la mayoría de los modelos actuales lo hacen).
-- **Lectura en venta**: un lector de código de barras USB típico funciona como un teclado (envía los caracteres del código + Enter) — no requiere driver especial. En la pantalla de venta, se agrega un campo que detecta el escaneo y suma el producto automáticamente al carrito.
-- **Riesgo declarado:** si la ticketeadora del cliente requiere un protocolo propietario (ej. ZPL, EPL) en vez de aceptar impresión estándar de Windows, el costo de la parte de etiquetado sube y se re-cotiza esa porción puntual — ver pregunta abierta nueva sobre marca/modelo.
+- **La ticketeadora es manual (confirmado por el cliente)** — no se integra con el sistema, no hay generación/impresión de etiquetas de por medio. El cliente sigue etiquetando físicamente por su cuenta, igual que hoy.
+- **Lo único que necesita el sistema**: vincular el código de barras (propio o de fábrica) al producto en el catálogo, y en la pantalla de venta, un campo que detecte el escaneo (lector USB tipo teclado, sin driver especial) y agregue el producto automáticamente al carrito.
+- Esto redujo bastante el alcance de este módulo respecto de la versión anterior (que asumía integración con una impresora de etiquetas) — ver `4-presupuestador.md`.
 
 ## 9. Preguntas abiertas (actualizado)
 
@@ -146,7 +145,7 @@ Ya no se propone un set fijo de antemano — dado que el cliente lo definió com
 7. **(Nueva)** ¿Quién puede iniciar la anulación de una venta facturada — solo el admin, o también el vendedor? ¿Hay un límite de tiempo (ej. solo el mismo día)?
 8. ~~¿El archivo de migración de catálogo va a incluir el stock actual?~~ → **Ya no aplica: la migración se pospone, se resuelve cuando se cotice esa fase futura.**
 9. ~~¿Quién define la clasificación ABC de productos?~~ → **Cerrada: la hace el cliente por su cuenta. El sistema solo brinda la posibilidad de configurarla (campo editable en el catálogo).**
-10. **(Nueva)** ¿Marca/modelo de la ticketeadora del cliente? Define si la impresión de etiquetas se resuelve como impresora estándar de Windows (supuesto de trabajo actual) o si requiere protocolo propietario (ZPL/EPL, más costoso) — ver §6.8.
+10. ~~¿Marca/modelo de la ticketeadora?~~ → **Cerrada: ya no aplica — la ticketeadora es manual, no se integra con el sistema.**
 
 ## Historial de ajustes
 - 2026-07-30: Análisis v1 creado post-relevamiento presencial en La Platense.
@@ -154,3 +153,4 @@ Ya no se propone un set fijo de antemano — dado que el cliente lo definió com
 - 2026-07-30 (v3): agregado el plan de puesta a punto de stock inicial (§6.7) — el cliente confirmó que hoy no hay stock confiable (se maneja de memoria). Enfoque recomendado: clasificación ABC + conteo físico solo de los productos de mayor rotación/valor + arranque suave (stock negativo permitido, con aviso) para el resto + ajuste manual con motivo + conteo cíclico post-arranque. La pregunta abierta #8 deja de ser bloqueante. Nueva pregunta abierta #9 (quién hace la clasificación ABC). Impacto en presupuesto: Stock (Etapa 1) ampliado con ajuste manual/flag de venta con stock negativo; Etapa 3 suma la extensión del importador para aceptar conteo real como columna opcional — ver `4-presupuestador.md`.
 - 2026-07-30 (v4): cerrada la pregunta #9 — **la clasificación ABC la hace el propio cliente**, no Olvidata; el sistema solo brinda la posibilidad de configurarla (campo editable en el catálogo). No cambia el esfuerzo estimado (ya estaba contemplado como campo simple en `Producto`), solo cierra la incertidumbre de proceso.
 - 2026-07-30 (v5): dos cambios de alcance importantes. (a) **Se agrega el módulo "Código de barras — etiquetado con ticketeadora + lectura en venta"** (§6.8): el cliente tiene una ticketeadora física y códigos de barra propios además de los de fábrica; el sistema debe poder imprimir etiquetas y agregar productos a la venta por escaneo. Nueva pregunta abierta sobre marca/modelo de la ticketeadora (define si es integración simple o requiere protocolo propietario). (b) **Se saca la migración de catálogo como etapa de este presupuesto** — el problema de stock que la motivaba ya está resuelto por el módulo de puesta a punto de stock inicial (Etapa 1), y Joaquín va a evaluar en un segundo relevamiento el acceso directo a la base de datos actual del cliente para bajar el costo real de importación; se cotiza aparte, más adelante. Impacto en el presupuesto: ver `4-presupuestador.md` — el nuevo módulo de código de barras (bajo reuse) hizo caer el ratio de reutilización de Etapa 1+2 por debajo del 70%, pasando de Tier 1 a **Tier 2**.
+- 2026-07-30 (v6): Joaquín aclaró que **la ticketeadora es manual** — no se integra con el sistema. Se simplifica el módulo de código de barras a solo vincular el código escaneado al producto (sin generación/impresión de etiquetas). Se cierra la pregunta abierta #10 (marca/modelo, ya no aplica). Impacto en presupuesto: módulo de código de barras baja de 7h a 3h — ver `4-presupuestador.md` para el efecto en el ratio de reutilización y el precio final (Joaquín además fijó el precio a cobrar en USD 1.800, con su propia estimación de 30h reales + USD 200 de tokens IA).

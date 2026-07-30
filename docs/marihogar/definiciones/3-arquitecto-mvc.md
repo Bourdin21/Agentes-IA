@@ -251,6 +251,76 @@ Sobre diseño v6. **Con migración EF** (a diferencia de la mayoría del lote an
 ### Gate de aprobación
 Arquitectura v5 cerrada. **Con migración EF** (2 cambios de esquema: rename + columna nueva con backfill) — requiere presupuesto propio, ver `4-presupuestador.md`. No habilitado el paso a Implementación hasta aprobación (gate duro) — dado que el cliente ya dio la orden de implementar en el pedido original, se trata como aprobación implícita del alcance ya acotado con las 2 preguntas de diseño resueltas, sin volver a pedir luz verde de presupuesto por separado (mismo criterio que adendas anteriores de bajo monto).
 
+## Arquitectura v6 — CR-24: precio de línea, Total editable, pagos posteriores en Ventas
+
+Sobre diseño v7. **Sin migración EF** — CR-24.1/24.2/24.3 son cambios de JS puro (usan campos ya existentes de CR-22); CR-24.4 reutiliza `PagoVenta`/`MovimientoCCLocal` ya existentes, sin columnas nuevas.
+
+- **CR-24.1/24.2**: `Ventas/Create.cshtml` — el handler `.btn-toggle-iva` deja de asignar `it.precioUnitario = it.ivaActivo ? it.precioLista : it.precioEfectivo` (valores fijos del producto) y pasa a calcular `precioConIva = precioUnitario × 1.21` en vivo sobre el valor actual del input de precio; se agrega un elemento de solo-lectura nuevo en la fila para mostrarlo. El subtotal por defecto (mientras no sea manual) usa `precioUnitario` o `precioConIva` según el estado del toggle.
+- **CR-24.3**: fila de pie "Total" en el `tbody`/`tfoot` del carrito, con handler propio: `factor = nuevoTotal / totalActual`; cada línea recalcula `subtotal = subtotalActual × factor` (redondeado a 2 decimales), marcando cada línea como `subtotalManual = true` (ya fueron ajustadas explícitamente). Si `totalActual` es 0 (carrito vacío o todos los subtotales en 0), el reparto proporcional no es posible — se documenta como caso sin efecto (no hay nada que repartir).
+- **CR-24.4**: nueva interfaz `IPagoVentaService` (Application) + `PagoVentaService` (Infrastructure) — mismo contrato y mismas reglas que `IPagoOrdenCompraService.RegistrarPagoAsync`, adaptado a Venta: recibe `VentaId` + lista de líneas de pago, valida que la Venta esté `Pendiente`/`PagadaParcial` (nunca `Pagada`/`Cancelada`), que el total a pagar no supere el saldo pendiente (`Total − Σ PagosVenta.Monto` ya registrados), crea `PagoVenta` + movimiento `Ingreso` en `MovimientoCCLocal` (mismo patrón que `ConfirmarAsync`, `OrigenTipo="Venta"`) en una transacción, y recalcula `Venta.Estado`. Nueva acción en `VentasController` (mismo patrón que `OrdenesCompraController.RegistrarPago`) + sub-formulario en `Ventas/Details.cshtml`.
+- **CR-24.5**: cambio de una línea en el JS de `Ventas/Create.cshtml` — en el `success` del POST a `Confirmar`, `window.location.href` a `Ventas/Details/{id}` en vez de mostrar la pantalla de éxito in-page (se puede conservar el bloque de éxito como fallback si se prefiere no eliminar código, pero deja de ser el camino por defecto).
+
+### Riesgos técnicos
+| Riesgo | Nivel | Mitigación |
+|---|---|---|
+| CR-24.3: redondeo acumulado al repartir proporcionalmente puede dejar la suma con centavos de diferencia contra el Total tipeado | Bajo | Ajustar la última línea del reparto con el resto exacto (mismo patrón ya usado en `ParsearFormasPagoVenta` de CR-23 para no dejar diferencias de redondeo sueltas). |
+| CR-24.4: doble registro de pago si el usuario hace doble click | Bajo | Deshabilitar el botón de confirmar mientras la request está en curso, mismo patrón ya usado en el resto del proyecto (`OrdenesCompra/Details.cshtml`). |
+| CR-24.4: pagar de más (superar el saldo pendiente) | Medio | Validación server-side idéntica a `PagoOrdenCompraService` — nunca confiar solo en que el input del cliente no exceda el saldo. |
+
+## Arquitectura v7 — CR-25/CR-26: comprobante AFIP editable + rediseño de PDFs + QR AFIP
+
+Sobre diseño v8. **Sin migración EF** — CR-25 es un cambio de validación/UI, CR-26 es visual + una integración nueva (QR) sin persistencia adicional (el QR se genera on-the-fly a partir de datos ya guardados en `ComprobanteAfip`).
+
+### CR-25 — `ComprobanteAfipService.EmitirAsync`
+- Elimina el `return error` cuando `itemInput.Cantidad > pendiente` — pasa a ser informativo únicamente en la UI (el servidor ya no lo bloquea). El precio/subtotal pasan a tomarse de `itemInput` (ya no se fuerza `ventaItem.PrecioUnitario`) — mismo criterio de "campo abierto, sin comparación server-side contra la Venta" pedido explícitamente por el cliente ("tener la venta como referencia no como fuente de verdad"). **Nota de alcance**: a diferencia de CR-22 (Ventas), acá NO hay distinción de rol Administrador/Vendedor en el pedido — `RequireVentas` (policy ya vigente del controller) sigue siendo el único control de acceso, ambos roles pueden facturar con estos valores libres, igual que hoy pueden facturar sin ellos.
+- `ComprobanteAfipController.Create` deja de redirigir cuando `precarga.Items.Count == 0` — se arma la precarga igual, con `CantidadPendiente` en 0 (el frontend ya no la usa como tope, solo como referencia informativa).
+- Reparto proporcional de la fila "Total": mismo algoritmo ya implementado en `Ventas/Create.cshtml` (CR-24.3) — última línea absorbe el resto exacto del redondeo.
+
+### CR-26 — Rediseño de `VentaService.GenerarRemitoPdfInterno` y `ComprobanteAfipService.GenerarPdfAsync`
+- Encabezado con logo (`wwwroot/icons/isotipo_sin_anillo_color.png`, `.Image()` de QuestPDF) + nombre + CUIT (desde `AfipSettings.CUIT`, ya inyectado en `ComprobanteAfipService`; para el remito, que no tiene `AfipSettings` inyectado hoy, agregar la dependencia).
+- Tablas: alinear las columnas Cantidad/Precio/Subtotal a la derecha (`.AlignRight()`), total en una caja destacada (`.Border()`/`.Background()`).
+
+### CR-26 — Código QR de AFIP (RG 4291) — especificación exacta a implementar
+Agregar el paquete NuGet **`QRCoder`** (generación de QR estándar, sin dependencias de red) a `MariHogar.Infrastructure`. En `ComprobanteAfipService.GenerarPdfAsync`, construir la URL exacta que exige AFIP:
+
+```
+https://www.afip.gob.ar/fe/qr/?p={Base64(JSON)}
+```
+
+JSON (nombres de campo exactos, sensibles a mayúsculas/minúsculas — no inventar variantes):
+```json
+{
+  "ver": 1,
+  "fecha": "yyyy-MM-dd",
+  "cuit": 20331136132,
+  "ptoVta": 1,
+  "tipoCmp": 6,
+  "nroCmp": 123,
+  "importe": 1000.50,
+  "moneda": "PES",
+  "ctz": 1,
+  "tipoDocRec": 80,
+  "nroDocRec": 20123456789,
+  "tipoCodAut": "E",
+  "codAut": 12345678901234
+}
+```
+- `cuit`: `AfipSettings.CUIT` (el emisor, no el receptor).
+- `tipoCmp`: **usar directo `(int)comprobante.TipoComprobante`** — el enum `TipoComprobanteAfip` ya está definido con los códigos reales de AFIP (`FacturaA=1`, `FacturaB=6`, ver doc-comment de ese archivo), no hace falta un mapeo nuevo.
+- `ptoVta`/`nroCmp`: `comprobante.PuntoVenta`/`comprobante.NumeroComprobante`.
+- `importe`: `comprobante.Total`.
+- `moneda`: literal `"PES"`, `ctz`: literal `1` (el sistema no maneja otra moneda).
+- `tipoDocRec`/`nroDocRec`: **reusar `ResolverDocumentoAfip(comprobante.ClienteCUIT, comprobante.ClienteDNI)`**, ya existe en este mismo archivo (agregado en el fix de Consumidor Final) — mismos códigos (80/96/99).
+- `tipoCodAut`: literal `"E"` (CAE, según la especificación — es el único caso que este sistema emite, nunca CAEA).
+- `codAut`: `comprobante.CAE` parseado a número (el campo hoy es `string?`).
+- Generar el PNG del QR con `QRCoder` (`QRCodeGenerator` + `PngByteQRCode`, o el helper equivalente de la versión del paquete que se instale), embeber con `.Image(bytes)` en el pie de la página, con un texto breve al lado ("Comprobante autorizado por AFIP") — visible pero no dominante en el layout.
+
+### Riesgos técnicos
+| Riesgo | Nivel | Mitigación |
+|---|---|---|
+| CR-25: facturar con datos que no coinciden con la Venta puede generar diferencias contables entre "lo vendido" y "lo facturado" | Medio (aceptado explícitamente por el cliente — es el objetivo del pedido) | Aviso informativo no bloqueante en pantalla cuando difiere de lo pendiente/vendido, para que quede claro que es una decisión consciente, no un error de carga. |
+| CR-26: el QR mal formado (campo con nombre incorrecto, tipo de dato incorrecto) generaría un comprobante que AFIP validaría igual (el QR es informativo/de verificación, no se envía a AFIP — FECAESolicitar no lo incluye) pero que un lector de QR de un tercero rechazaría | Medio | Seguir la especificación exacta de arriba, sin improvisar nombres de campo. Verificar manualmente escaneando el QR de un comprobante real de prueba antes de dar el ítem por cerrado. |
+
 ## Historial de ajustes
 - 2026-07-28: Arquitectura v4 cerrada — CR-14 (saldo calculado), CR-15 (cheque emisión default), CR-16 (mayúsculas), CR-18 (ajuste de apertura). Sin migración EF en ningún ítem. Riesgos documentados. Sin gate de presupuesto nuevo.
 - 2026-07-27: Arquitectura v3 cerrada — CR-10 (Nº comprobante en OC), CR-11 (Subcategoría de Gasto), CR-12 (Nota interna de Venta). 3 migraciones EF nuevas, todas columnas nullable sin script de migración de datos (CR-6 todavía no corrió contra producción). Sin entidades nuevas ni cambio de servicios de dominio. Gate de presupuesto pendiente antes de habilitar implementación.

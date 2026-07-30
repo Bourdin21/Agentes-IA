@@ -486,6 +486,30 @@ Sobre análisis v8. Extiende `Productos/{Create,Edit,Index}` y la pantalla de ma
   - CA: para el rol Vendedor, sin cambios respecto del comportamiento actual — Precio Unit. y Subtotal de cada línea siguen siendo texto fijo (no input), calculados server-side, sin ningún control de IVA visible.
 - **Nota de seguridad explícita para Arquitectura**: la restricción de edición no puede ser solo de UI (ocultar/mostrar el input según el rol) — el servidor debe revalidar el rol en `VentaService.ConfirmarAsync` y descartar cualquier precio/subtotal recibido de un usuario que no sea Administrador, igual que hace hoy para todos los roles.
 
+## Diseño v7 — CR-24: precio de línea con 4 elementos, Total editable, pagos posteriores en Ventas
+
+Sobre análisis v10. Extiende `Ventas/Create.cshtml` y `Ventas/Details.cshtml` (pantalla de mayor uso diario) — mismo layout ya elevado, solo cambios dentro de la fila/carrito y una capacidad nueva en Details.
+
+- HU-5.17 (CR-24.1/24.2): Como Administrador, quiero que el precio con IVA se calcule sobre lo que yo cargué en el precio de la línea (no sobre el precio de catálogo fijo), para no perder un precio negociado al activar el IVA.
+  - CA: columna de precio con 4 elementos en orden: Precio (input), botón IVA, "c/IVA" (calculado, solo lectura, Precio×1,21), Subtotal (input). El botón decide si el subtotal por defecto usa Precio o "c/IVA" — sigue editable a mano aparte.
+- HU-5.18 (CR-24.3): Como Administrador, quiero poder escribir el Total final de la venta y que se reparta automáticamente entre los productos, para cerrar una venta a un número redondo sin tener que ajustar línea por línea.
+  - CA: fila "Total" al pie de la tabla de productos con un input. Al editarlo, cada línea ajusta su Subtotal en proporción a su peso actual en el total (ej. una línea que hoy es el 30% del total absorbe el 30% de la diferencia). El Resumen de venta se actualiza en vivo.
+- HU-5.19 (CR-24.4): Como Administrador/Vendedor, quiero poder registrar un pago adicional sobre una Venta que quedó con saldo pendiente, para poder cobrar el resto más adelante sin tener que anular y recrear la venta.
+  - CA: `Ventas/Details.cshtml` gana una card "Registrar pago" (visible solo si `Estado` es `Pendiente` o `PagadaParcial`), mismo patrón visual que el sub-formulario de pago de `OrdenesCompra/Details.cshtml` (selector de método, monto con precarga del saldo pendiente, botón confirmar). Al registrar, el `Estado` de la Venta se recalcula (puede pasar a `Pagada`).
+- HU-5.20 (CR-24.5): Como Vendedor/Administrador, quiero caer directo en el detalle de la venta recién creada, para poder seguir operando sobre ella (cobrar el resto, programar entrega, facturar) sin un paso intermedio.
+  - CA: al confirmar una Venta desde `Ventas/Create`, redirige a `Ventas/Details/{id}` (reemplaza la pantalla de éxito in-page ya existente).
+
+## Diseño v8 — CR-25/CR-26: comprobante AFIP editable + rediseño de PDFs
+
+Sobre análisis v11.
+
+- HU-7.6 (CR-25): Como Administrador/Vendedor, quiero poder ajustar cantidad, precio, subtotal y total de cada línea al facturar, para poder emitir el comprobante real acordado con el cliente aunque difiera de lo cargado originalmente en la venta.
+  - CA: `ComprobantesAfip/Create.cshtml` — columnas Cantidad/Precio Unit./Subtotal editables (inputs abiertos, sin `max`). Aviso visual (no bloqueante) por línea cuando la cantidad supera lo pendiente/vendido de esa línea en la Venta. Fila "Total" editable al pie con reparto proporcional (mismo mecanismo de `Ventas/Create`, CR-24.3). Sin buscador de productos nuevos — el universo de líneas es el de la Venta.
+  - CA: la pantalla deja de bloquear el acceso cuando la Venta ya está 100% facturada.
+- HU-7.7 (CR-26): Como Administrador, quiero que el remito y la factura tengan una presentación más profesional, con los datos del negocio, para entregarle al cliente un documento con mejor imagen.
+  - CA: encabezado con nombre del negocio, CUIT y logo en ambos PDF. Tablas con números alineados a la derecha. Total destacado.
+- HU-7.8 (CR-26, cumplimiento): la factura AFIP muestra el código QR exigido por AFIP (RG 4291), visible en el pie de la primera página.
+
 ## Historial de ajustes
 - 2026-07-28: Diseño v5 cerrado — CR-14 (saldo calculado en CC Local/Proveedores), CR-15 (fecha de emisión de cheque por defecto en OC), CR-16 (mayúsculas Proveedor/Producto). 4 historias de usuario nuevas (HU-11.4, HU-13.3, HU-12.9, HU-2.5). Sin wireframe nuevo.
 - 2026-07-27: Diseño v4 cerrado — CR-10 (Nº comprobante en OC), CR-11 (Subcategoría de Gasto), CR-12 (Nota interna de Venta), sobre análisis v5. 3 historias de usuario nuevas (HU-12.8, HU-18.4, HU-5.13). Alcance menor, sin wireframe nuevo. Pendiente: Arquitectura y Presupuesto antes de habilitar implementación.

@@ -8,14 +8,14 @@
 ### Componentes por capa
 
 - **Presentación**: Controllers/Views para Usuarios, Catálogo, Stock, Ventas, Facturación AFIP, Proveedores/Compras, Importación de listas, Caja, Gastos, CtaCteNegocio, CtaCteEmpleado, Presupuestos, Entregas, AumentoMasivo, Dashboard. DataTables para todos los listados; SweetAlert2 para confirmaciones; daterangepicker para filtros de fecha (Caja, Ventas, Compras).
-- **Negocio (Services)**: `VentaWorkflowService`, `UnidadMedidaConversionService`, `RecargoCuotasService`, `ListaPreciosProveedorImportService`, `CuentaCorrienteEmpleadoService`, `CajaService` (diaria+mensual), `AfipFacturacionService` (incluye emisión de NC/ND), `AnulacionVentaService`, `DevolucionMercaderiaService`, `EntregaMarkupService`, `AumentoMasivoService`, `DashboardService` (3 niveles: día / salud financiera / tendencias), `AjusteStockService` (corrección manual auditada + venta con stock negativo permitido), `EtiquetaService` (generación de etiquetas imprimibles con código de barras), `CodigoBarrasLookupService` (resuelve producto por código escaneado en venta). *`CatalogoMigracionService` se retira de este alcance — la migración se pospone, ver `4-presupuestador.md`.*
+- **Negocio (Services)**: `VentaWorkflowService`, `UnidadMedidaConversionService`, `RecargoCuotasService`, `ListaPreciosProveedorImportService`, `CuentaCorrienteEmpleadoService`, `CajaService` (diaria+mensual), `AfipFacturacionService` (incluye emisión de NC/ND), `AnulacionVentaService`, `DevolucionMercaderiaService`, `EntregaMarkupService`, `AumentoMasivoService`, `DashboardService` (3 niveles: día / salud financiera / tendencias), `AjusteStockService` (corrección manual auditada + venta con stock negativo permitido), `CodigoBarrasLookupService` (resuelve producto por código escaneado en venta). *`EtiquetaService` se retira — la ticketeadora es manual, no hay generación/impresión de etiquetas de por medio. `CatalogoMigracionService` también se retira de este alcance — la migración se pospone, ver `4-presupuestador.md`.*
 - **Datos**: `AppDbContext` + repositorios EF Core / MySQL, siguiendo el patrón estándar del blankproject base (10-blankproject-base, soft delete + auditoría en todas las entidades).
 
 ### Entidades y configuraciones EF
 
 Entidades nuevas (resumen — el detalle exacto de columnas se cierra en Implementación):
 
-- `Producto` (nombre, codigo, marca, modelo, categoriaId, precioCompra, precioVenta, precioConDescuento, porcentajeIVA, unidadVenta [enum: Unidad/Peso/Metro/Bulto], unidadCompra [enum, nullable], factorConversion [nullable], stock, stockMinimo, clasificacionABC [enum A/B/C, nullable — usado en la puesta a punto de stock inicial], stockVerificado [bool, default false hasta que se cuenta o se ajusta manualmente]).
+- `Producto` (nombre, codigo, marca, modelo, categoriaId, precioCompra, precioVenta, precioConDescuento, porcentajeIVA, unidadVenta [enum: Unidad/Peso/Metro/Bulto], unidadCompra [enum, nullable], factorConversion [nullable], stock, stockMinimo, clasificacionABC [enum A/B/C, nullable — usado en la puesta a punto de stock inicial], stockVerificado [bool, default false hasta que se cuenta o se ajusta manualmente], codigoBarras [string, único — de fábrica reutilizado o propio asignado por el negocio]).
 - `AjusteStock` (productoId, fecha, usuarioId, cantidadAnterior, cantidadNueva, motivo) — reutiliza el patrón de ajuste manual de `ShowroomGriffin` (`StockController`). Marca `Producto.stockVerificado = true` al aplicarse.
 - `Marca`, `Modelo`, `Categoria` (catálogo simple, patrón ya resuelto).
 - `Cliente` (nombre, CUIT/DNI, condicionIVA, telefono, saldoCuentaCorriente).
@@ -38,8 +38,8 @@ Entidades nuevas (resumen — el detalle exacto de columnas se cierra en Impleme
 
 ### Migraciones requeridas
 
-- Migración inicial: todas las entidades listadas arriba (incluye `NotaCreditoDebito` y `DevolucionMercaderia`).
-- Migración de datos (Etapa 3, no EF-schema sino de contenido): importación del catálogo de productos existente del cliente (~17.000 filas) — formato de origen aún no confirmado, ver `1-analista-funcional.md` §Supuestos y dependencias. Se ejecuta por lotes, con reporte de éxitos/errores/duplicados (no una única transacción sobre 17.000 filas).
+- Migración inicial: todas las entidades listadas arriba (incluye `NotaCreditoDebito`, `DevolucionMercaderia`, y los campos nuevos de `Producto` para stock inicial y código de barras).
+- Migración de datos del catálogo existente del cliente (~17.000 filas): **pospuesta, fuera de este alcance** — se diseña e implementa en una fase posterior, una vez que Joaquín confirme si hay acceso directo a la base de datos actual (más simple/barato) o si sigue dependiendo de un archivo Excel de formato desconocido (más costoso). Ver `1-analista-funcional.md` §6.2 y `4-presupuestador.md`.
 
 ### Riesgos tecnicos activos
 
@@ -47,6 +47,7 @@ Entidades nuevas (resumen — el detalle exacto de columnas se cierra en Impleme
 - **Conversión de unidades compra↔venta**: no hay entidad/patrón exacto reutilizable en el historial — es desarrollo nuevo (aislado en `UnidadMedidaConversionService` para minimizar impacto en el resto del sistema).
 - **Workflow Venta Borrador→Facturada con edición previa**: mayor superficie de riesgo que el patrón estándar de venta+AFIP ya resuelto (que factura directo, sin estado intermedio editable).
 - **Importación de listas de proveedor**: el mapeo de columnas puede no ser 100% genérico entre proveedores — riesgo de tener que ajustar el parser por proveedor real.
+- ~~Etiquetado con ticketeadora~~ → **Ya no es un riesgo: la ticketeadora es manual, no se integra con el sistema.**
 
 ### Mapa de reutilización cross-proyecto
 
@@ -63,14 +64,17 @@ Entidades nuevas (resumen — el detalle exacto de columnas se cierra en Impleme
 | Presupuestos y cotizaciones en PDF | `marihogar` | Reutilizado directo |
 | Entregas (seguimiento, estados) | `marihogar` | Base de `Entrega` — se extiende con markup configurable y distinción propia/tercerizada |
 | Aumento masivo de precios (categoría/marca) | `marihogar`, `ShowroomGriffin` | Reutilizado directo, se agrega filtro por proveedor |
-| Parser de importación Excel propietario | `contadores-bma-conversor` | Patrón de parser reutilizado para migración de catálogo (Etapa 3) e importación de listas de proveedor |
+| Parser de importación Excel propietario | `contadores-bma-conversor` | Referencia para la migración de catálogo cuando se cotice esa fase futura (pospuesta, no forma parte de este alcance) |
 | `Marca`/`Modelo` como catálogos separados | `ShowroomGriffin` | Reutilizado directo |
 | Devolución de mercadería (stock, motivo, vínculo a venta) | `ShowroomGriffin` | Reutilizado directo — base de `DevolucionMercaderia` |
 | Emisión de NC/ND AFIP | `marihogar`/`delicias-naturales` (extensión) | El circuito WSAA/WSFE ya resuelto se extiende para emitir NC vinculada a la factura original — no es una integración nueva desde cero |
+| Búsqueda de producto en la pantalla de venta | Módulo Ventas (mismo proyecto) | El escaneo de código de barras extiende el buscador de producto ya existente en el flujo de venta, no crea uno nuevo |
 
-**Piezas sin precedente exacto (desarrollo nuevo, no reuse):** conversión de unidades compra↔venta con factor configurable, workflow Venta Borrador→Facturada editable, cuenta corriente de empleados con autoservicio (autorización a nivel de registro), cuenta corriente consolidada del negocio, dashboard de 3 niveles ("foto completa del negocio"), y la migración de catálogo en volumen (17.000 filas, formato aún no confirmado — mayor incertidumbre real que reuse).
+**Piezas sin precedente exacto (desarrollo nuevo, no reuse):** conversión de unidades compra↔venta con factor configurable, workflow Venta Borrador→Facturada editable, cuenta corriente de empleados con autoservicio (autorización a nivel de registro), cuenta corriente consolidada del negocio, dashboard de 3 niveles ("foto completa del negocio"), y la resolución código de barras→producto en venta (aunque el mecanismo de búsqueda en sí se apoye en el buscador ya existente).
 
 ## Historial de ajustes
 - 2026-07-30: Arquitectura v1 — mapa de reutilización cross-proyecto definido (marihogar como base estructural principal; delicias-naturales, vinosefue, ganaderia, ShowroomGriffin y contadores-bma-conversor como donantes puntuales). Identificadas 4 piezas sin precedente exacto que se presupuestan como desarrollo nuevo.
 - 2026-07-30 (v2): agregadas entidades `NotaCreditoDebito` y `DevolucionMercaderia` (venta facturada anulable por NC, confirmado por el cliente). Reutilización directa del patrón de devoluciones de `ShowroomGriffin`. Migración de catálogo confirmada en ~17.000 filas — promovida a Etapa 3 independiente, ejecutada por lotes con reporte de errores. Dashboard redefinido como pieza de mayor prioridad de diseño (3 niveles), no un KPI-set genérico.
 - 2026-07-30 (v3): agregada entidad `AjusteStock` (reutiliza patrón `StockController` de `ShowroomGriffin`) y campos `Producto.clasificacionABC`/`stockVerificado`, para soportar el plan de puesta a punto de stock inicial (el cliente no tiene stock confiable hoy). Riesgo técnico nuevo declarado: la validación de venta debe permitir stock negativo para productos no verificados, sin bloquear el mostrador.
+- 2026-07-30 (v4): dos cambios. (a) Agregado `Producto.codigoBarras` + `EtiquetaService` + `CodigoBarrasLookupService` (código de fábrica o propio, etiquetado con ticketeadora, escaneo en venta) — riesgo declarado: se asume impresora estándar de Windows, a confirmar marca/modelo. (b) **Retirada la migración de catálogo de este alcance** (`CatalogoMigracionService` se saca) — se pospone a una fase posterior, condicionada a si Joaquín consigue acceso directo a la base de datos actual del cliente (segundo relevamiento) en vez de depender de un archivo Excel de formato desconocido.
+- 2026-07-30 (v5): Joaquín confirmó que la ticketeadora es manual — no se integra con el sistema. Se retira `EtiquetaService` por completo (no hay generación/impresión de etiquetas). Queda solo `CodigoBarrasLookupService` + el campo `Producto.codigoBarras`. Riesgo de protocolo propietario (ZPL/EPL) ya no aplica.

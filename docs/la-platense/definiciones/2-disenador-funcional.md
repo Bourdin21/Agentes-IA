@@ -81,16 +81,12 @@ Se retira este flujo del diseño actual. Se cotiza y diseña en una fase posteri
 - Producto con stock negativo: la venta se permite pero queda marcado visualmente en el listado de stock hasta que se ajuste.
 - El "conteo cíclico" (revisar una categoría por semana) es un hábito operativo del cliente, no una pantalla nueva — se apoya en el mismo "ajuste de stock" del punto 4.
 
-**9. Código de barras — etiquetado con ticketeadora + lectura en venta (NUEVO)**
-- **1. Asignar código.** Al cargar/editar un producto, se ingresa su código de barras (de fábrica, si lo tiene) o se genera uno propio si no lo tiene — campo único en el catálogo.
-- **2. Imprimir etiqueta.** Desde el catálogo (uno o varios productos seleccionados), se genera un documento imprimible con código de barras + nombre + precio, enviado a la impresora configurada (se asume ticketeadora compatible como impresora estándar de Windows — ver riesgo declarado en Analisis).
-- **3. Escanear en la venta.** En la pantalla de venta, un campo con foco detecta el código escaneado (el lector USB actúa como teclado) y agrega el producto automáticamente al carrito, sin necesidad de buscarlo.
-
-*Hipótesis a validar: se asume que la ticketeadora acepta impresión estándar de Windows (PDF/imagen). Si requiere un protocolo propietario (ZPL/EPL), esta parte se re-cotiza — ver pregunta abierta sobre marca/modelo en Analisis.*
+**9. Código de barras — vinculación al producto + lectura en venta (SIMPLIFICADO — la ticketeadora es manual, no se integra)**
+- **1. Vincular código.** Al cargar/editar un producto, se ingresa su código de barras (de fábrica, si lo tiene, o el que el cliente le asignó con su ticketeadora manual) — campo único en el catálogo. El sistema no genera ni imprime nada; el etiquetado físico lo sigue haciendo el cliente por su cuenta.
+- **2. Escanear en la venta.** En la pantalla de venta, un campo con foco detecta el código escaneado (el lector USB actúa como teclado) y agrega el producto automáticamente al carrito, sin necesidad de buscarlo.
 
 **Casos especiales contemplados:**
-- Producto sin código de fábrica: el sistema genera uno propio, sin distinción funcional para el resto del sistema (venta, stock, etc.) respecto de un código de fábrica.
-- Impresión de etiquetas en lote (ej. tras recibir una compra nueva), no solo de a una.
+- Producto sin código de fábrica: el cliente le asigna uno propio con su ticketeadora manual, y lo carga en el sistema — sin distinción funcional para el resto del sistema (venta, stock, etc.) respecto de un código de fábrica.
 
 ### ViewModels definidos
 
@@ -101,7 +97,6 @@ Se retira este flujo del diseño actual. Se cotiza y diseña en una fase posteri
 - `AnulacionVentaViewModel`: venta original, ítems a devolver (parcial o total), motivo, preview de la NC antes de emitir.
 - `DashboardViewModel`: 3 niveles (estado del día, salud financiera, tendencias) — ver flujo 6.
 - `AjusteStockViewModel`: producto, cantidad actual, cantidad nueva, motivo — genera registro auditado.
-- `EtiquetaProductoViewModel`: producto(s) seleccionados, código de barras, preview de la etiqueta antes de imprimir.
 - `VentaEditableViewModel` (extendido): campo de escaneo de código de barras que agrega un `ItemVentaViewModel` automáticamente al detectar un código válido.
 
 ### Validaciones de UI acordadas
@@ -128,7 +123,6 @@ Se retira este flujo del diseño actual. Se cotiza y diseña en una fase posteri
 - `ICuentaCorrienteEmpleadoService`: expone movimientos de UN empleado, validando que el usuario autenticado sea el dueño de la cuenta o el admin.
 - `IAnulacionVentaService`: valida que la venta esté en estado `Facturada`, coordina devolución de stock + emisión de NC + transición a `Anulada`.
 - `IAjusteStockService`: aplica una corrección manual de stock con motivo, genera auditoría (usuario, fecha, valor anterior/nuevo).
-- `IEtiquetaService`: genera el documento imprimible (código de barras + nombre + precio) para uno o varios productos.
 - `ICodigoBarrasLookupService`: resuelve un producto a partir de un código escaneado (propio o de fábrica) para el flujo de venta.
 
 ## Historial de ajustes
@@ -136,3 +130,4 @@ Se retira este flujo del diseño actual. Se cotiza y diseña en una fase posteri
 - 2026-07-30 (v2): agregados 2 flujos nuevos tras respuestas del cliente — anulación de venta facturada + devolución de mercadería (con NC AFIP), y migración de catálogo (Etapa 3, 17.000 productos, mapeo configurable por lote). Dashboard rediseñado como pantalla de 3 niveles jerárquicos (día / salud financiera / tendencias), marcado como prioridad de diseño explícita del cliente — se recomienda sesión de diseño dedicada antes de cerrar el detalle final.
 - 2026-07-30 (v3): agregado el flujo de puesta a punto de stock inicial (clasificación ABC + conteo focalizado + arranque suave con stock negativo permitido + ajuste manual auditado) — responde al problema real del cliente de no tener stock confiable hoy por la rotación de artículos.
 - 2026-07-30 (v4): agregado el flujo de código de barras (etiquetado con ticketeadora + escaneo en venta). Retirado el flujo de migración de catálogo (pospuesto, se cotiza en una fase posterior) — el flujo de puesta a punto de stock inicial queda independiente de la migración.
+- 2026-07-30 (v5): simplificado el flujo de código de barras — la ticketeadora es manual (no se integra con el sistema); se retira la generación/impresión de etiquetas, queda solo la vinculación del código al producto y la lectura en venta.

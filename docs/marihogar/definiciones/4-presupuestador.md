@@ -310,6 +310,30 @@ CR-21 dentro de la banda estándar de campo+rename ya usada en el proyecto (rati
 ### Riesgos y supuestos
 Riesgo principal ya identificado y mitigado en el diseño: el control de precio/subtotal debe revalidarse 100% server-side por rol, nunca confiar en que la UI oculte el campo — QA debe probar explícitamente un intento de bypass (POST directo simulando Vendedor con precio manipulado) antes de dar este ítem por cerrado.
 
+## Presupuesto — Change Request #3: CR-24, correcciones y extensión de pagos en Ventas (2026-07-30)
+
+| Ítem | Tipo | M | USD (M×$16.80) |
+|---|---|---:|---:|
+| CR-24.1/24.2 Fix IVA + layout de precio de línea (4 elementos) | Bugfix + ajuste de UI | 2h | $34 |
+| CR-24.3 Total editable con reparto proporcional | Ajuste de UI con lógica derivada | 2h | $34 |
+| CR-24.4 Pagos posteriores sobre Venta (mirror de Compras) + redirect a Details | Financiero workflow, mirror de patrón ya existente | 4h | $67 |
+| **Total** | | **8h** | **$135** |
+
+Anclado en la banda "modificación sobre módulo existente" salvo CR-24.4, que se ancla contra el propio `PagoOrdenCompraService` ya implementado en este proyecto (mismo patrón, menor incertidumbre que un desarrollo desde cero).
+
+**Total Change Request #3: USD 135.** Mismas condiciones ya acordadas (100% al aprobar). Con esto, el trabajo fuera del Change Request #1 acumula: CR-21/22 (USD 168) + CR-24 (USD 135) = USD 303.
+
+## Presupuesto — Change Request #4: CR-25/CR-26, comprobante editable + rediseño de PDFs + QR AFIP (2026-07-30)
+
+| Ítem | Tipo | M | USD (M×$16.80) |
+|---|---|---:|---:|
+| CR-25 Comprobante AFIP totalmente editable | Ajuste de validación + UI (mirror de CR-24.3) | 3h | $50 |
+| CR-26 Rediseño visual remito + factura PDF | Ajuste visual | 3h | $50 |
+| CR-26 Código QR de AFIP (hallazgo de cumplimiento, no solicitado) | Integración nueva (paquete NuGet + spec externa) | 3h | $50 |
+| **Total** | | **9h** | **$150** |
+
+**Total Change Request #4: USD 150.** Mismas condiciones ya acordadas. Acumulado fuera del Change Request #1: CR-21/22 ($168) + CR-24 ($135) + CR-25/26 ($150) = **USD 453**.
+
 ## Historial de ajustes
 - 2026-07-28: Presupuesto Change Request #2 (CR-21/CR-22) — USD 168. Primer ítem del proyecto fuera del Change Request #1 ya cerrado en producción. Orden de implementación ya dada por el cliente en el pedido original (aprobación implícita del alcance, mismo criterio que adendas de bajo monto anteriores).
 - 2026-07-28: Adenda CR-14 a CR-18 (mejoras post-migración) + refinamiento de CR-13 — USD 91 adicionales. Nuevo total acumulado del Change Request #1: USD 729. CR-17 (unificación de Proveedor duplicado) y la normalización de mayúsculas sobre datos ya cargados se ejecutaron directamente contra `marihogar_dev` el mismo día. Sin gate de presupuesto nuevo — se implementa junto con el resto del lote (Sprint CR-F).
