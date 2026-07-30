@@ -2,7 +2,7 @@
 
 - nombre: La Platense
 - fecha_inicio: 2026-07-30
-- estado: activo (presupuesto)
+- estado: presupuesto aprobado 2026-07-30 (USD 1.500/3 pagos, PREMIUM año 1 gratis) — pendiente inicio de Implementación
 - owner: Joaquín Bourdin (OlvidataSoft)
 - descripcion: Sistema de gestión integral para ferretería (catálogo con unidades de medida y conversión compra/venta, ventas editables pre-AFIP, cuenta corriente de clientes/proveedores/empleados, caja diaria/mensual, compras con listas de precios de proveedor, entregas, presupuestos, dashboard). Incluye migración del catálogo de productos existente.
 - ruta_definiciones: /docs/la-platense/definiciones

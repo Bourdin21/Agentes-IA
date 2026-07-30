@@ -67,6 +67,13 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Impacto en capas: económico/comercial, sin impacto técnico.
 - Riesgos/supuestos: chequeo de margen con los números propios de Joaquín (30h reales + USD 200 tokens IA) confirma que ambas modalidades quedan por encima del objetivo de USD 35/h (≈USD 43,3/h en la de 3 pagos, ≈USD 53,3/h en la de 12 pagos) — ninguna compromete la rentabilidad esperada.
 
+### 2026-07-30 14:00 - orquestador (cierre de presupuesto)
+- Etapa: Presupuesto → Cierre (gate hacia Implementación)
+- Cambio: **Cliente aprobó el presupuesto** — modalidad USD 1.500 en hasta 3 pagos, con plan de mantenimiento PREMIUM (año 1 sin costo).
+- Motivo: aprobación formal del cliente, habilita el inicio de Implementación según la secuencia obligatoria de `CLAUDE.md` ("No iniciar Implementación sin Presupuesto aprobado por el cliente").
+- Impacto en capas: ninguno técnico todavía — gate administrativo.
+- Riesgos/supuestos: quedan preguntas abiertas de `1-analista-funcional.md` (§9) sin cerrar antes de Implementación: quién puede anular una venta facturada (admin/vendedor + límite de tiempo). La migración de catálogo sigue pospuesta a una fase posterior (pendiente el segundo relevamiento con acceso a BD real). Antes de desplegar, revisar capacidad de infraestructura disponible en SmarterASP (cupo de bases de datos 17/20 al 2026-07-30) — ver memoria `project-hosting-sharding-smarterasp.md`.
+
 ## Historial de ajustes de alcance
 - 2026-07-30: se descarta el módulo "Cheques 30/60/90 días" como módulo aparte (el cliente no opera con pagos diferidos propios) — se absorbe como campo de forma de pago en Proveedores + Compras.
 - 2026-07-30: mantenimiento acordado previo a este relevamiento (año 1 con Etapa 1 = PRO sin costo; desde Etapa 2 = PREMIUM USD 500/año) se mantiene sin cambios para este proyecto.

@@ -128,10 +128,11 @@ Por cada mensaje del payload:
    ("Listo, no vas a recibir más mensajes...") y no se le vuelve a escribir nunca más.
 6. **Mensajes no procesables** (imagen, audio, video, documento, ubicación, sticker, reacción): se
    registran igual como `ContactoRespuesta` (pedido explícito del cliente: "guardar todas las
-   respuestas") con una etiqueta tipo `[Imagen]`, disparan notificación in-app, y **no avanzan la
-   máquina de estados** — el contacto sigue esperando una respuesta de texto/interactiva válida en
-   la misma fase en que estaba. Esto se guarda con su propio `SaveChangesAsync` independiente,
-   antes de tocar el resto del flujo.
+   respuestas") con una etiqueta tipo `[Imagen]`, y **no avanzan la máquina de estados** — el
+   contacto sigue esperando una respuesta de texto/interactiva válida en la misma fase en que
+   estaba. Esto se guarda con su propio `SaveChangesAsync` independiente, antes de tocar el resto
+   del flujo. (Hasta 2026-07-29 esto también disparaba una notificación in-app — ver nota al final
+   de §B.3, se sacó a pedido del cliente.)
 7. Si la conversación ya estaba `Completed`:
    - **Menos de 24hs** desde que se completó: responde "ya registramos tu consulta", loguea el
      mensaje como "Mensaje adicional (post-cierre)" y se lo reenvía al admin por texto libre
@@ -182,9 +183,15 @@ Nuevo ──(1er mensaje, cualquier tipo)──▶ AwaitingCategory ──(elige
   es la de "cuántas personas lo van a usar", intenta parsear un número del texto libre y lo guarda
   en `Contacto.CantidadUsuarios`. Al responder la última pregunta de la categoría, dispara
   `CompleteAsync`.
-- Cada transición (categoría, rubro, cada pregunta respondida) pasa por
-  `LogRespuestaYNotificarAsync` (`:592-602`): guarda un `ContactoRespuesta` **y** dispara una
-  notificación in-app `"{Nombre} respondió"` en el mismo paso — no solo al cerrar el lead.
+- Cada transición (categoría, rubro, cada pregunta respondida) pasa por `LogRespuesta` (renombrada
+  desde `LogRespuestaYNotificarAsync` el 2026-07-30): guarda un `ContactoRespuesta`. **Ya no
+  dispara notificación in-app** — hasta el 2026-07-29 lo hacía en cada paso ("{Nombre} respondió"),
+  el cliente pidió explícitamente reducir el ruido a "notificación solo cuando es lead confirmado".
+  La única notificación in-app que queda en todo el bot es "Nuevo lead calificado", disparada una
+  sola vez desde `SendBriefToAdminAsync` al completar la calificación (§B.4) — el historial paso a
+  paso sigue completo en `ContactoRespuesta`, ahora se revisa desde la pantalla **Chats**
+  (`/Chats`, agregada 2026-07-29, rediseñada con filtros/polling/navegación 2026-07-30) en vez de
+  desde una notificación por mensaje.
 
 ### B.4 — Cierre y cotización automática (`CompleteAsync`, `BotFlowService.cs:443-472`)
 

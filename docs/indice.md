@@ -19,4 +19,4 @@ Registrar una fila por cada proyecto con memoria activa en /docs.
 | century-21 | 2026-06-25 | activo | /docs/century-21 |
 | marihogar | 2026-06-29 | Etapa 1 completa (QA GO) — pendiente verificación manual del cliente y certificado ARCA; Etapa 2 en pausa | /docs/marihogar |
 | crm-olvidata | 2026-07-14 | en producción, operativo | /docs/crm-olvidata |
-| la-platense | 2026-07-30 | activo (presupuesto) | /docs/la-platense |
+| la-platense | 2026-07-30 | presupuesto aprobado — pendiente inicio implementación | /docs/la-platense |
