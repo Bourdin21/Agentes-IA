@@ -334,6 +334,20 @@ Anclado en la banda "modificación sobre módulo existente" salvo CR-24.4, que s
 
 **Total Change Request #4: USD 150.** Mismas condiciones ya acordadas. Acumulado fuera del Change Request #1: CR-21/22 ($168) + CR-24 ($135) + CR-25/26 ($150) = **USD 453**.
 
+## Presupuesto — CR-27: Cuenta Corriente de Proveedores real (2026-07-30)
+
+La corrección del Total de las 239 OC históricas (impuestos reales, hallazgo 1) y el reemplazo de los pagos ficticios de CR-19 por los pagos reales (hallazgo 2) se tratan **sin cargo**, mismo criterio que CR-23: es una corrección de un dato ya migrado incorrectamente dentro del alcance ya cobrado de CR-6/CR-19 (Change Request #1), no una funcionalidad nueva — el cliente entregó un archivo más completo que el usado originalmente y el sistema debe reflejar la realidad.
+
+Sí son alcance nuevo (no correctivo) las 2 capacidades que el sistema no tenía antes de CR-27:
+
+| Ítem | Tipo | M | USD (M×$16.80) |
+|---|---|---:|---:|
+| CR-27.4 Mercado Pago habilitado para pagar a Proveedores | Ajuste de configuración + UI (mirror de método ya existente) | 1h | $17 |
+| CR-27.5 Nota interna en OrdenCompra | Campo nuevo (mirror exacto de `Venta.NotaInterna`, CR-12) | 1.5h | $25 |
+| **Total** | | **2.5h** | **$42** |
+
+**Total Change Request #5: USD 42.** Mismas condiciones ya acordadas (100% al aprobar). Acumulado fuera del Change Request #1: CR-21/22 ($168) + CR-24 ($135) + CR-25/26 ($150) + CR-27 ($42) = **USD 495**.
+
 ## Historial de ajustes
 - 2026-07-28: Presupuesto Change Request #2 (CR-21/CR-22) — USD 168. Primer ítem del proyecto fuera del Change Request #1 ya cerrado en producción. Orden de implementación ya dada por el cliente en el pedido original (aprobación implícita del alcance, mismo criterio que adendas de bajo monto anteriores).
 - 2026-07-28: Adenda CR-14 a CR-18 (mejoras post-migración) + refinamiento de CR-13 — USD 91 adicionales. Nuevo total acumulado del Change Request #1: USD 729. CR-17 (unificación de Proveedor duplicado) y la normalización de mayúsculas sobre datos ya cargados se ejecutaron directamente contra `marihogar_dev` el mismo día. Sin gate de presupuesto nuevo — se implementa junto con el resto del lote (Sprint CR-F).

@@ -1,7 +1,7 @@
 # 🏗️ Trazabilidad de Conversación - ShowroomGriffin
 **Proyecto:** ShowroomGriffin  
 **Fecha inicio:** 2026-04-23  
-**Última actualización:** 2026-07-02  
+**Última actualización:** 2026-07-30  
 
 ---
 
@@ -53,6 +53,135 @@ Este archivo registra la trazabilidad de las conversaciones con el usuario, deci
 | **Alcance QA** | Cambio de una línea, sin regresión completa del proyecto (a pedido explícito). Verificación por inspección de código (controller, service, vista, layout) + build verde. |
 | **Resultado** | **APROBADO**, 5/5 criterios PASS, 0 defectos, 0 auto-fixes. Diff coincide exactamente con lo documentado en `3-arquitecto-mvc.md` y `5-implementador.md` (sección V9 en ambos). |
 | **Detalle** | Ver `6-qa.md` sección "V9 — Redirect post-ajuste de stock" y memoria acumulativa. |
+
+---
+
+### Entrada 2026-07-30 — Analista Funcional: Discovery V10 (carga masiva de stock + filtros completos en Consulta de Stock)
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-07-30 |
+| **Agente / Etapa** | Analista Funcional — Discovery/Análisis (Ask mode, sin código) |
+| **Feature** | V10 — (A) carga masiva de stock por Modelo en reemplazo/complemento de ajustar variante por variante en `/Stock/Ajuste`; (B) filtros de `/Stock/Index` deben cubrir todas las propiedades listadas en la tabla (falta Talle y Estado/Alerta integrado) |
+| **Motivo** | Pedido directo del cliente: la carga de stock variante por variante es tediosa; los filtros de consulta no cubren Talle ni Estado de forma integrada |
+| **Resultado** | Alcance funcional, casos de uso, criterios de aceptación, riesgos y 7 preguntas abiertas (Q1–Q7) registrados en `1-analista-funcional.md` sección "V10" |
+| **Impacto en capas** | Presentación (nueva vista/grilla de carga masiva, filtro Talle + Estado en Index); Negocio (reutiliza `AjusteManualAsync`/`RegistrarMovimientoAsync` en lote, sin lógica nueva de estados); Datos (sin migración EF prevista — reutiliza `Stock`, `AjusteStock`, `MovimientoStock`, `TalleConfig`) |
+| **Riesgos/supuestos** | Volumen de filas por modelo (paginar/virtualizar grilla); concurrencia por fila vía `RowVersion`; `ExportarExcelAsync` necesitaría sumar el filtro Talle si se aprueba Q5 |
+| **Gate** | Bloqueado para Diseño (agente 2) hasta que el cliente resuelva Q1–Q7 y apruebe el alcance |
+
+**Actualización 2026-07-30 (mismo día):** cliente confirmó Q1 (absoluto), Q2 (scope = Marca completa), Q3 (crea variante faltante al vuelo, con Precio de Venta y Stock Mínimo editables en la misma grilla) y Q6 (el combo "Estado" reemplaza al botón "Solo alertas"). Q4/Q5/Q7 quedan con default asumido documentado en `1-analista-funcional.md`. La decisión Q3 amplía el alcance real: ya no es solo `Stock`, también toca de alta de `VarianteProducto` (Productos/Variantes) — queda marcado como alerta explícita para el agente 3 (Arquitecto MVC) antes de avanzar a Diseño.
+
+---
+
+### Entrada 2026-07-30 — Orquestador: Diseño funcional V10 (mismo día, sesión orquestada "implementar")
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-07-30 |
+| **Agente / Etapa** | Diseñador Funcional — Diseño (Ask mode, sin código) |
+| **Feature** | V10 — pantallas, ViewModels e historias de usuario para carga masiva de stock por Marca + filtros completos en Consulta de Stock |
+| **Escaneo de reutilización** | Coincidencia encontrada: LabIPAC Sesión 2/3 (2026-07-08) — patrón "filas dinámicas JS + un submit atómico + alta rápida inline sin recargar" ya diseñado, implementado y cerrado. Se reutiliza ese patrón adaptado al dominio Stock/VarianteProducto (ver `2-disenador-funcional.md` sección V10, §0) |
+| **Resultado** | Salida mínima completa: wireframes (WF-A1/A2/B1), ViewModels (`StockCargaMasivaViewModel` y derivados, `EstadoStockFiltro`), reglas de negocio (RN-M1–M6, RN-B1–B2), impacto por capa, riesgos (DD-1/2/3) e historias de usuario (HU-M1–M3, HU-B1–B2) |
+| **Ajuste sobre Análisis** | DD-1: se propone atomicidad total del lote (todo o nada), reemplazando el criterio parcial ("si una fila falla, el resto no se pierde") documentado en `1-analista-funcional.md` — por precedente probado en labipac (RN-12). Pendiente confirmación del cliente en el gate de Diseño |
+| **Impacto en capas** | Presentación (`StockController` + `CargaMasiva.cshtml` nueva, `Index.cshtml` con filtro Talle/Estado); Negocio (`IStockService` +2 métodos: `ObtenerParaCargaMasivaAsync`, `GuardarCargaMasivaAsync`); Datos (sin migración EF — reutiliza entidades existentes) |
+| **Gate** | Bloqueado para Arquitectura (agente 3) hasta que el cliente confirme DD-1 y apruebe el diseño |
+
+**Resolución DD-1 (mismo día):** cliente confirmó atomicidad total (todo o nada) con la condición de que la pantalla informe los errores puntuales por fila y no pierda los datos ya tipeados al fallar (re-render del ViewModel completo con `ModelState` por fila, patrón MVC estándar). Diseño V10 queda **CERRADO Y APROBADO** — habilitado el paso a Arquitectura.
+
+---
+
+### Entrada 2026-07-30 — Orquestador: Arquitectura técnica V10 (mismo día)
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-07-30 |
+| **Agente / Etapa** | Arquitecto MVC — Arquitectura (Ask mode, sin código) |
+| **Feature** | V10 — impacto técnico por capa, permisos, migraciones y riesgos para carga masiva de stock + filtros completos |
+| **Escaneo de reutilización** | Se reutilizan directamente `IVarianteService.CrearAsync` (alta VarianteProducto+Stock) y la lógica de `IStockService.AjusteManualAsync` (AjusteStock+MovimientoStock) — sin duplicar reglas de negocio. Patrón de labipac (`AgregarLineasAsync`) tomado como referencia general, pero no aplica igual por la complejidad de orquestar servicios ya transaccionales |
+| **Resultado** | Sin migración EF. Sin cambios de permisos (reutiliza `RequireAdministrador`/`RequireEmpleado` ya vigentes). 1 riesgo crítico con resolución técnica ya propuesta (R-V10-1: refactor de `AjusteManualAsync` para separar la transacción de la lógica, evitando anidar `BeginTransactionAsync` — sin romper el comportamiento actual del ajuste individual) |
+| **Punto abierto para el cliente** | R-V10-2: ¿qué hace la pantalla si un Modelo no tiene ningún `Producto` asociado al intentar dar de alta una variante nueva? Propuesta: bloquear esa fila con mensaje claro |
+| **Impacto en capas** | Application (+2 métodos en `IStockService`, +3 DTOs, +1 enum `EstadoStockFiltro`); Infrastructure (`StockService` +2 métodos, refactor interno de `AjusteManualAsync`); Web (`StockController` +acción `CargaMasiva`, vista nueva, `Index.cshtml` modificada) |
+| **Gate** | Arquitectura lista para Presupuesto — pendiente confirmación puntual de R-V10-2 (no bloqueante para estimar, sí para implementar) |
+
+**Resolución R-V10-2 (mismo día):** cliente confirmó bloquear la fila de alta si el Modelo no tiene Producto asociado (mensaje claro, no afecta el resto del lote). Arquitectura V10 queda **CERRADA Y APROBADA** — habilitado el paso a Presupuesto.
+
+---
+
+### Entrada 2026-07-30 — Orquestador: Presupuesto V10 (mismo día) — GATE DURO, pendiente aprobación del cliente
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-07-30 |
+| **Agente / Etapa** | Presupuestador — Presupuesto (Ask mode, sin código) |
+| **Feature** | V10 — estimación PERT por ítem, ancladas en LabIPAC M8 (carga masiva, 6,5h) y Vinosefue (filtros export, normalizado) |
+| **Resultado** | Total V10: **USD 231,00** — Etapa 1 (Carga masiva de stock): USD 134,40 · Etapa 2 (Filtros completos): USD 50,40 · Tokens IA (25%, sí aplica: 5,28h facturables > piso de 4h): USD 46,20. Sin descuento de expansión (no es Build inicial de cliente nuevo). Sin mantenimiento nuevo (plan v1 ya vigente, a confirmar) |
+| **Clasificación** | Mejora sobre sistema propio ya entregado — precio de lista, sin tiers de descuento cross-proyecto |
+| **Sanity check** | Total (11,42h M base) casi idéntico a LabIPAC SESIÓN 3 completa (11,5h M base, cierre real 2,0h) — ratio 0,99, dentro de rango |
+| **Gate** | **DURO — no se habilita Implementación (subagent `agentes-ia-implementador`) hasta que el cliente apruebe explícitamente este presupuesto** (regla de orquestación: "no iniciar Implementacion sin presupuesto aprobado por el cliente") |
+
+**Aprobación del cliente (mismo día):** presupuesto aprobado tal cual presentado (USD 231,00, ambas etapas, sin ajustes). Gate duro liberado — se delega Implementación al subagent `agentes-ia-implementador`.
+
+---
+
+### Entrada 2026-07-30 — Orquestador: Documentación cliente V10 (mismo día)
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-07-30 |
+| **Agente / Etapa** | Documentador — Documentación de alcance para cliente (Ask mode) |
+| **Input** | `5-implementador.md` (V10, implementación cerrada) + `6-qa.md` (V10, APROBADO CON OBSERVACIONES, 0 defectos funcionales) |
+| **Resultado** | Resumen de sprint agregado a `7-documentador.md` (formato cliente, sin tecnicismos): qué se entregó, beneficio, 2 observaciones menores de QA, pendiente de verificación manual y confirmación de commit |
+| **Estado** | Borrador sujeto a verificación manual del cliente (mismo criterio que sprints anteriores del proyecto) |
+
+---
+
+### Entrada 2026-07-30 — Orquestador: Cierre de calibración V10 — PENDIENTE
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-07-30 |
+| **Agente / Etapa** | Presupuestador — Cierre de calibración estimado vs real |
+| **Horas estimadas** | 12,91 h con contingencia (USD 231,00) |
+| **Horas reales** | **Pendiente** — el cliente no tiene el dato todavía; se deja explícitamente sin registrar en vez de asumir un número |
+| **Dato de referencia (no oficial)** | Ejecución de agentes: 20,4 min (Implementación) + 7,2 min (QA) ≈ 27,5 min combinados — no incluye tiempo de decisión/revisión de Joaquín en la sesión |
+| **Acción requerida** | Registrar horas reales cuando estén disponibles y completar la tabla de calibración en `4-presupuestador.md` (sección V10) |
+
+## Flujo completo V10 — CERRADO salvo cierre de calibración
+
+Las 9 etapas del flujo del orquestador se ejecutaron en esta sesión: Discovery/Análisis (aprobado por el cliente) → Diseño (aprobado, DD-1 resuelto) → Arquitectura (aprobada, R-V10-2 resuelto) → Presupuesto (USD 231,00, aprobado) → Implementación (build OK, subagent) → QA (APROBADO CON OBSERVACIONES) → Documentación (resumen de cliente en `7-documentador.md`) → Cierre de calibración (**pendiente de horas reales**).
+
+---
+
+### Entrada 2026-07-30 — Deploy a producción V10
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-07-30 |
+| **Acción** | Commit + push a `origin/main` (GitLab) y publish a producción |
+| **Commit** | `d8a71ef` — "Agregar carga masiva de stock por Marca y filtros completos en Consulta de Stock" (7 archivos: 883 inserciones, 57 eliminaciones) |
+| **Deploy** | Perfil `olvidatasoft-002-site10 - Web Deploy` (MSDeploy sobre `win8232.site4now.net:8172`). El intento por FTP no completó una transferencia real (el log no mostró subida de archivos); Web Deploy sí: **152 archivos actualizados, 0 agregados, 0 eliminados, "Se publicó correctamente"** |
+| **Migración EF** | No aplicó (confirmado desde Arquitectura — sin cambios de esquema) |
+| **Riesgo asumido** | El cliente decidió desplegar **sin haber corrido todavía la guía de verificación manual de QA** (13 pasos en `6-qa.md`) — QA solo había validado por inspección de código + build. Pendiente: ejecutar esa guía directamente sobre producción y confirmar que el flujo de Ajuste individual (`/Stock/Ajuste`) y Carga Inicial no sufrieron regresión por el refactor de `AjusteManualAsync` (R-V10-1) |
+| **Nota de seguridad** | Se usó una credencial de despliegue provista por el usuario en el chat para destrabar el Web Deploy (401 inicial con la credencial guardada en el perfil). No se almacenó en ningún archivo de este repositorio de documentación |
+
+---
+
+### Entrada 2026-07-30 — Implementador: Implementación V10 (mismo día)
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-07-30 |
+| **Agente / Etapa** | Implementador — Implementación (Agent mode) |
+| **Feature** | V10 — Carga masiva de stock por Marca (`/Stock/CargaMasiva`) + filtros Talle/Estado en Consulta de Stock (`/Stock/Index`) |
+| **Escaneo de reutilización** | Sin match de codigo directamente copiable (LabIPAC ya fue evaluado en Diseño/Arquitectura como patrón de referencia, no como código a portar). Se reutilizó código propio de ShowroomGriffin: `IVarianteService.CrearAsync` y la lógica interna de `AjusteManualAsync` (extraída a `AplicarAjusteInternoAsync`) |
+| **R-V10-1** | Resuelto tal como lo definió Arquitectura: `AplicarAjusteInternoAsync` privado sin transacción propia; `AjusteManualAsync` público sin cambios de comportamiento externo |
+| **Desvío detectado por el Implementador** | `IVarianteService.CrearAsync` con `StockInicial > 0` también abre su propia transacción vía `CargaInicialAsync` (mismo riesgo de anidamiento que R-V10-1, no marcado en Arquitectura). Resuelto sin tocar `CargaInicialAsync`: `GuardarCargaMasivaAsync` crea la variante con `StockInicial = null` y aplica la cantidad inicial después, dentro de la misma transacción, vía `AplicarAjusteInternoAsync`. Efecto observable menor: el movimiento inicial de una variante nueva por carga masiva queda tipado `AjusteManual` en vez de `CargaInicial` |
+| **Resolución de dependencia circular** | `StockService` necesitaba `IVarianteService`, que ya depende de `IStockService`. Se resolvió inyectando `IServiceProvider` en `StockService` y resolviendo `IVarianteService` de forma perezosa dentro del método (misma instancia scoped de `AppDbContext`, participa de la misma transacción) |
+| **Cambios por capa** | Domain (+1 enum `EstadoStockFiltro`); Application (+3 ViewModels, `IStockService` +2 métodos y 2 parámetros nuevos en `ListarAsync`/`ExportarExcelAsync`); Infrastructure (`StockService` refactor R-V10-1 + 2 métodos nuevos); Web (`StockController` +acción `CargaMasiva` GET/POST, `Listar`/`ExportarExcel`/`Index` actualizados; vista nueva `CargaMasiva.cshtml`; `Index.cshtml` modificada) |
+| **Migración EF** | No aplica — todas las entidades ya existían (confirmado en Arquitectura y re-confirmado en implementación) |
+| **Build** | `dotnet build ShowroomGriffin.slnx` → 0 errores, 0 advertencias. Adicionalmente `dotnet publish -c Release` (a carpeta temporal descartada) para forzar la compilación de las vistas Razor nuevas/modificadas, dado que este proyecto no precompila vistas en `dotnet build` — también 0 errores |
+| **Detalle completo** | Ver `5-implementador.md` sección "V10 — Carga masiva de stock por Marca + filtros completos en Consulta de Stock" (cambios por archivo, riesgos, pruebas mínimas para QA, checklist de merge) |
+| **Pendiente** | QA funcional manual (fuera del alcance del Implementador) — guía de pruebas mínimas dejada en `5-implementador.md`. Cierre de calibración estimado (12,91h) vs real queda pendiente de registrar cuando se trackee el tiempo real de esta sesión |
 
 ---
 
@@ -255,6 +384,18 @@ Si no existen, **detener implementación** y solicitar al usuario que active los
 - **Motivo**: pedido explicito del usuario de auditar cada carpeta de proyecto individual en busca de especificaciones que debieran vivir en la memoria centralizada de Agentes-IA, y mergearlas.
 - **Impacto en capas**: N/A (documentos de memoria/operativos).
 - **Riesgos/supuestos**: el runbook copiado contiene una credencial de produccion en texto plano (ya presente en el repo del proyecto) — considerar rotarla periodicamente. Sigue pendiente sincronizar `2-disenador-funcional.md`/`3-arquitecto-mvc.md` con el modelo final (ver `analisis-alineacion-documentacion.md` para el detalle de discrepancias no resueltas).
+
+---
+
+## 📌 Entrada 2026-07-30 — QA V10: Carga masiva de stock por Marca + filtros completos en Consulta de Stock
+
+- **Agente/Etapa:** QA (agente 6), sobre `5-implementador.md` sección V10 ya cerrada por el Implementador (build 0/0, `dotnet publish` para validar Razor).
+- **Resumen:** revisión exhaustiva de código (no ejecución en navegador) de la feature V10 completa: pantalla `/Stock/CargaMasiva` (selección por Marca, grilla agrupada por Modelo, alta inline de variantes con Color/Talle/Precio/Stock Mínimo, guardado atómico) + filtros Talle/Estado en `/Stock/Index` (reemplazo del botón "Solo alertas"). Verificado sobre el working tree real (cambios aún no commiteados al momento del QA: `StockService.cs`, `StockController.cs`, `IStockService.cs`, `StockViewModels.cs`, `Stock/Index.cshtml` modificados; `EstadoStockFiltro.cs` y `Stock/CargaMasiva.cshtml` nuevos) + `git diff` línea por línea + build propio (0/0).
+- **Resultado:** 13/13 criterios de aceptación PASS (HU-M1 a HU-M3, HU-B1, HU-B2, permisos y 2 regresiones). DD-1 (atomicidad total), R-V10-1 (sin transacción anidada, `AjusteManualAsync` sin cambio de comportamiento externo) y R-V10-2 (bloqueo de alta por Modelo sin Producto) confirmados por código. 0 defectos funcionales. 2 observaciones menores no bloqueantes (filtro Talle no limitado a valores usados a diferencia de Color; ausencia de índice único BD para Color+TalleConfigId, riesgo preexistente no introducido por V10). Sin auto-fix aplicado (no había bugs reproducibles que ameritaran uno). Catálogo cross-proyecto: REG-001 y REG-002 aplican indirectamente (reutilización de `VarianteService.CrearAsync`), ambos PASS.
+- **Motivo:** cierre del gate QA antes de pasar a documentación de alcance al cliente, según secuencia operativa obligatoria.
+- **Impacto en capas:** ninguno adicional (QA es de solo lectura sobre el código). Actualizada la memoria del agente QA (`6-qa.md`, sección nueva "V10").
+- **Riesgos/supuestos:** smoke manual del cliente pendiente de ejecución (13 pasos documentados en `6-qa.md` V10); confirmar que los archivos actualmente sin commitear se commiteen antes de desplegar.
+- **Veredicto:** APROBADO CON OBSERVACIONES.
 
 ---
 

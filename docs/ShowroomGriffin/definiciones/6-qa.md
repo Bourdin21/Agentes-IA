@@ -361,6 +361,7 @@ QA — CHECKLIST DE SALIDA (Gate cliente)
 - **2026-01-15** — QA inicial v1.0. Cobertura por inspección + cierre del implementador. 0 defectos funcionales, 6 observaciones. Gate aprobado **condicional** para iniciar documentación al cliente en modo borrador.
 - **2026-01-15** — QA v1.1. Cierre de defectos D-02 (runbook `docs/MIGRATIONS.md`), D-03 (creación defensiva de `Logs/` en `Program.cs`), D-05 (rate limit general 100→300/min), D-06 (entrada de despliegue M2 en trazabilidad). Build verde. Quedan 0 defectos abiertos no críticos. **D-04 / RR-01 sigue abierto** y continúa siendo el único bloqueante de go-live productivo.
 - **2026-07-02** — QA puntual V9 (fast-path redirect post-ajuste de stock). Alcance acotado: `StockController.Ajuste(AjusteStockViewModel vm)` [POST] cambia `RedirectToAction(nameof(Index))` → `RedirectToAction(nameof(Ajuste))`. Verificado por inspección exhaustiva de código (controller completo, `StockService.AjusteManualAsync` sin diff, vista `Ajuste.cshtml`, `_Layout.cshtml` con manejo global de `TempData["Success"]`/`TempData["Error"]` vía SweetAlert2) + build verde (0/0). Diff aplicado coincide 100% con lo documentado en `5-implementador.md` (V9) y `3-arquitecto-mvc.md` (V9). **5/5 criterios PASS, 0 defectos.** No se re-ejecutó la regresión completa del proyecto (fuera de alcance del pedido); del catálogo cross-proyecto ningún item aplica directamente a este cambio (ninguno cubre redirect post-POST en Stock). Ver detalle en sección "V9" más abajo.
+- **2026-07-30** — QA V10 (carga masiva de stock por Marca + filtros completos en Consulta de Stock). Verificado por inspección exhaustiva de código + `git diff` (cambios aún no commiteados: `StockService.cs`, `StockController.cs`, `IStockService.cs`, `StockViewModels.cs`, `Stock/Index.cshtml`, `Stock/CargaMasiva.cshtml` nuevo, `EstadoStockFiltro.cs` nuevo) + build propio verde (0/0). **13/13 criterios de aceptación (HU-M1–M3, HU-B1–B2) PASS.** DD-1 (atomicidad total + errores por fila + no pérdida de datos tipeados) confirmado por lectura de código: `GuardarCargaMasivaAsync` hace una pasada de validación 100% de solo lectura antes de abrir cualquier transacción, y la pasada de escritura hace rollback total ante el primer fallo. R-V10-1 confirmado por `git diff`: `AplicarAjusteInternoAsync` es una extracción literal (copy-paste) de la lógica previa de `AjusteManualAsync` sin ningún cambio de comportamiento, y `AjusteManualAsync` público queda como envoltorio transaccional idéntico al original. R-V10-2 confirmado (bloqueo de alta para Modelo sin Producto, con el mensaje exacto pedido por el cliente, sin afectar el resto del lote). 0 defectos funcionales encontrados; 2 observaciones menores (no bloqueantes, sin auto-fix aplicado por no ser bugs reproducibles): filtro Talle en `/Stock/Index` no se limita a talles con stock real para ese Modelo (a diferencia de Color, que sí); ausencia de índice único en BD para Color+TalleConfigId por Producto (riesgo preexistente a V10, no introducido por esta feature). Del catálogo cross-proyecto, REG-001 (RowVersion MySQL) y REG-002 (Stock inicial en alta de variante) aplican indirectamente (V10 reutiliza `VarianteService.CrearAsync`) y ambos PASS sin regresión. Ver detalle completo en sección "V10" más abajo.
 
 ---
 
@@ -441,3 +442,125 @@ No aplica — no se reprodujo ningún defecto.
 ```
 
 **Veredicto: APROBADO** — sin observaciones bloqueantes. Cambio de bajo riesgo, acotado a una línea, sin impacto en otras capas. Listo para merge.
+
+---
+
+## V10 — Carga masiva de stock por Marca + filtros completos en Consulta de Stock (2026-07-30)
+
+**Fuente:** `1-analista-funcional.md` (sección V10, Q1–Q7 confirmadas), `2-disenador-funcional.md` (sección V10, DD-1 resuelto), `3-arquitecto-mvc.md` (sección V10, R-V10-1/R-V10-2 resueltos), `5-implementador.md` (entrada V10, incluye desvío documentado sobre `AjusteManual` vs `CargaInicial`).
+
+**Alcance QA:** feature completa nueva (pantalla `/Stock/CargaMasiva` + filtros Talle/Estado en `/Stock/Index`). Verificación por **inspección de código exhaustiva** (líneas completas de Controller/Service/Views, no solo el diff) + `git diff` de los archivos aún no commiteados (working tree tenía cambios pendientes de un ciclo previo del Implementador) + build propio (`dotnet build ShowroomGriffin.slnx`, 0/0). No se ejecutó la app en navegador (fuera de las herramientas disponibles para el agente QA y de la regla de no automatizar UI); las verificaciones dependientes de ejecución real quedan como guía de pasos para el cliente.
+
+### Cobertura por criterio de aceptación (Historias de Usuario)
+
+| # | Criterio | Estado | Evidencia |
+|---|---|---|---|
+| HU-M1.AC1 | Al elegir una Marca veo todas sus variantes existentes agrupadas por Modelo, con stock actual y cantidad nueva editable | PASS-CR | `StockService.ObtenerParaCargaMasivaAsync` (líneas 326-385) agrupa por `Modelo` de la Marca, toma el primer `Producto` activo y arma `Filas` con `StockActual`/`CantidadNueva` precargados; `CargaMasiva.cshtml` renderiza un acordeón por Modelo. |
+| HU-M1.AC2 | Puedo editar cualquier subconjunto de filas sin completar todas | PASS-CR | `GuardarCargaMasivaAsync` solo marca `huboCambios=true` para filas con `CantidadNueva != StockActual`; filas sin cambio no generan `AjusteStock`/`MovimientoStock` (líneas 425-436, 547). |
+| HU-M1.AC3 | Un único botón guarda todas las filas modificadas en una sola operación | PASS-CR | Un solo `POST CargaMasiva` → `GuardarCargaMasivaAsync` procesa todo `vm.Modelos[].Filas[]` en una única transacción (líneas 506-577). |
+| HU-M2.AC1 | Sección de Modelo con "+ Agregar variante nueva" pidiendo Color, Talle, Precio de Venta, Stock Mínimo y Cantidad inicial | PASS-CR | `CargaMasiva.cshtml` líneas 138-160 (columnas editables solo si `esNueva`) + JS `btn-agregar-variante` (líneas 270-295) genera la fila con los 4 campos. |
+| HU-M2.AC2 | No se puede crear una combinación Color+Talle que ya existe para ese Modelo/Producto | PASS-CR | `GuardarCargaMasivaAsync` pasada 1: valida contra `combinacionesExistentes` (variantes ya persistidas del mismo `ProductoId`) **y** contra `combosEnEsteLote` (duplicados dentro del mismo submit) — líneas 402-490. |
+| HU-M2.AC3 | Al guardar el lote, la variante nueva queda creada con esos datos y el stock inicial cargado | PASS-CR | Pasada 2: `IVarianteService.CrearAsync` (reutilizado) crea `VarianteProducto`+`Stock(0)`; inmediatamente después `AplicarAjusteInternoAsync` aplica la `CantidadNueva` cargada por el usuario, dentro de la misma transacción (líneas 515-545). Confirmado por lectura de `VarianteService.CrearAsync` (líneas 24-59): con `StockInicial=null` no abre transacción propia (`CargaInicialAsync` no se invoca), evitando el anidamiento. |
+| HU-M3.AC1 | Si alguna fila tiene error, no se persiste ninguna fila del lote y se muestran los errores puntuales por fila | PASS-CR | Pasada 1 es 100% de solo lectura (no hay ningún `SaveChangesAsync`/`BeginTransactionAsync` antes de la línea 496); si `erroresGlobales.Count > 0` retorna sin abrir transacción. En la pasada 2 (escritura), cualquier fallo hace `tx.RollbackAsync()` antes de retornar (líneas 536-540, 558-563, 573-577) — no hay compromiso parcial en ningún camino de error. `fila.Error` queda seteado en el objeto vm devuelto, que el Controller re-renderiza tal cual (`return View(vm)` en ambos casos: `ModelState` inválido y `result.Success=false`, líneas 131-146 de `StockController.cs`), preservando todos los valores tipeados en las demás filas (los inputs usan `asp-for` sobre el mismo `vm` posteado, no un modelo nuevo). |
+| HU-B1.AC1 | Combo Talle se habilita al elegir Modelo y filtra la grilla server-side sin recargar | PASS-CR | `Stock/Index.cshtml` línea 230-250: `$('#filModelo').change()` puebla `#filTalle` vía `GET /Modelos/TallesPorModelo` y `reloadTable()` recarga el DataTable vía AJAX (`ListarAsync` con `talleConfigId`, `StockService.cs` líneas 53-54). |
+| HU-B2.AC1 | Combo Estado reemplaza al botón "Solo alertas" y se combina con el resto de los filtros | PASS-CR | Botón "Solo alertas" removido del diff de `Index.cshtml` (confirmado por `git diff`); combo `#filEstado` incluido en `getFilters()`/`buildAjaxUrl()` junto a Marca/Modelo/Talle/Color; `StockService.ListarAsync` aplica el filtro `estado` con `switch` (Bajo/Límite/OK/Todos, líneas 58-65) sobre la misma query ya filtrada por los demás combos. |
+| HU-B2.AC2 | El link directo `?soloAlertas=true` sigue funcionando, precargando Estado=Bajo | PASS-CR | `StockController.Index` (línea 37): `ViewBag.EstadoInicial = (int)(soloAlertas ? EstadoStockFiltro.Bajo : EstadoStockFiltro.Todos)`; la vista hace `$('#filEstado').val('@estadoInicial')` **antes** de inicializar el DataTable (línea 113, se ejecuta antes de la línea 135), por lo que el primer `ajax.url()` ya incluye `estado=3`. |
+| Permisos | `CargaMasiva` GET/POST con `RequireAdministrador`; `Index`/`Listar`/`ExportarExcel` con `RequireEmpleado` | PASS-CR | `StockController.cs`: clase con `[Authorize(Policy = "RequireEmpleado")]` (línea 17), `CargaMasiva` GET (línea 109) y POST (línea 125) con override explícito `[Authorize(Policy = "RequireAdministrador")]`, igual que `Ajuste`/`CargaInicial` preexistentes. |
+| Regresión | `/Stock/Ajuste` (individual) sin cambio de comportamiento externo tras el refactor | PASS-CR | `git diff` de `StockService.cs` muestra que `AjusteManualAsync` es una extracción literal: el cuerpo que antes estaba inline ahora vive en `AplicarAjusteInternoAsync` sin ningún cambio de líneas de lógica (mismo orden de creación de `AjusteStock`, mismo cálculo de `anterior`, mismo `RegistrarMovimientoAsync`); el wrapper público abre la misma transacción externa y hace el mismo commit/rollback que antes. |
+| Regresión | `/Stock/CargaInicial` (individual) sin cambio | PASS-CR | `CargaInicialAsync` no aparece en el diff de V10 (sin cambios); `VarianteService.CrearAsync` solo invoca `CargaInicialAsync` cuando `StockInicial.HasValue && > 0`, camino que V10 nunca ejercita (pasa `StockInicial = null` a propósito). |
+
+**13/13 criterios PASS.** 0 FAIL. 0 BLOCKED (todos los puntos de riesgo señalados por el orquestador se pudieron cerrar por inspección de código + `git diff`, sin necesitar ejecución real).
+
+### Cobertura de máquina de estados
+
+No aplica — confirmado en `2-disenador-funcional.md` §V10.4: se reutilizan los flujos existentes de `AjusteStock`/`MovimientoStock` (sin estados propios) y el alta de `VarianteProducto` no tiene máquina de estados (entidad simple con soft delete). No hay transiciones que recorrer.
+
+### Cobertura del catálogo cross-proyecto (`regresiones-manuales.yml`)
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| REG-001 (RowVersion MySQL en creación de variante) | sí | PASS | `AppDbContext.cs` línea 191 sigue asignando `variante.RowVersion = Guid.NewGuid().ToByteArray()` manualmente en el override de `SaveChanges`. V10 reutiliza `VarianteService.CrearAsync` sin tocarlo — las variantes nuevas creadas desde Carga Masiva pasan por el mismo mecanismo, sin riesgo de `DbUpdateException`. |
+| REG-002 (Stock inicial al crear/editar variante) | sí (relacionado, no exacto) | PASS | El mecanismo de `StockInicial` en `VarianteViewModel`/`VarianteService.CrearAsync` permanece intacto; V10 lo reutiliza pasando `StockInicial = null` a propósito (para no anidar la transacción de `CargaInicialAsync`) y aplica la cantidad inicial vía `AplicarAjusteInternoAsync` en su lugar. El flujo original de `/Variantes/Crear` con `StockInicial > 0` no fue modificado. |
+| REG-003 (Autocomplete Compras) | no | N/A | Módulo no tocado por V10. |
+| REG-004 (Máquina de estados Compra) | no | N/A | Módulo no tocado por V10. |
+| REG-005 (Autocomplete Ventas) | no | N/A | Módulo no tocado por V10. |
+| REG-006 (Medio de pago Cuotas) | no | N/A | Módulo no tocado por V10. |
+| REG-007 (Autocomplete Devoluciones) | no | N/A | Módulo no tocado por V10. |
+| REG-008 (Foco de input en pagos) | no | N/A | Módulo no tocado por V10. `CargaMasiva.cshtml` no re-renderiza filas existentes en cada keystroke (solo agrega/quita filas nuevas vía botón), por lo que el patrón de pérdida de foco de REG-008 no aplica a esta pantalla. |
+| REG-009 (Cascada AumentoMasivo) | no | N/A | Módulo no tocado; aunque comparte el patrón de cascada AJAX, `Marcas/PorCategoria` y `Modelos/PorMarca`/`TallesPorModelo` ya usan querystring (no segmento posicional), sin el bug de REG-009. |
+| REG-010 (Menú Auditoría por rol) | no | N/A | Módulo no tocado por V10. |
+| KOI-001 (botón Swal fuera del form) | no | N/A | Proyecto distinto (KoiDumplings); además el patrón de `CargaMasiva.cshtml` es diferente: el botón "Guardar todo el lote" está `type="submit"` **dentro** del `<form>`, y el handler intercepta el evento `submit` nativo del form (`$('#formCargaMasiva').on('submit', ...)`), no un click en un botón externo — el patrón que causaba KOI-001 no está presente. |
+| KOI-002 a KOI-006, DN-001 y siguientes | no | N/A | Proyectos distintos (KoiDumplings, DeliciasNaturales), sin módulo equivalente tocado por V10. |
+
+### Defectos detectados
+
+**0 defectos funcionales (bugs reproducibles) encontrados.** 2 observaciones menores, no bloqueantes, sin auto-fix aplicado (no son bugs, son desviaciones de UX/robustez de bajo impacto — no se "adivinó" ningún parche de negocio nuevo):
+
+| # | Severidad | Descripción | Recomendación |
+|---|---|---|---|
+| OBS-V10-01 | Minor (observación) | El combo Talle de `/Stock/Index` (RN-B1) reutiliza `ModelosController.TallesPorModelo` → `ModeloService.ObtenerTallesPorModeloAsync`, que devuelve el **catálogo completo** de `TalleConfig` para el `TipoTalle` del Modelo, no solo los talles que efectivamente tienen variantes/stock cargado para ese Modelo — a diferencia del combo Color (`Variantes/api/Colores`), que sí filtra a valores realmente usados (`Distinct()` sobre variantes existentes). El diseño (`2-disenador-funcional.md` WF-B1) pedía "mismo patrón que Color". Efecto observable: el usuario puede elegir un Talle sin ninguna variante cargada para ese Modelo y obtener una grilla vacía — funcionalmente correcto (no rompe nada), pero inconsistente con el comportamiento de Color. | No bloqueante para este release. Si se quiere alinear estrictamente con el diseño, crear un método análogo a `ObtenerColoresAsync` mockeado por Talle (`SELECT DISTINCT TalleConfigId` de variantes del Modelo) — cambio menor de Infrastructure, sin impacto en Domain/migraciones. |
+| OBS-V10-02 | Minor (riesgo residual, preexistente) | No existe índice único en base de datos para `(ProductoId, Color, TalleConfigId)` en `VarianteProducto` (solo `CodigoBarra` tiene `HasIndex().IsUnique()`). La validación de duplicados de RN-M2 es 100% aplicativa (2 pasadas en memoria dentro de `GuardarCargaMasivaAsync`), sin constraint de base que la respalde. Esto ya era así antes de V10 para `/Variantes/Crear` individual (no es una regresión introducida por esta feature), pero la pantalla de Carga Masiva facilita altas más frecuentes, exponiendo más la ventana de una eventual condición de carrera entre dos sesiones administrativas simultáneas (Pasada 1 de lectura vs. Pasada 2 de escritura, o dos "Carga Masiva" concurrentes sobre la misma Marca). | No bloqueante (el uso típico de este comercio es un único administrador operando la carga de stock). Si se quiere blindar a futuro, agregar índice único filtrado `(ProductoId, Color, TalleConfigId) WHERE DeletedAt IS NULL` en una migración EF dedicada — fuera de alcance de V10 (el Analisis/Arquitectura no lo pidieron y no hay migración EF en este release). |
+
+### Auto-fixes aplicados
+
+Ninguno. No se reprodujo ningún defecto funcional que ameritara parche; las 2 observaciones de arriba son mejoras de robustez/UX de bajo impacto, no bugs, por lo que aplicar un "fix" sin pedido explícito violaría la regla de no introducir lógica de negocio nueva no solicitada.
+
+### Riesgos de liberación y mitigaciones
+
+| Riesgo | Probabilidad | Impacto | Mitigación |
+|---|---|---|---|
+| Cambios aún no commiteados al momento de este QA (`git status` mostró 5 archivos modificados + 2 nuevos sin commit) | — | — | Confirmar que el commit se haga antes de desplegar; este reporte QA fue hecho sobre el working tree real, no sobre un commit anterior. |
+| Sin ejecución real en navegador (grilla dinámica con JS de indexado de filas, acordeón, SweetAlert2) | Media | Bajo-Medio | El mecanismo de renumerado de índices (`renumerarFilasNuevas`) es la pieza más frágil de la vista (si fallara, el model binder de ASP.NET Core silenciosamente dejaría de bindear filas con índice faltante). Recomendado smoke manual: agregar 2-3 variantes nuevas en distintos Modelos, quitar una del medio, y confirmar que las 2 restantes se guardan igual. Ver guía de pasos abajo. |
+| Movimiento de stock inicial de variantes nuevas creadas por Carga Masiva queda registrado como `TipoMovimiento.AjusteManual` en vez de `CargaInicial` (desvío documentado por el Implementador) | Baja | Bajo | Es una decisión técnica deliberada y documentada (evita anidar transacciones sin tocar `CargaInicialAsync` en producción). Efecto solo informativo en el historial de movimientos (`Stock/Historial`), no afecta el cálculo de `StockActual`. Si el cliente reporta confusión al ver "Ajuste Manual" en vez de "Carga Inicial" para una variante recién creada por lote, es un cambio cosmético de bajo esfuerzo (no requiere tocar la lógica). |
+| OBS-V10-01 y OBS-V10-02 (ver tabla de defectos) | Baja | Bajo | Ver recomendaciones en la tabla de defectos. No bloqueantes. |
+| Volumen de variantes por Marca no paginado (acordeón Bootstrap simple) | Baja | Bajo | Aceptado explícitamente en Diseño (DD-2) para el volumen típico de este comercio. |
+
+### Pruebas mínimas ejecutadas (este pase — por inspección, sin navegador)
+
+- `dotnet build ShowroomGriffin.slnx` → Compilación correcta, 0 Advertencia(s), 0 Errores (verificado de forma independiente por este agente QA, no solo tomado del reporte del Implementador).
+- `git status` + `git diff --stat` + `git diff` completo de los 5 archivos modificados → confirmado que el diff real coincide con lo documentado en `5-implementador.md` V10, sin cambios no documentados.
+- Lectura línea por línea de `StockService.cs` completo (no solo el diff): `ListarAsync`, `AjusteManualAsync`, `AplicarAjusteInternoAsync`, `ExportarExcelAsync`, `ObtenerParaCargaMasivaAsync`, `GuardarCargaMasivaAsync`.
+- Lectura línea por línea de `StockController.cs` completo: permisos por acción, re-render de `View(vm)` en ambos caminos de error de `CargaMasiva` POST.
+- Lectura línea por línea de `CargaMasiva.cshtml` y del delta de `Index.cshtml`: binding de filas dinámicas, renumerado de índices, deep-link `?soloAlertas=true`, cascada de filtros.
+- Verificación cruzada de endpoints referenciados por las vistas (`Marcas/PorCategoria`, `Modelos/PorMarca`, `Modelos/TallesPorModelo`, `Variantes/api/Colores`) contra sus controllers reales — todos existen y con la policy esperada (`RequireEmpleado`).
+- Verificación de `VarianteService.CrearAsync` (no modificado por V10) para confirmar que `StockInicial = null` no dispara `CargaInicialAsync` (evita la transacción anidada).
+- Verificación de `AppDbContext.SaveChanges` (asignación manual de `RowVersion`, REG-001) y de la ausencia de índice único Color+TalleConfigId (OBS-V10-02).
+- Verificación de `DependencyInjection.cs`: `IStockService`/`IVarianteService`/`ITalleConfigService`/`ICategoriaService` registrados como Scoped, sin necesitar registro nuevo para el `IServiceProvider` inyectado en `StockService`.
+
+### Guía de pasos para prueba manual del cliente (pendiente de ejecución real)
+
+Adaptada de `5-implementador.md` §"Pruebas mínimas requeridas para QA" (no re-ejecutada por este agente por no automatizar UI):
+
+1. Como Admin, ir a `/Stock/CargaMasiva`, elegir una Marca con variantes existentes → verificar grilla agrupada por Modelo con stock actual correcto.
+2. Modificar la "Cantidad nueva" de 2-3 variantes existentes de distintos Modelos + completar Motivo → guardar → verificar en `/Stock/Historial` que se generaron movimientos `AjusteManual` solo para las filas modificadas.
+3. Agregar una variante nueva (Color+Talle+Precio+Stock Mínimo+Cantidad inicial) en un Modelo con Producto asociado → guardar → verificar que la `VarianteProducto` se crea con esos datos y el stock inicial queda cargado.
+4. Intentar dar de alta una combinación Color+Talle ya existente para el mismo Producto → verificar que el lote completo NO se guarda (ninguna fila, ni las válidas) y que el error se muestra en la fila puntual sin perder el resto de lo tipeado.
+5. Verificar que un Modelo sin Producto asociado muestra el mensaje "Este modelo no tiene un Producto asociado — crear uno primero desde Productos" y no ofrece "+ Agregar variante nueva", mientras el resto del lote (otros Modelos) se guarda igual.
+6. Agregar 2-3 filas nuevas en un mismo Modelo, quitar la del medio con el botón "Quitar", y guardar — verificar que las 2 restantes se persisten correctamente (smoke del renumerado de índices JS).
+7. Verificar regresión: `/Stock/Ajuste` (ajuste individual) sigue funcionando exactamente igual que antes.
+8. Verificar regresión: `/Variantes/Crear` con Stock Inicial > 0 sigue funcionando igual que antes (no afectado por V10).
+9. `/Stock/Index`: elegir Modelo → verificar que el combo Talle se habilita y filtra la grilla vía AJAX sin recargar la página.
+10. `/Stock/Index`: combo Estado en Bajo/Límite/OK/Todos → verificar que filtra correctamente según `StockActual` vs `StockMinimo`.
+11. Acceder a `/Stock/Index?soloAlertas=true` (link del Dashboard) → verificar que el combo Estado se precarga en "Bajo".
+12. Exportar Excel desde `/Stock/Index` con Talle y Estado aplicados → verificar que el archivo respeta los mismos filtros que la grilla.
+13. Como Vendedor/Empleado, intentar acceder directamente a `/Stock/CargaMasiva` → debe dar 403.
+
+### Checklist de salida para merge
+
+```
+[x] Diff coincide exactamente con lo documentado (implementador + arquitecto + diseñador)
+[x] Build verde (0 warnings, 0 errores) — verificado independientemente por QA
+[x] Sin migración EF (confirmado — no aplica, entidades ya existían)
+[x] Permiso RequireAdministrador en CargaMasiva GET/POST; RequireEmpleado en Index/Listar/ExportarExcel
+[x] DD-1 (atomicidad total + errores por fila + no pérdida de datos tipeados) verificado por código
+[x] R-V10-1 (sin transacción anidada) verificado por git diff — AjusteManualAsync sin cambio de comportamiento externo
+[x] R-V10-2 (bloqueo de alta si falta Producto, sin bloquear el resto del lote) verificado
+[x] RN-M2 (duplicados Color+TalleConfigId, en lote y contra BD) verificado
+[x] RN-B2 (deep-link ?soloAlertas=true preserva Estado=Bajo) verificado
+[x] Regresión /Stock/Ajuste y /Variantes/Crear (StockInicial) sin cambios de comportamiento
+[x] Catálogo cross-proyecto (regresiones-manuales.yml) recorrido — 2 items aplicables (REG-001, REG-002), ambos PASS
+[ ] Smoke manual del cliente pendiente (13 pasos arriba) — no ejecutado por este agente (no automatiza UI)
+[ ] Confirmar commit de los archivos actualmente sin commitear antes de desplegar
+```
+
+**Veredicto: APROBADO CON OBSERVACIONES** — 0 defectos funcionales, 2 observaciones menores no bloqueantes (OBS-V10-01, OBS-V10-02), sin auto-fix aplicado por no corresponder (no son bugs reproducibles). Pendiente exclusivamente el smoke manual del cliente (regla del agente QA: no se automatiza UI) y la confirmación de que los archivos se commiteen antes de desplegar a producción.

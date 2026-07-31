@@ -255,3 +255,103 @@ PRESUPUESTO — CHECKLIST DE SALIDA
 **Tasa:** USD 40/hora (recalibrada al cierre de sprint anterior). **Costo estimado:** USD 12.
 
 **Aprobación:** fast-path autorizado por el usuario en este hilo — no requiere gate de aprobación formal de cliente dado el tamaño del cambio.
+
+---
+
+## V10 — Presupuesto: Carga masiva de stock por Marca + filtros completos en Consulta de Stock (2026-07-30)
+
+**Input:** `1-analista-funcional.md`, `2-disenador-funcional.md`, `3-arquitecto-mvc.md` — todos sección V10, CERRADOS Y APROBADOS.
+**Clasificación de negocio:** mejora sobre sistema propio ya entregado (v1 en producción) — **NO es Build inicial de cliente nuevo**. No aplica el descuento de expansión agresiva ni el piso de USD 280 (esa política es exclusiva de Build inicial; acá se cotiza a precio de lista de "Modificación sobre módulo existente").
+
+### Paso 0 — Anclaje histórico
+
+| Ítem | Referencia elegida | Horas base referencia | Motivo |
+|---|---|---:|---|
+| Carga masiva de stock | LabIPAC SESIÓN 3 — "M8 Carga masiva + alta rápida de Perfiles/Prácticas" (2026-07-08, cierre real) | 6,5 h | Mismo patrón funcional exacto: pantalla nueva con filas dinámicas + guardado atómico + alta rápida inline reutilizando `CreateAsync` de un servicio ya existente. Es la referencia más parecida del dataset completo. |
+| Filtros completos Consulta de Stock | Vinosefue — "Filtro de categoría al exportar catálogo de Productos" (2026-07-13, cierre real), normalizado sin el componente de migración/deploy que ese cierre sí tenía | 5,75 h (con migración+deploy) → ajustado a la baja por no requerir ninguno de los dos acá | Comparable más cercano de "agregar filtro(s) a un listado/export ya existente" |
+
+No hubo rondas previas de "carga masiva" ni de "filtros de stock" en ShowroomGriffin mismo (no aplica la regla de segunda/tercera ronda sobre el mismo módulo).
+
+### Paso 1-6 — Estimación por ítem
+
+| # | Ítem funcional | Tipo | Drivers concretos | O | M | P | PERT (h) | Riesgo | Cont. | Horas finales |
+|---|---|---|---|---:|---:|---:|---:|---|---:|---:|
+| 1 | Carga masiva de stock por Marca | Pantalla nueva sobre módulo existente | Grilla agrupada por Modelo (acordeón), reutiliza `IVarianteService.CrearAsync` y lógica de `AjusteManualAsync`, refactor transaccional interno (R-V10-1, separar transacción de lógica sin romper comportamiento actual), validación de duplicado Color+Talle, bloqueo si falta Producto (R-V10-2) | 5,5 | **8,0** | 12,0 | **8,25** | Medio | 15% | **9,49** |
+| 2 | Filtros completos en Consulta de Stock | Modificación sobre módulo existente | Combo Talle dependiente de Modelo (mismo patrón AJAX que Color ya existente), combo Estado reemplaza botón "Solo alertas", +2 parámetros en `ListarAsync`/`ExportarExcelAsync`, sin migración | 2,0 | **3,0** | 5,0 | **3,17** | Bajo | 8% | **3,42** |
+
+**Totales:** PERT base = **11,42 h** · Horas finales con contingencia = **12,91 h**.
+
+### Paso 7 — Autocorrección por ítem
+
+| # | Ítem | Horas base (M) | Referencia (mediana) | Ratio | Decisión | Justificación |
+|---|---|---:|---:|---:|---|---|
+| 1 | Carga masiva | 8,0 | 6,5 | **1,23** | Mantener (dentro del 30%) | 2 drivers concretos no presentes en la referencia: agrupación visual por Modelo (acordeón) y refactor transaccional interno (R-V10-1) para sostener atomicidad total sobre servicios que hoy abren su propia transacción |
+| 2 | Filtros | 3,0 | 5,75 (normalizada, sin migración/deploy) | **0,52** | Mantener (simplificación real) | Acá no hay migración EF ni deploy de producción (a diferencia de la referencia vinosefue) — el ítem es solo UI + 2 parámetros propagados, justifica el M menor |
+
+### Paso 8 — Sanity check del total del proyecto
+
+Comparable más cercano por tamaño: **LabIPAC SESIÓN 3 completa** (M7+M8+M9, 3 ítems, 11,5 h M base / 13,69 h con contingencia, cierre real 2,0 h). Nuestro total (11,42 h M base / 12,91 h con contingencia) es prácticamente idéntico en magnitud — ratio 11,42/11,5 = **0,99**. Dentro de rango, sin ajuste adicional.
+
+### Paso 9 — Cierre numérico
+
+| Paso | Horas base | Horas finales | USD (M x $16,80) |
+|---|---:|---:|---:|
+| A — preliminar | 11,42 | 12,91 | — |
+| B — final (post-autocorrección, sin cambios) | 11,42 | 12,91 | **USD 184,80** |
+
+### Facturación al cliente
+
+| Ítem | M (h) | USD lista (M x $16,80) |
+|---|---:|---:|
+| Carga masiva de stock por Marca | 8,0 | 134,40 |
+| Filtros completos en Consulta de Stock | 3,0 | 50,40 |
+| **Subtotal (Etapa 1 + Etapa 2)** | **11,0** | **184,80** |
+
+Horas facturables internas = 11,0 / 2,5 x 1,20 = 5,28 h (por encima del piso de 4 h → **sí corresponde cargo de Tokens IA**, a diferencia de otras iteraciones evolutivas menores recientes).
+
+- **Tokens IA (25% del subtotal de lista):** USD 184,80 x 0,25 = **USD 46,20**
+- **Descuento de expansión agresiva:** NO aplica (mejora sobre sistema propio ya entregado, no Build inicial de cliente nuevo)
+- **Total del proyecto V10: USD 231,00**
+
+### Etapas para el cliente
+
+- **Etapa 1 (MVP — resuelve el dolor real reportado):** Carga masiva de stock por Marca. USD 134,40.
+- **Etapa 2 (mejora complementaria, no bloqueante):** Filtros completos en Consulta de Stock. USD 50,40.
+- **Tokens IA:** USD 46,20.
+- **Total: USD 231,00.**
+
+### Mantenimiento anual
+No se agrega línea nueva de mantenimiento: ShowroomGriffin ya está en producción con un plan vigente desde la entrega v1 (a confirmar con el cliente si sigue activo); esta cotización cubre solo el desarrollo puntual de las 2 mejoras.
+
+### Riesgos y supuestos del presupuesto
+
+| # | Tipo | Descripción | Impacto si se materializa |
+|---|---|---|---|
+| RP-V10-1 | Riesgo | El refactor de `AjusteManualAsync` (separar transacción de lógica, R-V10-1) toca un método ya en producción usado por el ajuste individual — requiere regresión del flujo de ajuste individual además del nuevo flujo masivo | +1 h si aparece una regresión a corregir |
+| RP-V10-2 | Riesgo | Volumen real de variantes por Marca desconocido — si alguna Marca tiene decenas de Modelos con muchas variantes cada uno, puede requerir paginación/acordeón más elaborado de lo estimado | +1-2 h si el cliente confirma volúmenes grandes |
+| SP-V10-1 | Supuesto | No se requiere importación Excel/CSV (confirmado fuera de alcance en Análisis) | — |
+| SP-V10-2 | Supuesto | El plan de mantenimiento anual de ShowroomGriffin sigue vigente y no se re-cotiza acá | Si no está vigente, agregar como línea separada (ver `27-presupuesto-parametros.instructions.md`) |
+
+### Pruebas mínimas requeridas
+- Carga masiva: guardar lote con filas existentes modificadas + 1 variante nueva, verificar `AjusteStock`/`MovimientoStock` generados y variante creada con `Stock` inicial correcto.
+- Forzar error en 1 fila (ej. combinación Color+Talle duplicada) y verificar que no se guarda ninguna fila del lote, con el error marcado en la fila correspondiente y el resto de los datos tipeados intactos.
+- Verificar que el ajuste individual (`/Stock/Ajuste`) sigue funcionando igual que antes del refactor de `AjusteManualAsync` (regresión).
+- Filtros: Talle dependiente de Modelo: deshabilitado hasta elegir Modelo, se puebla vía AJAX. Combo Estado filtra correctamente (Todos/OK/Límite/Bajo) y el link `?soloAlertas=true` sigue funcionando.
+- Exportar Excel respeta los filtros de Talle y Estado aplicados en pantalla.
+
+### Estado
+PRESUPUESTO V10 **APROBADO POR EL CLIENTE** (2026-07-30, mismo día — ambas etapas, sin ajustes). Total: **USD 231,00** (Etapa 1: USD 134,40 / Etapa 2: USD 50,40 / Tokens IA: USD 46,20). Gate duro liberado — habilitado el paso a Implementación.
+
+### Cierre de calibración estimado vs real — PENDIENTE
+
+Implementación (subagent `agentes-ia-implementador`) y QA (subagent `agentes-ia-qa`) cerrados el mismo día (2026-07-30), build OK, QA APROBADO CON OBSERVACIONES (0 defectos funcionales). **El cliente no tiene todavía las horas reales para registrar** (no se factura/trackea por sesión) — se deja el cierre de calibración explícitamente pendiente en vez de asumir un número.
+
+| Ítem | Horas estimadas (PERT+cont.) | Horas reales | Desvío % | Motivo |
+|---|---:|---:|---:|---|
+| Carga masiva de stock por Marca | 9,49 | — | — | Pendiente de registro por el cliente |
+| Filtros completos en Consulta de Stock | 3,42 | — | — | Pendiente de registro por el cliente |
+| **Total** | **12,91** | **—** | **—** | — |
+
+**Dato objetivo disponible mientras tanto (no es "horas reales" de facturación, es tiempo de ejecución de agentes):** el subagent de Implementación corrió 20,4 min y el de QA 7,2 min (≈27,5 min combinados de ejecución de agente) — coherente con el patrón ya documentado en `27-presupuesto-parametros.instructions.md` de que el desarrollo asistido por IA corre muy por debajo de las horas PERT (ratios históricos 4x-7x en este dataset). No se usa este dato como cierre oficial de calibración porque no captura el tiempo real de decisión/revisión de Joaquín en la sesión.
+
+**Acción pendiente:** cuando el cliente/Joaquín registre las horas reales de esta sesión (relevamiento + decisiones + revisión de código), completar esta tabla y aplicar el Paso 9 de recalibración si el desvío promedio supera el 20% (altamente probable dado el patrón histórico).

@@ -59,3 +59,46 @@ Coordinar una **sesión de pruebas guiada con Ulises (≈1 h)** para ejecutar lo
 
 - **2026-01-15** — v1.0 borrador. Generado a partir del cierre técnico de E0–E8 (build verde, migraciones aplicadas en local y producción) y el reporte QA v1.1 (0 defectos funcionales abiertos, gate condicional). Pendientes: smoke manual con cliente y cierre del bloqueante de credenciales (RR-01 / D-04).
 - **2026-07-02** — V9 (fast-path): en la pantalla de **Ajuste manual de stock**, al guardar el ajuste de un producto, el sistema ahora permanece en la misma pantalla (con el mensaje de confirmación) en vez de volver al listado general de stock. Pensado para cargar ajustes de varios productos seguidos sin tener que renavegar cada vez. Sin impacto en permisos, validaciones ni otras pantallas. QA técnico aprobado sin observaciones (ver `6-qa.md`, entrada V9). Costo: 0,3 h / USD 12 (tasa USD 40/h).
+
+---
+
+# OlvidataSoft
+**Resumen de sprint — Carga masiva de stock por Marca + filtros completos de Consulta de Stock**
+**OlvidataSoft · Julio 2026**
+
+## Sobre el proyecto
+Sistema de gestión comercial para Showroom Griffin, en producción. Este sprint responde a un pedido puntual: agilizar la carga de stock cuando llega mercadería nueva de una marca completa, y poder encontrar cualquier producto en el listado de stock filtrando por cualquier dato que se ve en pantalla.
+
+## 1. Resumen del sprint
+Hasta ahora, cargar el stock de un envío nuevo significaba entrar producto por producto, talle por talle, color por color, uno a la vez. Este sprint agrega una pantalla que permite cargar todo el stock de una marca en un solo paso, y completa los filtros de la consulta de stock para que se pueda buscar por talle y por estado (bajo/límite/OK) sin salir de la misma pantalla. QA revisó el código en detalle: **0 defectos funcionales**, con 2 observaciones menores sin impacto en el uso normal (detalladas más abajo).
+
+## 2. Cambios principales entregados
+- **Carga masiva de stock por Marca**: elegís una marca y ves, agrupado por modelo, todo su stock actual con un campo para escribir la cantidad nueva de cada talle/color. Un solo botón guarda todo el lote.
+- **Alta de variantes nuevas en el momento**: si llega un talle o color que todavía no existía en el sistema, se puede crear ahí mismo (color, talle, precio y stock mínimo) sin ir primero a la pantalla de Productos.
+- **Carga segura por lote**: si algo está mal cargado en una fila, no se guarda nada del lote hasta corregirlo — y no se pierde lo que ya se había tipeado en las demás filas, solo hay que arreglar la fila marcada con error.
+- **Filtro por Talle** en la Consulta de Stock, igual que ya existían los filtros por Marca, Modelo y Color.
+- **Filtro por Estado** (Todo / OK / Límite / Bajo) integrado a los demás filtros, en reemplazo del botón "Solo alertas" — se combina con el resto sin tener que recargar la pantalla.
+
+## 3. Beneficio para el cliente
+- **Menos tiempo cargando stock**: lo que antes eran decenas de pasos repetidos (uno por talle/color) ahora es una sola carga por marca.
+- **Menos idas y vueltas**: dar de alta un talle/color nuevo ya no obliga a salir de la pantalla de stock.
+- **Menos errores costosos**: la carga por lote no permite quedar "a medio cargar" — o se guarda todo correctamente, o se avisa exactamente qué corregir sin perder el resto del trabajo ya hecho.
+- **Búsquedas más rápidas**: encontrar stock por talle o por nivel de alerta ya no requiere mirar toda la lista.
+
+## 4. Pendientes / fuera de alcance
+- **Importación desde Excel/CSV**: no forma parte de este sprint (quedó explícitamente fuera de alcance en el relevamiento).
+- **Carga masiva cruzando varias marcas a la vez**: hoy se carga una marca por vez.
+- Verificación manual en el sistema real por parte de Ulises (guía de pasos ya preparada — ver punto 6).
+
+## 5. Riesgos o consideraciones visibles para negocio
+- QA dejó 2 observaciones menores, sin defectos: el filtro de Talle muestra todo el catálogo de talles posibles de la marca (no solo los que tienen stock cargado) — funciona bien, solo es una pequeña inconsistencia visual frente al filtro de Color. Ninguna de las dos requiere corrección antes de usar la función.
+- El código de esta mejora todavía no fue confirmado en el repositorio (commit) al momento de este resumen — antes de darla por desplegada, coordinar ese paso con el equipo técnico.
+
+## 6. Próximo paso sugerido
+Coordinar con Ulises una prueba guiada breve (≈15-20 min) sobre la carga masiva de una marca real y los filtros nuevos de Talle/Estado, y confirmar el commit de los cambios antes de considerar el sprint cerrado en producción.
+
+---
+
+> Estado del documento: **borrador sujeto a verificación manual del cliente**, según el punto 6.
+
+**Olvidata Soft — olvidatasoft@gmail.com — www.olvidata.com.ar**

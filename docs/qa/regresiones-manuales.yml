@@ -1194,3 +1194,87 @@ regresiones:
           motivo: "Agregado 'm.OrigenTipo != \"AjusteApertura\"' al Where de totalesHistoricos."
       build: "dotnet build MariHogar.Infrastructure/MariHogar.Infrastructure.csproj -> Compilacion correcta, 0 Errores. Build de la solucion completa (MariHogar.slnx) no pudo correrse en el momento del fix porque el usuario tenia la app corriendo en modo debug (DLL de Infrastructure bloqueada por el proceso) — no es un error de codigo, es un lock de archivo esperado mientras la app esta viva; sin impacto en la verificacion (el proyecto que cambio compila limpio de forma aislada)."
       verificacion: "Simulado con SQL real contra marihogar_dev (replicando exactamente la nueva condicion del Where): julio 2026 pasa de $71.189.862,62 a $7.057.647,31 de Egresos (coincide con el Gasto real del mes); junio 2026 sin cambio ($7.521.225,85, -6,2% en vez de +846,5%). Saldo acumulado de CC Local confirmado sin cambio (sigue en $0,00 exacto, la query de CCLocalService no fue tocada)."
+
+  - id: MH-008
+    modulo: "Compras / Registrar pago (PagoOrdenCompraService.RegistrarPagoAsync)"
+    titulo: "Mensaje de error de metodo de pago no valido para OC quedo desactualizado tras habilitar Mercado Pago (CR-27): seguia listando solo Efectivo/Transferencia/Cheque/Deposito"
+    severidad: minor
+    reproducido_en: "marihogar - master (working tree, Sprint CR-J / CR-27), confirmado por revision de codigo el 2026-07-30 por QA de forma independiente, no reproducido en navegador (regla de proceso: QA no automatiza UI)"
+    pasos:
+      - "Como Administrador, ir a OrdenesCompra/Details de una OC Confirmada o Recibida -> Registrar pago."
+      - "Hacer POST directo a /OrdenesCompra/RegistrarPago/{id} con una linea de pago con Metodo no permitido para OC (ej. TarjetaCredito o BancoCarrefour, exclusivos de Ventas segun CR-3)."
+      - "Leer el mensaje de error devuelto."
+    sintoma: "El mensaje dice 'Forma de pago no válida para una orden de compra (solo Efectivo, Transferencia, Cheque o Depósito)' — no menciona Mercado Pago pese a que CR-27 lo agrego a MetodosPermitidosOC y es un metodo realmente aceptado."
+    expectativa: "El texto del mensaje de error debe reflejar exactamente el contenido real de MetodosPermitidosOC en todo momento, para no confundir al usuario/soporte sobre que metodos estan realmente habilitados."
+    causa_raiz: "CR-27 agrego MetodoPago.MercadoPago a la constante MetodosPermitidosOC (PagoOrdenCompraService.cs) pero no actualizo el string literal del mensaje de error asociado, que quedo hardcodeado con la lista anterior a CR-27."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/PagoOrdenCompraService.cs
+        motivo: "Actualizar el mensaje de CreateError en RegistrarPagoAsync para incluir 'Mercado Pago' en la lista de metodos validos, igual al contenido real de MetodosPermitidosOC."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "MariHogar.Infrastructure/Services/PagoOrdenCompraService.cs, mensaje de error de MetodosPermitidosOC"
+      condicion_falla: "El texto del mensaje de error no incluye todos los nombres presentes en MetodosPermitidosOC."
+    criterio_aceptacion:
+      - "El mensaje de error de metodo no valido enumera exactamente los mismos metodos que MetodosPermitidosOC (Efectivo, Transferencia, Mercado Pago, Cheque, Deposito)."
+      - "Mercado Pago sigue aceptandose como metodo valido para OC (regresion, sin cambio de comportamiento funcional real, solo del texto)."
+    pruebas_minimas:
+      - "Pago de OC con Metodo=MercadoPago -> se registra correctamente (regresion, ya funcionaba antes del fix de texto)."
+      - "Pago de OC con Metodo=TarjetaCredito o BancoCarrefour -> rechazado, mensaje ahora lista Mercado Pago entre los validos."
+    fix_aplicado:
+      fecha: "2026-07-30"
+      por: "QA (auto-fix, Sprint CR-J)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/PagoOrdenCompraService.cs
+          motivo: "Mensaje de error corregido de 'solo Efectivo, Transferencia, Cheque o Depósito' a 'solo Efectivo, Transferencia, Mercado Pago, Cheque o Depósito', alineado con MetodosPermitidosOC ya vigente desde CR-27."
+      build: "dotnet build MariHogar.Infrastructure/MariHogar.Infrastructure.csproj -> Compilacion correcta, 0 Errores (re-verificado por QA tras el fix); dotnet build MariHogar.slnx --no-incremental -> Compilacion correcta, 0 Errores (mismos 9 warnings preexistentes, ninguno nuevo)."
+      verificacion: "Verificado por QA via revision de codigo: el string del mensaje ahora enumera los 5 valores exactos de MetodosPermitidosOC (Efectivo, Transferencia, MercadoPago, Cheque, Deposito). Cambio de solo texto, sin alterar la logica de la validacion (el Contains() contra MetodosPermitidosOC no se toco)."
+
+  - id: MH-009
+    modulo: "Entregas / Cheques / Gastos — listados DataTables (EntregaListItemDto.FechaProgramada, ChequeListItemDto.FechaVencimiento, GastoListItemDto.Fecha)"
+    titulo: "El fix global de horario Argentina (UnspecifiedAsUtcDateTimeConverter, forzado de Kind=Utc antes de serializar) hace retroceder un dia la fecha mostrada en 3 listados para los campos que son 'fecha calendario pura' (sin hora real), porque moment.js les aplica la conversion de huso horario -3h que antes no se aplicaba"
+    severidad: major
+    reproducido_en: "marihogar - master (working tree), Sprint de fix de horario UTC-3 (2026-07-31). Hallado por QA via revision de codigo + verificacion empirica contra marihogar_dev (programa C# standalone que reproduce exactamente la serializacion real de MVC con y sin el converter nuevo, usando un Gasto real de la base: Gasto.Id=480, Fecha=2025-05-05T00:00:00 Unspecified)."
+    pasos:
+      - "Como Administrador, ir a Gastos -> Index (o Entregas -> Index, o Cheques -> Index) con al menos 1 registro cuya fecha (Fecha/FechaProgramada/FechaVencimiento) sea una fecha 'pura' guardada a medianoche (sin componente de hora real)."
+      - "Observar la columna de fecha de la grilla DataTables, con el navegador en huso horario Argentina (UTC-3)."
+    sintoma: "La fecha mostrada en la grilla es un dia anterior a la fecha real guardada. Ejemplo verificado con datos reales de marihogar_dev: Gasto.Fecha=2025-05-05T00:00:00 (guardado, Kind=Unspecified) -> con el converter global nuevo el JSON serializa '2025-05-05T00:00:00Z' -> moment(d).format('DD/MM/YYYY') en el navegador Argentina interpreta el 'Z' y resta 3 horas -> muestra '04/05/2025' en vez de '05/05/2025'."
+    expectativa: "Un campo que representa una fecha de calendario pura (sin hora real asociada — el usuario eligio un dia via <input type=date>, no un instante) debe mostrarse siempre con el mismo dia que fue guardado, sin importar el huso horario del navegador. Solo los campos que representan un instante real (CreatedAt, Fecha de Venta/ComprobanteAfip/MovimientoCCLocal, etc., todos poblados con DateTime.UtcNow) deben pasar por la conversion de huso horario -3h."
+    causa_raiz: "UnspecifiedAsUtcDateTimeConverter (MariHogar.Web/Json/UnspecifiedAsUtcDateTimeConverter.cs, registrado globalmente en Program.cs via AddJsonOptions) fuerza Kind=Utc a TODO DateTime serializado por cualquier accion Json(...) del sistema, sin distinguir entre 'instante real' (Kind=Unspecified pero semanticamente UTC, ej. DateTime.UtcNow) y 'fecha calendario pura' (Kind=Unspecified pero semanticamente un dia sin huso horario, ej. Entrega.FechaProgramada = input.FechaProgramada.Date, Cheque.FechaVencimiento = linea.FechaVencimientoCheque.Value.Date, Gasto.Fecha = input.Fecha, poblado por defecto con DateTime.Today y editable via <input type=date>). Para el primer grupo el fix es correcto (soluciona el bug original de +3h). Para el segundo grupo, forzar 'Z' hace que moment.js (que antes interpretaba el string sin 'Z' como hora local del navegador, mostrando el dia guardado tal cual) ahora lo interprete como UTC y le reste 3 horas al convertir a Argentina, empujando la medianoche al dia anterior (21:00). Se identificaron exactamente 3 columnas de DataTables con este patron (moment(d).format('DD/MM/YYYY'), sin HH:mm, sobre un campo poblado por .Date/DateTime.Today): Entregas/Index.cshtml (fechaProgramada), Cheques/Index.cshtml (fechaVencimiento), Gastos/Index.cshtml (fecha). Se verificaron y descartaron por seguras las demas columnas de fecha del sistema (OrdenesCompra/Index 'fecha' y Presupuestos/Index 'createdAt' son instantes reales poblados con DateTime.UtcNow, no fechas puras; el resto de los listados con moment(d).format(...HH:mm) — CCLocal, ComprobantesAfip, Proveedores/CuentaCorriente, Stock, Ventas — usan Fecha=DateTime.UtcNow real, benefician correctamente del fix sin regresion)."
+    capa: Web
+    archivos_fix:
+      - path: MariHogar.Web/Views/Entregas/Index.cshtml
+        motivo: "Columna fechaProgramada: moment(d) -> moment.utc(d) (formatea los componentes del string ISO tal cual, sin restar el offset de huso horario del navegador — correcto para una fecha calendario pura, sin tocar el converter global que ya funciona bien para los campos con hora real)."
+      - path: MariHogar.Web/Views/Cheques/Index.cshtml
+        motivo: "Columna fechaVencimiento: mismo cambio moment(d) -> moment.utc(d)."
+      - path: MariHogar.Web/Views/Gastos/Index.cshtml
+        motivo: "Columna fecha: mismo cambio moment(d) -> moment.utc(d)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "POST /Gastos/GetData, /Entregas/GetData, /Cheques/GetData con al menos 1 registro con fecha 'pura' (medianoche) — comparar el dia calendario devuelto en el JSON (con la 'Z' del converter global) contra el dia mostrado por moment.utc(d).format('DD/MM/YYYY') vs moment(d).format('DD/MM/YYYY')"
+      condicion_falla: "moment(d).format('DD/MM/YYYY') (sin .utc()) sobre el valor JSON con sufijo 'Z' da un dia distinto al guardado en la columna Fecha/FechaProgramada/FechaVencimiento de la base."
+    criterio_aceptacion:
+      - "Gastos/Index: un Gasto con Fecha=X se muestra como X en la grilla (mismo dia, sin importar el huso horario del navegador)."
+      - "Entregas/Index: una Entrega con FechaProgramada=X se muestra como X en la grilla."
+      - "Cheques/Index: un Cheque con FechaVencimiento=X se muestra como X en la grilla, incluida la fila resaltada de 'vence en <=7 dias' (venceProximo, que se calcula server-side sobre el mismo valor, no afectada por este bug de presentacion)."
+      - "Sin regresion en los campos con hora real (Ventas/Index, Stock/Index, CCLocal/Index, ComprobantesAfip/Index, Proveedores/CuentaCorriente, OrdenesCompra/Index, Presupuestos/Index): siguen mostrando la fecha ya corregida por HorarioArgentino/el converter global (fix original intacto)."
+    pruebas_minimas:
+      - "Con un Gasto real de marihogar_dev (Id=480, Fecha=2025-05-05T00:00:00): confirmar que Gastos/Index muestra 05/05/2025, no 04/05/2025 (verificado por QA via simulacion exacta de la serializacion + moment.utc, logica confirmada; pendiente de confirmacion visual del usuario en navegador real segun proceso de este proyecto)."
+      - "Registrar una Entrega nueva con FechaProgramada=hoy+2 dias y confirmar que Entregas/Index muestra esa misma fecha exacta."
+      - "Registrar un pago de OC con cheque con FechaVencimiento=hoy+30 dias y confirmar que Cheques/Index muestra esa misma fecha exacta, y que la fila se resalta correctamente si cae dentro de los proximos 7 dias."
+    fix_aplicado:
+      fecha: "2026-07-31"
+      por: "QA (auto-fix)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Web/Views/Entregas/Index.cshtml
+          motivo: "moment(d).format('DD/MM/YYYY') -> moment.utc(d).format('DD/MM/YYYY') en la columna fechaProgramada."
+        - path: MariHogar.Web/Views/Cheques/Index.cshtml
+          motivo: "moment(d).format('DD/MM/YYYY') -> moment.utc(d).format('DD/MM/YYYY') en la columna fechaVencimiento."
+        - path: MariHogar.Web/Views/Gastos/Index.cshtml
+          motivo: "moment(d).format('DD/MM/YYYY') -> moment.utc(d).format('DD/MM/YYYY') en la columna fecha."
+      build: "dotnet build MariHogar.slnx -c Release --no-incremental -> Compilacion correcta, 0 Errores (9 warnings preexistentes de siempre, ninguno nuevo) — el fix es JS puro dentro de vistas Razor, sin impacto de compilacion C#, re-verificado por QA despues del cambio."
+      verificacion: "Verificado por QA con un programa C# standalone (referenciando MariHogar.Infrastructure + MariHogar.Web, conectado a marihogar_dev real) que reproduce exactamente la serializacion JSON de MVC con el converter nuevo registrado y simula la conversion de huso horario que aplicaria moment.js en un navegador Argentina: confirmado que un Gasto real (Id=480, Fecha=2025-05-05T00:00:00 Unspecified) se serializa como '2025-05-05T00:00:00Z' y que moment(d) (sin .utc()) lo mostraria como 04/05/2025 (bug), mientras que moment.utc(d) lo muestra como 05/05/2025 (correcto, mismo dia guardado). No reproducido en navegador real (regla de proceso de este proyecto: QA no automatiza UI) — el usuario debe confirmar visualmente en las 3 pantallas antes de dar el sprint por cerrado, ya que no hay Entregas ni Cheques cargados todavia en marihogar_dev para verificar esos 2 casos con datos reales (si se replican con Gastos, que si tiene datos, el patron es identico)."

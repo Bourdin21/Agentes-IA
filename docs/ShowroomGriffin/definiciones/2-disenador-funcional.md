@@ -732,3 +732,167 @@ DISEÑO FUNCIONAL v2 — CHECKLIST
 3. **Colores:** Actualmente texto libre (`VarianteProducto.Color`). ¿Se convierte en entidad también o queda texto libre? El analista recomienda mantenerlo texto libre en v2 (no fue solicitado).
 4. **Combos AJAX — cantidad de endpoints:** 3 endpoints propuestos (colores, talles, resolver). ¿Se consolidan en uno solo parametrizado o quedan separados?
 5. **Policy RequireEmpleado vs RequireVendedor:** Evaluar si conviene hacer RequireEmpleado inclusivo (Admin+Vendedor+Empleado) o agregar Empleado al RequireVendedor existente. Impacto: si se agrega al RequireVendedor, un Empleado podría acceder a acciones que hoy son solo-Vendedor y no son adecuadas para Empleado. Recomendado: policy separada.
+
+---
+
+## V10 — Diseño funcional: Carga masiva de stock por Marca + filtros completos en Consulta de Stock (2026-07-30)
+
+**Input:** `1-analista-funcional.md` sección "V10", decisiones Q1–Q6 confirmadas por el cliente. Analisis cerrado y aprobado.
+
+### 0. Escaneo de reutilización cross-proyecto (obligatorio antes de diseñar)
+
+Se escaneó `C:/Sistemas/Agentes-IA/docs/*/definiciones/{2-disenador-funcional,5-implementador}.md` de todos los proyectos del historial buscando "carga masiva" / "alta rápida inline" / "filas dinámicas + un submit".
+
+**Coincidencia encontrada: LabIPAC — Sesión 2/3 (2026-07-08), feature "Producción Mensual — Carga Masiva + alta rápida"** (`docs/labipac/definiciones/2-disenador-funcional.md` y `5-implementador.md`). Patrón ya diseñado, implementado y **cerrado con QA real** (build OK, migración aplicada, ratio de sobreestimación PERT/real más bajo del dataset):
+
+- Pantalla dedicada (no un modal) con **filas dinámicas manejadas por JS, sin DataTables** (es un formulario, no un listado): cada fila es un ítem a cargar, con botón "+ Agregar fila" y botón de fila "Quitar".
+- **Un único submit guarda todo el lote** (`AgregarLineasAsync`), en **una sola transacción atómica: todo o nada** — si una fila es inválida, no se guarda ninguna y se marcan los errores puntuales por fila (RN-12/RN-13 de labipac).
+- **Alta rápida inline de ítems faltantes** desde la propia fila: opción "+ Crear nuevo…" al final del select de la fila, abre un modal chico (Nombre + los campos mínimos obligatorios de esa entidad), guarda por AJAX y el nuevo ítem queda insertado y seleccionado en esa fila sin recargar la pantalla.
+- Motivo/contexto único aplicado a todo el lote (en labipac: el período de Producción Mensual ya lo daba el contexto de la pantalla).
+
+**Decisión: reutilizar este patrón adaptado al dominio de Stock**, en vez de diseñar desde cero. Esto resuelve además una inconsistencia detectada contra el Análisis (ver punto de atención más abajo).
+
+**Punto de atención — ajuste sobre lo definido en Análisis:** en `1-analista-funcional.md` se había dejado como criterio de aceptación "si una fila falla, el resto del lote no se pierde (parcial)". El patrón de referencia (labipac RN-12) usa **atomicidad total: todo el lote o nada**, que es más simple, más segura para trazabilidad de stock (evita estados intermedios confusos: "algunas variantes con stock nuevo, otras no") y ya está probada en producción. **Se propone adoptar atomicidad total** para la carga masiva de stock, reemplazando el criterio parcial del Análisis. Queda marcado como decisión de Diseño a confirmar en el gate (no se aplica todavía sin esa confirmación).
+
+### 1. Alcance funcional resumido
+
+Sin cambios de alcance respecto a lo aprobado en Análisis (Q1 absoluto, Q2 scope Marca completa, Q3 crea variante al vuelo con Precio de Venta + Stock Mínimo en la grilla, Q6 Estado reemplaza botón). Este diseño instancia ese alcance en pantallas, ViewModels y reglas concretas, reutilizando el patrón de labipac.
+
+### 2. Flujo de pantallas y wireframes textuales
+
+#### WF-A1: Stock — Carga Masiva (pantalla nueva)
+**Ruta:** `GET /Stock/CargaMasiva?marcaId={id}` (selección) · `POST /Stock/CargaMasiva` (guardado del lote)
+**Rol:** `RequireAdministrador` (mismo permiso que `/Stock/Ajuste` hoy)
+**Se accede desde:** botón "Carga masiva" (btn-primary) junto a "Ajuste manual" en `/Stock/Index`, visible solo para Admin/SuperUsuario.
+
+```
+┌─ Stock / Carga Masiva ──────────────────────────────────────────────┐
+│  Marca *  [Select2 buscar marca...]  (mismo patron AJAX de Ajuste)   │
+│  [ Cargar variantes ]                                                 │
+├────────────────────────────────────────────────────────────────────┤
+│  (al elegir Marca, recarga la pantalla agrupada por Modelo)          │
+│                                                                        │
+│  ── Modelo: Air Max 90 ──────────────────────────────────────────────│
+│  Color   │ Talle │ Código   │ Stock actual │ Cantidad nueva │ [Quitar]│
+│  Negro   │  42   │ AM90-N42 │     5        │  [___]         │         │
+│  Blanco  │  40   │ AM90-B40 │     0        │  [___]         │         │
+│  [ + Agregar variante nueva ]  ← abre fila editable: Color, Talle     │
+│    (Select ▼ filtrado por TipoTalle del Modelo), Precio Venta,        │
+│    Stock Mínimo, Cantidad inicial                                     │
+│                                                                        │
+│  ── Modelo: Air Force 1 ─────────────────────────────────────────────│
+│  ... (misma estructura, una sección por Modelo de la Marca) ...       │
+│                                                                        │
+│  ── Motivo del lote ──────────────────────────────────────────────── │
+│  Motivo * [_________________________________]                        │
+│                                                                        │
+│  [ Cancelar ]                    [ Guardar todo el lote ]            │
+└────────────────────────────────────────────────────────────────────────┘
+```
+- Filas de variantes existentes: Color/Talle/Código/Stock actual son solo lectura; solo "Cantidad nueva" es editable. Fila sin cambio (igual al stock actual) no se envía como modificación.
+- Fila de variante nueva: Color y Talle **no** pueden repetir una combinación ya existente en ese Producto (validación cliente + servidor, análoga a RN-13 de labipac); Talle se ofrece como select acotado al `TipoTalle` del Modelo (mismo catálogo que ya usa `/Variantes/Crear`).
+- "Guardar todo el lote": un solo submit, todo o nada (ver punto de atención §0).
+- Tras guardar: vuelve a la misma pantalla con la Marca ya cargada y los stocks actualizados (continuidad, mismo criterio que V9), mensaje de éxito con cantidad de variantes actualizadas/creadas.
+
+#### WF-A2 (ajuste): `/Stock/Index` — botón nuevo
+Se agrega botón "Carga masiva" (btn-outline-primary) junto al botón "Ajuste manual" existente, mismo criterio de visibilidad (solo Admin/SuperUsuario).
+
+#### WF-B1 (delta): `/Stock/Index` — filtros completos
+```
+┌─ Filtros ────────────────────────────────────────────────────────────┐
+│ [Categoría ▼] [Marca ▼] [Modelo ▼] [Talle ▼] [Color ▼] [Estado ▼]   │
+│                                                    [ Limpiar ]        │
+└────────────────────────────────────────────────────────────────────────┘
+```
+- Se agrega el combo **Talle**, dependiente de Modelo (mismo patrón que Color: deshabilitado hasta elegir Modelo, se puebla vía AJAX con los talles usados por ese Modelo).
+- El botón "Solo alertas" **se reemplaza** por el combo **Estado** (Todos / OK / Límite / Bajo), integrado a la misma barra, recargando la tabla vía AJAX igual que el resto de los filtros (sin recargar la página).
+- El link `/Stock/Index?soloAlertas=true` (usado desde Dashboard) se preserva: al llegar con ese querystring, la pantalla precarga el combo Estado en "Bajo".
+- `ExportarExcelAsync` recibe los mismos filtros nuevos (`talleConfigId`, `estado`) para mantener consistencia grilla/export (regla de filtros de `25-frontend-design-system.instructions.md`: cada columna visible tiene su filtro).
+
+### 3. ViewModels propuestos
+
+| VM | Campos | Validación |
+|---|---|---|
+| `StockCargaMasivaViewModel` | MarcaId, MarcaNombre, Motivo, List\<`StockCargaMasivaModeloViewModel`\> Modelos | Motivo requerido (MaxLength 500); al menos 1 fila modificada o nueva en todo el lote |
+| `StockCargaMasivaModeloViewModel` | ModeloId, ModeloNombre, TipoTalle, List\<`StockCargaMasivaFilaViewModel`\> Filas | — |
+| `StockCargaMasivaFilaViewModel` | VarianteId (null si es nueva), Color, TalleConfigId, CodigoInterno (solo lectura si existente), StockActual (solo lectura), CantidadNueva, PrecioVenta (solo si es nueva), StockMinimo (solo si es nueva) | CantidadNueva >= 0; si VarianteId es null (fila nueva): Color y TalleConfigId requeridos y sin duplicar combinación dentro del ProductoId; PrecioVenta >= 0 requerido; StockMinimo >= 0 requerido |
+| `StockFiltroViewModel` (delta, uso interno en `/Stock/Index`) | + TalleConfigId (int?), Estado (enum `EstadoStockFiltro`: Todos/OK/Limite/Bajo) | — |
+
+`EstadoStockFiltro` (nuevo enum, Web o Application): `Todos = 0, OK = 1, Limite = 2, Bajo = 3`. Mapea a la misma lógica que hoy ya calcula `EnAlerta`/`Deficit` en `StockListItemViewModel` (Bajo = `StockActual <= StockMinimo`; Límite = `0 < Deficit <= 5`; OK = resto).
+
+### 4. Máquina de estados
+No aplica. Se reutilizan los flujos existentes de `AjusteStock`/`MovimientoStock` (sin estados propios) y el alta de `VarianteProducto` no tiene máquina de estados (entidad simple con soft delete).
+
+### 5. Reglas de negocio y permisos
+
+| Ref | Regla | Capa |
+|---|---|---|
+| RN-M1 | Guardado del lote es atómico: todas las filas (modificadas + nuevas) se persisten en una única transacción, o ninguna | Service |
+| RN-M2 | No se permite la misma combinación Color+TalleConfigId repetida para el mismo Producto dentro del mismo submit, ni contra variantes ya existentes | Service + validación cliente |
+| RN-M3 | Fila de variante nueva exige PrecioVenta >= 0 y StockMinimo >= 0 (mismos mínimos que `/Variantes/Crear` hoy); CodigoInterno/CodigoBarra quedan `null`, completables después desde Productos/Variantes | DataAnnotation + Service |
+| RN-M4 | Cada variante con `CantidadNueva` distinta de su stock actual genera su propio `AjusteStock` + `MovimientoStock` (mismo mecanismo que `AjusteManualAsync`, dentro de la transacción del lote) | Service |
+| RN-M5 | El campo Motivo es único por lote y se replica igual en cada `AjusteStock` generado por ese submit | Service |
+| RN-M6 | Permiso `RequireAdministrador` para toda la pantalla de Carga Masiva (mismo criterio que Ajuste individual y que el alta de variantes en Productos/Variantes) | Web |
+| RN-B1 | Filtro Talle en `/Stock/Index`: dependiente de Modelo, deshabilitado hasta elegir Modelo (mismo patrón que Color) | Web |
+| RN-B2 | Filtro Estado reemplaza al botón "Solo alertas"; el deep-link `?soloAlertas=true` sigue funcionando preseleccionando Estado=Bajo | Web |
+
+### 6. Impacto funcional por capa
+
+**Presentación (Web):**
+- `StockController`: + acciones `CargaMasiva` (GET/POST) y endpoint AJAX de validación de duplicado si se decide validar antes del submit.
+- Vista nueva: `Views/Stock/CargaMasiva.cshtml` (secciones por Modelo, filas JS dinámicas, sin DataTables — mismo patrón visual que `CargaMasiva.cshtml` de labipac).
+- `Views/Stock/Index.cshtml`: + combo Talle, reemplazo del botón "Solo alertas" por combo Estado.
+- JS: componente de fila dinámica (agregar/quitar variante nueva), reutilizable del patrón ya construido en labipac (adaptado, no es el mismo repo así que se reimplementa el patrón, no el código).
+
+**Negocio (Application/Infrastructure):**
+- `IStockService`: + `ObtenerParaCargaMasivaAsync(int marcaId)` (arma la grilla agrupada por Modelo) y + `GuardarCargaMasivaAsync(StockCargaMasivaViewModel vm, string usuarioId)` (transacción atómica, crea variantes faltantes + AjusteStock/MovimientoStock por fila modificada).
+- `IVarianteService` o el propio `StockService`: alta de `VarianteProducto` reutilizando la misma validación de unicidad Color+TalleConfigId que ya aplica (implícitamente) en `/Variantes/Crear`.
+- `IStockService.ListarAsync`/`ExportarExcelAsync`: + parámetros `talleConfigId` y `estado`.
+
+**Datos (Infrastructure):**
+- Sin migración EF: `VarianteProducto`, `Stock`, `AjusteStock`, `MovimientoStock`, `TalleConfig` ya existen con todos los campos necesarios.
+- Alta de `VarianteProducto` + su fila `Stock` asociada (hoy cada variante ya tiene 1:1 `Stock` — confirmar en Arquitectura cómo se crea ese registro relacionado al dar de alta desde este flujo, mismo mecanismo que usa hoy `/Variantes/Crear`).
+
+### 7. Riesgos y supuestos
+
+- **DD-1 (decisión a confirmar en el gate):** atomicidad total del lote (todo o nada) en vez del criterio parcial documentado en Análisis — ver §0.
+- **DD-2:** volumen de filas por Marca (varios Modelos × Color × Talle) puede ser grande; a diferencia de labipac (filas sueltas sin agrupar), acá se agrupa visualmente por Modelo con `<details>`/acordeón colapsable para no saturar la pantalla — validar con el cliente si el volumen típico lo requiere.
+- **DD-3:** el alta de `VarianteProducto` desde Stock es una fila embebida en la misma grilla (no un modal separado como en labipac), porque acá el dato que falta es estructural (Color+Talle, no solo Nombre) — se mantiene el espíritu de "alta rápida sin salir de la pantalla" pero con layout distinto al de labipac.
+- Riesgo heredado de Análisis: concurrencia por fila vía `RowVersion` de `VarianteProducto` debe seguir chequeándose aunque el guardado sea atómico a nivel de lote (cada fila igual valida su propia versión antes de aplicar).
+- Riesgo heredado: `ExportarExcelAsync` debe sumar `talleConfigId`/`estado` para no quedar inconsistente con los filtros nuevos de la grilla.
+
+### 8. Historias de usuario
+
+**HU-M1** — Como Administrador, quiero cargar el stock de todas las variantes de una Marca en una sola pantalla, para no tener que repetir el ajuste manual variante por variante.
+- AC: al elegir una Marca, veo todas sus variantes existentes agrupadas por Modelo, con su stock actual y un campo editable de cantidad nueva.
+- AC: puedo editar cualquier subconjunto de filas sin completar todas.
+- AC: un único botón guarda todas las filas modificadas en una sola operación.
+
+**HU-M2** — Como Administrador, quiero dar de alta una combinación de Color y Talle que todavía no existe mientras cargo stock, para no tener que ir primero a Productos/Variantes y volver.
+- AC: cada sección de Modelo tiene una opción "+ Agregar variante nueva" que pide Color, Talle, Precio de Venta, Stock Mínimo y Cantidad inicial.
+- AC: no puedo crear una combinación Color+Talle que ya existe para ese Modelo/Producto.
+- AC: al guardar el lote, la variante nueva queda creada con esos datos y con el stock inicial cargado.
+
+**HU-M3** — Como Administrador, quiero que si algo falla en la carga masiva no se guarde nada a medias, para no terminar con stock inconsistente entre variantes de un mismo lote.
+- AC: si alguna fila tiene un error de validación, no se persiste ninguna fila del lote y se muestran los errores puntuales por fila.
+
+**HU-B1** — Como usuario con acceso a Stock, quiero filtrar la consulta de stock por Talle, para encontrar rápido una variante puntual.
+- AC: el combo Talle se habilita al elegir Modelo y filtra la grilla server-side sin recargar la página.
+
+**HU-B2** — Como usuario con acceso a Stock, quiero filtrar por Estado (OK/Límite/Bajo) desde la misma barra de filtros, para no depender de un botón aparte que recarga toda la pantalla.
+- AC: el combo Estado reemplaza al botón "Solo alertas" y se combina con el resto de los filtros.
+- AC: el link directo `?soloAlertas=true` sigue funcionando, precargando Estado=Bajo.
+
+### 9. Plan funcional por etapas para Arquitectura
+
+- **Etapa V10-A — Filtros completos en Consulta de Stock:** combo Talle + combo Estado (reemplaza botón), ajuste de `ListarAsync`/`ExportarExcelAsync`. Sin dependencias, menor esfuerzo — puede hacerse primero o en paralelo.
+- **Etapa V10-B — Carga masiva de stock por Marca:** pantalla `CargaMasiva`, `ObtenerParaCargaMasivaAsync`, `GuardarCargaMasivaAsync` (atómico), alta de `VarianteProducto` inline. Depende de que la Arquitectura confirme el mecanismo exacto de alta de `VarianteProducto`+`Stock` asociado dentro de la misma transacción del lote.
+
+### DD-1 — Resuelto por el cliente (2026-07-30)
+
+**Decisión confirmada:** persistencia **atómica (todo o nada)** — si una fila falla, no se guarda ninguna del lote — **pero** la pantalla debe: (a) mostrar los errores puntuales por fila (qué falló y en qué fila), y (b) **no perder los datos ya tipeados** en el resto de las filas al re-renderizar tras el error (el usuario corrige solo lo que falló, sin tener que volver a cargar todo el lote de cero).
+
+**Impacto en diseño:** `POST /Stock/CargaMasiva` que falla en validación de servidor devuelve la misma vista (`return View(vm)`) con el `StockCargaMasivaViewModel` completo tal como fue enviado (todas las filas con sus valores ingeridos) + `ModelState` con los errores puntuales anclados a cada fila (mismo patrón MVC estándar de `asp-validation-for` por campo, ya usado en todo el proyecto — no requiere mecanismo nuevo). No se transaccionan filas parciales en ningún caso.
+
+### Estado
+DISEÑO FUNCIONAL V10 CERRADO Y APROBADO. DD-1 resuelto (atómico + errores por fila + no pérdida de datos tipeados). Listo para Arquitectura.

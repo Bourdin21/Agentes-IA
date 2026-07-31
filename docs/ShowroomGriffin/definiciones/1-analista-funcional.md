@@ -201,3 +201,85 @@ Valores seed: `XS`, `S`, `M`, `L`, `XL`, `XXL`
 **Criterio de aceptación:** al guardar un ajuste válido desde `Stock/Ajuste`, la respuesta redirige (GET) a `Stock/Ajuste` con `TempData["Success"]` mostrando el mensaje de confirmación, y el formulario queda listo para cargar el siguiente producto.
 
 **Banderas:** sin migración EF, sin cambio de permisos, sin nueva entidad. Riesgo: bajo.
+
+---
+
+## V10 — Carga masiva de stock por Modelo + filtros completos en Consulta de Stock (2026-07-30) — EN DISCOVERY
+
+**Estado:** análisis inicial entregado, pendiente de respuestas del cliente (Q1–Q7) y aprobación para pasar a Diseño.
+
+**Pedido del cliente:** "es muy tedioso cargar el stock por modelo, por talle, por color, y cada talle cargarlo individualmente" (sobre `/Stock/Ajuste`, hoy 1 variante por vez vía select2 + `CantidadNueva` + submit). Además: "los filtros en la pantalla de consulta de stock tienen que tener todas las propiedades del stock que se lista" (sobre `/Stock/Index`).
+
+### Punto A — Carga masiva de stock (Ajuste Manual)
+
+**Incluido (hipótesis de alcance):**
+- Nuevo modo de carga: elegir un Modelo → grilla con todas sus variantes existentes (Color × Talle) con stock actual editable inline.
+- Guardado en lote: un submit dispara N `AjusteStock` + `MovimientoStock` (uno por variante modificada), reutilizando `AjusteManualAsync` fila a fila dentro de una operación de conjunto.
+- Filas sin cambios no generan movimiento. Convive con el ajuste individual actual (no lo reemplaza).
+- Mismo permiso `RequireAdministrador` que hoy.
+
+**No incluido (salvo pedido explícito):** alta de variantes nuevas (combinaciones Talle×Color inexistentes) desde esta pantalla; carga cruzando múltiples modelos a la vez; importación Excel/CSV.
+
+**Riesgos:** volumen de filas por modelo (posible necesidad de paginar/virtualizar la grilla); concurrencia por fila (`RowVersion` de `VarianteProducto` debe seguir chequeándose individualmente, no solo a nivel de página); trazabilidad del motivo si se agrupa en un solo campo por lote.
+
+### Punto B — Filtros completos en Consulta de Stock
+
+**Incluido (hipótesis de alcance):**
+- Agregar filtro por Talle (dependiente de Modelo, mismo patrón que Color).
+- Integrar "Solo alertas" (hoy botón que recarga toda la página) como filtro "Estado" (Todos/OK/Límite/Bajo) dentro de la barra de filtros cascada, vía AJAX igual que el resto.
+- Código ya cubierto por búsqueda global de DataTables; Stock/Mínimo/Déficit son columnas ordenables, no filtros (a confirmar en Q7).
+
+**Riesgo:** si se agrega filtro Talle, hay que sumarlo también a `ExportarExcelAsync` (hoy solo recibe marcaId/modeloId/color) para mantener consistencia entre grilla y export.
+
+### Banderas tempranas
+- Migración EF: NO. Integración externa: NO. Máquina de estados: NO.
+
+### Preguntas abiertas — hipótesis a validar con el cliente
+
+| # | Pregunta | Opción A (hipótesis) | Opción B (hipótesis) |
+|---|---|---|---|
+| Q1 | Semántica del valor en la grilla masiva | Cantidad nueva = stock resultante absoluto (igual que hoy) | Cantidad a sumar/restar (delta), sin necesitar saber el stock actual de memoria |
+| Q2 | Alcance de selección | Se elige un Modelo puntual y se ven sus variantes | Se elige una Marca completa y se ven todos sus Modelos agrupados |
+| Q3 | Variantes faltantes en la matriz Talle×Color | Solo se muestran/editan variantes ya existentes | Se muestran con stock 0 y se pueden crear+cargar en el mismo paso (impacta catálogo) |
+| Q4 | Motivo del ajuste masivo | Un campo "Motivo" único para todo el lote | Motivo autogenerado ("Ajuste masivo"), sin pedirlo |
+| Q5 | Filtro Talle en Consulta de Stock | Dependiente de Modelo (igual que Color hoy) | Independiente desde el arranque, con todos los valores usados en Stock |
+| Q6 | Filtro Estado vs. botón "Solo alertas" | Reemplaza al botón por un combo integrado | Conviven: botón de acceso directo + combo "Estado" más fino |
+| Q7 | Filtro numérico de Stock/Déficit | No se incluye (son columnas informativas/ordenables) | Se agrega filtro "Stock ≤ umbral" |
+
+**Gate:** no iniciar Diseño (agente 2) hasta que el cliente resuelva Q1–Q7 y apruebe el alcance de los puntos A y B.
+
+### Decisiones confirmadas por el cliente (2026-07-30)
+
+| # | Pregunta | Decisión confirmada |
+|---|---|---|
+| Q1 | Semántica del valor en la grilla masiva | **A — Cantidad nueva absoluta** (igual que el ajuste individual actual) |
+| Q2 | Alcance de selección | **B — Se elige una Marca completa**; la grilla agrupa por Modelo dentro de esa Marca, mostrando todas las variantes de todos sus Modelos |
+| Q3 | Variantes faltantes en la matriz Talle×Color | **B — Se crean al vuelo** desde la misma grilla masiva (amplía el alcance: ya no es solo Stock, también da de alta `VarianteProducto`) |
+| Q3a | Datos obligatorios de la variante nueva (Precio de Venta, Stock Mínimo) | **Se piden en la misma grilla** — las filas correspondientes a variantes que no existen agregan columnas editables de Precio de Venta y Stock Mínimo además de la cantidad de stock inicial. Código interno/barra: **pendiente de confirmar** (asumido opcional, completable después desde Productos/Variantes salvo indicación contraria). |
+| Q6 | Filtro Estado vs. botón "Solo alertas" | **A — Reemplaza el botón** por un combo "Estado: Todos/OK/Límite/Bajo" integrado a la barra de filtros; el deep-link `/Stock/Index?soloAlertas=true` (usado desde Dashboard) se preserva mapeándolo a Estado="Bajo" preseleccionado |
+
+**Pendientes de menor impacto (default asumido salvo corrección del cliente):**
+- Q4 — Motivo del ajuste masivo: **asumido Opción A** (un campo "Motivo" único para todo el lote, mejor trazabilidad con fricción mínima).
+- Q5 — Filtro Talle en Consulta de Stock: **asumido Opción A** (dependiente de Modelo, mismo patrón que Color).
+- Q7 — Filtro numérico de Stock/Déficit: **asumido Opción A** (no se incluye; son columnas ordenables/informativas).
+
+### Replanteo de alcance tras Q3/Q3a — ALERTA para Arquitectura
+
+La decisión Q3 (crear variantes al vuelo) **amplía el alcance real del Punto A**: deja de ser un cambio acotado a `Stock`/`AjusteStock`/`MovimientoStock` y pasa a tocar también la capa de Negocio de **Productos/Variantes** (alta de `VarianteProducto` con `ProductoId`, `PrecioVenta`, `StockMinimo`, `Color`, `TalleConfigId`). Esto debe evaluarse explícitamente en la etapa de Arquitectura (agente 3):
+- Validar unicidad de la combinación Color+TalleConfigId dentro del mismo Producto antes de crear (evitar duplicados).
+- Definir si la creación de variante desde Stock requiere el mismo nivel de permiso (`RequireAdministrador`, ya vigente) o si además debe quedar auditada como alta de catálogo (`AuditLog`), no solo como movimiento de stock.
+- Confirmar si `CodigoInterno`/`CodigoBarra` quedan nulos al crear (el modelo ya los admite como `string?`, no bloquea el alta).
+
+### Alcance funcional actualizado — Punto A (carga masiva)
+
+**INCLUIDO:**
+- Selección de una Marca completa (select2, mismo patrón de búsqueda que hoy) → grilla agrupada por Modelo, con todas las variantes existentes (Color×Talle) de cada Modelo de esa Marca.
+- Cantidad nueva = stock resultante absoluto, editable por fila, solo para filas modificadas.
+- Filas de combinaciones Talle×Color inexistentes se muestran igual (stock 0) con columnas adicionales editables: Precio de Venta y Stock Mínimo, para completar el alta de la variante en el mismo guardado.
+- Guardado en lote: una acción dispara alta de variantes nuevas (si corresponde) + `AjusteStock`/`MovimientoStock` por cada variante con cantidad cargada, dentro de una transacción por fila (no todo-o-nada global: se informa qué filas se guardaron y cuáles no).
+- Un único campo "Motivo" aplicado a todo el lote.
+- Mismo permiso `RequireAdministrador`.
+
+**NO INCLUIDO (salvo pedido explícito):** importación Excel/CSV; edición de Precio de Venta/Stock Mínimo de variantes ya existentes desde esta grilla (eso sigue siendo responsabilidad de Productos/Variantes); baja de variantes desde esta pantalla.
+
+**Banderas actualizadas:** Migración EF: NO (entidades ya existen). Integración externa: NO. Máquina de estados: NO. **Nueva bandera: toca capa de Negocio de Productos/Variantes además de Stock** (impacto cross-módulo a validar en Arquitectura).

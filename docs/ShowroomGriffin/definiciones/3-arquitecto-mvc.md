@@ -1,4 +1,88 @@
-﻿# 3 — Arquitectura MVC v2
+﻿# V10 — Arquitectura técnica: Carga masiva de stock por Marca + filtros completos en Consulta de Stock (2026-07-30)
+
+**Input:** `1-analista-funcional.md` sección V10 (aprobado) + `2-disenador-funcional.md` sección V10 (CERRADO Y APROBADO, DD-1 resuelto).
+
+## 0. Escaneo de reutilización
+
+Escaneado `docs/*/definiciones/{3-arquitecto-mvc,5-implementador}.md`. Coincidencia: **LabIPAC** — `IProduccionMensualService.AgregarLineasAsync(int, IEnumerable<Dto>)`, batch atómico con `AddRangeAsync` + único `SaveChangesAsync` (sin transacción explícita porque no había múltiples operaciones dependientes de servicios externos). Se toma como referencia de forma general, pero **no aplica igual acá**: ShowroomGriffin ya tiene servicios existentes (`AjusteManualAsync`, `CargaInicialAsync` vía `VarianteService.CrearAsync`) que abren **su propia transacción interna** — un caso más complejo que labipac porque implica orquestar servicios ya transaccionales, no solo un `AddRange` plano. Ver riesgo crítico R-V10-1 más abajo.
+
+Dentro del propio ShowroomGriffin, se reutilizan directamente (sin reescribir):
+- `IVarianteService.CrearAsync(VarianteViewModel)` — ya crea `VarianteProducto` + `Stock` (init 0) + carga inicial opcional. Es exactamente el mecanismo de alta que necesita cada fila nueva de la grilla masiva.
+- `IStockService.AjusteManualAsync(AjusteStockViewModel)` — ya genera `AjusteStock` + `MovimientoStock` por variante. Es el mecanismo que necesita cada fila existente con cantidad modificada.
+
+## 1. Alcance funcional resumido
+Sin cambios respecto al Diseño V10 aprobado: pantalla `/Stock/CargaMasiva` (selección por Marca, grilla agrupada por Modelo, alta inline de variantes faltantes, guardado atómico con errores por fila) + filtros Talle/Estado en `/Stock/Index`.
+
+## 2. Impacto técnico por capa
+
+### Domain
+Sin entidades nuevas ni modificadas. Se reutilizan `VarianteProducto`, `Stock`, `AjusteStock`, `MovimientoStock`, `TalleConfig`, `Modelo`, `Producto`.
+
+### Application
+| Elemento | Cambio |
+|---|---|
+| `IStockService` | + `ObtenerParaCargaMasivaAsync(int marcaId)` → `StockCargaMasivaViewModel` (arma grilla agrupada por Modelo con variantes existentes) |
+| `IStockService` | + `GuardarCargaMasivaAsync(StockCargaMasivaViewModel vm, string usuarioId)` → `ServiceResult` (orquesta altas + ajustes en una única transacción, ver R-V10-1) |
+| `IStockService.ListarAsync` / `ExportarExcelAsync` | + parámetros `int? talleConfigId`, `EstadoStockFiltro estado` |
+| DTOs nuevos | `StockCargaMasivaViewModel`, `StockCargaMasivaModeloViewModel`, `StockCargaMasivaFilaViewModel` (en `Application/DTOs/Stock/StockViewModels.cs`, junto a los existentes) |
+| Enum nuevo | `EstadoStockFiltro` (`Application` o `Domain.Enums`, a definir por convención existente — los enums del proyecto viven en `Domain.Enums`, se sigue ese criterio) |
+
+### Infrastructure
+| Elemento | Cambio |
+|---|---|
+| `StockService` | + `ObtenerParaCargaMasivaAsync`: query de `VarianteProducto` por `Producto.Modelo.MarcaId`, agrupado en memoria por `ModeloId` |
+| `StockService` | + `GuardarCargaMasivaAsync`: ver diseño de transacción en R-V10-1 |
+| `StockService.ListarAsync` | + `Where(s => s.VarianteProducto.TalleConfigId == talleConfigId)` y mapeo de `estado` a la misma expresión que ya usa `EnAlerta`/`Deficit` |
+| `StockService.ExportarExcelAsync` | pasa los 2 parámetros nuevos a `ListarAsync` |
+
+### Web
+| Elemento | Cambio |
+|---|---|
+| `StockController` | + `CargaMasiva` GET (arma vm vía `ObtenerParaCargaMasivaAsync`) y POST (`[Authorize(Policy = "RequireAdministrador")]`, mismo criterio que `Ajuste`) |
+| `StockController.Listar` / `ExportarExcel` | + parámetros `talleConfigId`, `estado` |
+| Vista nueva | `Views/Stock/CargaMasiva.cshtml` |
+| Vista modificada | `Views/Stock/Index.cshtml` (combo Talle + combo Estado reemplazando botón) |
+| JS | endpoint AJAX ya existente `/Variantes/api/Colores`-style reutilizado para poblar Talle por Modelo (o se reutiliza `ObtenerTallesPorModeloColorAsync` ya existente en `IVarianteService`, pasando `color: null`) |
+
+## 3. Modelo de permisos
+Sin cambios. `CargaMasiva` usa `RequireAdministrador` (idéntico a `Ajuste`/`CargaInicial` existentes). `/Stock/Index` con filtros nuevos sigue bajo `RequireEmpleado` (policy de clase ya vigente).
+
+## 4. Migraciones EF
+**NO.** Todas las entidades y columnas necesarias ya existen. Confirmado en Diseño y re-confirmado acá tras revisar el código real de `VarianteProducto`, `Stock`, `AjusteStock`, `MovimientoStock`.
+
+## 5. Riesgos y supuestos
+
+### R-V10-1 (CRÍTICO — bloquea implementación tal cual, requiere resolución de diseño técnico)
+`AjusteManualAsync` y (indirectamente, vía `CargaInicialAsync`) el alta de variante abren **cada uno su propia transacción** (`await using var tx = await _db.Database.BeginTransactionAsync()`) y hacen `commit`/`rollback` internamente. Si `GuardarCargaMasivaAsync` abre una transacción externa y dentro llama a estos métodos tal cual existen hoy, EF Core lanza `InvalidOperationException` ("ya hay una transacción activa en este contexto") en el segundo `BeginTransactionAsync` anidado sobre el mismo `DbContext`/conexión — la atomicidad total (DD-1) no se puede lograr con una llamada ingenua a los métodos existentes.
+
+**Resolución propuesta (para que el Implementador la aplique, sin duplicar lógica):**
+- Extraer la lógica interna de `AjusteManualAsync` (armar `AjusteStock` + actualizar `Stock.StockActual` + `RegistrarMovimientoAsync`) a un método privado `AplicarAjusteInternoAsync(...)` **sin** su propio `BeginTransactionAsync` — asume que ya corre dentro de una transacción externa.
+- `AjusteManualAsync` (uso individual, sin cambios de comportamiento externo) pasa a ser: abrir transacción → llamar `AplicarAjusteInternoAsync` → commit/rollback. Mismo resultado que hoy.
+- Igual tratamiento para la porción transaccional de `CargaInicialAsync` si se reutiliza dentro del lote (o se llama directo a `VarianteService.CrearAsync`, que hoy NO abre transacción explícita — solo hace 2 `SaveChangesAsync` secuenciales sobre el mismo `DbContext` sin `BeginTransactionAsync`, por lo que SÍ puede llamarse tal cual dentro de la transacción externa de `GuardarCargaMasivaAsync` sin conflicto).
+- `GuardarCargaMasivaAsync`: abre 1 sola transacción externa, por cada fila nueva llama a `VarianteService.CrearAsync` (reutilizado sin cambios), por cada fila modificada llama a `AplicarAjusteInternoAsync` (nuevo método interno reutilizando la lógica de `AjusteManualAsync`), y al final hace un único commit (o rollback si cualquier paso falla) — esto cumple DD-1 (todo o nada) sin duplicar reglas de negocio.
+- **Nota de preservación de comportamiento legacy:** este refactor no cambia la firma pública ni el comportamiento observable de `AjusteManualAsync`/`CargaInicialAsync` para sus usos actuales (ajuste individual, alta de variante individual) — solo separa "abrir transacción" de "aplicar la regla", cumpliendo la regla de "preservar comportamiento legacy salvo indicación contraria".
+
+### R-V10-2 (a resolver antes de implementar)
+La grilla se agrupa por `Modelo`, pero `VarianteProducto.ProductoId` apunta a `Producto`, y el esquema permite (sin restricción de unicidad verificada en `ProductoService`) que un `Modelo` tenga más de un `Producto` — aunque en la práctica documentada (`Producto.cs`: "Nombre derivado de Modelo.Nombre") el sistema se usa como 1 Producto por Modelo. **Se requiere definición:** si al momento de dar de alta una variante nueva para un Modelo no existe ningún `Producto` asociado, o existe más de uno, ¿qué hace la pantalla? Recomendado: si no existe `Producto`, no ofrecer la fila "+ Agregar variante nueva" para ese Modelo y mostrar mensaje "Este modelo no tiene un Producto asociado — crear uno primero desde Productos"; si existe más de uno (caso no contemplado en el uso real actual), tomar el primero y loguear advertencia (caso borde, no bloquea).
+
+### R-V10-3 (heredado del Diseño)
+Concurrencia por fila: cada `VarianteProducto.RowVersion` debe seguir chequeándose individualmente dentro del lote (EF Core lo hace automáticamente vía `ConcurrencyCheck` en cada `SaveChangesAsync`); si una fila del lote tiene conflicto de concurrencia, la transacción completa hace rollback (consistente con DD-1) y el mensaje de error debe indicar qué variante cambió entretanto.
+
+### R-V10-4
+`ExportarExcelAsync` y `ListarAsync` deben recibir los mismos 2 parámetros nuevos — cambio de firma que impacta `StockController` (ya identificado en Diseño y confirmado acá).
+
+## 6. Gate de aprobación para pasar a Presupuesto
+
+Arquitectura V10 lista para aprobación. Antes de presupuestar, requiere que el cliente (o el propio flujo, si se resuelve por criterio técnico estándar) confirme R-V10-2 (comportamiento si falta el Producto del Modelo) — R-V10-1 es una decisión técnica interna (no requiere validación de negocio, solo ejecución correcta) y ya tiene resolución propuesta.
+
+**R-V10-2 — Resuelto por el cliente (2026-07-30):** se bloquea la fila "+ Agregar variante nueva" para un Modelo sin `Producto` asociado, mostrando el mensaje "Este modelo no tiene un Producto asociado — crear uno primero desde Productos". El resto del lote (otros Modelos con Producto existente) sigue operando normalmente — no bloquea el submit completo, solo deshabilita esa opción puntual para ese Modelo.
+
+### Estado
+ARQUITECTURA V10 CERRADA Y APROBADA. R-V10-1 con resolución técnica aplicable directamente por el Implementador (sin validación de negocio pendiente). R-V10-2 resuelto por el cliente. Lista para Presupuesto.
+
+---
+
+# 3 — Arquitectura MVC v2
 ## Sistema de Gestión Comercial — ShowroomGriffin
 **Versión:** 2.0  
 **Estado:** En definición  

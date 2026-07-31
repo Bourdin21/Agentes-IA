@@ -501,7 +501,44 @@ Pedido: "quiero mejorar el diseño grafico de los comprobantes remitos pdf y fac
 - **CA-CR26.2**: tablas con columnas numéricas alineadas a la derecha, total destacado visualmente (caja/borde), mismo criterio de jerarquía en ambos documentos para que se sientan de la misma familia visual.
 - **CA-CR26.3**: la factura AFIP suma el código QR real según la especificación de AFIP, visible en el pie del documento.
 
+## Discovery + Análisis v12 — CR-27: Cuenta Corriente de Proveedores real (impuestos + pagos reales, reemplaza CR-19)
+
+Pedido: "Hacer importacion de los datos de las cuenta corrientes de los proveedores... analizar que datos esta cargando el usuario de cada compra y de cada pago, ver cuales columnas son utiles para que de bien los numeros de las cuentas corrientes y el modelo le sirva." Disparado por un archivo nuevo entregado por el cliente: `Informe Cuentas Corrientes Movimientos de Proveedores 30-07-2026 1052 Hs.xlsx` — ledger real de 572 movimientos (239 Compras + 333 Pagos, 17 proveedores), 34 columnas, con saldo corrido ("A pagar") que cierra exacto contra el propio archivo.
+
+### Auditoría columna por columna (34 columnas)
+- **Con datos reales, hoy no modelados o mal usados**: `Subtotal con Descuento`/`IVA 2,5-27%`/`Perc. IVA`/`Perc. IIBB`/`Imp. Internos`/`Imp. Municipales`/`Sellos`/`Total compra` (impuestos reales por Compra — ver hallazgo 1); `Medio de Pago`/`Emisión`/`Pagado`/`Id Compra` (pago real por Compra — ver hallazgo 2); `Descripción` (nota real en 135/239 Compras, ej. "echeq $396000 12/10" — plan de pago acordado con el proveedor); `Punto de Venta`/`N° de Comprobante` (el modelo ya tenía estos campos desde CR-10, pero el importador nunca los cargaba).
+- **Constante, sin valor informativo**: `Categoría` (siempre "Productos Terminados" o vacía) — descartada.
+- **Redundante**: `Aplicada en N° de Factura`/`Fecha Factura Aplicada` (duplican en texto lo que `Id Compra` ya da como FK numérica confiable) — descartadas, se usa `Id Compra`.
+
+### Hallazgo 1 — el Total de las 239 OC históricas estaba subvaluado en ~$19,4M
+El importador original (CR-6/CR-1) solo guardaba el subtotal de líneas de producto, sin IVA ni percepciones — decisión explícita en su momento ("Total = Subtotal, sin impuestos discriminados... fuera del alcance aprobado de CR-6"). Verificado contra `marihogar_dev`: `SUM(OrdenCompra.Total)` real = $97.830.036,43. El archivo nuevo trae el Total real (con impuestos) por Compra: $117.216.297,81. Sin corregir esto, los pagos reales del hallazgo 2 no cerrarían contra el saldo real.
+
+### Hallazgo 2 — CR-19 había marcado las 239 OC como pagadas al 100% de forma ficticia
+CR-19 (2026-07-28) registró un único pago en Efectivo por el Total completo de cada OC, "forma de pago real no discriminada por el Excel" en ese momento. El archivo nuevo trae el pago real: 333 pagos concretos (fecha, medio, monto), vinculados a la Compra exacta vía `Id Compra`. Real: Total Compras $117,22M − Total Pagado $95,44M = **$21,77M de saldo pendiente real** (211 de las 239 Compras tienen al menos 1 pago real; 28 quedan enteramente pendientes).
+
+### Hallazgo 3 — Mercado Pago se usa realmente para pagarle a proveedores
+71 de los 333 pagos reales ($18,7M, 20% del total pagado) se hicieron por Mercado Pago — método hoy excluido a propósito de `PagoOrdenCompraService.MetodosPermitidosOC` (decisión de CR-3, que asumía uso exclusivo de Ventas). **Decisión confirmada con el cliente** (`AskUserQuestion`): habilitar Mercado Pago también hacia adelante como opción real en la pantalla de pago a proveedores, no solo para el histórico.
+
+### Decisión confirmada con el cliente sobre el hallazgo 1 (`AskUserQuestion`)
+Corregir el Total de las 239 OC históricas para incluir impuestos reales (sube la deuda total registrada de $97,83M a $117,22M) — imprescindible para que los pagos reales del hallazgo 2 cierren contra el saldo real.
+
+### CA-CR27.1 — Total real con impuestos en OC históricas
+`OrdenCompra.Subtotal`/`MontoIva`/`MontoIIBB`/`MontoOtrosImpuestos`/`Total`/`PuntoVenta`/`NumeroComprobante` se cargan desde las columnas reales del archivo nuevo (`Total compra` tomado tal cual como autoritativo) en vez del subtotal-sin-impuestos usado hasta CR-19.
+
+### CA-CR27.2 — Pagos reales por Compra, reemplaza el pago ficticio de CR-19
+Por cada pago real del archivo (columna `Id Compra`), se crea un `PagoOrdenCompra` + `MovimientoCCProveedor` real (fecha/medio/monto reales). Las Compras sin pago real quedan con saldo pendiente real, no ficticio.
+
+### CA-CR27.3 — Ajuste de apertura de CC Proveedores (CR-18) deshabilitado
+Con cobertura 100% real y completa de las 239 Compras, el saldo que queda por proveedor tras CA-CR27.1/27.2 YA ES el saldo real (verificado que coincide con la columna "A pagar" del propio archivo) — el mecanismo de CR-18 que llevaba a $0 cualquier saldo remanente (parche para cuando no había forma de saber la deuda real) se deshabilita para CC Proveedores. CC Local no se toca (Ventas/Gastos no tienen todavía la misma cobertura 100% real).
+
+### CA-CR27.4 — Mercado Pago habilitado para pagos a Proveedores
+`MetodoPago.MercadoPago` se agrega a `PagoOrdenCompraService.MetodosPermitidosOC` y al selector de `OrdenesCompra/Details.cshtml`.
+
+### CA-CR27.5 — Nota interna en OrdenCompra
+`OrdenCompra.NotaInterna` (nuevo campo, mismo patrón que `Venta.NotaInterna` de CR-12) para no perder el detalle real de la columna `Descripción` (135/239 Compras, planes de pago informales tipo echeq acordados con el proveedor).
+
 ## Historial de ajustes
+- 2026-07-30: Discovery + Análisis v12 — CR-27, disparado por un archivo nuevo del cliente (ledger real de Cuenta Corriente de Proveedores). 3 hallazgos: (1) el Total de las 239 OC históricas no incluía impuestos (subvaluado ~$19,4M); (2) CR-19 había marcado todo como pagado de forma ficticia, el archivo nuevo trae el pago real de 333 movimientos; (3) Mercado Pago se usa realmente para pagar a proveedores (excluido hasta ahora por decisión de diseño de CR-3). 2 decisiones confirmadas con el cliente (corregir el Total con impuestos reales; habilitar Mercado Pago también hacia adelante). Corrección del histórico (hallazgos 1/2, mismo criterio que CR-23 — dato ya migrado incorrecto) + 2 capacidades nuevas menores (Mercado Pago para OC, NotaInterna en OrdenCompra).
 - 2026-07-30: Discovery + Análisis v11 — CR-25 (comprobante AFIP totalmente editable, venta como referencia no como fuente de verdad — 2 decisiones de diseño confirmadas con el cliente) y CR-26 (rediseño visual de remito/factura PDF + hallazgo de cumplimiento no solicitado: falta el código QR obligatorio de AFIP desde 2019, se suma al mismo alcance). Sin gate de presupuesto nuevo.
 - 2026-07-30: Discovery + Análisis v10 — CR-24, 4 sub-ítems sobre Ventas ya en producción: (1) bug real del toggle de IVA que descartaba precios editados a mano; (2) layout de 4 elementos en la columna de precio; (3) Total editable con reparto proporcional (confirmado con el cliente); (4) nueva capacidad de registrar pagos sobre una Venta ya creada, mirror exacto de Compras — incluye redirect a Details tras crear. Sin gate de presupuesto nuevo, corrección + extensión de bajo-medio esfuerzo sobre CR-22 ya aprobado.
 - 2026-07-29: Discovery + Análisis v9 — CR-23, corrección exhaustiva de Ventas históricas tras reporte del cliente de que el precio y la forma de pago migrados no coincidían con la realidad. 3 hallazgos: (1) el monto usado no incluía IVA (Precio Unitario es neto, Total Venta = neto×1,21); (2) el campo Descuento ya queda absorbido al usar Total Venta directo, sin necesitar modelarlo aparte; (3) la forma de pago real está en Nota Interna en 68% de las ventas, parseable con un catálogo de patrones (eft/mpo/visa/master/naranja/transf carre/debito), incluyendo 8 ventas con múltiples formas de pago y 2 con saldo pendiente real. Sin gate de presupuesto nuevo — corrección de un dato ya migrado, mismo criterio que MH-006/MH-007.

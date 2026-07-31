@@ -20,3 +20,4 @@ Registrar una fila por cada proyecto con memoria activa en /docs.
 | marihogar | 2026-06-29 | Etapa 1 completa (QA GO) — pendiente verificación manual del cliente y certificado ARCA; Etapa 2 en pausa | /docs/marihogar |
 | crm-olvidata | 2026-07-14 | en producción, operativo | /docs/crm-olvidata |
 | la-platense | 2026-07-30 | presupuesto aprobado — pendiente inicio implementación | /docs/la-platense |
+| diercas | 2026-07-30 | presupuesto | /docs/diercas |
