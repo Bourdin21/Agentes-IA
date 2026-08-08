@@ -2,7 +2,7 @@
 **Proyecto:** ShowroomGriffin  
 **Agente:** Implementador  
 **Fecha creación:** 2026-04-23  
-**Última actualización:** 2026-07-30 (V10 — carga masiva de stock por Marca + filtros completos en Consulta de Stock)  
+**Última actualización:** 2026-08-08 (V11 — filtros server-side reales en Ventas/Compras/Devoluciones + Marca/Modelo activos en Productos)  
 
 ---
 
@@ -2243,6 +2243,80 @@ Se reviso `docs/*/definiciones/5-implementador.md` (ya escaneado en Arquitectura
 - [x] DD-1 (atomicidad total + errores por fila + no perdida de datos tipeados) implementado.
 - [x] R-V10-2 (bloqueo de alta si falta Producto, sin bloquear el resto del lote) implementado.
 - [ ] QA manual pendiente (smoke test funcional no corresponde al Implementador — ver guia de pruebas arriba).
+
+---
+
+## V11 — Filtros server-side reales (Ventas/Compras/Devoluciones) + Marca/Modelo activos en Productos (2026-08-08)
+
+**Input:** fix directo a pedido del cliente. No paso por Discovery/Diseño/Arquitectura/Presupuesto: es correccion de un patron ya implementado, revisado y aprobado en este mismo proyecto (`Stock/Index`, commit `4f7af9b` + un segundo ajuste de Select2 encontrado sin commitear en el working tree al momento de arrancar esta tarea). El pedido explicito fue "aplicar el mismo criterio ahi usado a 4 pantallas mas".
+
+### 0. Escaneo de reutilizacion (obligatorio)
+No se escaneo fuera del proyecto: el propio pedido identificaba la plantilla a reutilizar (`StockController.Index` + `Views/Stock/Index.cshtml`). Se tomo literalmente como referencia de estilo: combos poblados completos server-side vía `ViewBag`, Select2 local (`theme: 'bootstrap-5'`, sin `ajax`, autocomplete sobre las `<option>` ya renderizadas) para catalogos cortos, `ajax` remoto (`processResults`) para catalogos largos con endpoint `Buscar` ya existente (Clientes/Proveedores), cascada opcional no destructiva (`fullOptions` cacheado + `repoblar()` + `.trigger('change')`), y `buildAjaxUrl()` + `dt.ajax.url(...).load()` para recargar la grilla server-side.
+
+### Bug funcional encontrado (prioridad alta, no era solo estetica)
+`Ventas/Index.cshtml`, `Compras/Index.cshtml` y `Devoluciones/Index.cshtml` tenian sus DataTables en `serverSide: true`, pero el filtro de Fecha (`filDesde`/`filHasta`) y Estado/Tipo (`filEstado`/`filTipo`) estaba implementado con `$.fn.dataTable.ext.search.push(...)` — mecanismo **client-side** de DataTables que en modo `serverSide: true` solo evalua las filas de la pagina YA cargada del servidor, no el dataset completo. Con mas de una pagina de resultados, filtrar por fecha o estado daba resultados incompletos o vacios, sin ningun aviso al usuario. Corregido en las 3 pantallas reemplazando el mecanismo por filtrado real server-side (mismo patron que `IStockService.ListarAsync`): los filtros viajan como querystring al endpoint `Listar` y el propio `IServicio.ListarAsync` los aplica con `.Where()` sobre la query antes de contar `total` y paginar.
+
+### Desviaciones respecto del pedido original
+1. **Enum `TipoDevolucion` mal mapeado en el filtro de Devoluciones (bug preexistente, no introducido ahora):** el combo "Tipo" de `Devoluciones/Index.cshtml` usaba valores `0`/`1`, pero el enum real `TipoDevolucion` tiene 3 valores (`DevolucionDinero=1, CambioMismoValor=2, CambioMayorValor=3`) — ni el filtro client-side roto ni el `render()` de la columna (`tipoMap`) correspondian a ningun valor real; el filtro "Devolucion" (value=0) nunca podia matchear nada. Se corrigio alineando con el criterio que ya usa `Devoluciones/Detalle.cshtml` (`TipoOperacion == DevolucionDinero ? "Devolución" : "Cambio"`): el select ahora usa value=1 (Devolucion) / value=2 (Cambio), y `DevolucionService.ListarAsync(tipo: 2)` agrupa `CambioMismoValor || CambioMayorValor` server-side. Riesgo bajo (mismo criterio ya vigente en otra vista de la misma pantalla).
+2. **`/Proveedores/Buscar` ya existia** (el pedido preveia la posibilidad de tener que crearlo) — `ProveedoresController.Buscar` y `ProveedorService.BuscarAsync` ya devolvian `{ id, razonSocial, telefono, email, cuit }`, sin necesidad de ajuste.
+3. **Forma del JSON de `/Clientes/Buscar` y `/Proveedores/Buscar` confirmada, no hubo que ajustar mapeo**: `ClienteViewModel` usa `Nombre` (no otro campo) y `ProveedorViewModel` usa `RazonSocial` — el `processResults` de cada Select2 mapea exactamente esos campos (`c.nombre`, `p.razonSocial` en JS, ya en camelCase por la serializacion JSON default de ASP.NET Core).
+
+### Cambios por capa
+
+**Application:**
+- `Application/Interfaces/IVentaService.cs` — `ListarAsync` agrega `DateTime? fechaDesde = null, DateTime? fechaHasta = null, int? estado = null, int? clienteId = null`.
+- `Application/Interfaces/ICompraService.cs` — `ListarAsync` agrega `DateTime? fechaDesde = null, DateTime? fechaHasta = null, EstadoCompra? estado = null, int? proveedorId = null`.
+- `Application/Interfaces/IDevolucionService.cs` — `ListarAsync` agrega `DateTime? fechaDesde = null, DateTime? fechaHasta = null, int? tipo = null` (tipo: 1=Devolucion, 2=Cambio, agrupado server-side).
+
+**Infrastructure:**
+- `Infrastructure/Services/VentaService.cs` (`ListarAsync`, ~L283) — agrega `.Where()` sobre `FechaVenta` (rango, con `fechaHasta` inclusive de todo el dia via `< fechaHasta.Date.AddDays(1)`), `Estado` (cast `(EstadoVenta)estado.Value`) y `ClienteId`, antes de `CountAsync()`. No se toco el filtro existente G-09 (Vendedor ve solo sus ventas).
+- `Infrastructure/Services/CompraService.cs` (`ListarAsync`, ~L231) — mismo criterio sobre `FechaCompra`, `Estado` (tipado `EstadoCompra?` directo, sin cast, consistente con `CambiarEstadoAsync` ya existente) y `ProveedorId`.
+- `Infrastructure/Services/DevolucionService.cs` (`ListarAsync`, ~L163) — mismo criterio sobre `Fecha` y `TipoOperacion` (agrupado 1/2 como se explica en Desviaciones).
+
+**Web:**
+- `Web/Controllers/VentasController.cs` — `Listar` agrega los 4 parametros opcionales y los propaga a `_service.ListarAsync(...)` sin tocar la logica G-09 (filtro de vendedor) existente.
+- `Web/Controllers/ComprasController.cs` — `Listar` agrega los 4 parametros opcionales.
+- `Web/Controllers/DevolucionesController.cs` — `Listar` agrega los 3 parametros opcionales.
+- `Web/Controllers/ProductosController.cs` — `Index` inyecta `IMarcaService`/`IModeloService` y puebla `ViewBag.Marcas` (`ListarTodasAsync()`) y `ViewBag.Modelos` (`ObtenerPorMarcaAsync(null)`, ya modificado en el fix de Stock del 2026-07-31 para devolver todos si `marcaId` es null — no se toco de nuevo). El metodo `Listar` (accion AJAX de la grilla) no cambio, ya aceptaba `categoriaId`/`marcaId`/`modeloId`.
+- `Views/Ventas/Index.cshtml` — reescrita: los 2 `<input type="date">` sueltos se reemplazan por daterangepicker (input visible `#filRango` + 2 hidden `#filFechaDesdeHidden`/`#filFechaHastaHidden` en formato `YYYY-MM-DD`, locale es-AR con `daysOfWeek`/`monthNames` en español, `firstDay: 1`, `autoUpdateInput: false`); nuevo filtro Cliente con Select2 AJAX contra `/Clientes/Buscar`; se quito el bloque `$.fn.dataTable.ext.search.push(...)` y se reemplazo por `buildAjaxUrl()` + `dt.ajax.url(...).load()`. Estado sigue como `<select>` simple (3 valores fijos).
+- `Views/Compras/Index.cshtml` — mismo patron: daterangepicker, filtro Proveedor con Select2 AJAX contra `/Proveedores/Buscar`, `ext.search.push` eliminado.
+- `Views/Devoluciones/Index.cshtml` — mismo patron: daterangepicker, filtro Tipo corregido (ver Desviaciones #1), `ext.search.push` eliminado. Sin filtro de catalogo nuevo (no aplica, segun el pedido).
+- `Views/Productos/Index.cshtml` — Marca y Modelo dejan de nacer `disabled`; se pueblan completos server-side (mismo `foreach` que Categoria ya tenia); se agrega Select2 local a los 3 combos; la cascada Categoria→Marca→Modelo pasa de destructiva (vaciar+disable) a refinamiento opcional no destructivo (`fullOptions` cacheado + funcion `repoblar()` + `.trigger('change')`), copiado literal del patron de `Stock/Index.cshtml`.
+
+### Migracion EF
+**No aplica.** Los 4 cambios son queries nuevas sobre columnas/relaciones ya existentes (`Venta.FechaVenta/Estado/ClienteId`, `Compra.FechaCompra/Estado/ProveedorId`, `DevolucionCambio.Fecha/TipoOperacion`, `Producto.MarcaId`/`ModeloId` via los servicios de Marca/Modelo ya existentes).
+
+### Evidencia de build
+- `dotnet build ShowroomGriffin.slnx` → Compilación correcta. 0 Advertencia(s), 0 Errores.
+- `dotnet publish ShowroomGriffin.Web/ShowroomGriffin.Web.csproj -c Release -o <carpeta scratchpad descartada>` → 0 errores. Fuerza la compilacion de las 4 vistas Razor modificadas (este proyecto no precompila Razor en `dotnet build` solo).
+
+### Riesgos y supuestos
+- El agrupamiento de `TipoDevolucion` (Desviacion #1) es una correccion de un bug preexistente fuera del pedido original explicito, pero necesaria: sin corregirlo, el nuevo filtro server-side habria reproducido el mismo bug de forma silenciosa (filtrar "Devolucion" no habria devuelto nunca resultados). Documentado explicitamente por transparencia con QA/cliente.
+- `Select2` en modo `ajax` para Cliente/Proveedor no usa `minimumInputLength` (igual que el unico precedente `ajax` del proyecto, `Stock/Ajuste.cshtml` para Variante) — al abrir el desplegable sin escribir nada trae los primeros 20 resultados (`Take(20)` ya existente en `BuscarAsync`), consistente con el comportamiento ya aceptado en produccion para ese patron.
+- No se agrego un filtro de Cliente/Proveedor a `Devoluciones/Index` ni a `Productos/Index` porque no estaba en el pedido y no hay columna visible en esas grillas que lo requiera (regla de `25-frontend-design-system.instructions.md`: cada columna visible define su filtro, no al reves).
+
+### Pruebas minimas requeridas para QA
+- [ ] `/Ventas/Index`: cargar mas de 1 pagina de ventas (>10, el `length` default de DataTables) con distintas fechas → aplicar rango de fechas que excluya la mayoria → verificar que el conteo de filas coincide con lo esperado en TODA la base, no solo en la pagina visible antes de filtrar (verificacion directa del bug corregido).
+- [ ] `/Ventas/Index`: filtrar por Cliente (Select2 AJAX) → verificar que trae resultados y persiste el filtro combinado con Fecha/Estado.
+- [ ] `/Ventas/Index`: filtro Estado (Confirmada/Entregada/Anulada) combinado con rango de fechas → verificar resultados correctos.
+- [ ] `/Ventas/Index`: como usuario con rol Vendedor (no Admin) → verificar que el filtro G-09 (solo sus propias ventas) sigue aplicando junto con los filtros nuevos.
+- [ ] `/Compras/Index`: mismo test de paginacion + fecha que Ventas. Filtrar por Proveedor (Select2 AJAX) y por Estado (Borrador/En Proceso/Verificada/Recibida).
+- [ ] `/Devoluciones/Index`: mismo test de paginacion + fecha. Filtrar por Tipo "Devolucion" → verificar que trae SOLO devoluciones de dinero; Tipo "Cambio" → verificar que trae cambios de mismo Y mayor valor (los 2 subtipos agrupados).
+- [ ] `/Devoluciones/Index`: verificar que el badge de la columna Tipo en la grilla muestra "Devolución"/"Cambio" coherente con el filtro aplicado (antes del fix podian no coincidir).
+- [ ] `/Productos/Index`: al entrar sin tocar nada, verificar que Marca y Modelo ya muestran la lista completa (no aparecen deshabilitados) y se puede filtrar por Modelo sin elegir Marca antes.
+- [ ] `/Productos/Index`: elegir una Categoria → verificar que Marca se acota pero sigue habilitado; limpiar Categoria → verificar que Marca vuelve a la lista completa sin otro viaje al servidor perceptible (recarga instantanea).
+- [ ] Boton "Limpiar" en las 4 pantallas → verificar que resetea todos los filtros (incluido el daterangepicker) y recarga la grilla sin filtros.
+
+### Checklist de salida para merge
+- [x] Compila sin errores (`dotnet build` + `dotnet publish` para validar Razor).
+- [x] Sin migracion EF.
+- [x] Logica de filtro en los Services (`VentaService`/`CompraService`/`DevolucionService`), controllers solo propagan parametros.
+- [x] Bug de filtro client-side sobre tabla `serverSide: true` corregido en las 3 pantallas (Ventas/Compras/Devoluciones).
+- [x] Filtros Marca/Modelo de Productos activos e independientes desde el primer render (mismo criterio que Stock).
+- [x] SweetAlert2/Select2/DataTables/daterangepicker reutilizados desde `_Layout.cshtml`, sin scripts nuevos agregados.
+- [x] Filtro G-09 (Vendedor ve solo sus ventas) preservado sin cambios de comportamiento.
+- [ ] QA manual pendiente (smoke test funcional no corresponde al Implementador — ver guia de pruebas arriba).
+- [ ] Commit/push pendiente — a cargo del usuario (pedido explicito de no commitear en esta tarea).
 
 ---
 

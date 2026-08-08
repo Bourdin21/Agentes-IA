@@ -790,6 +790,17 @@ regresiones:
     pruebas_minimas:
       - "Login Vendedor -> Contactos/Details de cualquier contacto -> confirmar que no aparece el selector de estado (prueba manual UI, PASS/FAIL a reportar por el usuario)."
       - "Login Administrador -> mismo flujo -> selector visible y funcional (regresion)."
+    fix_aplicado:
+      fecha: "2026-08-08"
+      por: "implementador"
+      resultado: "aplicado"
+      archivos:
+        - path: OlvidataCRM.Web/Views/Contactos/Details.cshtml
+          motivo: "El <form id=\"formCambiarEstado\"> se envolvio en '@if (User.IsInRole(\"SuperUsuario\")) { ... } else { <span class=\"ov-badge neutral\">Solo Administración puede cambiar el estado</span> }' — la policy RequireAdministracion que citaba el hallazgo original ya no existe en el codigo actual (solo queda RequireSuperUsuario), asi que el chequeo se ajusto a la policy real vigente. Mismo fix aplicado tambien en Views/Chats/Detail.cshtml, que comparte la misma accion CambiarEstado via un formulario propio."
+        - path: OlvidataCRM.Web/Views/Chats/Detail.cshtml
+          motivo: "Mismo chequeo de rol agregado alrededor del formulario de cambio de estado (no estaba en el alcance original del hallazgo, pero comparte la misma accion de controller y el mismo problema de fondo)."
+      build: "dotnet build -c Release -> Compilacion correcta, 0 Errores (mismos warnings preexistentes)."
+      verificacion: "NOTA IMPORTANTE: hoy este hallazgo es inalcanzable en la practica — ContactosController y ChatsController ya exigen [Authorize(Policy = \"RequireSuperUsuario\")] a nivel de clase (mas estricto que lo que pedia el hallazgo original), y en produccion el unico usuario real tiene rol SuperUsuario (Vendedor/Administrador/Empleado: 0 usuarios asignados, verificado por SQL). El fix se aplico igual como defensa en profundidad para el futuro, sin poder probarse end-to-end contra un usuario Vendedor real porque no existe ninguno."
 
   - id: CRM-003
     modulo: "Contactos / Index e Industrias / Index (DataTable server-side)"
@@ -819,6 +830,17 @@ regresiones:
     pruebas_minimas:
       - "Contactos/Index: click en encabezado 'Nombre' -> verificar que el orden de las filas cambia (prueba manual UI)."
       - "Industrias/Index: click en encabezado 'Precio USD' -> verificar que el orden cambia (prueba manual UI)."
+    fix_aplicado:
+      fecha: "2026-08-08"
+      por: "implementador"
+      resultado: "aplicado"
+      archivos:
+        - path: OlvidataCRM.Web/Controllers/ContactosController.cs
+          motivo: "Agregado metodo AplicarOrden(IQueryable<Contacto>) que lee Request.Form[\"order[0][column]\"]/[\"order[0][dir]\"] y aplica un switch explicito (whitelist por indice de columna 0-6, sin LINQ dinamico desde texto libre) sobre Telefono/NombreContacto/NombreNegocio/Rubro/CanalOrigen/EstadoEmbudo/FechaUltimaActividad, con OrderByDescending(FechaUltimaActividad) como fallback igual al comportamiento anterior. AuditController.GetData, citado como referencia en el hallazgo original, ya no existe en este codigo (no hay pantalla de Auditoria en este proyecto) — se implemento el patron desde cero en vez de copiarlo."
+        - path: OlvidataCRM.Web/Controllers/IndustriasController.cs
+          motivo: "Mismo patron — AplicarOrden(IQueryable<IndustriaCatalogo>) sobre Nombre/SistemaReferencia/Plan/PrecioBaseUsd/CotizaAutomatico/Orden, fallback OrderBy(Orden) igual al comportamiento anterior."
+      build: "dotnet build -c Release -> Compilacion correcta, 0 Errores."
+      verificacion: "Verificado por revision de codigo que las 2 vistas (Contactos/Index.cshtml, Industrias/Index.cshtml) usan DataTables con serverSide:true sin sobreescribir/eliminar el parametro 'order' del request AJAX (Contactos agrega campos propios via 'data: function(d)' pero no toca d.order; Industrias no personaliza 'data' en absoluto), asi que ambas mandan order[0][column]/order[0][dir] por el comportamiento default de DataTables. No probado interactivamente en navegador (sin sesion autenticada en este entorno) — deploy a produccion exitoso, 200 OK, sin excepciones nuevas en el log de errores."
 
   - id: CRM-004
     modulo: "Bot / Outbound (BotController.BuscarProspectos — CU-11/HU-08)"

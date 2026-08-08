@@ -1,7 +1,7 @@
 # 🏗️ Trazabilidad de Conversación - ShowroomGriffin
 **Proyecto:** ShowroomGriffin  
 **Fecha inicio:** 2026-04-23  
-**Última actualización:** 2026-07-30  
+**Última actualización:** 2026-07-31  
 
 ---
 
@@ -163,6 +163,21 @@ Las 9 etapas del flujo del orquestador se ejecutaron en esta sesión: Discovery/
 | **Migración EF** | No aplicó (confirmado desde Arquitectura — sin cambios de esquema) |
 | **Riesgo asumido** | El cliente decidió desplegar **sin haber corrido todavía la guía de verificación manual de QA** (13 pasos en `6-qa.md`) — QA solo había validado por inspección de código + build. Pendiente: ejecutar esa guía directamente sobre producción y confirmar que el flujo de Ajuste individual (`/Stock/Ajuste`) y Carga Inicial no sufrieron regresión por el refactor de `AjusteManualAsync` (R-V10-1) |
 | **Nota de seguridad** | Se usó una credencial de despliegue provista por el usuario en el chat para destrabar el Web Deploy (401 inicial con la credencial guardada en el perfil). No se almacenó en ningún archivo de este repositorio de documentación |
+
+---
+
+### Entrada 2026-07-31 — Fix post-deploy: filtros de Consulta de Stock activos e independientes desde el primer render
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-07-31 |
+| **Pedido del cliente** | "los filtros en la pantalla de consulta de stock tiene que tener todas las propiedades del stock que se lista. Hacer que los filtros estén activos en la primera carga de la pantalla así el cliente puede filtrar por cualquier campo independientemente de si tiene seleccionado el anterior" |
+| **Diagnóstico** | Los combos Marca/Modelo/Talle/Color de `/Stock/Index` (agregados en V10) nacían `disabled` y solo se poblaban en cascada (Categoría→Marca→Modelo→Talle/Color), obligando a seleccionar en orden antes de poder usar cualquiera de ellos — no cumplía la intención original de "todas las propiedades" de forma independiente |
+| **Fix aplicado** | `IModeloService.ObtenerPorMarcaAsync`/`ObtenerTallesPorModeloAsync` ahora aceptan parámetro nullable y devuelven el catálogo COMPLETO cuando es null. `StockController.Index` puebla las 4 listas completas server-side (mismo patrón que Categoría) e inyecta `IMarcaService`/`IModeloService`/`IVarianteService`. La vista ya no marca ningún combo como `disabled`; la cascada queda como refinamiento opcional (acota, nunca deshabilita ni vacía) con fallback a la lista completa cacheada en JS cuando se limpia el padre |
+| **Archivos** | `IModeloService.cs`, `ModeloService.cs`, `ModelosController.cs`, `StockController.cs`, `Views/Stock/Index.cshtml` |
+| **Migración EF** | No aplica |
+| **Verificación** | `dotnet build` (0 errores) + `dotnet publish -c Release` a carpeta descartable para forzar compilación de la vista Razor modificada (0 errores). Sin QA formal delegado a subagent — cambio acotado, tratado como fast-path a pedido directo del cliente sobre funcionalidad recién entregada |
+| **Estado** | **Publicado.** Commit `4f7af9b` en `origin/main` + deploy a producción vía Web Deploy (12 archivos actualizados, "Se publicó correctamente") |
 
 ---
 
@@ -396,6 +411,26 @@ Si no existen, **detener implementación** y solicitar al usuario que active los
 - **Impacto en capas:** ninguno adicional (QA es de solo lectura sobre el código). Actualizada la memoria del agente QA (`6-qa.md`, sección nueva "V10").
 - **Riesgos/supuestos:** smoke manual del cliente pendiente de ejecución (13 pasos documentados en `6-qa.md` V10); confirmar que los archivos actualmente sin commitear se commiteen antes de desplegar.
 - **Veredicto:** APROBADO CON OBSERVACIONES.
+
+---
+
+## 📌 Entrada 2026-08-08 — Implementador: V11 — fix directo de filtros server-side (Ventas/Compras/Devoluciones) + filtros Marca/Modelo activos en Productos
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-08 |
+| **Agente / Etapa** | Implementador (Agent mode) — fix directo a pedido del cliente, sin pasar por Discovery/Diseño/Arquitectura/Presupuesto por tratarse de corrección de un patrón ya usado y aprobado en el mismo proyecto (`Stock/Index`, commit `4f7af9b` + Select2 sin commitear encontrado en el working tree) |
+| **Escaneo de reutilización** | Match directo dentro del propio proyecto: `StockController.Index`/`Views/Stock/Index.cshtml` (filtros completos server-side + Select2 local + daterangepicker documentado en `25-frontend-design-system.instructions.md`). Reutilizado como plantilla literal para las 4 pantallas, sin buscar fuera del repo |
+| **Bug funcional encontrado (prioridad alta)** | `Ventas/Index.cshtml`, `Compras/Index.cshtml` y `Devoluciones/Index.cshtml` tenían sus DataTables en `serverSide: true` pero el filtro de Fecha/Estado/Tipo se aplicaba con `$.fn.dataTable.ext.search.push(...)`, mecanismo **client-side** que en `serverSide: true` solo evalúa las filas de la página ya traída del servidor — con más de una página de resultados el filtro daba resultados incompletos o vacíos sin ningún aviso. Corregido reemplazándolo por filtrado real server-side (mismo mecanismo que `IStockService.ListarAsync`) |
+| **Desviación #1 detectada** | El combo "Tipo" de `Devoluciones/Index.cshtml` usaba valores `0`/`1` que no correspondían a ningún valor real del enum `TipoDevolucion` (`DevolucionDinero=1, CambioMismoValor=2, CambioMayorValor=3`) — el filtro y el badge de la columna ya estaban mal desde antes (bug preexistente, no introducido ahora). Se corrigió alineando con el criterio que ya usa `Devoluciones/Detalle.cshtml` (`DevolucionDinero` = "Devolución", cualquier `Cambio*` = "Cambio"): value=1 Devolución, value=2 Cambio (agrupa `CambioMismoValor`+`CambioMayorValor` server-side) |
+| **Desviación #2** | `/Proveedores/Buscar` ya existía (a diferencia de lo anticipado, no hubo que crearlo) y `ProveedorViewModel`/`ClienteViewModel` sí tenían los campos esperados (`razonSocial`, `nombre` respectivamente) — no hizo falta ajustar mapeo de ningún endpoint Buscar |
+| **Cambios por capa** | Application (`IVentaService`, `ICompraService`, `IDevolucionService`: nuevos parámetros opcionales en `ListarAsync`); Infrastructure (`VentaService`, `CompraService`, `DevolucionService`: `.Where()` server-side sobre fecha/estado/tipo/cliente/proveedor antes de contar `total`); Web (`VentasController`, `ComprasController`, `DevolucionesController`, `ProductosController`: propagación de parámetros / poblado de `ViewBag.Marcas`+`ViewBag.Modelos`; `Views/Ventas/Index.cshtml`, `Views/Compras/Index.cshtml`, `Views/Devoluciones/Index.cshtml`, `Views/Productos/Index.cshtml` reescritas) |
+| **Migración EF** | Ninguna — todos los filtros nuevos son queries sobre columnas ya existentes |
+| **Build** | `dotnet build ShowroomGriffin.slnx` → 0 errores, 0 advertencias. `dotnet publish ShowroomGriffin.Web/ShowroomGriffin.Web.csproj -c Release` a carpeta temporal descartada (para forzar compilación de las 4 vistas Razor modificadas) → 0 errores |
+| **Detalle completo** | Ver `5-implementador.md` sección "V11 — Filtros server-side reales (Ventas/Compras/Devoluciones) + Marca/Modelo activos en Productos" |
+| **Pendiente** | QA funcional manual (fuera del alcance del Implementador) — guía de verificación dejada en `5-implementador.md`. Commit/push queda a cargo del usuario (pedido explícito de no commitear) |
+
+**Verificación y publicación (mismo día):** diff revisado a mano (backend de `VentaService`/`DevolucionService` y vista de `Ventas/Index.cshtml`) antes de publicar — confirma que el bug de filtro client-side-sobre-server-side quedó resuelto y que la corrección del enum `TipoDevolucion` es correcta. Build + publish re-verificados de forma independiente (0 errores). Commit `5dcb633` en `origin/main` + deploy a producción vía Web Deploy (12 archivos actualizados, "Se publicó correctamente"). QA manual sobre las 4 pantallas sigue pendiente del lado del cliente.
 
 ---
 
