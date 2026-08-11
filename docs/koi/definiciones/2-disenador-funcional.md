@@ -1,8 +1,8 @@
 ﻿# 2 - Diseñador funcional — Proyecto KOI
 
 > Memoria acumulativa del agente diseñador funcional.
-> Etapa: Diseño funcional. Estado: ✅ ACTUALIZADO — P-A01→P-A07 incorporadas · ventas 4 campos · TC con selector cotización · preview editable · Reabierto eliminado.
-> Fecha: 2026-06-11. Input: 1-analista-funcional.md v2 (cierre P-A01→P-A07).
+> Etapa: Diseño funcional. Estado: ✅ ACTUALIZADO — P-A01→P-A07 incorporadas · ventas 4 campos · TC con selector cotización · preview editable · Reabierto eliminado. Módulo E2-02 (Fichador) diseñado en §10.
+> Fecha: 2026-06-11. Última actualización: 2026-08-10 — P-15 Fichador de empleados. Input: 1-analista-funcional.md §11 (Análisis E2-02 cerrado).
 
 ## 1. Alcance funcional resumido
 
@@ -175,3 +175,67 @@ Tabs: **Configuración** (casilla/servidor SMTP emisor, nombre remitente, botón
 7. Cámaras: configuración + visualización embebida.
 8. Notificación de cierre por correo (config SMTP, plantilla, envío y registro).
 9. Carga inicial de históricos 2024–2026.
+
+---
+
+## 10. Diseño funcional — Módulo E2-02 "Fichador de empleados" (P-15)
+
+### 10.0 Escaneo de reutilización cross-proyecto (obligatorio antes de diseñar)
+
+Se escanearon `docs/*/definiciones/{2-disenador-funcional,5-implementador}.md` de todos los proyectos del historial (grep por "fichador", "asistencia", "Bearer", "HttpClient tipado", "integracion webhook", "IHttpClientFactory") — **sin coincidencias**. Ningún proyecto del estudio tiene todavía una pantalla de consulta de fichadas/asistencia ni un cliente HTTP tipado con Bearer token estático contra un SaaS externo de solo lectura. Se diseña desde cero. **Este módulo queda documentado como el primer patrón de "integración REST de solo lectura con Bearer token estático" del estudio — candidato directo a reutilizar en E2-01 (Ayres, si se resuelve por API REST) y en cualquier proyecto futuro que integre un sistema de fichaje.**
+
+### 10.1 Pantalla P-15 — Fichador (Admin, solo lectura)
+
+Layout estándar: sidebar (nuevo link "Fichador" en sección "Gestión", solo visible para rol Administrador) + topbar. Dos tabs dentro de la misma pantalla:
+
+```
+Tab "Hoy"                                  Tab "Rango de fechas"
+┌──────────────────────────────┐           ┌──────────────────────────────────────┐
+│ Empleado  Entrada  Salida     │           │ [ Empleado: Todos ▾ ] [ Rango fechas ] │
+│ García     08:02    17:05     │           │                                        │
+│ López      08:15   Turno abierto│         │ Empleado   Horas trabajadas  Fichadas  │
+│ Pérez    Sin fichada hoy      │           │ García        168.5 h          22      │
+└──────────────────────────────┘           │ López         (turno incompleto: 2)    │
+                                            └──────────────────────────────────────┘
+```
+
+Tab adicional "Empleados": DataTable de solo lectura con nombre, estado (Activo/Inactivo en QuickPass), última fichada registrada.
+
+### 10.2 ViewModels propuestos
+
+| ViewModel | Campos principales | Validaciones |
+|---|---|---|
+| `FichadorHoyVM` | Lista `{ EmpleadoNombre, Entrada?, Salida?, Estado (Completo/TurnoAbierto/SinFichadaHoy) }` | solo lectura |
+| `FichadorRangoVM` | `EmpleadoId? (filtro, null = todos)`, `FechaDesde`, `FechaHasta`, lista `{ EmpleadoNombre, HorasTrabajadas, CantidadFichadas, TurnosIncompletos }` | `FechaDesde <= FechaHasta`; rango obligatorio vía `daterangepicker` (estándar del proyecto, prohibido `<input type="date">` suelto) |
+| `FichadorEmpleadoVM` | `Nombre, EstadoQuickPass (Activo/Inactivo), UltimaFichada?` | solo lectura |
+
+### 10.3 Reglas de validación y mensajes
+
+- Si `IQuickPassService` devuelve error/timeout: SweetAlert2 con mensaje "No se pudo conectar con el sistema de fichadas. Intentá nuevamente en unos minutos." — nunca una pantalla en blanco ni una excepción visible.
+- Fichada con entrada sin salida: badge `bg-warning` "Turno abierto", no se sombra como error.
+- Empleado sin fichadas en el rango: fila con 0 h y badge `bg-secondary` "Sin fichadas en el período" (no se oculta la fila).
+
+### 10.4 Impacto por capa
+
+- **Presentación**: `FichadorController` (Admin-only vía policy `RequireAdministracion`, ver §10.5 de arquitectura), 1 vista con 3 tabs (Hoy / Rango / Empleados), `daterangepicker` para el filtro de rango, DataTable client-side para los 3 listados (volumen bajo, sin necesidad de server-side).
+- **Negocio**: `IQuickPassService` (nuevo) con `ObtenerFichadasHoyAsync()`, `ObtenerResumenPorRangoAsync(desde, hasta, empleadoId?)`, `ObtenerEmpleadosAsync()`. Cálculo de horas trabajadas y detección de turno incompleto vive en el service, no en el Controller ni en la vista.
+- **Datos**: ninguna (sin nuevas tablas — ver decisión de Análisis §11.4).
+
+### 10.5 Historias de usuario
+
+**HU-1** — Como Administrador, quiero ver quién fichó entrada/salida hoy para controlar la asistencia del día sin salir del sistema web.
+- Criterio: la pantalla muestra todos los empleados activos con su estado de fichada de hoy (Completo / Turno abierto / Sin fichada hoy), actualizado en cada carga de la pantalla.
+
+**HU-2** — Como Administrador, quiero consultar las horas trabajadas de un empleado (o de todos) en un rango de fechas para revisar presentismo antes de liquidar sueldos.
+- Criterio: al elegir un rango con `daterangepicker` y opcionalmente un empleado, veo el total de horas trabajadas y la cantidad de fichadas por empleado; los turnos incompletos se listan aparte, nunca se computan como 0 silenciosamente.
+
+**HU-3** — Como Administrador, quiero ver el listado de empleados registrados en el sistema de fichaje para saber quién está activo en el dispositivo biométrico.
+- Criterio: veo nombre, estado (activo/inactivo) y última fichada de cada empleado, igual a lo configurado en el panel de QuickPass en ese momento.
+
+**HU-4** — Como Administrador, si el sistema de fichaje no responde, quiero un mensaje claro en vez de un error críptico, para saber que el problema es externo y no del sistema web.
+- Criterio: cualquier falla de `IQuickPassService` (timeout, token inválido, 5xx) se traduce a un SweetAlert2 legible; el error real queda en el log (Serilog) sin exponer el token.
+
+### 10.6 Riesgos de implementación
+
+- Sin documentación formal de endpoints (Swagger no confirmado) — el mapeo exacto de campos puede requerir ajuste una vez que llegue el token real y se pueda probar contra la API viva.
+- Cálculo de "horas trabajadas" asume pares entrada/salida simples (sin múltiples fichadas intermedias tipo pausa-almuerzo) — a confirmar contra el comportamiento real del hardware ZKTeco MB360 una vez que haya acceso.

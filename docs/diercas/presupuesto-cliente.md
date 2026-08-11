@@ -47,6 +47,16 @@ Un sitio nuevo para modernizar la presencia online de Diercas, manteniendo estri
 
 ---
 
+## Mantenimiento anual
+
+| Plan | USD/año |
+|---|---:|
+| Hosting + actualización semestral del portfolio | 400 |
+
+*Incluye hosting, SSL, dominio y la actualización semestral de la sección de trabajos realizados (carga del contenido que nos compartas cada 6 meses). Sin permanencia.*
+
+---
+
 ## Qué incluye el proyecto
 
 - Diseño e implementación completa del alcance de arriba.
@@ -57,8 +67,6 @@ Un sitio nuevo para modernizar la presencia online de Diercas, manteniendo estri
 
 ## Qué no está incluido
 
-- Hosting, dominio y certificado SSL — se cotizan aparte una vez definido dónde se aloja el sitio.
-- Actualizaciones de la sección de trabajos realizados posteriores a la primera (la cadencia semestral se cotiza como servicio de mantenimiento aparte).
 - Redacción de textos institucionales desde cero — partimos de los contenidos que ya nos compartiste (dossier corporativo), pero no incluye redacción nueva.
 - Panel de administración/carga de contenido por tu cuenta.
 - Cambios de alcance posteriores al inicio (páginas adicionales, secciones nuevas) — se presupuestan por separado.
@@ -79,7 +87,7 @@ Un sitio nuevo para modernizar la presencia online de Diercas, manteniendo estri
 
 - Forma de pago: 50% al inicio y 50% a la entrega.
 - Moneda: USD, pagadero en pesos al tipo de cambio del día.
-- Hosting y mantenimiento se cotizan aparte, una vez definido el destino.
+- Mantenimiento anual: USD 400/año desde la entrega, sin permanencia.
 - Cambio de alcance disponible en cualquier momento si el proyecto crece — se cotiza aparte.
 
 ---

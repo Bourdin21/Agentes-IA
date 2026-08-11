@@ -2,7 +2,7 @@
 
 - nombre: Diercas SA (sitio institucional)
 - fecha_inicio: 2026-07-30
-- estado: presupuesto
+- estado: presupuesto aprobado 2026-07-30 (USD 425 desarrollo + USD 400/año mantenimiento) — pendiente inicio de Implementación
 - owner: Joaquín Bourdin (OlvidataSoft)
 - descripcion: Modernización del sitio web institucional de Diercas SA — front estático en Astro, siguiendo estrictamente el branding/assets de marca provistos por el cliente, con estructura de referencia similar a `labipac-front`, más un blog/portfolio de trabajos realizados con actualización cada 6 meses (cargado por Joaquín, contenido provisto por el cliente).
 - ruta_definiciones: /docs/diercas/definiciones

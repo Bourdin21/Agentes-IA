@@ -25,5 +25,19 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Impacto en capas: ninguno técnico — ajuste de alcance/contenido.
 - Riesgos/supuestos: nueva dependencia bloqueante para Diseño (no resuelta unilateralmente): confirmar si Servicios mantiene 3 líneas (dossier, ya presupuestado) o suma Informática/Audio-Video del sitio viejo (5 líneas, requeriría re-cotización). Riesgo de autorización de logos de clientes bajó — ya es práctica existente en el sitio actual.
 
+### 2026-07-30 18:00 - orquestador (cierre de presupuesto)
+- Etapa: Presupuesto → Cierre (gate hacia Implementación)
+- Cambio: **Cliente aprobó el presupuesto** — USD 425 desarrollo (pago 50%/50%) + **USD 400/año de mantenimiento** (hosting, SSL, dominio y actualización semestral del portfolio).
+- Motivo: aprobación formal del cliente, habilita el inicio de Implementación según la secuencia obligatoria de `CLAUDE.md`.
+- Impacto en capas: ninguno técnico todavía — gate administrativo. `presupuesto-cliente.md` actualizado con la tabla de mantenimiento (antes decía "se cotiza aparte").
+- Riesgos/supuestos: la pregunta abierta sobre posicionamiento de Servicios (3 líneas del dossier vs. mantener también Informática/Audio-Video del sitio viejo) **sigue sin resolverse** — confirmar antes de arrancar Diseño de detalle, ya que puede ampliar el alcance ya aprobado. Repositorio del proyecto todavía no creado (candidato: `C:\Sistemas\diercas-front`).
+
+### 2026-07-30 18:30 - analista-funcional
+- Etapa: Analisis (preparación de reunión)
+- Cambio: armado `cuestionario-reunion-inicial.md` — cuestionario multiple choice para cerrar en una sola reunión con Diercas todas las definiciones abiertas: posicionamiento de Servicios (3 vs 5 líneas), Nosotros/Sectores, Clientes/Nodos de confianza (logos vs texto, mismo listado de 14 o cambia), portfolio de trabajos (cantidad inicial, formato de material), contacto (destinatario, campos), marca (assets vectoriales, tipografía), hosting/dominio, cronograma.
+- Motivo: pedido explícito de Joaquín — resolver todo lo pendiente en una sola instancia con el cliente en vez de rondas de preguntas sueltas.
+- Impacto en capas: ninguno técnico — herramienta de discovery.
+- Riesgos/supuestos: las respuestas de las preguntas 1.1/1.2 (posicionamiento de Servicios) son las que más pueden mover el presupuesto ya aprobado (USD 425) — si el cliente elige sumar Informática y/o Audio/Video, recalcular `4-presupuestador.md` antes de arrancar Diseño.
+
 ## Historial de ajustes de alcance
 - 2026-07-30: recibidos brandbook, dossier corporativo y presentación de Diercas SA — alcance de páginas pasa de analogía genérica (labipac-front, 5 módulos) a estructura real (7 módulos: Inicio/Nosotros/Sectores/Contacto + Servicios con 3 tablas técnicas + Clientes/Nodos de confianza + blog/portfolio). Total: USD 370 → USD 425.

@@ -27,7 +27,7 @@ applyTo: "**/Web/**/*.{cs,cshtml,json}"
 - Exportaciones con File(bytes, contentType, fileName).
 
 # ViewModels
-- DataAnnotations en espanol argentino.
+- DataAnnotations en espanol argentino, con ortografia y acentuacion correctas (`Display`, mensajes de validacion) — ver `25-frontend-design-system.instructions.md`, seccion "Ortografia y acentuacion en texto de UI".
 - No usar entidades de Domain en Views.
 
 # Seguridad y sesion

@@ -1,8 +1,8 @@
 ﻿# 1 - Analista funcional — Proyecto KOI
 
 > Memoria acumulativa del agente analista funcional.
-> Etapa: Discovery + Análisis + Sesión de definición + Cierre P-A01→P-A07. Estado: ✅ ANÁLISIS FUNCIONAL CERRADO — todas las hipótesis y preguntas respondidas · cascada a diseño, arquitectura y presupuesto habilitada.
-> Fecha: 2026-06-11. Última actualización: 2026-06-24 — Informe de relevamiento Etapa 2 incorporado (Ayres, Fichador QuickPass, Cámaras pendiente).
+> Etapa: Discovery + Análisis + Sesión de definición + Cierre P-A01→P-A07. Estado: ✅ ANÁLISIS FUNCIONAL CERRADO (Etapa 1) — todas las hipótesis y preguntas respondidas · cascada a diseño, arquitectura y presupuesto habilitada. Módulo E2-02 (Fichador) con Análisis cerrado en §11 — Implementación bloqueada por token QuickPass pendiente.
+> Fecha: 2026-06-11. Última actualización: 2026-08-10 — Análisis funcional del módulo E2-02 "Fichador de empleados" cerrado (§11), cascada a Diseño/Arquitectura/Presupuesto disparada.
 
 ## 1. Contexto del cliente
 
@@ -432,24 +432,68 @@ Al ser SaaS cloud, la integración **no requiere acceso a la red local del clien
 
 ---
 
-### 10.3 Módulo E2-03 — Cámaras IP (HikConnect / Hikvision)
+### 10.3 Módulo E2-03 — Cámaras IP (NVR local / RTSP)
 
-> ❌ **No relevado** — módulo bloqueado en la visita del 2026-06-24.
+> 🟡 **Relevamiento técnico en curso** (actualizado 2026-08-10) — restricción de red confirmada por el cliente; investigación de arquitectura de integración completada; faltan datos puntuales del NVR y decisión de infraestructura antes de poder Analizar/Diseñar/Presupuestar.
 
-Las credenciales de HikConnect y del NVR/DVR deben solicitarse al propietario o administrador responsable. La pantalla de cámaras de la Etapa 1 ya existe como **iframe de HikConnect** embebido (P-06 / CU-13 / CU-14), configurable por el Admin desde la pantalla de Configuración → Cámaras.
+#### Restricción confirmada por el cliente (2026-08-10)
 
-Si en la Etapa 2 se requiere ampliar la funcionalidad (acceso RTSP nativo, múltiples feeds, grabación en la nube), se relevarán los datos pendientes en una nueva visita.
+El local tiene **un único NVR centralizado** que agrega todas las cámaras del local sobre una **red aislada** ("insolada" — LAN dedicada a videovigilancia, sin salida directa a internet). No hay forma de llegar a las cámaras individuales por URL: el único punto de acceso es el NVR, y hoy solo es alcanzable por cable dentro del local. Esto descarta cualquier integración que asuma una IP pública o URL directamente alcanzable por el navegador del inversor — hace falta un componente intermedio.
+
+#### Investigación: cómo se obtiene el stream RTSP de un NVR Hikvision
+
+Fuente: [Hikvision Support — How do I get my RTSP stream?](https://supportusa.hikvision.com/support/solutions/articles/17000129064-how-do-i-get-my-rtsp-stream-)
+
+- Formato de URL con autenticación: `rtsp://<usuario>:<contraseña>@<IP del NVR>:<puerto RTSP>/Streaming/channels/<canal><stream>`
+- Puerto por defecto: **554** (sin autenticación en la URL) u **10554** (con usuario/contraseña embebidos).
+- Cada cámara conectada al NVR tiene su propio número de canal dentro de la misma IP del grabador (canal 1 = `101`/`102`, canal 2 = `201`/`202`, etc.). El sufijo `01` es el stream principal (main, alta resolución) y `02` el sub-stream (menor resolución, más liviano — recomendado para embeber en la web en vez del principal).
+- Esto confirma que **si** se logra alcanzar el NVR, cada cámara se obtiene como una URL RTSP independiente y estandarizada — no hace falta credenciales por cámara, solo las del NVR.
+
+#### El problema real a resolver: RTSP no se reproduce nativo en un navegador
+
+RTSP es un protocolo pensado para clientes de escritorio/VLC, no para `<video>` HTML. Para mostrarlo en la web del inversor hace falta un **gateway intermedio** que traduzca RTSP a un formato que el navegador sí entienda (HLS o WebRTC) — el "por stream" que le recomendaron al cliente se refiere a este tipo de solución, no a exponer el NVR directamente.
+
+**Arquitectura recomendada (evaluada contra el escenario de red aislada):**
+
+```
+[Cámaras] --cable--> [NVR, LAN aislada del local]
+                          │  RTSP (554/10554), solo alcanzable dentro de la LAN
+                          ▼
+              [Gateway de streaming — equipo siempre encendido en el local]
+                     (ej. MediaMTX: single binary, gratis, bajo consumo,
+                      toma RTSP del NVR y lo re-publica como HLS / WebRTC)
+                          │  HLS/WebRTC, sale por la conexión a internet del local
+                          ▼
+                [Túnel saliente — sin abrir puertos en el router]
+                   (ej. Cloudflare Tunnel: gratis, el equipo del local
+                    inicia la conexión hacia afuera, no requiere IP
+                    pública ni configurar el router)
+                          │  URL pública HTTPS (subdominio propio)
+                          ▼
+              [KOI Web — pantalla Cámaras (P-11), <video> + hls.js]
+                  reemplaza el iframe de HikConnect por un player nativo
+```
+
+- **MediaMTX** (ex rtsp-simple-server, open source, un solo binario, sin dependencias): toma el/los stream(s) RTSP del NVR y los re-publica simultáneamente como HLS y/o WebRTC. Soporta autenticación por path, así que cada pantalla de cámara puede tener su propia URL protegida.
+- **Cloudflare Tunnel** (gratis en el plan free): resuelve exactamente la restricción que describiste — el equipo del local abre la conexión hacia Cloudflare (saliente), nunca hace falta abrir puertos en el router ni tener IP pública fija. Funciona incluso si el proveedor de internet del local usa CGNAT.
+- Con esto, la pantalla P-11 dejaría de embeber el iframe de HikConnect (dependiente de la política de terceros de Hikvision) y pasaría a embeber un player HLS/WebRTC nativo (`video.js` + `hls.js`), apuntando a la URL pública del túnel.
+- Esta arquitectura reemplaza además la necesidad de credenciales HikConnect por usuario/rol — solo hace falta la credencial admin del NVR y no depende de la cuenta cloud de Hikvision.
+
+**Requisito nuevo, no relevado hasta ahora:** hace falta un equipo que quede **encendido 24/7 en el local** corriendo el gateway (MediaMTX + cloudflared). ✅ **Confirmado por el cliente (2026-08-10): ya hay un equipo siempre prendido en el local** (candidato: la PC donde corre Ayres POS, a confirmar cuál puntualmente) — se reutiliza, **sin costo de hardware adicional** para este módulo. Solo instalación de software (MediaMTX + cloudflared) sobre ese equipo existente.
 
 #### Datos pendientes de relevar
+
 | Campo | Estado |
 |---|---|
-| Cantidad de cámaras | ⏳ |
-| Tipo de acceso (RTSP/ISAPI local o HikConnect cloud) | ⏳ |
-| Usuario y contraseña HikConnect | ⏳ |
-| N° de serie del NVR | ⏳ |
-| IP del NVR en LAN | ⏳ |
-| Usuario y contraseña admin del NVR | ⏳ |
-| Port forwarding para acceso externo | ⏳ |
+| Marca/modelo exacto del NVR (confirmar si es Hikvision u otra marca — cambia el formato de URL RTSP) | 🟡 Marca confirmada (Hikvision — dato de Hik-Connect: Device Domain/Serial `AA5187560`, alias "KOI"), **modelo puntual aún no** — ese código de 9 caracteres es el identificador corto de registro en Hik-Connect, no el serial completo de fábrica que trae el modelo embebido. Pendiente: etiqueta física del equipo, o `System > System Information` en la web local del NVR, o SADP Tool en la LAN del local (el cliente ya tiene acceso por cable) |
+| Cantidad de cámaras / canales conectados al NVR | ⏳ |
+| IP del NVR en la LAN aislada | ⏳ |
+| Usuario y contraseña admin del NVR (para armar las URLs RTSP) | ⏳ |
+| Equipo que corre el gateway 24/7 | ✅ Ya existe en el local, se reutiliza — sin costo de hardware |
+| Velocidad de subida de la conexión a internet del local (el streaming consume ancho de banda de subida constante mientras haya un visor conectado) | ⏳ |
+| ¿El local ya tiene o puede conseguir un dominio/subdominio propio para el túnel? (KOI ya tiene dominio del sistema web, se puede reutilizar) | ⏳ |
+
+> Nota: con esta arquitectura, HikConnect (cuenta cloud) deja de ser un requisito — se puede dar de baja como dependencia si el cliente lo prefiere, o mantenerse en paralelo como respaldo. A confirmar con el cliente en la próxima ronda.
 
 ---
 
@@ -458,8 +502,8 @@ Si en la Etapa 2 se requiere ampliar la funcionalidad (acceso RTSP nativo, múlt
 | Módulo | Necesidad cliente | Estado relevamiento | Bloqueante principal |
 |---|---|---|---|
 | **E2-01** Ventas Ayres | Carga automática de ventas desde POS | ✅ Relevado | Credenciales + decisión opción A/B |
-| **E2-02** Fichador QuickPass | Pantalla de asistencia de empleados | ✅ Relevado | Token de API QuickPass |
-| **E2-03** Cámaras HikConnect | Ampliar funcionalidad de cámaras | ❌ Sin relevar | Credenciales propietario |
+| **E2-02** Fichador QuickPass | Pantalla de asistencia de empleados | ✅ Relevado — Análisis/Diseño/Arquitectura/Presupuesto cerrados (2026-08-10, ver §11 y `2-disenador-funcional.md`/`3-arquitecto-mvc.md`/`4-presupuestador.md`) | Token de API QuickPass |
+| **E2-03** Cámaras NVR/RTSP | Streaming nativo de cámaras vía NVR local | 🟡 Arquitectura de integración investigada (2026-08-10); hardware del gateway resuelto (equipo ya existente, sin costo adicional) — faltan datos puntuales del NVR | Marca/modelo, IP y credenciales admin del NVR |
 
 > **Condición para iniciar Etapa 2**: resolver los pendientes bloqueantes de al menos uno de los módulos para poder presupuestar y diseñar. Hasta entonces, la Etapa 2 queda en espera.
 
@@ -470,4 +514,59 @@ Si en la Etapa 2 se requiere ampliar la funcionalidad (acceso RTSP nativo, múlt
 | QuickPass | `desarrollo@quickpassweb.com` | Documentación API + token del cliente |
 | Encargado del local | — | Credenciales admin QuickPass + cámaras |
 | Propietario del local | — | Credenciales NVR + HikConnect |
+
+---
+
+## 11. Análisis funcional — Módulo E2-02 "Fichador de empleados" (Etapa 2 en curso)
+
+> Fecha: 2026-08-10. Estado: ✅ ANÁLISIS CERRADO — habilita Diseño. Cascada disparada a pedido explícito del dueño del estudio: avanzar Análisis→Diseño→Arquitectura→Presupuesto ahora, usando el relevamiento de §10.2 como Discovery (sin repetir visita). **Implementación queda bloqueada** hasta que el cliente entregue el token de API y las credenciales admin de QuickPass (pendientes, ver §10.2).
+
+### 11.1 Alcance funcional
+
+**Incluido:**
+1. Pantalla "Fichador" (solo Administrador) con dos vistas: asistencia del día actual y consulta por rango de fechas.
+2. Filtro por rango de fechas (`daterangepicker`, estándar del proyecto) + filtro por empleado.
+3. Resumen de horas trabajadas por empleado en el rango consultado.
+4. Listado de empleados registrados en QuickPass con su estado (activo/inactivo en el dispositivo).
+5. Los datos se consultan **en vivo** contra la API de QuickPass en cada visita a la pantalla — no se persisten localmente en esta etapa (decisión de diseño, ver §11.4).
+
+**Excluido (de esta iteración):**
+- Alta/baja/edición de empleados o huellas — eso se gestiona en el panel de QuickPass/hardware ZKTeco, fuera del sistema web.
+- Acceso de Inversores a estos datos (dato de personal, exclusivo del Administrador — mismo criterio que el resto del sistema).
+- Persistencia histórica local de fichadas (si en el futuro se requiere reporting offline o cruce con nómina, es una iteración posterior con migración EF).
+- Notificaciones o alertas de ausentismo (fuera de alcance salvo pedido explícito).
+
+### 11.2 Casos de uso (formalizados desde §10.2)
+
+| # | Caso de uso | Actor | Resumen |
+|---|---|---|---|
+| CU-E2-02a | Ver asistencia del día | Administrador | Pantalla muestra las fichadas de entrada/salida del día actual por empleado, consultando la API de QuickPass en el momento. |
+| CU-E2-02b | Consultar rango de fechas | Administrador | Filtro por empleado (opcional) + rango de fechas (`daterangepicker`); el sistema calcula y muestra el resumen de horas trabajadas por empleado en ese rango. |
+| CU-E2-02c | Ver empleados registrados | Administrador | Listado de empleados activos en QuickPass con su estado, traído en vivo desde la API. |
+
+### 11.3 Criterios de aceptación (verificables)
+
+- **CU-E2-02a**: al abrir la pantalla, se listan todas las fichadas del día actual agrupadas por empleado (entrada/salida); si un empleado no fichó aún, se muestra su fila con estado "Sin fichada hoy" (nunca una fila vacía sin explicación).
+- **CU-E2-02b**: dado un rango de fechas y un empleado (o "todos"), las horas trabajadas mostradas = suma de los intervalos entrada→salida dentro del rango; fichadas incompletas (entrada sin salida) se marcan explícitamente como "Turno abierto / incompleto", no se computan como 0 ni se ocultan.
+- **CU-E2-02c**: el listado de empleados coincide 1 a 1 con los empleados activos configurados en el panel de QuickPass al momento de la consulta (sin caché mayor a lo declarado en Arquitectura).
+- Si la API de QuickPass no responde o el token es inválido/expiró, la pantalla muestra un mensaje claro de error (SweetAlert2) sin romper el layout, y loguea el fallo (sin exponer el token en el log).
+
+### 11.4 Decisión de diseño: sin persistencia local (a confirmar en Arquitectura)
+
+El relevamiento (§10.2) ya proponía "sin nuevas tablas, datos en tiempo real". Se ratifica en Análisis: QuickPass es la fuente de verdad y el volumen de consulta es bajo (pantalla de uso ocasional del Administrador) — persistir localmente agregaría una migración EF y un mecanismo de sincronización sin necesidad funcional confirmada por el cliente todavía. Si en el futuro se pide cruce con nómina o reporting offline, se reestima como iteración nueva con migración EF (gatillo de reestimación).
+
+### 11.5 Riesgos y dependencias (actualizado)
+
+- **R-E2-02 (bloqueante para Implementación):** token de API y credenciales admin del local en QuickPass — el cliente confirmó (2026-08-10) que todavía no las tiene. Análisis, Diseño, Arquitectura y Presupuesto pueden cerrarse igual (no dependen del token); Implementación no puede arrancar sin él.
+- Riesgo técnico: sin Swagger/documentación formal de endpoints más allá de lo relevado (`desarrollo@quickpassweb.com` como contacto) — si el mapeo real de la API difiere de lo asumido, gatillo de reestimación (regla estándar de 28-estimacion-avanzada).
+- Dependencia del cliente: token de API QuickPass, credenciales admin del local, confirmación de qué endpoints expone la API para asistencia y empleados.
+
+### 11.6 Banderas (módulo E2-02)
+
+| Bandera | Valor |
+|---|---|
+| Migración EF | No |
+| Integración externa | Sí — API REST QuickPass v4, Bearer token estático |
+| Máquina de estados | No |
+| Migración de datos | No (consulta en vivo, sin carga inicial) |
 

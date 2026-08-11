@@ -1,7 +1,54 @@
 ﻿# Memoria Implementador — KoiDumplings
-# Última actualización: 2026-07-13 (sesión actual)
+# Última actualización: 2026-08-10 (sesión actual)
 
 ## Módulos implementados
+
+### Etapa 12 — Fichador de empleados (QuickPass) — E2-02 (sesión actual)
+
+**Escaneo de reutilización (obligatorio antes de implementar):** se re-confirmó el escaneo ya hecho en Diseño/Arquitectura (`docs/*/definiciones/{2-disenador-funcional,3-arquitecto-mvc,5-implementador}.md` de todos los proyectos del estudio) — sin match. Ningún proyecto tenía todavía un `HttpClient` tipado contra un SaaS externo de solo lectura con headers de auth estáticos. Se implementó desde cero. Este módulo queda como el primer patrón de "integración REST de solo lectura con ApiKey/IdEmpresa estáticos + dos APIs con base URL distinta" del estudio — candidato a reutilizar si aparece un caso similar (ver también nota de E2-01 Ayres en `1-analista-funcional.md` §10.1, que sigue pendiente de decisión API vs MySQL directo).
+
+**Alcance implementado:** pantalla P-15 "Fichador" (solo Administrador/SuperUsuario) con 3 tabs — Hoy (fichadas del día), Rango de fechas (resumen de horas con `daterangepicker`), Empleados (listado QuickPass). Datos en vivo, sin persistencia local (confirmado sin migración EF).
+
+**Archivos nuevos:**
+- `KoiDumplings.Application/DTOs/QuickPassDtos.cs` — `HoraTrabajadaDiaDto`, `ResumenHorasUsuarioDto`, `EmpleadoQuickPassDto`.
+- `KoiDumplings.Application/Interfaces/IQuickPassService.cs`.
+- `KoiDumplings.Application/Exceptions/QuickPassIndisponibleException.cs` — carpeta `Exceptions/` nueva en Application (primera excepción de dominio propia del proyecto).
+- `KoiDumplings.Infrastructure/Services/QuickPassSettings.cs` — POCO de configuración (mismo patrón que `SmtpSettings.cs`).
+- `KoiDumplings.Infrastructure/Services/QuickPassService.cs` — implementación completa.
+- `KoiDumplings.Web/Models/FichadorViewModels.cs` — `FichadorIndexViewModel` + 3 sub-ViewModels de ítem.
+- `KoiDumplings.Web/Controllers/FichadorController.cs` — `Index`/`Rango`/`Empleados`, todas renderizan `Views/Fichador/Index.cshtml`.
+- `KoiDumplings.Web/Views/Fichador/Index.cshtml` — 3 tabs Bootstrap, `daterangepicker`, 3 DataTables client-side, SweetAlert2 para errores de conexión.
+
+**Archivos modificados:**
+- `KoiDumplings.Infrastructure/DependencyInjection.cs` — `Configure<QuickPassSettings>`, dos `AddHttpClient` nombrados (`QuickPassEntidades`/`QuickPassReporting`) resolviendo headers desde `IOptions<QuickPassSettings>`, `AddScoped<IQuickPassService, QuickPassService>`.
+- `KoiDumplings.Web/appsettings.json` — sección `QuickPass` nueva con las credenciales reales del cliente (`ApiKey`, `IdEmpresa=4364`, `BaseUrlEntidades`, `BaseUrlReporting`, `TimeoutSeconds=10`).
+- `KoiDumplings.Web/Views/Shared/_Layout.cshtml` — link "Fichador" en sidebar, sección "Gestión", después de "Tipo de Cambio", visible solo para Administrador/SuperUsuario.
+
+**Schema real descubierto por inspección directa (no publicado en el instructivo — hecho con `curl`/credenciales reales del cliente, autorizado explícitamente por el pedido; los archivos temporales con PII de empleados se borraron apenas terminó la inspección):**
+
+- `GET /Usuarios?excluirFotos=true` (API Entidades) → array plano. Campos usados: `id, nombre, apellido, legajo, email, habilitado, fechaIngreso` (string `"yyyyMMdd"`), `sector.{id, nombre}`. 13 empleados activos en el ambiente real del cliente al momento de la prueba (todos `habilitado:true`).
+- `GET /HorasTrabajadas` (API Reporting) → array de objetos usuario×día, ~70 campos por registro (`ParteParaReporteDTO` interno de QuickPass). Campos usados: `idUsuario, nombreUsuario, legajo, nombreSector, fecha` (ISO), `tieneMarcaciones, impar, ausente, tarde, esSectorBajas, horasNetas, movimientosList` (array de strings `"HH:mm"`), `idsMovimientos` (array de ids). **Hallazgo clave:** el campo `impar` (booleano) es exactamente el flag de "turno abierto/incompleto" que el diseño pedía calcular — cantidad impar de marcaciones en el día (ej. una sola fichada = entrada sin salida). Se verificó en vivo un caso real: empleado con `movimientosList: ["09:35"]`, `impar: true`. Mapeo usado: `HoraEntrada = movimientosList[0]`; `HoraSalida = movimientosList[^1]` solo si `!impar && Count >= 2`. `esSectorBajas: true` marca empleados dados de baja (aparecen en el reporte histórico aunque ya no estén activos) — se filtran del tab "Hoy" para respetar el criterio de HU-1 ("empleados activos"); verificado que los 13 registros con `esSectorBajas:false` de "hoy" coinciden 1 a 1 con los 13 usuarios de `/Usuarios`.
+- `GET /HorasTrabajadas/ResumenPorUsuario` (API Reporting) → un objeto por usuario. Campos usados: `idUsuario, nombreUsuario, legajo, horasTrabajadasNetasDecimal, horasTrabajadasNetas` (string `"H:MM"` ya formateado por QuickPass), `cantidadDiasTrabajados, cantidadDiasAusente, cantidadDiasTarde`. **No trae** conteo de "turnos incompletos" ni "cantidad de fichadas" — el diseño (`FichadorRangoVM`) pedía esos dos campos pero no existen en este endpoint. Decisión de implementación (no estaba en ninguna de las 4 definiciones previas): `ObtenerResumenPorRangoAsync` hace una segunda llamada en paralelo a `/HorasTrabajadas` para el mismo rango y **agrega** (`Count`/`Sum`, no recalcula horas) el campo `impar` y el largo de `idsMovimientos` por usuario para completar `TurnosIncompletos`/`CantidadFichadas`. Es una agregación de valores ya calculados por la API, consistente con la simplificación de arquitectura §8.2/§8.8 ("el sistema no recalcula, solo proyecta").
+
+**Decisiones técnicas tomadas en implementación (no explícitas en las 4 definiciones):**
+1. "Hoy" se calcula en huso horario Argentina explícito (`TimeZoneInfo.FindSystemTimeZoneById("America/Buenos_Aires")`, igual patrón que `CotizacionService.HoyArgentina()`) — evita que "hoy" quede mal calculado si el hosting corre en otro huso (KOI corre en site4now.net, EE.UU.).
+2. Se usó la policy `[Authorize(Policy = "SoloAdministrador")]`, no `"RequireAdministracion"` como decía literalmente el texto de arquitectura — porque `InversoresController`/`ConfiguracionController` (citados como precedente explícito en la arquitectura) usan `SoloAdministrador` en el código real. Ambas policies son funcionalmente idénticas en `Program.cs` (`RequireRole(SuperUsuario, Administrador)`) — no es un desvío de permisos, solo de nombre de policy.
+3. Las 3 acciones del controller (`Index`/`Rango`/`Empleados`) renderizan la misma vista y cargan Hoy+Empleados siempre (eager) más Rango si hay fechas — se evitó AJAX/partials por simplicidad y porque el volumen es bajo. Cada sección tiene su propio try/catch contra `QuickPassIndisponibleException`: si una falla, las otras dos igual muestran datos (nunca pantalla en blanco completa, criterio de HU-4).
+4. Validación de rango máximo 31 días duplicada: en el Controller (antes de llamar al service, con mensaje amigable para SweetAlert2) y en `QuickPassService` (`ArgumentException` como red de seguridad) — mismo criterio que `32-estandares-qa-implementador.instructions.md` para validaciones numéricas de negocio.
+
+**Migración EF:** ninguna (confirmado por las 4 definiciones — sin entidades nuevas, QuickPass es la fuente de verdad).
+
+**Build:** `dotnet build` desde la raíz del repo → **Compilación correcta, 0 errores.** 9 warnings preexistentes sin cambios (NU1902 MailKit/MimeKit — ver VUL-001 pendiente — y CS0114 HomeController.StatusCode), ninguno introducido por esta etapa.
+
+**Sin smoke test funcional** (regla del estudio — el Implementador nunca levanta la app ni prueba flujos por navegador/curl contra el sistema propio). La inspección de la API externa de QuickPass con `curl` fue una excepción explícitamente autorizada por el pedido para descubrir el schema de deserialización antes de codear los DTOs — no es un smoke test del sistema KOI, es descubrimiento de contrato de un tercero. Evidencia de cierre: build limpio + esta revisión de código propia documentada acá.
+
+**Guía de pasos para prueba manual del dueño del estudio:**
+1. Login como Administrador (o SuperUsuario) → debe aparecer el link "Fichador" en el sidebar, sección "Gestión".
+2. Tab "Hoy": debe listar los empleados activos con su fichada del día — entrada/salida si fichó completo, badge "Turno abierto" si fichó solo entrada, badge "Sin fichada hoy" si no fichó. Ninguna fila debe faltar ni quedar vacía sin explicación.
+3. Tab "Rango de fechas": elegir un rango real (ej. últimos 7 días) con el `daterangepicker` → botón "Consultar" → debe mostrar horas trabajadas, cantidad de fichadas, turnos incompletos y días ausente por empleado. Probar un rango de más de 31 días → debe mostrar el mensaje de error de rango máximo sin romper la pantalla.
+4. Tab "Empleados": debe listar todos los empleados de QuickPass con su estado Activo/Inactivo, igual a lo que se ve en el panel de QuickPass.
+5. Caso de error: cambiar transitoriamente el valor de `QuickPass:ApiKey` en `appsettings.json` a un valor inválido y reiniciar → visitar `/Fichador` → debe aparecer un SweetAlert2 con el mensaje "No se pudo conectar con el sistema de fichadas..." en vez de una excepción visible o pantalla en blanco. Restaurar la ApiKey real después de la prueba.
+6. Verificar que un usuario con rol Inversor no puede acceder a `/Fichador` (debe redirigir/denegar, no mostrar contenido).
 
 ### Etapa 11 — Migraciones aplicadas en PRODUCCIÓN (sesión actual)
 - Ver detalle completo en `trazabilidad.md` (entrada 2026-07-13, "migraciones aplicadas en PRODUCCIÓN"). Resumen: `dotnet ef database update` creó las 22 tablas en `db_a7251f_koidump` (site4now.net, estaba vacía — primer aprovisionamiento). Seed básico (roles/catálogo/SuperUsuario) y la migración histórica completa (misma plantilla validada en local) quedaron aplicados: 19 períodos, 373 gastos, 15 inversores, 16 asignaciones, 265 liquidaciones, capital USD 287.500 — idéntico a lo validado en local.

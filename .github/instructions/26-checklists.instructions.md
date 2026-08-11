@@ -18,6 +18,7 @@ applyTo: "**/*.{cs,csproj,cshtml}"
 10b. Si la entidad se edita y tiene alguna relacion configurable por combo (Select2 simple o multiple), la vista de Editar debe inicializar el combo con los valores ya asignados a la entidad, nunca vacio (ver `32-estandares-qa-implementador.instructions.md`).
 11. Agregar link en sidebar de Shared/_Layout.cshtml.
 12. Generar migracion EF.
+13. Revisar ortografia y acentuacion de todo texto visible (labels, botones, titulos, mensajes de validacion, SweetAlert2) antes de cerrar la vista — ver `25-frontend-design-system.instructions.md`.
 
 # Checklist nuevos servicios
 1. Definir interfaz en Application/Interfaces.

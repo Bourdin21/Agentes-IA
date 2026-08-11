@@ -6,7 +6,7 @@
 - owner: Joaquín Bourdin (OlvidataSoft)
 - descripcion: Sistema de gestión integral para ferretería (catálogo con unidades de medida y conversión compra/venta, ventas editables pre-AFIP, cuenta corriente de clientes/proveedores/empleados, caja diaria/mensual, compras con listas de precios de proveedor, entregas, presupuestos, dashboard). Incluye migración del catálogo de productos existente.
 - ruta_definiciones: /docs/la-platense/definiciones
-- ruta_repositorio: a definir (proyecto nuevo, aún no iniciada la implementación)
+- ruta_repositorio: `C:\Sistemas\Ferreteria La Platense` — base técnica: copia saneada de `olvidatasoft-crm` (.NET 10, Identity, EF Core/MySQL, notificaciones, health checks), lógica de negocio del CRM eliminada. Workspace: `C:\Sistemas\Ferreteria La Platense.code-workspace`.
 
 ## Archivos de memoria por agente
 - analista-funcional: /docs/la-platense/definiciones/1-analista-funcional.md

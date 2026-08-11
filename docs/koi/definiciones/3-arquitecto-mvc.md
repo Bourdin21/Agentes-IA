@@ -1,8 +1,8 @@
 ﻿# 3 - Arquitecto MVC — Proyecto KOI
 
 > Memoria acumulativa del agente arquitecto.
-> Etapa: Arquitectura. Estado: 🟡 ACTUALIZADO — P-A01→P-A07 incorporadas. Gate de presupuesto requiere recalculación.
-> Fecha: 2026-06-11. Inputs: 1-analista-funcional.md v2 + 2-disenador-funcional.md v2.
+> Etapa: Arquitectura. Estado: ✅ Etapa 1 cerrada. Módulo E2-02 (Fichador) arquitecturado en §8 — contrato real de API confirmado (§8.8), gate de Implementación habilitado (cliente entregó ApiKey/IdEmpresa + documentación).
+> Fecha: 2026-06-11. Última actualización: 2026-08-10 (sesión 2) — §8.2/8.3/8.8 corregidos contra la documentación real de QuickPass. Inputs: 1-analista-funcional.md §11 + 2-disenador-funcional.md §10.
 
 ## 1. Alcance resumido
 
@@ -94,3 +94,80 @@ Más las tablas de Identity de la base (~6). **Total estimado del esquema entreg
 - [x] Reutilización de la base blankproject confirmada.
 
 **⚠️ Requiere recalculación de presupuesto** por adición de `CotizacionService`, 4 campos de ventas, dashboard mes abierto, `AjusteLiquidacion` y eliminación del Reabierto. Ver `4-presupuestador.md`.
+
+---
+
+## 8. Arquitectura — Módulo E2-02 "Fichador de empleados" (QuickPass)
+
+### 8.0 Escaneo de reutilización cross-proyecto
+
+Escaneados `docs/*/definiciones/{3-arquitecto-mvc,5-implementador}.md` de todos los proyectos — sin componente equivalente (ningún proyecto tiene hoy un `HttpClient` tipado contra un SaaS externo con Bearer token estático de solo lectura; lo más cercano es `CotizacionService` de VirtualWallet, pero ese usa APIs públicas sin autenticación). Se arquitectura desde cero, dejando el patrón documentado para reuso futuro (ver nota en 2-disenador-funcional.md §10.0).
+
+### 8.1 Domain
+
+Sin entidades nuevas — decisión de Análisis/Diseño (§11.4 del analista, §10.4 del diseñador): los datos de fichaje no se persisten localmente en esta etapa, QuickPass es la fuente de verdad.
+
+### 8.2 Application
+
+> **Actualizado 2026-08-10 — contrato real de la API confirmado** (documentación oficial QuickPass recibida del cliente: `InstructivoAPIEntidades-QuickPass.pdf` + `InstructivoAPIReportingQuickPass.pdf`, en `KoiDumplings/manual fichador/`). Difiere del supuesto original de §8.0-8.1 en dos puntos — **gatillo de reestimación evaluado: no aplica recargo**, el contrato real es más simple de integrar, no más complejo (ver §8.8).
+
+- `IQuickPassService`:
+  - `Task<IReadOnlyList<HoraTrabajadaDiaDto>> ObtenerHorasTrabajadasHoyAsync()` — mapea `GET /HorasTrabajadas` (API Reporting) acotado al día actual.
+  - `Task<IReadOnlyList<ResumenHorasUsuarioDto>> ObtenerResumenPorRangoAsync(DateOnly desde, DateOnly hasta)` — mapea `GET /HorasTrabajadas/ResumenPorUsuario` (API Reporting). **La API ya devuelve el total de horas trabajadas, extras, tardanzas y ausencias consolidado — el sistema NO recalcula nada, solo proyecta la respuesta.**
+  - `Task<IReadOnlyList<EmpleadoQuickPassDto>> ObtenerEmpleadosAsync()` — mapea `GET /Usuarios?excluirFotos=true` (API **Entidades**, distinta base URL — ver §8.3).
+- DTOs nuevos en `Application/DTOs/QuickPassDtos.cs`: `HoraTrabajadaDiaDto` (turno, horas netas, horas extra, tardanzas, ausencia, detalle de fichadas del día), `ResumenHorasUsuarioDto` (totales del rango), `EmpleadoQuickPassDto` (nombre, legajo, sector, habilitado). El service mapea la respuesta cruda de QuickPass a estos DTOs — nunca se exponen los campos internos de QuickPass (`ParteParaReporteDTO` con sus ~40 campos, etc.) hacia el Controller/Vista.
+- **Cambio respecto al diseño original:** ya no hace falta calcular "turno abierto"/"horas trabajadas" en el service — la API Reporting de QuickPass lo entrega calculado (`/HorasTrabajadas` y `/HorasTrabajadas/ResumenPorUsuario`). El service se simplifica a mapeo + manejo de errores, sin lógica de negocio propia de cálculo horario.
+
+### 8.3 Infrastructure
+
+- **Dos bases URL, dos HttpClient tipados** (la API real de QuickPass está dividida en dos servicios independientes, no relevado originalmente):
+  - `QuickPassEntidadesClient` → `https://api.quickpassweb.com` (usado solo para `GET /Usuarios`, listado de empleados).
+  - `QuickPassReportingClient` → `https://apireporting.quickpassweb.com` (usado para `/HorasTrabajadas` y `/HorasTrabajadas/ResumenPorUsuario`).
+  - Ambos registrados vía `AddHttpClient<...>()` (`IHttpClientFactory`), consumidos desde una única implementación `QuickPassService : IQuickPassService` que inyecta los dos clientes.
+- **Autenticación real (corrige el supuesto de Bearer token del relevamiento inicial):** dos headers estáticos en cada request — `ApiKey` e `IdEmpresa` — **sin login, sin token con expiración, sin refresh**. Más simple que lo arquitecturado originalmente. Se agregan como `DefaultRequestHeaders` al configurar cada `HttpClient` en `DependencyInjection.cs`.
+- Configuración en `appsettings`: sección `QuickPass: { ApiKey, IdEmpresa, BaseUrlEntidades, BaseUrlReporting, TimeoutSeconds }`. Como la ApiKey de QuickPass no distingue entornos (a diferencia de la connection string de MySQL), va en `appsettings.json` (compartido dev/prod) siguiendo el mismo criterio ya usado en el proyecto para credenciales de servicio externo no versionadas por ambiente.
+- **Formato de fechas — crítico, documentado explícitamente por QuickPass como la causa más frecuente de error de integración:**
+  - API Entidades, query params: `yyyyMMdd` (sin hora).
+  - API Reporting, todos los endpoints usados (`/HorasTrabajadas`, `/HorasTrabajadas/ResumenPorUsuario`): `yyyyMMddHHmm` (con hora).
+  - **`/HorasTrabajadas` y `/HorasTrabajadas/ResumenPorUsuario` tienen límite duro de 31 días por consulta** (error 400 "No se pueden listar mas de 31 dias" si se excede) — la pantalla de Rango debe validar el spread de fechas del `daterangepicker` en el cliente y en el service antes de llamar a la API.
+  - Encapsular el formateo de fechas en un helper único del service (`QuickPassDateFormatter` o método privado) para no repetir la lógica de formato en cada llamada — es el punto de mayor riesgo de bug de esta integración.
+- Manejo de errores: timeout configurado (10s — SaaS externo), catch de `HttpRequestException`/`TaskCanceledException`/respuesta 401 (ApiKey/IdEmpresa inválidos) → excepción de dominio propia (`QuickPassIndisponibleException`) que el Controller traduce a mensaje SweetAlert2 (ver diseño §10.3). Logging estructurado con Serilog, **nunca loguear la ApiKey**.
+- Sin reintentos automáticos ni Polly en esta primera versión (pantalla de consulta manual, no proceso crítico).
+
+### 8.8 Evaluación del gatillo de reestimación (contrato real vs. relevado)
+
+Diferencias encontradas al recibir la documentación real (2026-08-10) vs. lo asumido en la arquitectura original:
+
+| Supuesto original | Contrato real | Impacto en esfuerzo |
+|---|---|---|
+| Autenticación Bearer token con posible expiración | Headers estáticos `ApiKey`/`IdEmpresa`, sin expiración ni refresh | 🟢 Menos esfuerzo — sin lógica de renovación de token |
+| El service calcula "horas trabajadas" y "turno abierto" a partir de fichadas crudas | La API Reporting (`/HorasTrabajadas`, `/ResumenPorUsuario`) ya devuelve los totales calculados | 🟢 Menos esfuerzo — se elimina la lógica de cálculo horario del service, queda solo mapeo |
+| Una sola API/base URL | Dos APIs con base URL distinta (Entidades + Reporting) | 🟡 Esfuerzo neutro — dos `HttpClient` en vez de uno, pero cada uno más simple |
+| Formato de fecha único | 2 formatos distintos según API/endpoint (`yyyyMMdd` vs `yyyyMMddHHmm`), límite de 31 días en Reporting | 🟡 Esfuerzo neutro — un helper de formateo centralizado lo resuelve, riesgo de bug si no se encapsula |
+
+**Decisión: no se reestima el presupuesto.** El balance neto es una integración más simple que la arquitecturada (menos lógica de negocio propia, autenticación más simple), compensado por dos clientes HTTP en vez de uno. Los USD 92 aprobados en `4-presupuestador.md` §16 se mantienen sin cambios. Se documenta el detalle real para que el implementador no repita el supuesto de Bearer token.
+
+### 8.4 Web
+
+- `FichadorController` nuevo, `[Authorize(Policy = "RequireAdministracion")]` (mismo criterio que Inversores/Configuración — dato de personal, no de inversión, pero el estudio ya usa esta policy para todo lo operativo del Admin).
+- Acciones: `Index` (tab Hoy), `Rango` (GET con filtros, AJAX o submit estándar del proyecto), `Empleados`.
+- Vista `Views/Fichador/Index.cshtml` con 3 tabs (Bootstrap nav-tabs), `daterangepicker` en el tab Rango, DataTables client-side en los 3 listados (volumen bajo — decenas de empleados, no requiere server-side).
+- Link "Fichador" en sidebar (`Views/Shared/_Layout.cshtml`), sección "Gestión", visible solo para `Administrador`.
+
+### 8.5 Migraciones EF
+
+**No.** Sin entidades nuevas, sin cambios de esquema. No impacta el plan de mantenimiento vigente (el conteo de tablas del sistema no cambia).
+
+### 8.6 Riesgos técnicos
+
+- R-E2-02-T1: sin documentación formal de la API (Swagger no disponible según relevamiento) — el contrato exacto de los DTOs puede necesitar ajuste al integrar contra la API real. Mitigación: `QuickPassService` aislado detrás de la interfaz `IQuickPassService`, el resto del sistema no conoce el formato crudo de QuickPass.
+- R-E2-02-T2 (bloqueante, no técnico): sin token de API ni credenciales admin del local — Implementación no puede arrancar ni siquiera para pruebas de integración hasta que el cliente los entregue (ver 1-analista-funcional.md §11.5).
+- R-E2-02-T3: dependencia de un SaaS de terceros hosteado en AWS EE.UU. — si QuickPass tiene downtime, la pantalla queda no funcional pero no afecta el resto del sistema KOI (aislado en su propio Controller/Service, sin dependencias cruzadas).
+
+### 8.7 Gate de aprobación para presupuesto
+
+- [x] Sin entidades ni migración EF — confirmado por Análisis y Diseño.
+- [x] Permisos definidos: solo Administrador (`RequireAdministracion`).
+- [x] Integración externa definida: REST + Bearer token estático, `HttpClient` tipado vía `IHttpClientFactory`.
+- [x] Escaneo de reutilización cross-proyecto: sin coincidencia, patrón nuevo documentado para reuso futuro.
+- [x] Riesgo bloqueante para Implementación (no para Presupuesto) declarado explícitamente: token QuickPass pendiente.

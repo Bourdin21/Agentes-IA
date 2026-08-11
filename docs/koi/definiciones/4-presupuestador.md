@@ -1,8 +1,8 @@
 # 4 - Presupuestador — Proyecto KOI
 
 > Memoria acumulativa del agente presupuestador.
-> Etapa: Presupuesto inicial. Estado: CERRADO (pendiente de aprobación del cliente).
-> Fecha: 2026-06-11. Inputs: definiciones 1, 2 y 3 aprobadas.
+> Etapa: Presupuesto inicial (Etapa 1). Estado: CERRADO (pendiente de aprobación del cliente). Presupuesto del módulo E2-02 (Fichador) en §16 — CERRADO, pendiente de aprobación del cliente. Implementación bloqueada por token QuickPass pendiente (no por el presupuesto).
+> Fecha: 2026-06-11. Última actualización: 2026-08-10 — §16 Fichador de empleados. Inputs: definiciones 1 (§11), 2 (§10) y 3 (§8) aprobadas.
 > Política de facturación vigente (27-presupuesto-parametros, Junio 2026): **USD por módulo = M × $16.80** (M/2.5 × 1.20 × $35). Las horas PERT con contingencia son techo interno, no base de precio. Tasa USD 35/h sobre horas reales con contingencia temporal 20 %.
 
 ## 1. Introducción y contexto de relevamiento
@@ -170,3 +170,64 @@ Esquema entregado ≈ 23 tablas → rango 16–30 → **Plan PREMIUM: USD 400/a�
 - 2026-06-11: presupuesto inicial v1. 14 módulos, M total 65.5 h, USD 1.134 + USD 400/año. Fórmula vigente M × $16.80. Pendiente: aprobación del cliente; cierre de calibración estimado vs real al finalizar el sprint.
 - 2026-06-11: v2 — se incorpora el cargo fijo de USD 100 por uso de tokens IA (regla nueva en 27-parametros). Total desarrollo: USD 1.234. Documento cliente rehecho con especificación funcional detallada para envío.
 - 2026-06-11: v3 — nuevo módulo 15 "Notificación de cierre por correo" (pedido del cliente): M 4.0 h, USD 67.20, referencia delicias Notificaciones 3.5 base, ratio 1.24 justificado. M total 69.5 h, total desarrollo USD 1.301 (1.201 módulos + 100 tokens IA). Sanity total recalculado: 0.97 vs delicias. Cascada aplicada en definiciones 1–3 y documento cliente.
+- 2026-08-10: presupuesto del módulo E2-02 "Fichador de empleados" (Etapa 2, post-entrega — ver §16). M 5.5 h, USD 92. Clasificado como Merge sobre sistema propio ya entregado: precio de lista, sin descuento de expansión agresiva (esa política es solo para Build inicial de cliente nuevo). Tokens IA no aplica (horas facturables 2.64 h, por debajo del piso de 4 h). Implementación bloqueada por token QuickPass pendiente — el presupuesto queda cerrado y aprobable igual.
+
+---
+
+## 16. Presupuesto — Módulo E2-02 "Fichador de empleados" (Etapa 2, post-entrega)
+
+### 16.1 Contexto
+
+KOI ya está en producción (Etapa 1 entregada, ver trazabilidad.md). Este es un módulo nuevo post-entrega: se clasifica como **Merge sobre sistema propio ya entregado** (27-presupuesto-parametros) — precio de lista, sin el descuento de expansión agresiva (ese descuento aplica solo a Build inicial de cliente nuevo).
+
+### 16.2 Paso 0 — Anclaje histórico
+
+Referencia elegida: **"Integración WS simple (OAuth + mapeo)": 3–4 h base** (tabla de rangos, 27-presupuesto-parametros) — mediana **3.5 h**. Es la referencia más cercana disponible: integración REST con autenticación y mapeo de DTOs, sin migración EF. No hay ningún módulo de fichaje/asistencia en el dataset histórico (confirmado por el escaneo de arquitectura §8.0) — se declara explícitamente que esta referencia es aproximada, no un caso idéntico.
+
+### 16.3 Estimación por ítem
+
+| Ítem | Tipo | Drivers | Referencia | O | M base | M ajust. | P | PERT | Riesgo | Cont. | Hs finales (techo) | Hs fact. (M×0.48) | USD (M×16.80) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Fichador de empleados (integración QuickPass + 3 pantallas: Hoy / Rango / Empleados) | Integración WS + UI de consulta | Bearer token estático, `HttpClient` tipado, 3 vistas de solo lectura con `daterangepicker`/DataTable, cálculo de horas trabajadas y turnos incompletos, manejo de errores de SaaS externo | Integración WS simple 3.5 h | 3.6 | 3.5 | 5.5 | 9.9 | 5.92 | Alto | 25 % | 7.40 | 2.64 | 92.40 |
+
+**Justificación del ajuste M 3.5→5.5 h (+57 %, fuera del umbral de 30 % sin documentar — documentado aquí):** la referencia histórica es solo el componente de integración/mapeo backend; este ítem agrega 3 pantallas de consulta (Hoy, Rango con filtro `daterangepicker`, Empleados) con lógica de presentación (turno incompleto, sin fichada hoy, resumen de horas) que la referencia no incluye. Riesgo clasificado **Alto** (no Bajo, a diferencia del módulo 3 de Etapa 1 que reutilizaba `CotizacionService` ya construido) porque es la primera integración de este tipo en el estudio, sin documentación formal de la API (Swagger no confirmado) y con dependencia externa (SaaS QuickPass).
+
+### 16.4 Autocorrección (Paso 7)
+
+Ratio = M ajustado / mediana histórica = 5.5 / 3.5 = **1.57** → fuera del umbral 0.85–1.15. Ajuste NO revertido: se documenta el driver concreto (3 pantallas UI adicionales sobre una referencia que solo cubre el backend de integración) como justificación explícita, según regla "ratio > 1.15: ajustar a la baja o justificar drivers adicionales concretos".
+
+### 16.5 Sanity check
+
+Comparable interno más cercano dentro del propio proyecto KOI: módulo "Notificación de cierre por correo" (Etapa 1, M 4.0 h — integración externa + 1 pantalla de config/historial) y "Cámaras" (M 2.5 h — 2 pantallas simples sin integración real de datos). El Fichador combina integración externa real (no solo SMTP saliente) con 3 pantallas de consulta con cálculo — M 5.5 h queda razonablemente por encima de ambos, consistente con mayor complejidad. Se mantiene sin recalibrar.
+
+### 16.6 Cierre numérico
+
+- **Paso A (preliminar):** USD 92.40 — 2.64 h facturables internas — techo interno 7.40 h PERT+contingencia.
+- **Paso B (tras sanity check):** sin ajuste adicional. Ratio de proyecto no aplica (ítem único). **Tokens IA: NO aplica** — horas facturables (2.64 h) por debajo del piso de 4 h definido en 27-presupuesto-parametros para iteraciones evolutivas menores.
+- **Número a comunicar al cliente: USD 92.** Sin impacto en el plan de mantenimiento anual (sin tablas nuevas, sigue en PREMIUM).
+
+### 16.7 Tabla para el cliente
+
+| Área funcional | USD |
+|---|---:|
+| Fichador de empleados (consulta de asistencia vía QuickPass) | 92 |
+| **Total** | **92** |
+
+### 16.8 Condiciones comerciales y exclusiones
+
+- 50 % al confirmar el alcance / 50 % a la entrega — dado el monto bajo, a criterio del cliente puede pagarse 100 % a la entrega.
+- **Bloqueante operativo (no comercial):** la Implementación no puede iniciarse hasta que el cliente entregue el token de API y las credenciales admin de QuickPass. El presupuesto queda aprobable y firme independientemente de esa fecha.
+- Exclusiones: alta/edición de empleados o huellas (se gestiona en el panel QuickPass), persistencia histórica local, notificaciones de ausentismo — todas fuera de este ítem, se cotizarían aparte si se piden.
+- Gatillo de reestimación: si al integrar contra el token real la API expone un contrato distinto al relevado (campos, paginación, límites de rate) que obligue a rediseñar el mapeo.
+
+### 16.9 Riesgos y supuestos
+
+- Riesgo Alto declarado íntegramente por ser la primera integración de este tipo — no se aplicó recargo de precio adicional (a diferencia del módulo 14 de Etapa 1, migración de datos) porque el riesgo acá es de **cronograma** (token pendiente), no de **rehacer trabajo** ya pagado.
+- Supuesto: la API de QuickPass devuelve fichadas como pares entrada/salida simples (sin fichadas múltiples por pausas) — a confirmar en Implementación.
+
+### 16.10 Pruebas mínimas requeridas (para cuando se implemente)
+
+- Fichadas del día con al menos un turno completo, uno abierto y un empleado sin fichar.
+- Rango de fechas con empleado específico y con "todos".
+- Simulación de token inválido/expirado y de timeout → mensaje SweetAlert2 correcto, sin excepción visible al usuario.
+- Verificación de que un Inversor no puede acceder a `/Fichador` (policy `RequireAdministracion`).

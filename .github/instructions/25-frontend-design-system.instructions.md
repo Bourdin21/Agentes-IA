@@ -39,6 +39,26 @@ Toda vista nueva se disena aplicando criterio de diseñador grafico senior, no s
 - Prueba de aceptacion de diseño antes de dar por cerrada una vista: un usuario que nunca vio el sistema tiene que poder entender que hacer en esa pantalla sin instrucciones externas. Si no es evidente, reordenar/agrupar/renombrar antes de continuar.
 - Este criterio es un estandar de desarrollo para todas las implementaciones futuras (no una decision puntual por proyecto) — aplica al implementador en toda vista Razor nueva o modificada.
 
+# Ortografia y acentuacion en texto de UI (obligatorio, vigente Agosto 2026)
+
+Pedido explicito de Joaquin (proyecto La Platense, 2026-08-10): ningun texto visible para el usuario final o el cliente puede tener errores de ortografia ni tildes faltantes/incorrectas. Aplica a **todo texto en espanol que ve una persona real**, no solo al cuerpo de las vistas Razor:
+
+- Vistas `.cshtml`: titulos (`ViewData["Title"]`), labels, texto de botones, placeholders, texto de ayuda, encabezados de tabla, breadcrumbs.
+- ViewModels (`Web/Models/*.cs`): `[Display(Name="...")]`, mensajes de `[Required(ErrorMessage="...")]`/`[StringLength(...)]`/etc. (ver `23-web.instructions.md`, seccion ViewModels).
+- Mensajes de SweetAlert2, `TempData["SuccessMessage"]`/`TempData["ErrorMessage"]`, toasts.
+- JS embebido con strings de UI (validaciones client-side, tooltips, textos de DataTables custom).
+- Sidebar (`Views/Shared/_Layout.cshtml`), documentacion de alcance para cliente (etapa Documentacion, `07-documentacion.prompt.md`).
+
+**No aplica** a este propio repositorio de instrucciones/prompts de Agentes-IA (`.github/**/*.instructions.md`, `.github/**/*.prompt.md`, `docs/**/*.md`) — esos archivos son documentacion tecnica interna del estudio, no texto de UI que vea un cliente final, y mantienen la convencion sin tildes ya usada historicamente para evitar problemas de encoding en el propio tooling.
+
+**Errores tipicos a vigilar especialmente** (frecuentes en texto generado, por ser palabras que en el uso cotidiano informal a veces se escriben sin tilde): "gestión" (no "gestion"), "código" (no "codigo"), "categoría" (no "categoria"), "número" (no "numero"), "período" (no "periodo"), "administración" (no "administracion"), "descripción" (no "descripcion"), "configuración" (no "configuracion"), "atención" (no "atencion"), "días" (no "dias"), "además" (no "ademas"), "también" (no "tambien"), "según" (no "segun"), "único" (no "unico"), "válido"/"validación" (no "valido"/"validacion").
+
+**Como aplicarlo:**
+- Antes de dar por cerrada una vista o ViewModel nuevo/modificado, releer cada string visible al usuario y verificar tildes segun las reglas de acentuacion del espanol (no solo las palabras de la lista de arriba, esa es solo la lista de riesgo mas comun).
+- Si hay duda sobre una palabra especifica, preferir la forma acentuada correcta de diccionario antes que la version mas comun en texto informal.
+- El agente QA (`06-pruebas.prompt.md`) incluye una revision de ortografia/acentuacion como parte de su chequeo de UI, no solo funcionalidad — un texto con tilde faltante es un defecto reportable aunque el flujo funcional sea correcto.
+- Este criterio es un estandar de desarrollo para todas las implementaciones futuras (no una decision puntual por proyecto).
+
 # Listados: DataTables + filtros por columna (obligatorio, vigente Julio 2026)
 
 - Todo listado de una entidad se renderiza con DataTables server-side (ver `23-web.instructions.md`, `DataTableRequest`/`DataTableResponse<T>`) — nunca una tabla HTML estatica ni paginacion manual armada a mano.
