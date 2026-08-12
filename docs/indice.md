@@ -19,6 +19,6 @@ Registrar una fila por cada proyecto con memoria activa en /docs.
 | century-21 | 2026-06-25 | activo | /docs/century-21 |
 | marihogar | 2026-06-29 | Etapa 1 completa (QA GO) — pendiente verificación manual del cliente y certificado ARCA; Etapa 2 en pausa | /docs/marihogar |
 | crm-olvidata | 2026-07-14 | en producción, operativo | /docs/crm-olvidata |
-| la-platense | 2026-07-30 | Entrega 1 (Catálogo/Stock/Usuarios/roles) cerrada — QA GO, prueba manual OK, commit+push a `git@gitlab.com:olvidata/ferreteria-la-platense.git` (2026-08-10) — Entrega 2 (Ventas/AFIP/Caja) sin arrancar | /docs/la-platense |
+| la-platense | 2026-07-30 | Entrega 1 entregada y en producción de prueba (rama `entrega-1`). Entrega 2 (Ventas/CC clientes/AFIP/Caja/Gastos/Entregas/Dashboard corte1) implementada completa en rama `entrega-2`, build 0 errores, pendiente aplicar migraciones + QA — Entrega 3 sin arrancar | /docs/la-platense |
 | diercas | 2026-07-30 | presupuesto aprobado — pendiente inicio implementación | /docs/diercas |
 | koi (KoiDumplings) | 2026-06-11 | Etapa 1 en producción · módulo E2-02 Fichador con Análisis/Diseño/Arquitectura/Presupuesto cerrados (2026-08-10), Implementación en espera de token QuickPass | /docs/koi |

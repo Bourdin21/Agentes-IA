@@ -348,8 +348,25 @@ Sí son alcance nuevo (no correctivo) las 2 capacidades que el sistema no tenía
 
 **Total Change Request #5: USD 42.** Mismas condiciones ya acordadas (100% al aprobar). Acumulado fuera del Change Request #1: CR-21/22 ($168) + CR-24 ($135) + CR-25/26 ($150) + CR-27 ($42) = **USD 495**.
 
+## Presupuesto — Change Request #6: CR-32/CR-33/CR-34, precio dual + recargo tarjeta + edición de Venta + acreditación diferida (2026-08-11)
+
+Los 3 ítems son funcionalidad nueva (no corrección de datos ya migrados) — se presupuestan con el mismo criterio de siempre. Ancla: "modificación sobre módulo existente" para CR-32 (toca `Ventas/Create` y el service crítico ya endurecido por CR-22), "financiero workflow sensible" para CR-32.3/CR-34 (cambia cómo se postea la Caja — dinero real) y para CR-33 (edición retroactiva con guard de cumplimiento fiscal).
+
+| Ítem | Tipo | M | USD (M×$16.80) |
+|---|---|---:|---:|
+| CR-32.1 Columnas precio contado/tarjeta visibles ambos roles (UI) | Ajuste de UI sobre módulo existente | 2h | $34 |
+| CR-32.2/32.3 Recargo real por tarjeta + `MovimientoCCLocal` por línea de pago | Financiero workflow sensible (cambia cómo se postea Caja) | 3h | $50 |
+| CR-33 Edición completa de Venta (`EditarAsync` + `Ventas/Edit` + guards) | Financiero workflow sensible (revierte/reaplica stock, guard de cumplimiento fiscal) | 6h | $101 |
+| CR-34 Acreditación diferida de tarjeta (`AcreditarPagoAsync` + UI + Proyección Financiera) | Financiero workflow sensible (ingreso diferido en Caja) | 5h | $84 |
+| **Total** | | **16h** | **$269** |
+
+**Total Change Request #6: USD 269.** Mismas condiciones ya acordadas (100% al aprobar, sin Tokens IA). Acumulado fuera del Change Request #1: CR-21/22 ($168) + CR-24 ($135) + CR-25/26 ($150) + CR-27 ($42) + CR-32/33/34 ($269) = **USD 764**.
+
+**Estado: APROBADO por el cliente (2026-08-11) — habilitada la Implementación.**
+
 ## Historial de ajustes
 - 2026-07-28: Presupuesto Change Request #2 (CR-21/CR-22) — USD 168. Primer ítem del proyecto fuera del Change Request #1 ya cerrado en producción. Orden de implementación ya dada por el cliente en el pedido original (aprobación implícita del alcance, mismo criterio que adendas de bajo monto anteriores).
+- 2026-08-11: Presupuesto Change Request #6 (CR-32/CR-33/CR-34) — USD 269. Precio contado/tarjeta visible para ambos roles + recargo real del 21% aplicado por línea de pago (no por ítem fijo), edición completa de Venta ya creada (bloqueada si tiene comprobante AFIP asociado), acreditación diferida de pagos con tarjeta (ingreso en Caja recién al acreditar). **Estado: BORRADOR — pendiente aprobación del cliente (gate duro antes de Implementación).**
 - 2026-07-28: Adenda CR-14 a CR-18 (mejoras post-migración) + refinamiento de CR-13 — USD 91 adicionales. Nuevo total acumulado del Change Request #1: USD 729. CR-17 (unificación de Proveedor duplicado) y la normalización de mayúsculas sobre datos ya cargados se ejecutaron directamente contra `marihogar_dev` el mismo día. Sin gate de presupuesto nuevo — se implementa junto con el resto del lote (Sprint CR-F).
 - 2026-07-27: Cliente aprobó el presupuesto de la ampliación CR-10/CR-11/CR-12 (USD 84) **pero pidió esperar antes de implementar** — no es un rechazo, es aprobación con implementación diferida. Nuevo total acumulado del Change Request #1: **USD 638, aprobado**. **Estado: APROBADO — implementación en espera de que el cliente dé la orden de arranque explícita** (no se inicia Implementación solo por esta aprobación; se necesita una confirmación nueva puntual, mismo criterio que la ejecución de CR-6 en producción, que también está en espera).
 - 2026-07-27: Presupuesto ampliación CR-10/CR-11/CR-12 (auditoría columna por columna del histórico) — USD 84 adicionales. Nuevo total acumulado del Change Request #1: USD 638. **Estado: BORRADOR — pendiente aprobación del cliente (gate duro antes de Implementación).**

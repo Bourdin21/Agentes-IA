@@ -1,7 +1,7 @@
 # 🏗️ Trazabilidad de Conversación - ShowroomGriffin
 **Proyecto:** ShowroomGriffin  
 **Fecha inicio:** 2026-04-23  
-**Última actualización:** 2026-07-31  
+**Última actualización:** 2026-08-11  
 
 ---
 
@@ -441,6 +441,53 @@ Si no existen, **detener implementación** y solicitar al usuario que active los
 - **Branch actual:** `main`
 - **Documentación de análisis funcional:** `/docs/ShowroomGriffin/definiciones/1-analista-funcional.md`
 - **Plan de implementación:** (generado en conversación, pendiente de guardar como archivo).
+
+---
+
+### Entrada 2026-08-11 — Incidente producción: 500 en Carga Masiva de Stock
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-11 |
+| **Reporte** | Cliente reportó error 500 en `/Stock/CargaMasiva`. Se pidió revisar el log de producción |
+| **Investigación** | FTP directo falló (credencial no válida para ese protocolo). Se descargó `Logs/` real del servidor vía `msdeploy -verb:sync` (mismas credenciales del Web Deploy). Encontradas 2 entradas: `13:12:19` y `13:17:13` -07:00, usuario `oficinadeimportados@gmail.com`, `POST /Stock/CargaMasiva`, sin ninguna línea de "Excepción no manejada" en todo el archivo |
+| **Diagnóstico** | Ninguna excepción de .NET fue capturada por `GlobalExceptionHandler` — el 500 se originó en una capa anterior al controller (`HomeController.StatusCode`, vía `UseStatusCodePagesWithReExecute`), consistente con el formulario dinámico de Carga Masiva (8 campos × todas las filas de la marca) superando el límite por defecto de ASP.NET Core de 1024 valores de formulario (`FormOptions.ValueCountLimit`), rechazado durante la lectura del formulario (incluida la validación de antiforgery, que ocurre antes que cualquier límite por acción) sin lanzar excepción visible para la app |
+| **Hallazgo secundario** | El mecanismo de aviso por mail (`IErrorNotifier`) solo se dispara desde `GlobalExceptionHandler` — nunca se enteró de este incidente porque no hubo excepción capturada. Confirmado por el cliente: no había ningún mail en `olvidatasoft@gmail.com` |
+| **Fix aplicado** | `Program.cs`: `FormOptions.ValueCountLimit`/`KeyLengthLimit` y `MvcOptions.MaxModelBindingCollectionSize` subidos a `int.MaxValue`. `HomeController.StatusCode`: dispara `IErrorNotifier.NotifyError` (con excepción sintética) para cualquier 500 que llegue por esta vía, cerrando el gap de notificación. `Session.IdleTimeout` de 60 min a 2 h (pedido explícito del cliente, para no caducar mientras se completa un formulario largo) |
+| **Build** | `dotnet build` + `dotnet publish -c Release` a carpeta descartable → 0 errores |
+| **Deploy** | Commit `e102a8d` en `origin/main` + Web Deploy a producción (12 archivos, "Se publicó correctamente") |
+| **Pendiente** | Confirmar con el cliente/usuario qué Marca estaba cargando (cuántos modelos/variantes) para validar 100% la hipótesis del límite de campos — el fix aplicado es robusto igual sea o no la causa exacta. Los logs descargados (contienen emails de usuarios) se eliminaron del disco local tras el análisis, no quedaron commiteados en ningún repo |
+
+---
+
+### Entrada 2026-08-11 — Reversión de DD-1: Carga Masiva pasa de atomicidad total a guardado parcial
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-11 |
+| **Pedido del cliente** | Cambiar el comportamiento de guardado del lote: "guardar todos los productos que están OK e informar los que tienen errores", en vez de descartar el lote completo si una fila falla |
+| **Contexto** | Reversa explícitamente la decisión DD-1 (2026-07-30, `2-disenador-funcional.md` sección V10) que había fijado atomicidad total (todo o nada) a pedido del cliente en ese momento — la decisión se corrige ahora con el mismo peso, por pedido directo posterior |
+| **Cambio aplicado** | `StockService.GuardarCargaMasivaAsync`: cada fila (ajuste de variante existente, o alta + carga inicial de una nueva) corre en su propia transacción independiente en vez de una única transacción para todo el lote. Si una fila falla, rollback solo de esa fila; el resto sigue procesándose. `StockController.CargaMasiva` (POST): ya no redirige si quedaron filas con error — se queda en la misma pantalla mostrando el resumen de éxito (`TempData["Success"]`) junto con el detalle marcado en rojo por fila. Texto del modal de confirmación (SweetAlert2) actualizado para reflejar el nuevo comportamiento |
+| **Build** | `dotnet build` + `dotnet publish -c Release` → 0 errores |
+| **Deploy** | Commit `74a115f` en `origin/main` + Web Deploy a producción (12 archivos, "Se publicó correctamente") |
+| **Nota para Análisis/Diseño (si se retoma el flujo formal)** | `1-analista-funcional.md` y `2-disenador-funcional.md` (sección V10, DD-1) quedan desactualizados respecto al comportamiento real desplegado — no se actualizaron en esta entrada por tratarse de un fix directo fuera del flujo de gates (mismo criterio ya usado para V11 y el incidente del 500). Si se retoma el proyecto con el flujo completo, sincronizar esos documentos con este cambio |
+
+---
+
+### Entrada 2026-08-11 — Rediseño Vista Matriz de Stock (Marca → Modelo → Color × Talle)
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-11 |
+| **Pedido del cliente** | "quiero que la pantalla de stock de los productos se vea como esta presentada en el pdf" — planilla Excel del cliente con formato pivot: Marca → Modelo → Color en filas, Talle en columnas, cantidad en cada celda |
+| **Proceso seguido** | Análisis del PDF (páginas 13-16 eran la referencia real; 1-12 era historial de ventas, no relevante) → `EnterPlanMode` para diseñar el enfoque → 4 preguntas de producto resueltas con el cliente antes de escribir código (AskUserQuestion) → plan escrito y aprobado (`ExitPlanMode`) → implementación en 3 etapas |
+| **Decisiones del cliente** | (1) La vista Matriz **convive** con la Consulta de Stock actual (toggle), no la reemplaza. (2) Es **editable por celda**, no solo lectura. (3) El caso "Forum Talle Brasilero / Talle Argentino" (mismo modelo, dos numeraciones a la vez) **se modela** como distinción real, no se ignora. (4) Solo se muestran celdas con stock > 0, igual que el PDF |
+| **Etapa 1 — Vista de solo lectura** | `IStockService.ObtenerMatrizAsync` (nuevo, agrupa en memoria por Marca→Modelo→Color×Talle, sin migración — reutiliza datos ya existentes). `StockController.Matriz` + `Views/Stock/Matriz.cshtml` (nueva). Botón "Vista Matriz" agregado en `Stock/Index.cshtml`. Commit `022bd07` |
+| **Etapa 2 — Talle Argentino** | Nuevo valor de enum `TipoTalle.ZapatillaAdultoArgentino` — **sin migración EF** (el enum se persiste como int, sin cambio de esquema) y **sin seed hardcodeado**: el catálogo de talles argentinos lo carga el cliente por el ABM de Talles Config ya existente (`/TallesConfig`, genérico vía `Enum.GetValues<TipoTalle>()`, no necesitó tocarse). `ModeloService.ObtenerTallesPorModeloAsync` ofrece ambos catálogos cuando el modelo es ZapatillaAdulto; combos de talle (Variantes/Crear-Editar, Carga Masiva) distinguen "40 (Talle Brasilero)" / "40 (Talle Argentino)" solo cuando ambos sistemas conviven. Commit `06bb253` |
+| **Etapa 3 — Edición por celda** | `Views/Stock/MatrizEditar.cshtml` (nueva) + `StockService.GuardarMatrizAsync`, reutilizando el mismo patrón fila-por-fila (transacción propia por celda, guarda lo que está OK, informa errores) ya construido hoy mismo en Carga Masiva. Edición acotada a **una Marca por vez** (mismo funnel que Carga Masiva) para no repetir el problema de formularios gigantes recién resuelto. Solo ajusta variantes existentes — el alta de variantes nuevas sigue siendo responsabilidad de Carga Masiva/Productos-Variantes, no se duplicó esa lógica. Commit `0eba0fc` |
+| **Build** | `dotnet build` + `dotnet publish -c Release` a carpeta descartable → 0 errores en las 3 etapas |
+| **Deploy** | Web Deploy a producción tras cada etapa (10-12 archivos por deploy, "Se publicó correctamente" las 3 veces) |
+| **Pendiente** | Verificación visual manual del cliente comparando la Matriz contra su PDF de referencia con datos reales. El catálogo de Talle Argentino queda vacío hasta que el cliente cargue sus valores reales en `/TallesConfig` |
 
 ---
 
