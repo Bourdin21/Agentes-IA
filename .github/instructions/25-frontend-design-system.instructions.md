@@ -59,6 +59,15 @@ Pedido explicito de Joaquin (proyecto La Platense, 2026-08-10): ningun texto vis
 - El agente QA (`06-pruebas.prompt.md`) incluye una revision de ortografia/acentuacion como parte de su chequeo de UI, no solo funcionalidad — un texto con tilde faltante es un defecto reportable aunque el flujo funcional sea correcto.
 - Este criterio es un estandar de desarrollo para todas las implementaciones futuras (no una decision puntual por proyecto).
 
+# Importes monetarios: sin salto de linea (obligatorio, vigente Agosto 2026)
+
+Bug detectado en KOI (2026-08-12): en celdas de tabla angostas, el espacio HTML normal entre el signo ("$", "U$D") y el numero permite que el navegador corte la linea justo ahi, dejando el signo solo en una fila y el numero en la siguiente. Reproducido en varias pantallas (Dashboard, Mi Inversion, Reparto General) porque el codigo arma el importe concatenando el simbolo a mano (`$ @Helper.FormatMonto(v)`) sin ninguna regla CSS que lo proteja.
+
+- Toda celda de tabla que muestre un importe monetario (signo + numero, cualquier moneda) debe tener una clase CSS con `white-space: nowrap` desde el arranque del proyecto (parte del design system base, `olvidata-theme.css`), no como parche reactivo por pantalla.
+- Nombre de clase sugerido: `.ov-monto` (o equivalente del proyecto) aplicada explicitamente en el `<td>`/`<span>` del importe — no un selector generico por posicion de columna, para no romper el wrap de columnas de texto largo que si deben poder cortar linea.
+- Si el proyecto ya tiene un helper de formato de moneda (`FormatoMoneda`, `MoneyHelper`, etc.), evaluar que la clase forme parte del propio helper (ej. un metodo que devuelva el HTML completo con el `<span class="ov-monto">`) en vez de depender de que cada vista se acuerde de aplicarla a mano.
+- Este criterio es un estandar de desarrollo para todas las implementaciones futuras (no una decision puntual por proyecto) — mismo patron que el fix de tema oscuro de KOI (Etapa 9), que tambien paso de bug puntual a regla del design system compartido.
+
 # Listados: DataTables + filtros por columna (obligatorio, vigente Julio 2026)
 
 - Todo listado de una entidad se renderiza con DataTables server-side (ver `23-web.instructions.md`, `DataTableRequest`/`DataTableResponse<T>`) — nunca una tabla HTML estatica ni paginacion manual armada a mano.

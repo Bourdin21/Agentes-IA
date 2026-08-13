@@ -1,8 +1,8 @@
 ﻿# 2 - Diseñador funcional — Proyecto KOI
 
 > Memoria acumulativa del agente diseñador funcional.
-> Etapa: Diseño funcional. Estado: ✅ ACTUALIZADO — P-A01→P-A07 incorporadas · ventas 4 campos · TC con selector cotización · preview editable · Reabierto eliminado. Módulo E2-02 (Fichador) diseñado en §10.
-> Fecha: 2026-06-11. Última actualización: 2026-08-10 — P-15 Fichador de empleados. Input: 1-analista-funcional.md §11 (Análisis E2-02 cerrado).
+> Etapa: Diseño funcional. Estado: ✅ ACTUALIZADO — P-A01→P-A07 incorporadas · ventas 4 campos · TC con selector cotización · preview editable · Reabierto eliminado. Módulo E2-02 (Fichador) diseñado en §10. Sprint UX/UI Inversor + fixes diseñado en §11.
+> Fecha: 2026-06-11. Última actualización: 2026-08-12 — §11 Sprint UX/UI Inversor + fixes (P-16 Mes actual, P-17 Notificaciones). Input: 1-analista-funcional.md §12 (Análisis cerrado).
 
 ## 1. Alcance funcional resumido
 
@@ -239,3 +239,98 @@ Tab adicional "Empleados": DataTable de solo lectura con nombre, estado (Activo/
 
 - Sin documentación formal de endpoints (Swagger no confirmado) — el mapeo exacto de campos puede requerir ajuste una vez que llegue el token real y se pueda probar contra la API viva.
 - Cálculo de "horas trabajadas" asume pares entrada/salida simples (sin múltiples fichadas intermedias tipo pausa-almuerzo) — a confirmar contra el comportamiento real del hardware ZKTeco MB360 una vez que haya acceso.
+
+---
+
+## 11. Diseño — Sprint UX/UI Inversor + fixes (Agosto 2026)
+
+### 11.0 Escaneo de reutilización
+
+No aplica escaneo cross-proyecto: los 9 ítems son ajustes/relabels/simplificaciones sobre pantallas y servicios que ya existen en el propio KOI (Dashboard, Mi Inversión, Reparto General, Vista Anual ER, sistema de notificaciones in-app) — se reutiliza 100% el código propio del proyecto, no hay pantalla nueva que justifique buscar un patrón en otro proyecto del estudio, salvo el composer de notificaciones (ítem 7), que tampoco tiene equivalente en otros proyectos (grep de `INotificationService`/notificaciones por rol sin resultados fuera de KOI).
+
+### 11.1 Pantalla nueva "Mes actual" (P-16, solo Inversor)
+
+Reemplaza, solo para el rol Inversor, el link "Dashboard" del sidebar. Layout mínimo, sin selector:
+
+```
+Rendimiento Agosto 2026
+
+[ Ventas Totales ]  [ Ticket Promedio ]  [ Cant. de Tickets ]
+
+[ Torta % venta por canal: Mostrador / Salón / Delivery ]
+```
+
+- Controller/acción nueva (ej. `DashboardController.Actual()` o `MesActualController`, a criterio del arquitecto) que calcula año/mes = `DateTime.Now` (huso Argentina, mismo patrón que `CotizacionService.HoyArgentina()` usado en Fichador), reutiliza el mismo `IIndicadoresService`/`IDashboardService` ya usado por el Dashboard actual (no se duplica lógica de cálculo, solo se proyecta un subconjunto de campos).
+- Sin filtro de período en la UI — a diferencia de toda otra pantalla de carga/consulta del sistema, es intencional (KPI del momento, no histórico).
+- Si el mes actual no tiene datos cargados todavía: mismo criterio que el Dashboard hoy (estado vacío controlado, nunca división por cero).
+
+### 11.2 "Dashboard Histórico" (relabel condicional, sin pantalla nueva)
+
+No hay diseño de pantalla nuevo: es el mismo `Views/Dashboard/Index.cshtml` de siempre, con su filtro de mes/año y sus 3 secciones (Ventas/Gastos/Evolución Histórica) intactas. El único cambio de diseño es el **texto del link del sidebar**, condicional por rol:
+- Administrador / SuperUsuario → "Dashboard"
+- Inversor → "Dashboard Histórico"
+
+### 11.3 Rol "Encargado" — impacto en sidebar
+
+Nueva condición en `_Layout.cshtml` (mismo mecanismo `User.IsInRole` ya usado en todo el archivo): si el usuario autenticado tiene el rol "Encargado", el sidebar muestra ÚNICAMENTE el link "Fichador" (ningún otro bloque de menú — ni Dashboard, ni Inversiones, ni Configuración). Es el primer rol del sistema con un sidebar reducido a un solo ítem; no reutiliza ninguno de los bloques condicionales existentes, es un bloque nuevo con su propia condición al principio del sidebar.
+
+### 11.4 Fix de datos de Puntos (Wang) — sin diseño de pantalla
+
+No hay cambio de pantalla: `Views/Puntos/Index.cshtml` sigue exactamente igual. El fix es interno a `InversionesService.AsignacionesVigentesQuery` (ver Arquitectura §9.2) — el resultado visible es que el total y el listado que ya existen hoy muestran el valor correcto.
+
+### 11.5 Reparto General — tabla simplificada
+
+`Views/RepartoGeneral/Index.cshtml`, tabla `#tablaReparto`: se elimina el `@foreach (var inv in Model.NombresInversores)` que genera una columna por inversor. Columnas finales: Período, Ventas, Resultado, Utilidad/Punto, Utilidad/Punto USD, Estado. El `RepartoGeneralViewModel`/`NombresInversores` deja de ser necesario para esta vista (a evaluar en Arquitectura si se elimina del ViewModel o solo se deja de usar en la vista).
+
+### 11.6 "Historial de Resultados" (rename)
+
+- `Views/EstadoResultados/Anual.cshtml:4` — `ViewData["Title"] = "Historial de Resultados " + Model.Anio;` (antes `"Estado de Resultados " + Model.Anio`).
+- `Views/EstadoResultados/Anual.cshtml:10` — `<h3>...Historial de Resultados @Model.Anio</h3>` (antes "Estado de Resultados").
+- `Views/Shared/_Layout.cshtml:129-133` y `:181-185` — texto del link "Vista Anual ER" → "Historial de Resultados" (dos lugares en el archivo, uno por bloque de rol, mismo texto en ambos).
+
+### 11.7 Notificaciones — pantalla de composición nueva (P-17)
+
+Nueva pantalla, acceso desde un link persistente "Notificaciones" en el sidebar (además de la campanita ya existente). Reutiliza `NotificationsController` (se le agregan acciones) o un controller nuevo `NotificacionesAdminController` — a definir en Arquitectura.
+
+```
+Crear notificación
+┌──────────────────────────────────────────────┐
+│ Asunto: [_______________________________]     │
+│ Mensaje: [______________________________]     │
+│                                                │
+│ Destinatarios                                 │
+│  Rol: [ Administrador ▾ ]  → carga automática │
+│  ┌────────────────────────────────────────┐   │
+│  │ ☒ Juan Pérez            [quitar]        │   │
+│  │ ☒ María López           [quitar]        │   │
+│  │ ☒ ...                   [quitar]        │   │
+│  └────────────────────────────────────────┘   │
+│                                                │
+│ Canal: [ ] Enviar por correo                  │
+│        [ ] Crear notificación in-app          │
+│                                                │
+│              [Cancelar]  [Enviar]              │
+└──────────────────────────────────────────────┘
+```
+
+- Al elegir un rol del combo, AJAX (`GET`, antiforgery no aplica a GET) trae los usuarios activos con ese rol y los precarga como chips/filas con botón "quitar" — el admin puede sacar puntualmente a alguno antes de enviar (nunca agregar usuarios de otro rol desde acá — el combo es la única fuente de candidatos, por diseño, para mantener la UI simple).
+- Al menos un canal (correo o in-app) debe estar tildado — validación bloqueante si ninguno lo está.
+- Confirmación de envío vía SweetAlert2 (patrón `btn-swal-confirm` del proyecto), resumen post-envío: "Notificación enviada a N usuarios" (+ detalle de fallos de email si los hubo, sin bloquear los que sí se enviaron — mismo criterio que `NotificacionCierre`: un fallo de un destinatario no aborta el resto).
+- ViewModel: `ComponerNotificacionViewModel { Asunto, Mensaje, RolId, List<UsuarioSeleccionadoViewModel> Destinatarios, bool EnviarPorCorreo, bool CrearInApp }`.
+
+### 11.8 Mi Inversión — tabla de historial reformateada
+
+`Views/MiInversion/Index.cshtml`, tabla `#tablaHistorial` (markup actual en líneas 113-174 del archivo):
+
+**Antes** (10 columnas): Período | Puntos | Bruto | Consumos | Neto $ | Neto U$D | TC | Renta | Estado | Fecha pago
+
+**Después** (9 columnas, sin Puntos ni TC, Período dividido):
+Año | Mes | Bruto | Consumos | Neto $ | Neto U$D | Renta | Estado | Fecha pago
+
+- Año/Mes: el DTO `MiInversionFilaDto` ya expone `Anio`/`Mes` como `int` — se renderizan directo, no hace falta tocar Application/Infrastructure.
+- Mes en palabras, capitalizado (ej. "Agosto") — agregar un helper de nombre de mes en español si no existe uno ya expuesto al nivel de vista (`InversionesService` ya tiene un `NombreMes(anio, mes)` privado que arma "Agosto 2026"; para la vista hace falta solo la palabra del mes, sin el año — extraer o exponer una variante).
+- DataTable: `ordering: false` (global, no por columna — se saca la interacción de click-para-ordenar en toda la tabla, no solo se fija un orden). El orden real (Año desc, Mes desc) se resuelve en el `Select`/`OrderBy` del lado del servidor al armar `Historial`, no en el cliente — la tabla ya llega pre-ordenada.
+
+### 11.9 Fix global — importes sin salto de línea
+
+Regla CSS nueva en `wwwroot/css/olvidata-theme.css` (design system compartido, no una vista puntual): las celdas de tabla que muestran un importe (`$`/`U$D` + número) deben tener `white-space: nowrap`. Aplicar sobre un selector reutilizable en todo el sistema — ej. clase `.ov-monto` a agregar en cada `<td>` de importe (patrón explícito, no un selector genérico por posición de columna, para no romper columnas de texto largo que sí deben poder wrappear). Alcance: todas las vistas con importes (`Dashboard`, `MiInversion`, `RepartoGeneral`, `EstadoResultados`, `Liquidaciones`, `Puntos`, `Fichador` si aplica). Ver Arquitectura §9.6 para la regla a documentar en Agentes-IA.

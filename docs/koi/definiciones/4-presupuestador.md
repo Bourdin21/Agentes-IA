@@ -1,8 +1,8 @@
 # 4 - Presupuestador — Proyecto KOI
 
 > Memoria acumulativa del agente presupuestador.
-> Etapa: Presupuesto inicial (Etapa 1). Estado: CERRADO (pendiente de aprobación del cliente). Presupuesto del módulo E2-02 (Fichador) en §16 — CERRADO, pendiente de aprobación del cliente. Implementación bloqueada por token QuickPass pendiente (no por el presupuesto).
-> Fecha: 2026-06-11. Última actualización: 2026-08-10 — §16 Fichador de empleados. Inputs: definiciones 1 (§11), 2 (§10) y 3 (§8) aprobadas.
+> Etapa: Presupuesto inicial (Etapa 1). Estado: CERRADO (pendiente de aprobación del cliente). Presupuesto del módulo E2-02 (Fichador) en §16 — CERRADO. Presupuesto del Sprint UX/UI Inversor + fixes en §17 — CERRADO, USD 185, pendiente de aprobación para pasar a Implementación.
+> Fecha: 2026-06-11. Última actualización: 2026-08-12 — §17 Sprint UX/UI Inversor + fixes. Inputs: definiciones 1 (§12), 2 (§11) y 3 (§9) aprobadas.
 > Política de facturación vigente (27-presupuesto-parametros, Junio 2026): **USD por módulo = M × $16.80** (M/2.5 × 1.20 × $35). Las horas PERT con contingencia son techo interno, no base de precio. Tasa USD 35/h sobre horas reales con contingencia temporal 20 %.
 
 ## 1. Introducción y contexto de relevamiento
@@ -231,3 +231,74 @@ Comparable interno más cercano dentro del propio proyecto KOI: módulo "Notific
 - Rango de fechas con empleado específico y con "todos".
 - Simulación de token inválido/expirado y de timeout → mensaje SweetAlert2 correcto, sin excepción visible al usuario.
 - Verificación de que un Inversor no puede acceder a `/Fichador` (policy `RequireAdministracion`).
+
+---
+
+## 17. Presupuesto — Sprint UX/UI Inversor + fixes (Agosto 2026)
+
+### 17.1 Contexto
+
+9 ítems sobre el sistema KOI ya en producción — clasificado como **Merge sobre sistema propio ya entregado** (27-presupuesto-parametros): precio de lista, sin descuento de expansión agresiva (ese descuento es exclusivo de Build inicial para cliente nuevo). Ningún ítem requiere migración EF.
+
+### 17.2 Paso 0 — Anclaje histórico
+
+Todos los ítems anclan en la sección **"Modificación sobre módulo existente"** de 27-presupuesto-parametros (ajuste puntual 0.5–1h, agregar regla de negocio 1–2h) por ser, en su totalidad, cambios sobre pantallas/servicios ya construidos en el propio KOI — ninguno es un módulo nuevo desde cero. Excepción: ítem 7 (Notificaciones), que aunque reutiliza servicios existentes (`INotificationService`, `IEmailService`) agrega una UI de composición con varias piezas (combo dinámico, chips removibles, dos toggles) — se ancla igual en "modificación sobre módulo existente" pero con M ajustado más alto, justificado por la cantidad de piezas de UI nuevas.
+
+### 17.3 Tabla de estimación por ítem
+
+| # | Ítem | Referencia | O | M | P | PERT | Riesgo | Cont. | Hs finales | USD (M×16.80) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | Pantalla "Mes actual" (nueva, reutiliza cálculo de KPIs existente) | Nuevo reporte 1–2h | 1.0 | 1.5 | 2.5 | 1.58 | Bajo | 8% | 1.71 | 25.20 |
+| 2 | "Dashboard Histórico" (relabel condicional por rol, sin tocar contenido) | Ajuste puntual | 0.35 | 0.5 | 0.8 | 0.53 | Bajo | 8% | 0.57 | 8.40 |
+| 3 | Rol nuevo "Encargado" (seed + policy + sidebar exclusivo) | Ajuste puntual (alto del rango) | 0.7 | 1.0 | 1.6 | 1.05 | Bajo | 8% | 1.13 | 16.80 |
+| 4 | Fix bug puntos vigentes (Wang) — 1 método, sin tocar datos | Ajuste puntual | 0.35 | 0.5 | 0.8 | 0.53 | Bajo | 8% | 0.57 | 8.40 |
+| 5 | Reparto General — simplificar tabla (sacar columnas dinámicas) | Ajuste puntual | 0.35 | 0.5 | 0.8 | 0.53 | Bajo | 8% | 0.57 | 8.40 |
+| 6 | Rename "Historial de Resultados" (2 lugares) | Ajuste puntual (mínimo) | 0.2 | 0.3 | 0.5 | 0.32 | Bajo | 8% | 0.34 | 5.04 |
+| 7 | Notificaciones — composer + targeting por rol + 2 canales | Modificación c/regla de negocio, ajustado por UI multi-pieza | 1.7 | 2.5 | 4.3 | 2.67 | Medio | 15% | 3.07 | 42.00 |
+| 8 | Mi Inversión — tabla historial reformateada (Año/Mes, sin TC/Puntos, orden fijo) | Ajuste puntual (alto) | 0.7 | 1.0 | 1.6 | 1.05 | Bajo | 8% | 1.13 | 16.80 |
+| 9 | Fix global importes + regla CSS + documentación en Agentes-IA | Ajuste puntual, alcance "toda la solución" | 0.7 | 1.0 | 1.6 | 1.05 | Bajo | 8% | 1.13 | 16.80 |
+| | **Totales** | | | **8.8** | | **9.29** | | | **10.22** | **147.84** |
+
+### 17.4 Autocorrección (Paso 7)
+
+Todos los ítems son "modificación sobre módulo existente" desde el arranque (no hay reconstrucción desde rangos de "módulo nuevo" que corregir a la baja) — ratio no aplica en el sentido clásico del Paso 7 porque no hay una mediana histórica de "sprint de 9 ítems" comparable; se valida cada ítem individualmente contra su fila de referencia en 27-presupuesto-parametros, todos dentro de rango sin ajuste adicional salvo el ítem 7 (justificación de M ajustado documentada en la tabla).
+
+### 17.5 Sanity check
+
+Comparable más cercano en el dataset: vinosefue "compras al proveedor" (8 ítems, 28.27h PERT-contingencia, CIERRE REAL 4h, ratio 7.07x) y labipac SESIÓN 3 (3 mejoras + 3 fixes, 13.69h PERT-contingencia, CIERRE REAL 2h, ratio 6.84x) — ambos son el mismo patrón de "lote de ítems chicos, evolutivo, sobre sistema propio". Este sprint (9 ítems, 10.22h PERT-contingencia) queda en la misma familia de magnitud, más chico que ambos comparables — razonable dado que la mayoría de los ítems son ajustes de UI/relabel, no features nuevas. Se mantiene sin recalibrar.
+
+### 17.6 Cierre numérico
+
+- **Paso A (preliminar):** USD 147.84 — 4.22h facturables internas (M/2.5×1.20 = 8.8/2.5×1.20) — techo interno 10.22h PERT+contingencia.
+- **Paso B:** sin ajuste adicional tras el sanity check. **Tokens IA SÍ aplica** (a diferencia del módulo Fichador): horas facturables 4.22h ≥ piso de 4h → Tokens IA = 147.84 × 0.25 = 36.96.
+- **Número a comunicar: USD 185** (148 desarrollo + 37 tokens IA, redondeado). Sin impacto en el plan de mantenimiento anual (sin tablas nuevas).
+
+### 17.7 Tabla para el cliente
+
+| Área funcional | USD |
+|---|---:|
+| Pantallas del Inversor (Mes actual + Dashboard Histórico) | 34 |
+| Rol "Encargado" para el fichador | 17 |
+| Fix de cálculo de puntos de inversión | 8 |
+| Reparto General simplificado | 8 |
+| Historial de Resultados (rename) | 5 |
+| Notificaciones — composición y envío por rol | 42 |
+| Mi Inversión — tabla de historial reformateada | 17 |
+| Fix global de importes en tablas | 17 |
+| Uso de infraestructura IA (tokens) | 37 |
+| **Total** | **185** |
+
+### 17.8 Condiciones comerciales y exclusiones
+
+- 100% a la entrega (monto bajo, no amerita split 50/50).
+- No hay dependencias del cliente pendientes — todos los datos necesarios (rol Encargado, criterio de canal de notificación, etc.) ya quedaron definidos en el Análisis. Único punto abierto: quién es puntualmente el usuario/los usuarios con rol "Encargado" (dato operativo, no bloquea la implementación).
+- Excluye: persistencia histórica de fichadas/notificaciones más allá de lo ya modelado; cualquier ítem no listado en `1-analista-funcional.md` §12.
+
+### 17.9 Riesgos y supuestos
+
+- Ítem 7 es el único con riesgo Medio — por ser la pieza de UI más nueva del lote (combo dinámico + chips), aunque reutiliza servicios ya construidos al 100%.
+- El fix del ítem 4 se valida contra producción antes de dar por cerrado el ítem (`TotalAsignado = 95` para el período actual) — criterio de aceptación ya validado manualmente en el chat antes de presupuestar (ver `trazabilidad.md`).
+
+### 17.10 Pruebas mínimas requeridas
+
+- Ver criterios de aceptación por ítem en `1-analista-funcional.md` §12.3 — son la base de las pruebas funcionales de este sprint.

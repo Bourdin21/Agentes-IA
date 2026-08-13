@@ -2,7 +2,7 @@
 
 > Memoria acumulativa del agente analista funcional.
 > Etapa: Discovery + Análisis + Sesión de definición + Cierre P-A01→P-A07. Estado: ✅ ANÁLISIS FUNCIONAL CERRADO (Etapa 1) — todas las hipótesis y preguntas respondidas · cascada a diseño, arquitectura y presupuesto habilitada. Módulo E2-02 (Fichador) con Análisis cerrado en §11 — Implementación bloqueada por token QuickPass pendiente.
-> Fecha: 2026-06-11. Última actualización: 2026-08-10 — Análisis funcional del módulo E2-02 "Fichador de empleados" cerrado (§11), cascada a Diseño/Arquitectura/Presupuesto disparada.
+> Fecha: 2026-06-11. Última actualización: 2026-08-12 — Análisis funcional del sprint UX/UI Inversor + fixes cerrado (§12), cascada a Diseño/Arquitectura/Presupuesto disparada.
 
 ## 1. Contexto del cliente
 
@@ -569,4 +569,39 @@ El relevamiento (§10.2) ya proponía "sin nuevas tablas, datos en tiempo real".
 | Integración externa | Sí — API REST QuickPass v4, Bearer token estático |
 | Máquina de estados | No |
 | Migración de datos | No (consulta en vivo, sin carga inicial) |
+
+---
+
+## 12. Análisis funcional — Sprint UX/UI Inversor + fixes (Agosto 2026)
+
+> Fecha: 2026-08-12. Estado: ✅ ANÁLISIS CERRADO — 9 ítems, sobre sistema en producción, sin migración EF. Pedido directo del dueño del estudio. Ambigüedades resueltas en el chat antes de cerrar: alcance por rol (solo Inversor, no toca el Dashboard del Administrador) y estructura final de pantallas (3, no 2).
+
+### 12.1 Ítems del sprint
+
+1. **Pantalla "Mes actual" (nueva, solo Inversor)** — reemplaza el link "Dashboard" que ve el Inversor. Sin selector de mes/año (siempre el mes/año actual del sistema). Título dinámico: "Rendimiento {Mes} {Año}" (ej. "Rendimiento Agosto 2026"). KPIs: Ventas Totales, Ticket Promedio, Cantidad de Tickets, % de venta por canal (Mostrador / Salón / Delivery — mapea al campo ya existente "Pedidos"). El Administrador no ve este cambio — sigue entrando a su Dashboard actual sin ninguna modificación.
+2. **"Dashboard Histórico" (relabel, solo Inversor)** — mismo controller/vista/URL del Dashboard actual (`/Dashboard`), sin tocar su contenido. Solo cambia el texto del link del sidebar: para el rol Inversor pasa a decir "Dashboard Histórico" en vez de "Dashboard". Para Administrador el link sigue diciendo "Dashboard".
+3. **Rol nuevo "Encargado"** — decidido en el chat (vs. reutilizar `Empleado`): rol Identity nuevo, sembrado junto a los 5 existentes. Ve ÚNICAMENTE la opción de menú "Fichador" — ninguna otra pantalla, ni Dashboard, ni Mi Inversión, ni nada del resto del sistema.
+4. **Fix del bug de puntos ("Wang")** — **no es una corrección de datos, es un bug de código.** Investigado en el chat (ver `trazabilidad.md` 2026-08-12): `InversionesService.AsignacionesVigentesQuery` no descarta las vigencias superadas de un mismo inversor, a diferencia de `EstadoResultadosService` (que sí lo hace correctamente con `GroupBy` + `OrderByDescending().First()` en dos lugares — el cálculo de liquidaciones **nunca estuvo mal**, solo la pantalla de reporte de Puntos). El fix es puramente de código: aplicar el mismo patrón de deduplicación por inversor que ya usa `EstadoResultadosService`. Con el fix, la pantalla de Puntos muestra el total correcto (95, no 102) para cualquier período desde abril 2025, y Wang aparece una sola vez con sus 8 puntos vigentes. **No se borra ni modifica ninguna fila de `asignacionpuntos` en producción.**
+5. **Reparto General — simplificación** — la tabla deja de listar una columna por inversor (hoy: Período, Ventas, Resultado, Util/Punto, Util/Punto USD + N columnas de inversores + Estado). Queda solo el reparto general del período: Período, Ventas, Resultado, Utilidad/Punto, Utilidad/Punto USD, Estado — sin ningún desglose individual por inversor en esta pantalla (el desglose individual sigue disponible en Liquidaciones y en Mi Inversión de cada uno).
+6. **Vista Anual del Estado de Resultados → "Historial de Resultados"** — cambia el título de la página (hoy literal "Estado de Resultados {año}") y el texto del link del sidebar (hoy "Vista Anual ER"), ambos a "Historial de Resultados" (manteniendo el año donde corresponda, ej. "Historial de Resultados 2026"). Aplica a todos los roles que hoy ven esa pantalla (Admin, SuperUsuario e Inversor) — este ítem no está acotado a Inversor.
+7. **Notificaciones — módulo de composición nuevo** — el sistema in-app YA EXISTE de punta a punta (entidad `Notification`, `INotificationService`, `NotificationsController`, campanita+dropdown en el layout) pero hoy **nada lo usa para crear notificaciones** — no hay pantalla donde el Admin componga y envíe una. Se agrega: (a) opción de menú "Notificaciones" persistente en el sidebar (hoy solo es alcanzable desde la campanita); (b) pantalla nueva donde el Admin arma una notificación (asunto/mensaje) dirigida a **todos los usuarios de un rol** (combo de rol → carga automáticamente la lista de usuarios con ese rol asignado, con la posibilidad de sacar usuarios puntuales de esa lista antes de enviar) — no se pide targeting usuario-por-usuario desde cero, es "por rol con exclusión manual"; (c) dos checkboxes independientes: **Enviar por correo** (reutiliza `IEmailService` ya existente) y **Crear notificación in-app** (reutiliza `INotificationService.CreateAsync` ya existente, hoy sin ningún llamador) — pueden marcarse uno, el otro, o los dos.
+8. **Mi Inversión — sacar puntos propios** — se quita la columna "Puntos" de la tabla de historial (`#tablaHistorial`, `Views/MiInversion/Index.cshtml`). El inversor ya conoce su propia cantidad de puntos, no hace falta repetirla en cada fila del historial.
+9. **Mi Inversión — reformateo de la tabla de historial** (mismo `#tablaHistorial`): la tabla deja de ser ordenable por click en cualquier columna (se saca la interacción, no solo se fija un orden). Se separa la columna "Período" en dos columnas nuevas al principio de la tabla: **Año** y **Mes** (el DTO `MiInversionFilaDto` ya tiene `Anio`/`Mes` como enteros separados, no hace falta tocar el modelo de datos). El mes se muestra en palabras, con la primera letra en mayúscula (ej. "Agosto", no "agosto" ni "08"). El orden (fijo, no interactivo) es Año descendente y, dentro del año, Mes descendente por número de mes (mes 8 antes que mes 7, no alfabético). Se saca la columna "TC" (Tipo de Cambio) — queda sin uso una vez que Neto U$D ya muestra el valor convertido.
+10. **Fix global — importes cortados a una segunda línea por el signo "$"** — reproducido en Dashboard, Mi Inversión, Reparto General (y potencialmente cualquier otra tabla con importes) cuando la columna se angosta: el espacio entre "$"/"U$D" y el número permite el salto de línea del navegador ahí. Se corrige con una regla CSS **global** (no parche por pantalla) en el design system compartido (`olvidata-theme.css`), y se documenta como regla de implementación obligatoria en `Agentes-IA` (`.github/instructions/`) para que los proyectos nuevos del estudio no repitan el problema — mismo criterio que ya se usó con el bug de tema oscuro de KOI (Etapa 9), que también se generalizó al design system compartido.
+
+### 12.2 Alcance excluido
+- Dashboard del Administrador: sin cambios.
+- Sin nuevas tablas ni migración EF — todo el sprint reutiliza entidades/servicios ya existentes.
+- Sin borrado de datos de producción (ítem 4 es un fix de código).
+
+### 12.3 Criterios de aceptación (verificables)
+- **Ítem 1**: un usuario Inversor que entra al sistema ve "Mes actual" en el sidebar (no "Dashboard"); la pantalla muestra el mes/año en curso sin ningún selector; el título coincide con el mes/año real del servidor.
+- **Ítem 2**: el mismo usuario Inversor, al entrar a "Dashboard Histórico", ve exactamente el mismo contenido que hoy ve en "Dashboard" (sin regresión); un Admin sigue viendo "Dashboard" como texto de link.
+- **Ítem 3**: un usuario con rol único "Encargado" que inicia sesión solo puede navegar a `/Fichador`; cualquier otra URL del sistema (Dashboard, Mi Inversión, etc.) le devuelve acceso denegado.
+- **Ítem 4**: la pantalla de Puntos, para el período actual (o cualquiera desde abril 2025), muestra Total Asignado = 95 y a Wang una sola vez con 8 puntos. Una liquidación ya cerrada de un período anterior a abril 2025 no cambia sus valores históricos.
+- **Ítem 5**: la tabla de Reparto General no tiene ninguna columna con nombre de inversor.
+- **Ítem 6**: el texto "Vista Anual ER" no existe más en el sidebar; el título de la página dice "Historial de Resultados {año}".
+- **Ítem 7**: el Admin elige un rol, ve la lista de usuarios de ese rol precargada, puede sacar a alguno puntual, tilda "correo"/"in-app"/ambos, envía — cada usuario que quedó en la lista recibe lo que corresponda según los checks tildados.
+- **Ítem 8/9**: la tabla de historial de Mi Inversión no reacciona a clicks de header; muestra Año y Mes como columnas separadas antes que el resto; no tiene columnas Puntos ni TC; el orden visual es año desc, mes desc dentro del año.
+- **Ítem 10**: ningún importe con signo "$"/"U$D" se corta en dos líneas al angostar la ventana, en ninguna pantalla del sistema.
 

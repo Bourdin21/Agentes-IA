@@ -22,3 +22,4 @@ Registrar una fila por cada proyecto con memoria activa en /docs.
 | la-platense | 2026-07-30 | Entrega 1 entregada y en producción de prueba (rama `entrega-1`). Entrega 2 (Ventas/CC clientes/AFIP/Caja/Gastos/Entregas/Dashboard corte1) implementada completa en rama `entrega-2`, build 0 errores, pendiente aplicar migraciones + QA — Entrega 3 sin arrancar | /docs/la-platense |
 | diercas | 2026-07-30 | presupuesto aprobado — pendiente inicio implementación | /docs/diercas |
 | koi (KoiDumplings) | 2026-06-11 | Etapa 1 en producción · módulo E2-02 Fichador con Análisis/Diseño/Arquitectura/Presupuesto cerrados (2026-08-10), Implementación en espera de token QuickPass | /docs/koi |
+| yaghan-rental | 2026-08-13 | Presupuesto cerrado: desarrollo USD 850 (sistema completo, CRM WhatsApp incluido) + Etapa2 opcional USD 185 + mantenimiento USD 600/año (año 1 gratis) — pendiente envío y aprobación del cliente | /docs/yaghan-rental |

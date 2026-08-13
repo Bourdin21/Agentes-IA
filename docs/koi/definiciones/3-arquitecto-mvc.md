@@ -1,8 +1,8 @@
 ﻿# 3 - Arquitecto MVC — Proyecto KOI
 
 > Memoria acumulativa del agente arquitecto.
-> Etapa: Arquitectura. Estado: ✅ Etapa 1 cerrada. Módulo E2-02 (Fichador) arquitecturado en §8 — contrato real de API confirmado (§8.8), gate de Implementación habilitado (cliente entregó ApiKey/IdEmpresa + documentación).
-> Fecha: 2026-06-11. Última actualización: 2026-08-10 (sesión 2) — §8.2/8.3/8.8 corregidos contra la documentación real de QuickPass. Inputs: 1-analista-funcional.md §11 + 2-disenador-funcional.md §10.
+> Etapa: Arquitectura. Estado: ✅ Etapa 1 cerrada. Módulo E2-02 (Fichador) arquitecturado en §8 — contrato real de API confirmado (§8.8), gate de Implementación habilitado (cliente entregó ApiKey/IdEmpresa + documentación). Sprint UX/UI Inversor + fixes arquitecturado en §9.
+> Fecha: 2026-06-11. Última actualización: 2026-08-12 — §9 Sprint UX/UI Inversor + fixes (incluye diagnóstico del bug de puntos "Wang"). Inputs: 1-analista-funcional.md §12 + 2-disenador-funcional.md §11.
 
 ## 1. Alcance resumido
 
@@ -171,3 +171,83 @@ Diferencias encontradas al recibir la documentación real (2026-08-10) vs. lo as
 - [x] Integración externa definida: REST + Bearer token estático, `HttpClient` tipado vía `IHttpClientFactory`.
 - [x] Escaneo de reutilización cross-proyecto: sin coincidencia, patrón nuevo documentado para reuso futuro.
 - [x] Riesgo bloqueante para Implementación (no para Presupuesto) declarado explícitamente: token QuickPass pendiente.
+
+---
+
+## 9. Arquitectura — Sprint UX/UI Inversor + fixes (Agosto 2026)
+
+### 9.0 Escaneo de reutilización cross-proyecto
+
+Sin match — los 9 ítems son 100% reutilización interna de KOI (servicios/entidades ya existentes). Ninguno requiere buscar en otros proyectos.
+
+### 9.1 Domain / Migraciones EF
+
+**Ninguna migración.** Ningún ítem agrega entidades ni columnas:
+- Rol "Encargado": `AspNetRoles` ya soporta roles arbitrarios vía `SeedData` — agregar una constante `RolEncargado = "Encargado"` y sembrarla es un cambio de datos (seed), no de esquema.
+- Notificaciones: reutiliza `Notification`/`Notifications` (tabla ya existente).
+- Todo el resto son cambios de Presentación (vistas/CSS) o un fix de Negocio (query).
+
+### 9.2 Fix de código — `InversionesService.AsignacionesVigentesQuery` (Wang)
+
+Ubicación: `KoiDumplings.Infrastructure/Services/InversionesService.cs:303-312`.
+
+**Bug actual:**
+```csharp
+private IQueryable<AsignacionPuntos> AsignacionesVigentesQuery(int anio, int mes)
+{
+    return _db.AsignacionPuntos.AsNoTracking()
+        .Include(a => a.Inversor)
+        .Where(a => a.VigenteDesdeAnio < anio
+                 || (a.VigenteDesdeAnio == anio && a.VigenteDesdesMes <= mes));
+    // trae TODAS las vigencias ≤ período, no solo la última por inversor
+}
+```
+Usado únicamente por `ObtenerResumenPuntosAsync` (`InversionesService.cs:30-46`, consumido por `PuntosController` — pantalla de solo lectura/reporte). **Confirmado que `EstadoResultadosService` (líneas 179-188 y 247-256), que es quien realmente genera las liquidaciones al cerrar un período, NO tiene este bug** — ahí sí se agrupa por `InversorId` y se toma `OrderByDescending(VigenteDesdeAnio).ThenByDescending(VigenteDesdesMes).First()`. **Ninguna liquidación histórica está mal calculada.**
+
+**Fix:** aplicar el mismo patrón de deduplicación ya usado en `EstadoResultadosService` dentro de `AsignacionesVigentesQuery` (o en `ObtenerResumenPuntosAsync`, después de materializar la lista):
+```csharp
+var asignaciones = await _db.AsignacionPuntos.AsNoTracking()
+    .Include(a => a.Inversor)
+    .Where(a => a.Inversor.DeletedAt == null)
+    .Where(a => a.VigenteDesdeAnio < anio || (a.VigenteDesdeAnio == anio && a.VigenteDesdesMes <= mes))
+    .ToListAsync();
+
+var vigentes = asignaciones
+    .GroupBy(a => a.InversorId)
+    .Select(g => g.OrderByDescending(a => a.VigenteDesdeAnio).ThenByDescending(a => a.VigenteDesdesMes).First())
+    .ToList();
+```
+Verificación post-fix (ya validada manualmente contra producción antes de este cambio, ver `trazabilidad.md` 2026-08-12): para el período actual, `TotalAsignado` debe dar **95** sobre 15 inversores (antes: 102 sobre 16 filas, Wang contado dos veces). **No se toca ninguna fila de la tabla `asignacionpuntos` en producción** — es un fix de query, no de datos.
+
+### 9.3 Pantalla "Mes actual" — impacto por capa
+
+- **Presentación**: acción nueva en `DashboardController` (o controller separado — decisión del implementador, ambas opciones son válidas dado que reutiliza el mismo `IDashboardService`/`IIndicadoresService`), vista nueva mínima (4 KPIs, sin filtro).
+- **Negocio**: ninguna lógica nueva — reutiliza el cálculo de KPIs de ventas que ya usa `DashboardService`/`IIndicadoresService` para el mes actual (mismo criterio de "mes actual" ya usado en la lógica de negocio existente del Dashboard, ej. huso horario Argentina).
+- **Datos**: ninguna.
+- Permisos: visible solo para rol Inversor (condicional en sidebar, sin policy nueva — reutiliza `[Authorize]` simple que ya tiene el `DashboardController`).
+
+### 9.4 Rol "Encargado" — impacto por capa
+
+- `SeedData.cs`: agregar `public const string RolEncargado = "Encargado";` al array de roles sembrados.
+- `Program.cs`: nueva policy `RequireEncargado` o reutilizar la ya-existente `[Authorize]` simple en `FichadorController` + condición en sidebar — el control de acceso real (bloquear cualquier URL que no sea `/Fichador`) requiere revisar si `FichadorController` debe agregar el rol `Encargado` a su policy actual (`RequireAdministracion` hoy) o si se resuelve con una policy nueva que combine `RequireAdministracion` + `Encargado` solo para ese controller. El resto de los controllers (Dashboard, MiInversion, etc.) no necesitan cambios — ya excluyen implícitamente cualquier rol no contemplado en sus policies/condiciones (`Encargado` no está en ninguna, así que ya le deniegan acceso por defecto; lo único que hay que abrir es `/Fichador`).
+- Sidebar (`_Layout.cshtml`): nuevo bloque condicional `@if (User.IsInRole("Encargado")) { <link a Fichador> }` — probablemente conviene que sea **excluyente** con el resto del sidebar (si es Encargado, no evaluar los demás bloques) para que no aparezcan headers de sección vacíos.
+
+### 9.5 Notificaciones — impacto por capa
+
+- **Presentación**: nueva vista de composición (ver Diseño §11.7), nuevo link persistente en sidebar. Acción `Crear` (GET, arma el ViewModel) y `Enviar` (POST) en `NotificationsController` (extender el existente) o un controller nuevo — a criterio del implementador dado que el controller actual ya está `[Authorize]` simple; **la acción de crear/enviar debe restringirse a Administrador/SuperUsuario** (nueva policy o chequeo explícito, el resto de acciones del controller —ver notificaciones propias— siguen abiertas a cualquier autenticado).
+- **Negocio**: nuevo método en un servicio existente o uno nuevo (`INotificacionesAdminService` o extender `INotificationService`) que: (1) resuelve la lista de `ApplicationUser` para un `roleName` dado (`UserManager.GetUsersInRoleAsync`), (2) por cada destinatario final (lista ya filtrada por el admin en la UI) llama a `INotificationService.CreateAsync` si `CrearInApp` está tildado, y/o `IEmailService.SendEmailAsync` si `EnviarPorCorreo` está tildado. Reutiliza ambas interfaces tal cual existen hoy — no se les agrega nada.
+- **Datos**: ninguna tabla nueva — usa `Notifications` ya existente. El envío de email no persiste nada adicional (a diferencia de `NotificacionCierre`, que sí registra `NotificacionEnvio` por auditoría de cierre de período — acá no se pide ese nivel de trazabilidad, así que no se replica esa entidad).
+- Falla de un email individual no debe abortar el resto (mismo criterio que `NotificacionCierreService`).
+
+### 9.6 Fix global — importes sin salto de línea (regla para Agentes-IA)
+
+- Cambio de código: clase CSS `.ov-monto { white-space: nowrap; }` (o nombre equivalente) en `wwwroot/css/olvidata-theme.css`, aplicada en las vistas afectadas (Dashboard, MiInversion, RepartoGeneral, EstadoResultados, Liquidaciones, Puntos).
+- **Regla nueva para el estudio** (a agregar en `C:/Sistemas/Agentes-IA/.github/instructions/25-frontend-design-system.instructions.md` o `26-checklists.instructions.md` — decisión del implementador según cuál archivo ya cubre convenciones de tabla/importes): toda celda de tabla que muestre un importe monetario (signo `$`/`U$D` + número) debe llevar una clase con `white-space: nowrap` desde el bootstrap del proyecto (blankproject base), no como fix reactivo por proyecto. Mismo patrón que el fix de tema oscuro de KOI Etapa 9, que ya generalizó una lección de UI al design system compartido — este es el segundo caso de "bug de UI descubierto en un proyecto, corregido en la base compartida".
+
+### 9.7 Gate de aprobación para presupuesto
+
+- [x] Sin migración EF en ningún ítem.
+- [x] Rol nuevo y su alcance de permisos definidos.
+- [x] Fix de Wang confirmado como bug de código, no de datos — sin riesgo para liquidaciones históricas.
+- [x] Notificaciones: reutiliza 100% servicios existentes, sin entidades nuevas.
+- [x] Regla de CSS global identificada y su documentación en Agentes-IA especificada.
