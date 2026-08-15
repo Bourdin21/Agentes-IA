@@ -5,6 +5,8 @@ applyTo: "**/*.{md,prompt.md,agent.md,instructions.md}"
 
 # Parametros de referencia - Proyectos calibrados
 
+**Fuente estructurada (leer primero):** `/docs/calibracion/dataset.yml` tiene los rangos por tipo de modulo, la tabla de modificacion sobre modulo existente y los cierres reales en formato consultable, sin tener que releer toda la prosa historica de abajo. Este archivo sigue siendo la fuente de RAZONES y contexto de cada cierre — leerlo cuando se necesite entender por que paso algo, no para buscar un numero.
+
 Los datos especificos de cada proyecto viven en /docs/<proyecto>/definiciones/4-presupuestador.md.
 Para calibrar, leer primero ese archivo antes de estimar.
 
@@ -198,6 +200,40 @@ Cargo por uso de tokens IA (vigente Julio 2026, porcentaje actualizado 2026-07-2
 - No aplica a iteraciones evolutivas menores a 4 h facturables, salvo indicacion contraria.
 - Regla anterior (vigente 2026-07-03 a 2026-07-24, ya no aplica): 10% del total presupuestado.
 - Regla anterior a esa (vigente hasta Junio 2026, ya no aplica): cargo fijo de USD 100 por proyecto.
+
+## Costo interno de IA por consumo de motores de pensamiento (solo estudio — vigente desde 2026-08-15)
+
+Distinto del cargo "Tokens IA" de arriba (25% del subtotal, visible al cliente como linea propia). Esto es un dato **exclusivamente interno**: el costo sombra proyectado de consumo real de IA para producir el modulo, dado que Implementador y QA corren por defecto en Claude Opus 5 desde 2026-08-14 (`model: opus` en `.claude/agents/agentes-ia-implementador.md` y `agentes-ia-qa.md`). Nunca aparece desglosado en `presupuesto-cliente.md`; vive solo en `4-presupuestador.md`.
+
+**Nota de facturacion real:** el estudio paga Claude Code via suscripcion Stripe (`billingType: stripe_subscription`, confirmado en la cuenta), no por token via API. Este calculo es un "costo sombra" a precio de lista de la API Claude — no es un gasto variable que se factura mes a mes. Sirve para (a) verificar que el precio final de cada modulo cubre el costo real de produccion asistida por IA a pesar del cambio a Opus, y (b) tener visibilidad para decidir en el futuro si conviene migrar a facturacion API o cambiar de plan segun el volumen.
+
+Precios de referencia (API Claude, cacheados 2026-06-24, ver `shared/models.md` del skill `claude-api` para vigencia):
+- Claude Opus 5 (`claude-opus-5`): USD 5.00 / MTok input, USD 25.00 / MTok output.
+- Claude Sonnet 5 (`claude-sonnet-5`): USD 3.00 / MTok input (intro USD 2.00 hasta 2026-08-31), USD 15.00 / MTok output (intro USD 10.00).
+
+**Formula (por modulo):**
+```
+Costo_IA_modulo = Horas_facturables_modulo x tarifa_Opus_USD_hora
+```
+donde `Horas_facturables_modulo` es el mismo valor ya calculado para precio (`M / 2.5 x 1.20`) — se asume que practicamente todo ese tiempo de esfuerzo asistido por IA a nivel modulo corresponde a Implementador + QA (Opus), ya que Discovery/Analisis/Diseño/Arquitectura/Presupuesto/Documentacion son sesiones conversacionales cortas (Ask-mode, Sonnet) que ocurren una vez por proyecto, no por modulo.
+
+**Overhead fijo por proyecto (una sola vez, no por modulo):**
+```
+Costo_IA_overhead_proyecto = Horas_Ask_mode_estimadas x tarifa_Sonnet_USD_hora
+```
+`Horas_Ask_mode_estimadas` = 4 h como placeholder (cubre Discovery + Analisis + Diseño + Arquitectura + Presupuesto + Documentacion combinados para un proyecto de complejidad tipica). Ajustar si el proyecto tuvo un discovery inusualmente largo o corto.
+
+**Tarifas placeholder (sin calibrar con datos reales todavia — ver "Calibracion" abajo):**
+- `tarifa_Opus_USD_hora` = USD 4/hora (rango estimado 3-10 USD/h). Estimacion basada en precio de lista + supuesto de throughput tipico de una sesion agentic con muchas llamadas a herramientas (thinking on por defecto en Opus 5, effort alto/xhigh), NO en datos medidos.
+- `tarifa_Sonnet_USD_hora` = USD 1/hora (rango estimado 0.5-1.5 USD/h). Sesiones Ask-mode conversacionales, contexto mas acotado.
+
+**Como se aplica al precio final (folded, sin linea visible nueva):**
+1. Calcular `Costo_IA_modulo` para cada modulo y `Costo_IA_overhead_proyecto` una vez por proyecto.
+2. Si `Costo_IA_modulo` supera el 15% del precio de lista del modulo (`M x $16.80`), sumar la diferencia directamente al precio final de ESE modulo especifico (ya calculado, sin generar linea nueva ni desglose visible al cliente) — el 25% de Tokens IA no alcanza a cubrir el costo real proyectado y el numero final debe absorberlo.
+3. Si `Costo_IA_modulo` esta por debajo del 15%, no ajustar nada: el 25% de Tokens IA ya lo cubre.
+4. Documentar el calculo completo (Costo_IA por modulo, overhead, umbral, ajuste aplicado si hubo) en `4-presupuestador.md`, seccion interna — nunca en `presupuesto-cliente.md`.
+
+**Calibracion (reemplazar el placeholder con datos reales):** al cierre de cada sprint donde Implementador y/o QA corrieron como subagente, capturar el costo real de la sesion (comando `/cost` de Claude Code, o el reporte de uso de la cuenta) y registrarlo junto a las horas reales en `4-presupuestador.md`. Cuando haya 3+ cierres con dato real, recalcular `tarifa_Opus_USD_hora` y `tarifa_Sonnet_USD_hora` como la mediana observada (mismo metodo que la calibracion del factor de eficiencia 2.5), y reemplazar el placeholder de esta seccion.
 
 ## Descuento de expansion agresiva por reutilizacion cross-proyecto (vigente desde 2026-07-29)
 

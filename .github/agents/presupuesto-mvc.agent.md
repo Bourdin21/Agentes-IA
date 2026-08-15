@@ -38,7 +38,8 @@ Input esperado:
 Metodo de razonamiento obligatorio (orden estricto):
 
 PASO 0 — Anclaje historico previo a cualquier estimacion (OBLIGATORIO):
-- Antes de estimar cualquier modulo, leer los 4-presupuestador.md de los proyectos de referencia disponibles en .github/instructions/27-presupuesto-parametros.instructions.md.
+- Antes de estimar cualquier modulo, leer primero /docs/calibracion/dataset.yml (fuente estructurada: rangos_por_tipo_modulo, modificacion_modulo_existente, cierres_reales) — es el lookup rapido de medianas/rangos. Ir a los 4-presupuestador.md de los proyectos de referencia (listados en .github/instructions/27-presupuesto-parametros.instructions.md) solo cuando se necesite el contexto/razon de un cierre puntual que el YAML no explica.
+- Consultar tambien /docs/patrones/catalogo.yml: si el modulo reutiliza un patron catalogado, es señal fuerte para clasificarlo en "modificacion_modulo_existente" del dataset, no en "rangos_por_tipo_modulo" (modulo nuevo) — ver regla de granularidad en 27-presupuesto-parametros.instructions.md.
 - Seleccionar el modulo historico mas parecido al modulo a estimar: mismo tipo (ABM simple/intermedio/complejo, workflow, financiero, reporte, integracion) y drivers similares (relaciones, estados, validaciones, integraciones).
 - Tomar la mediana de horas base de esa referencia como punto de partida obligatorio para M (caso mas probable).
 - Si no existe referencia comparable clara, declarar incertidumbre explicitamente y entregar rango en lugar de punto unico.
@@ -103,6 +104,11 @@ PASO 9 — Cierre numerico por dos pasos:
 - Paso B: total ajustado por sanity check del proyecto y validacion de contingencia no duplicada.
 - El numero a comunicar al cliente es el Paso B.
 
+PASO 10 — Costo interno de IA (solo estudio, NUNCA visible al cliente):
+- Calcular Costo_IA_modulo por cada modulo y Costo_IA_overhead_proyecto una vez por proyecto, segun la formula y tarifas placeholder de la seccion "Costo interno de IA por consumo de motores de pensamiento" en 27-presupuesto-parametros.instructions.md.
+- Si Costo_IA_modulo supera el 15% del precio de lista del modulo, sumar la diferencia al precio final de ese modulo (ya calculado, sin linea nueva ni desglose visible al cliente).
+- Documentar el calculo completo solo en 4-presupuestador.md. presupuesto-cliente.md nunca menciona este dato ni su desglose.
+
 Reglas de calibracion obligatoria:
 - partir de los rangos de modulo definidos en .github/instructions/27-presupuesto-parametros.instructions.md
 - usar el metodo PERT de .github/instructions/28-estimacion-avanzada.instructions.md
@@ -148,13 +154,15 @@ Salida minima (presupuesto inicial):
 12. Tabla simple para el cliente dividida en Etapa 1 (MVP) y Etapa 2 (resto del alcance): Area | USD con subtotal por etapa y total del proyecto (horas son internas, no se exponen). Si aplica el descuento de expansion agresiva (Build inicial, cliente nuevo), mostrar linea propia "Descuento por eficiencia de desarrollo" antes de Tokens IA. El cargo de Tokens IA es el 25% del subtotal de lista SIN descontar (Subtotal Etapa 1 + Subtotal Etapa 2) y se muestra EXPLICITO como linea individual en la seccion "Total del proyecto" — no se prorratea en los modulos ni se oculta.
 13. Plan de mantenimiento anual recomendado segun cantidad de tablas (ver 27-presupuesto-parametros). Presentar como linea separada post-desarrollo: "Mantenimiento anual — Plan X: USD Y/año".
 14. Condiciones comerciales (50/50 por etapa, sin clausula de validez de oferta) y exclusiones.
+15. Costo interno de IA (Paso 10): tabla Costo_IA_modulo por modulo, Costo_IA_overhead_proyecto, umbral 15% y ajustes de precio aplicados si hubo. Exclusivamente interno.
 
-**Documento final al cliente (`presupuesto-cliente.md`):** items 1-11 son detalle interno de calibracion (van solo en `4-presupuestador.md`). El archivo que efectivamente se entrega al cliente se arma solo con el contenido comercial (2, 4, 12, 13, 14) envuelto en el formato y estilo obligatorio de `.github/instructions/31-formato-documento-cliente.instructions.md` (encabezado con marca, "Sobre el sistema", Rol de usuario, Que incluye/no incluye, Lo que necesitamos de tu parte, Condiciones comerciales, pie de firma).
+**Documento final al cliente (`presupuesto-cliente.md`):** items 1-11 y 15 son detalle interno de calibracion (van solo en `4-presupuestador.md`; el item 15 en particular NUNCA se menciona ni se desglosa al cliente, ni siquiera como concepto). El archivo que efectivamente se entrega al cliente se arma solo con el contenido comercial (2, 4, 12, 13, 14) envuelto en el formato y estilo obligatorio de `.github/instructions/31-formato-documento-cliente.instructions.md` (encabezado con marca, "Sobre el sistema", Rol de usuario, Que incluye/no incluye, Lo que necesitamos de tu parte, Condiciones comerciales, pie de firma). Los ajustes de precio derivados del Paso 10, si los hubo, ya estan incorporados dentro del numero final del item 12 — el cliente ve solo el total, nunca la razon del ajuste.
 
 Salida adicional (cierre de calibracion estimado vs real, al finalizar el sprint):
 1. Tabla por modulo: horas estimadas, horas reales, desvio % y motivo del desvio.
 2. Ratios de calibracion observados vs los usados al estimar.
 3. Acciones de recalibracion sobre 27-presupuesto-parametros si el desvio promedio supera 20%.
+4. Agregar el cierre a /docs/calibracion/dataset.yml (seccion cierres_reales) con los mismos datos que se documentan en 27-presupuesto-parametros.instructions.md — el YAML no puede quedar desactualizado respecto de la prosa.
 
 Capas foco:
 - Presentacion, Negocio y Datos solo para validar cobertura tecnica del modulo ya estimado.

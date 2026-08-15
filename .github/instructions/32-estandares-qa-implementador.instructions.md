@@ -72,6 +72,18 @@ Fuente: barrido completo de `docs/qa/regresiones-manuales.yml` y los `6-qa.md` d
 
 - Scripts de backfill/migracion que propagan FK o estado desde una entidad padre a sus hijos filtran/validan contra el estado **actual** de la entidad relacionada en el momento del backfill — nunca copian el valor ciegamente sin considerar que la entidad de destino puede estar en un estado terminal (Cancelada, Cerrada) que cambia el comportamiento esperado.
 
+## Venta con IVA + pago dividido en multiples metodos (patron nuevo, PAT-003)
+
+- **Regla:** el IVA es una propiedad de las lineas de producto de la venta (VentaDetalle/VentaItem: PorcentajeIVA, ImporteIVA por linea), nunca del pago. El pago es independiente y puede dividirse en N lineas (VentaPago: MedioPago, Importe, + campos condicionales segun medio — CantidadCuotas/PorcentajeFinanciamiento para Cuotas, FechaVencimiento para Cheque, etc., ver seccion "Campos condicionales de un select de negocio" arriba).
+- **Validacion obligatoria (bloqueante, client-side Y server-side):** la suma de `VentaPago.Importe` de todas las lineas de pago de una venta debe ser exactamente igual al `Total` de la venta (Total = suma de subtotales + IVA de todas las lineas de producto). Nunca permitir guardar una venta con pagos que no cierran contra el total, ni de mas ni de menos.
+- **Como implementarlo:**
+  - En el ViewModel/JS de Crear: recalcular en vivo la diferencia pendiente (`Total - Σ Pagos`) cada vez que se agrega/edita/quita una linea de pago; bloquear el submit (`preventDefault`) mientras la diferencia sea distinta de 0.
+  - En el Service, antes de persistir: repetir la misma validacion de suma server-side — nunca confiar solo en el bloqueo de UI (mismo criterio que "Campos condicionales" y los guards de GAN-004 arriba).
+  - Redondeo: si la division de centavos no cierra exacto (ej. total con 2+ decimales repartido en 3 pagos), definir explicitamente el criterio de redondeo (normalmente: el ultimo pago agregado absorbe el centavo de diferencia) y dejarlo documentado en el analisis funcional del modulo — no dejarlo implicito en el codigo.
+  - No confundir con el guard de "al menos un item" (GAN-001 arriba) — ese guard evita una lista de pagos vacia; esta regla nueva valida que la lista, aunque no este vacia, efectivamente sume el total correcto.
+- **Como detectarlo en QA:** crear una venta con producto(s) con IVA, agregar 2+ lineas de pago (ej. efectivo + tarjeta + transferencia) cuya suma sea distinta al total → debe bloquear con mensaje claro, nunca guardar. Agregar lineas de pago cuya suma sea exactamente el total → debe guardar sin error.
+- **Origen:** formalizado 2026-08-15 a partir de un caso de negocio planteado por el usuario (venta con % IVA y pago repartido en mas de un medio) — no hay bug reproducido todavia en `regresiones-manuales.yml`, es una regla preventiva derivada del patron ya existente (ShowroomGriffin, ganaderia via GAN-001) que le faltaba esta validacion explicita. Aplica a **todo proyecto con modulo de venta de productos**, no solo a los que ya lo tienen.
+
 ## Mantenimiento de este catalogo
 
 - Cuando el agente QA confirma un bug funcional nuevo y su fix (ver `30-qa-regresiones.instructions.md`), evaluar si el patron de causa raiz es generalizable (no especifico de un solo proyecto). Si lo es, agregar una seccion nueva a este archivo ademas del item en `docs/qa/regresiones-manuales.yml` — este archivo es el que efectivamente lee el implementador en cada implementacion nueva, el YAML es el catalogo de deteccion/reproduccion de QA.

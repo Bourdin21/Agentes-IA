@@ -13,6 +13,7 @@ Definir y ejecutar validaciones funcionales minimas para asegurar que el cambio 
 - .github/instructions/01-fronteras-por-capa.instructions.md
 - .github/instructions/23-web.instructions.md
 - .github/instructions/26-checklists.instructions.md
+- .github/instructions/33-verificacion-automatizada-qa.instructions.md
 
 # Entrada
 - Cambios implementados
@@ -29,8 +30,8 @@ Definir y ejecutar validaciones funcionales minimas para asegurar que el cambio 
 6. Verificar migraciones EF y consistencia de datos si aplica.
 7. Reportar defectos con pasos de reproduccion y la historia de usuario afectada.
 
-# Regla de ejecucion
-No ejecutar pruebas en navegador (no automatizar UI). Para cada caso de la matriz que requiera UI, describir el procedimiento de prueba manual paso a paso (pantalla, campos, acciones, resultado esperado) para que el usuario lo ejecute a mano y reporte PASS/FAIL/BLOCKED.
+# Regla de ejecucion (actualizada 2026-08-14)
+Ejecutar verificacion automatizada por navegador para los casos objetivamente chequeables (ver `33-verificacion-automatizada-qa.instructions.md`: patrones del catalogo de regresiones, estandares de `32-estandares-qa-implementador.instructions.md`, criterios de aceptacion criticos marcados como verificables por UI). Para el resto de los casos de la matriz (exploratorio/subjetivo, credenciales de produccion reales, juicio de negocio), describir el procedimiento de prueba manual paso a paso (pantalla, campos, acciones, resultado esperado) para que el usuario lo ejecute a mano y reporte PASS/FAIL/BLOCKED.
 
 # Salida
 1. Tabla de cobertura: historia de usuario vs resultado de validacion (cumple / no cumple / parcial)

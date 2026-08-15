@@ -1,0 +1,222 @@
+# Catalogo de patrones reutilizables cross-proyecto.
+# Complementa (no reemplaza) el escaneo de /docs/*/definiciones/ — es el lookup
+# rapido de "esto ya existe en algun lado" antes de diseñar/arquitecturar/
+# implementar desde cero. El escaneo completo de definiciones sigue siendo el
+# fallback cuando no hay match aca o cuando el match necesita mas contexto.
+#
+# Formato:
+#   id:                  identificador estable (no renombrar).
+#   nombre:               nombre corto del patron.
+#   categoria:            dominio | integracion | ui | infraestructura | financiero.
+#   descripcion:          que resuelve, en 1-2 frases.
+#   cuando_usar:          criterio de aplicabilidad — cuando un modulo nuevo califica para reusar esto.
+#   proyecto_origen:      donde se construyo por primera vez.
+#   proyectos_que_lo_usan: lista de proyectos que ya lo reutilizaron (crece con el tiempo).
+#   archivos_referencia:  lista de {proyecto, path, motivo}. Si la ruta exacta no esta
+#                         confirmada todavia, marcar pendiente_verificar: true — el
+#                         proximo agente que lo use debe confirmarla y sacar el flag.
+#   dependencias:         otros patrones o servicios de los que depende.
+#   notas:                caveats, variantes, o advertencias de uso.
+#
+# Obligacion de mantenimiento (ver disenador-funcional.agent.md, arquitecto-mvc.agent.md,
+# implementador-dotnet.agent.md): cuando se construye o se identifica un patron reutilizable
+# que NO esta en este catalogo, agregarlo aca antes de cerrar la etapa — igual que QA
+# agrega bugs nuevos a regresiones-manuales.yml. Cuando un patron ya catalogado se reutiliza
+# en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
+
+version: 1
+ultima_actualizacion: 2026-08-15
+
+patrones:
+
+  - id: PAT-001
+    nombre: "Ledger / Cuenta corriente (CuentaCorriente + MovimientoCC)"
+    categoria: financiero
+    descripcion: >
+      Entidad CuentaCorriente vinculada 1:1 a una entidad de negocio (Cliente, Proveedor, etc.),
+      con MovimientoCC como detalle de movimientos (debito/credito) y saldo calculado a partir
+      de la suma de movimientos, no persistido como campo mutable directo.
+    cuando_usar: >
+      Cualquier entidad que necesite trazabilidad de saldo/deuda con auditoria de movimientos
+      (clientes, proveedores, inversores, socios).
+    proyecto_origen: vinosefue (Cliente)
+    proyectos_que_lo_usan:
+      - vinosefue (replicado para Proveedor, sprint 2026-07-03)
+    archivos_referencia:
+      - proyecto: vinosefue
+        path: "pendiente confirmar — Domain/Entities/CuentaCorriente.cs y MovimientoCC.cs (o equivalente)"
+        motivo: "Entidad + detalle de movimientos"
+        pendiente_verificar: true
+    dependencias: []
+    notas: >
+      Referencia de esfuerzo: reutilizar este patron para una entidad nueva es M ~1-1.5h
+      (ver "Modificacion sobre modulo existente" en 27-presupuesto-parametros.instructions.md),
+      NO el rango de "Modulo financiero nuevo" (5-8h) — confirmado por el cierre real de
+      vinosefue 2026-07-03 (ratio PERT/real 7.07x cuando se clasifico mal como modulo nuevo).
+
+  - id: PAT-002
+    nombre: "AdjuntoService (adjuntos genericos)"
+    categoria: infraestructura
+    descripcion: >
+      Servicio generico de subida/almacenamiento/recuperacion de archivos adjuntos, vinculable
+      a cualquier entidad via un identificador polimorfico (tabla/entidad + id).
+    cuando_usar: >
+      Cualquier modulo que necesite adjuntar comprobantes, fotos o documentos a un registro
+      (compras, gastos, reclamos, etc.).
+    proyecto_origen: vinosefue
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: vinosefue
+        path: "pendiente confirmar — Infrastructure/Services/AdjuntoService.cs (o equivalente)"
+        motivo: "Servicio de adjuntos ya resuelto"
+        pendiente_verificar: true
+    dependencias: []
+    notas: "Reutilizar en vez de crear un manejo de adjuntos ad-hoc por modulo."
+
+  - id: PAT-003
+    nombre: "MetodoPago (venta con pago dividido en multiples medios + IVA)"
+    categoria: financiero
+    descripcion: >
+      Venta con N lineas de producto (VentaDetalle: PorcentajeIVA/ImporteIVA por linea, el
+      IVA es propiedad de la linea de producto) y N lineas de pago independientes (VentaPago:
+      MedioPago, Importe, + campos condicionales segun medio — CantidadCuotas/
+      PorcentajeFinanciamiento para Cuotas, FechaVencimiento para Cheque). Soporta pago
+      dividido entre varios medios (ej. parte efectivo, parte tarjeta, parte transferencia)
+      sobre una misma venta.
+    cuando_usar: >
+      Cualquier modulo de ventas/cobros que necesite mas de un medio de pago por venta,
+      financiamiento en cuotas, o venta con IVA aplicado por linea de producto.
+    proyecto_origen: ShowroomGriffin (Ventas)
+    proyectos_que_lo_usan:
+      - vinosefue
+      - ganaderia (guard "al menos un item" sobre Pagos[i], ver GAN-001 en 32-estandares-qa-implementador.instructions.md)
+    archivos_referencia:
+      - proyecto: ShowroomGriffin
+        path: "ShowroomGriffin.Domain/Entities/Ventas/VentaPago.cs"
+        motivo: "Entidad con CantidadCuotas + validacion condicional por medio"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      Ver tambien REG-006 y REG-008 en docs/qa/regresiones-manuales.yml (bugs historicos
+      ya corregidos, este es el estado post-fix). Ver la seccion "Venta con IVA + pago
+      dividido en multiples metodos" en 32-estandares-qa-implementador.instructions.md
+      (agregada 2026-08-15) para la regla de validacion obligatoria: la suma de
+      VentaPago.Importe debe ser exactamente igual al Total de la venta (que ya incluye
+      IVA) — bloqueante en JS y en Service, nunca solo uno de los dos lados.
+
+  - id: PAT-004
+    nombre: "RowVersion manual para concurrencia optimista en MySQL"
+    categoria: infraestructura
+    descripcion: >
+      MySQL no soporta rowversion store-generated como SQL Server — asignar RowVersion
+      manualmente en SaveChanges/SaveChangesAsync del DbContext, y configurar la propiedad
+      con IsConcurrencyToken().ValueGeneratedNever().IsRequired() en el Fluent API.
+    cuando_usar: >
+      Cualquier entidad nueva con control de concurrencia optimista sobre MySQL + EF Core
+      (baseline BlankProject).
+    proyecto_origen: ShowroomGriffin
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: ShowroomGriffin
+        path: "ShowroomGriffin.Infrastructure/Data/AppDbContext.cs"
+        motivo: "Asignacion manual de RowVersion en SaveChanges/SaveChangesAsync"
+        pendiente_verificar: false
+      - proyecto: ShowroomGriffin
+        path: "ShowroomGriffin.Infrastructure/Data/Configurations/Productos/VarianteProductoConfiguration.cs"
+        motivo: "Config Fluent API de referencia"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      Ver REG-001 en docs/qa/regresiones-manuales.yml — patron de arquitectura derivado
+      directamente de ese bug. Codificar esto DESDE EL DISEÑO en cualquier proyecto nuevo
+      con MySQL, no esperar a que se reproduzca el bug.
+
+  - id: PAT-005
+    nombre: "Maquina de estados (workflow generico)"
+    categoria: dominio
+    descripcion: >
+      Enum de estados en Domain, transiciones validas mapeadas y validadas en el Service
+      (nunca en Controller), evento/auditoria por cambio de estado, ViewModel con estado
+      actual + acciones disponibles segun estado y rol.
+    cuando_usar: >
+      Cualquier entidad con ciclo de vida de estados (compras, pedidos, cierres de periodo,
+      solicitudes).
+    proyecto_origen: ShowroomGriffin (Compras)
+    proyectos_que_lo_usan:
+      - koi (Cierre de periodo P-08)
+    archivos_referencia:
+      - proyecto: ShowroomGriffin
+        path: "ShowroomGriffin.Web/Controllers/ComprasController.cs"
+        motivo: "Guard de estado antes de CambiarEstadoAsync"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      Metodologia completa (no solo codigo) en `26-checklists.instructions.md` seccion
+      "Checklist modulo con workflow / maquina de estados", incluido el smoke-check
+      automatizado. Ver tambien REG-004 en regresiones-manuales.yml.
+
+  - id: PAT-006
+    nombre: "Integracion ARCA/AFIP WSFEv1 (WSAA + facturacion electronica)"
+    categoria: integracion
+    descripcion: >
+      Login WSAA via CMS/PKCS7-signed LoginTicketRequest, consumo WSFEv1 hand-rolled con
+      System.Xml.Linq + HttpClient (sin proxy generado por WSDL). Campos clave: Concepto,
+      DocTipo/DocNro, CbteFch, ImpNeto/ImpIVA/ImpTotal, CondicionIVAReceptorId, array Iva;
+      respuesta CAE/CAEFchVto/Resultado/Obs/Errors.
+    cuando_usar: >
+      Cualquier proyecto que necesite emitir facturas electronicas AFIP/ARCA (fuera del
+      alcance estandar salvo excepcion documentada — ver exclusiones fijas en
+      27-presupuesto-parametros.instructions.md).
+    proyecto_origen: "pendiente confirmar (posiblemente marihogar o koi — verificar antes de reutilizar)"
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: "pendiente confirmar"
+        path: "AfipService.cs / AfipTokenCache (nombre y ruta exacta a confirmar)"
+        motivo: "Servicio de integracion WSAA/WSFEv1"
+        pendiente_verificar: true
+    dependencias: []
+    notas: >
+      Discutido como referencia para Luciano Inmobiliaria (2026-08-14) sin confirmar
+      todavia el proyecto de origen exacto — el proximo agente que lo use DEBE confirmar
+      la ruta real antes de copiar codigo, no asumir esta entrada como verificada.
+
+  - id: PAT-007
+    nombre: "Sitio institucional Astro + Tailwind + formulario de contacto PHP"
+    categoria: ui
+    descripcion: >
+      Proyecto Astro con Tailwind, Layout.astro compartido, Content Collections para
+      listados (ej. clientes/casos), y formulario de contacto server-side via
+      contact.php + SmtpMailer.php (para hosting compartido sin backend Node).
+    cuando_usar: >
+      Sitios institucionales/landing de clientes sin necesidad de backend .NET (fuera
+      del baseline BlankProject) que se despliegan en hosting compartido.
+    proyecto_origen: labipac-front
+    proyectos_que_lo_usan:
+      - diercas-front (2026-08-13, replicando el patron tecnico, no el contenido)
+    archivos_referencia:
+      - proyecto: labipac-front
+        path: "src/layouts/Layout.astro, contact.php, SmtpMailer.php"
+        motivo: "Layout compartido + formulario de contacto funcional"
+        pendiente_verificar: false
+    dependencias: []
+    notas: "Repos fuera del baseline BlankProject (no MVC/.NET) — igual quedan en este catalogo por ser reutilizables."
+
+  - id: PAT-008
+    nombre: "DataTables server-side + filtro por columna visible"
+    categoria: ui
+    descripcion: >
+      Todo listado se renderiza con DataTables server-side, con un filtro funcional por
+      cada columna visible de la grilla (no opcional).
+    cuando_usar: "Cualquier listado nuevo en el baseline BlankProject."
+    proyecto_origen: "transversal — regla de 25-frontend-design-system.instructions.md, no un unico origen"
+    proyectos_que_lo_usan:
+      - ShowroomGriffin
+      - vinosefue
+      - ganaderia
+      - labipac
+    archivos_referencia: []
+    dependencias: []
+    notas: >
+      Este es un patron normativo (regla de diseño), no un componente de codigo puntual —
+      la referencia de implementacion es el checklist "10a" en
+      26-checklists.instructions.md, no un archivo especifico.

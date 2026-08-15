@@ -13,7 +13,8 @@ Objetivo:
 
 Reglas:
 - **nunca ejecutar smoke test funcional**: no levantar la app, no probar flujos por navegador ni por API/curl, no simular requests reales para "verificar que funciona". El build limpio y la revision de codigo propia (releer lo que se escribio) son la evidencia tecnica de cierre. En la salida, en vez de resultado de smoke test, dejar una guia de pasos concreta para que el usuario/cliente la ejecute manualmente
-- antes de implementar un ABM o funcionalidad nueva, escanear /docs/*/definiciones/5-implementador.md para detectar si esa entidad o flujo ya fue implementado en algun proyecto del historial; si hay coincidencia, localizar el codigo en el repo de origen (ruta_repositorio en /docs/<proyecto-origen>/metadata.md), copiarlo y adaptarlo al proyecto actual en lugar de desarrollar desde cero
+- antes de implementar un ABM o funcionalidad nueva, consultar primero /docs/patrones/catalogo.yml; si no hay match claro ahi, escanear /docs/*/definiciones/5-implementador.md para detectar si esa entidad o flujo ya fue implementado en algun proyecto del historial; si hay coincidencia (via catalogo o via escaneo), localizar el codigo en el repo de origen (ruta_repositorio en /docs/<proyecto-origen>/metadata.md), copiarlo y adaptarlo al proyecto actual en lugar de desarrollar desde cero — si la entrada del catalogo tenia pendiente_verificar: true, confirmar la ruta real y sacar el flag
+- si se implementa un componente/servicio genuinamente reutilizable que NO esta en /docs/patrones/catalogo.yml, agregarlo al catalogo antes de cerrar la etapa (igual que QA agrega bugs a regresiones-manuales.yml)
 - no mover logica de negocio compleja a Controllers
 - no hacer refactors cosmeticos salvo pedido expreso
 - indicar capas afectadas y por que
@@ -26,13 +27,14 @@ Reglas:
 - leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/5-implementador.md al inicio y cierre de cada etapa
 
 Input esperado:
-- /docs/indice.md y /docs/*/definiciones/5-implementador.md (escanear para detectar reutilizacion antes de implementar)
+- /docs/patrones/catalogo.yml (lookup rapido de reutilizacion)
+- /docs/indice.md y /docs/*/definiciones/5-implementador.md (escanear para detectar reutilizacion antes de implementar, si el catalogo no tiene match)
 - /docs/<proyecto>/definiciones/2-disenador-funcional.md aprobado
 - /docs/<proyecto>/definiciones/3-arquitecto-mvc.md aprobado
 - /docs/<proyecto>/definiciones/4-presupuestador.md aprobado
 
 Salida minima:
-0. Resultado del escaneo de reutilizacion: proyectos con ABM o funcionalidad similar identificados y decision (reutilizar / implementar desde cero con justificacion).
+0. Resultado del escaneo de reutilizacion (catalogo.yml + docs/*/definiciones/): proyectos/patrones con ABM o funcionalidad similar identificados y decision (reutilizar / implementar desde cero con justificacion). Si se agrego o confirmo un patron en el catalogo, indicarlo.
 1. Alcance funcional resumido.
 2. Plan de ejecucion tecnica por etapas (basado en el plan funcional del disenador).
 3. Cambios por capa (archivos tocados y motivo).

@@ -17,7 +17,8 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - No hacer refactors cosmeticos salvo pedido expreso.
 - Preservar comportamiento legacy salvo indicacion contraria.
 - Las pruebas requeridas son funcionales.
-- **El agente Implementador nunca ejecuta smoke test funcional** (no levanta la app, no prueba flujos por navegador ni por API/curl, no simula requests reales). Su evidencia de cierre es build limpio + revision de codigo propia. La verificacion funcional en caliente es responsabilidad exclusiva del usuario/cliente, de forma manual — el Implementador deja una guia de pasos a probar, no un resultado de prueba ya ejecutada por el mismo.
+- **El agente Implementador nunca ejecuta smoke test funcional** (no levanta la app, no prueba flujos por navegador ni por API/curl, no simula requests reales). Su evidencia de cierre es build limpio + revision de codigo propia. Separacion de roles deliberada: quien escribe el codigo no es quien lo verifica (evita el sesgo de confirmacion de "lo escribi yo, seguro funciona").
+- **El agente QA (2026-08-14, cambio de politica) SI ejecuta verificacion automatizada por navegador** para los casos objetivamente chequeables (catalogo de regresiones + patrones de `32-estandares-qa-implementador.instructions.md` + criterios de aceptacion criticos) — ver `33-verificacion-automatizada-qa.instructions.md` para el detalle de que se automatiza y que sigue siendo manual. La verificacion exploratoria/subjetiva (UX, casos que requieren credenciales de produccion reales, juicio de negocio) sigue siendo responsabilidad manual del usuario/cliente.
 - La documentacion requerida es de alcance para el cliente.
 - El cierre de calibracion estimado vs real es obligatorio para mejorar la asertividad del presupuesto.
 

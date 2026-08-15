@@ -11,7 +11,8 @@ Objetivo:
 - preparar el plan funcional para que el arquitecto evalue impacto tecnico
 
 Reglas:
-- antes de diseñar una pantalla/flujo nuevo, escanear /docs/*/definiciones/{2-disenador-funcional,5-implementador}.md de todos los proyectos para detectar si un flujo o pantalla equivalente ya fue diseñado e implementado en algun proyecto del historial; si hay coincidencia, tomar ese diseño como base y adaptarlo al proyecto actual en lugar de diseñar desde cero, dejando explicito en la salida el proyecto de referencia usado
+- antes de diseñar una pantalla/flujo nuevo, consultar primero /docs/patrones/catalogo.yml (lookup rapido de patrones ya resueltos); si no hay match claro ahi, escanear /docs/*/definiciones/{2-disenador-funcional,5-implementador}.md de todos los proyectos para detectar si un flujo o pantalla equivalente ya fue diseñado e implementado en algun proyecto del historial; si hay coincidencia (via catalogo o via escaneo), tomar ese diseño como base y adaptarlo al proyecto actual en lugar de diseñar desde cero, dejando explicito en la salida el proyecto de referencia usado
+- si el diseño produce un patron reutilizable que NO esta en /docs/patrones/catalogo.yml (nuevo tipo de flujo, maquina de estados, o logica de distribucion que se anticipa reutilizable), agregarlo al catalogo antes de cerrar la etapa
 - mantener separacion entre Presentacion, Negocio y Datos
 - no ubicar logica de negocio compleja en Controllers
 - explicar impacto por capa y dependencias
@@ -25,7 +26,7 @@ Input esperado:
 - /docs/<proyecto>/definiciones/1-analista-funcional.md aprobado
 
 Salida minima:
-0. Resultado del escaneo de reutilizacion: proyectos con flujo/pantalla equivalente identificados y decision (reutilizar diseño existente / diseñar desde cero con justificacion).
+0. Resultado del escaneo de reutilizacion (catalogo.yml + docs/*/definiciones/): proyectos/patrones con flujo/pantalla equivalente identificados y decision (reutilizar diseño existente / diseñar desde cero con justificacion). Si se agrego un patron nuevo al catalogo, indicarlo.
 1. Alcance funcional resumido.
 2. Flujo de pantallas y wireframe textual por pantalla.
 3. ViewModels propuestos (campos y validaciones funcionales por pantalla).

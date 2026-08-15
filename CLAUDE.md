@@ -75,6 +75,7 @@ Leer según el agente activo:
 - `30-qa-regresiones` — regresiones y pruebas funcionales
 - `31-formato-documento-cliente` — formato y estilo obligatorio de todo documento entregado al cliente (presupuesto, resumen de sprint)
 - `32-estandares-qa-implementador` — estandares de implementacion derivados del barrido de errores QA cross-proyecto
+- `33-verificacion-automatizada-qa` — QA ejecuta verificacion automatizada por navegador para casos objetivamente chequeables (catalogo de regresiones + estandares 32 + criterios de aceptacion criticos); el resto sigue siendo manual
 
 ## Trazabilidad documental
 
@@ -86,7 +87,7 @@ Leer según el agente activo:
 
 ## Reglas base (siempre aplican)
 
-- Reutilización cross-proyecto: en Diseño, Arquitectura e Implementación, escanear `docs/*/definiciones/` de todos los proyectos del historial antes de proponer algo nuevo — si la funcionalidad ya fue diseñada/implementada en otro proyecto, reutilizar y adaptar ese diseño/código (ver `ruta_repositorio` en el `metadata.md` de origen) en vez de construir desde cero
+- Reutilización cross-proyecto: en Diseño, Arquitectura e Implementación, consultar primero `docs/patrones/catalogo.yml` (lookup rápido); si no hay match, escanear `docs/*/definiciones/` de todos los proyectos del historial antes de proponer algo nuevo — si la funcionalidad ya fue diseñada/implementada en otro proyecto, reutilizar y adaptar ese diseño/código (ver `ruta_repositorio` en el `metadata.md` de origen, o completar la ruta en `catalogo.yml` si estaba pendiente) en vez de construir desde cero. Todo patrón reutilizable nuevo se agrega al catálogo antes de cerrar la etapa.
 - Lógica de negocio: en Services, nunca en Controllers
 - Controllers: solo coordinan request/response
 - Acceso a datos: en DbContext, repositorios o infraestructura

@@ -1,0 +1,265 @@
+# Dataset estructurado de calibracion de presupuesto — fuente consultable por
+# el agente presupuestador, en vez de releer la prosa historica completa de
+# 27-presupuesto-parametros.instructions.md en cada estimacion.
+#
+# La prosa de 27-presupuesto-parametros.instructions.md sigue siendo la fuente
+# de RAZONES/contexto de cada cierre (por que subio o bajo un ratio, que causo
+# una subestimacion puntual, decisiones de negocio). Este archivo es la fuente
+# de NUMEROS: leerlo primero para obtener medianas/rangos, ir a la prosa solo
+# si se necesita el contexto de un cierre puntual.
+#
+# Obligacion de mantenimiento (ver presupuesto-mvc.agent.md, Paso 0 y salida de
+# cierre de calibracion): al cerrar un proyecto con datos reales (horas reales
+# medidas), agregar una entrada en cierres_reales ANTES o AL MISMO TIEMPO que
+# se documenta en 27-presupuesto-parametros.instructions.md — no dejar que el
+# dataset estructurado quede desactualizado respecto de la prosa.
+
+version: 1
+ultima_actualizacion: 2026-08-15
+tasa_vigente_usd_hora: 35
+formula_vigente: "Costo_modulo = M / 2.5 x 1.20 x tasa_vigente_usd_hora = M x 16.80"
+factor_eficiencia_ia: 2.5
+contingencia_temporal_pct: 20
+
+# Cierres reales a nivel PROYECTO (no por modulo) — usar para sanity check del
+# total (Paso 8 del metodo de presupuesto-mvc.agent.md).
+cierres_reales:
+
+  - proyecto: ShowroomGriffin
+    horas_pert_contingencia: 101.1
+    horas_reales: 25
+    ratio_pert_real: 4.0
+    horas_formula: 40.6
+    ratio_formula_real: 1.6
+    fecha_cierre: null
+    cierre_real: true
+    notas: "Primer cierre real del dataset con IA asistida."
+
+  - proyecto: ganaderia
+    horas_pert_contingencia: 101.0
+    horas_reales: 20
+    ratio_pert_real: 5.05
+    horas_formula: 38.6
+    ratio_formula_real: 1.93
+    fecha_cierre: 2026-07-03
+    cierre_real: true
+    modulos_funcionales: 8
+    notas: >
+      Record del dataset en ratio PERT/real al momento de este cierre. Proyecto de
+      referencia comercial para alcances similares (8-11 modulos, ABM+workflow+financiero).
+      Precio comercial real USD 950 (incl. 15% desc. referido + 1er año mantenimiento
+      empaquetado); desarrollo puro implicito USD 650 ≈ USD 32.5/h efectivo.
+
+  - proyecto: contadores-bma-conversor
+    horas_pert_contingencia: 13.1
+    horas_reales: 8
+    ratio_pert_real: 1.6
+    horas_formula: 5.3
+    ratio_formula_real: 0.66
+    fecha_cierre: 2026-06-29
+    cierre_real: true
+    modulos_funcionales: 3
+    notas: >
+      Unico cierre con ratio_formula_real < 1 (subestimado) — causa: deploy inicial en
+      hosting compartido subestimado 3x (1h estimada -> 3h real). No afecta la formula
+      para proyectos donde el deploy se estima con el piso correcto (ver seccion
+      "Alerta de subestimacion sistematica en deploy inicial").
+
+  - proyecto: "vinosefue — sprint compras al proveedor"
+    horas_pert_contingencia: 28.27
+    horas_reales: 4
+    ratio_pert_real: 7.07
+    horas_formula: 11.42
+    ratio_formula_real: 2.86
+    fecha_cierre: 2026-07-03
+    cierre_real: true
+    items_reconstruidos: 8
+    notas: >
+      Record del dataset (ambos ratios). Reconstruccion retroactiva sin presupuesto
+      formal previo — real no desglosado por item (reparto proporcional aproximado).
+      Iteracion evolutiva que reutiliza PAT-001, PAT-002, PAT-003 del catalogo de
+      patrones — origino la regla de granularidad "modificacion existente vs modulo nuevo".
+
+  - proyecto: "labipac — SESION 3"
+    horas_pert_contingencia: 13.69
+    horas_reales: 2.0
+    ratio_pert_real: 6.84
+    horas_formula: 5.52
+    ratio_formula_real: 2.76
+    fecha_cierre: 2026-07-08
+    cierre_real: true
+    notas: >
+      Segundo lugar del dataset. Tercera ronda de mejoras sobre el mismo proyecto —
+      origino la regla "segunda/tercera ronda sobre el mismo modulo" (usar piso del
+      rango de modificacion existente, no la mediana, incluso si parece pantalla nueva).
+
+  - proyecto: "vinosefue — filtro categoria en export catalogo"
+    horas_pert_contingencia: 6.55
+    horas_reales: 1.5
+    ratio_pert_real: 4.37
+    horas_formula: 2.76
+    ratio_formula_real: 1.84
+    fecha_cierre: 2026-07-13
+    cierre_real: true
+    notas: >
+      El ratio mas bajo del grupo "evolutivo" — confirma que anclar la reconstruccion
+      en reutilizacion desde el arranque (no como correccion posterior) baja el ratio
+      de sobreestimacion de forma consistente.
+
+# Rangos de referencia por tipo de modulo (horas M = caso mas probable PERT).
+# Costo USD ya calculado con la formula vigente (M x 16.80).
+rangos_por_tipo_modulo:
+
+  - tipo: "Ajuste puntual (campo, validacion, logica menor)"
+    m_horas_min: 0.5
+    m_horas_max: 1
+    horas_facturables_min: 0.2
+    horas_facturables_max: 0.5
+    usd_min: 8
+    usd_max: 17
+
+  - tipo: "Deploy inicial hosting compartido (subdominio + vendor + .htaccess)"
+    m_horas_min: 2
+    m_horas_max: 3
+    horas_facturables_min: 0.96
+    horas_facturables_max: 1.44
+    usd_min: 34
+    usd_max: 50
+    nota: "Usar 3h si el mecanismo de deploy es no estandar (FTP+zip, Passenger WSGI, PHP especifico)."
+
+  - tipo: "ABM simple (sin relaciones, sin logica)"
+    m_horas_min: 1
+    m_horas_max: 2
+    horas_facturables_min: 0.5
+    horas_facturables_max: 1.0
+    usd_min: 17
+    usd_max: 34
+
+  - tipo: "UI pantalla unica sin BD (drag-and-drop, sin framework)"
+    m_horas_min: 1
+    m_horas_max: 1
+    horas_facturables_min: 0.48
+    horas_facturables_max: 0.48
+    usd_min: 17
+    usd_max: 17
+
+  - tipo: "ABM intermedio (con relaciones y validaciones)"
+    m_horas_min: 4
+    m_horas_max: 7
+    horas_facturables_min: 1.9
+    horas_facturables_max: 3.4
+    usd_min: 67
+    usd_max: 118
+
+  - tipo: "Modulo con workflow / estados"
+    m_horas_min: 4
+    m_horas_max: 6
+    horas_facturables_min: 1.9
+    horas_facturables_max: 2.9
+    usd_min: 67
+    usd_max: 100
+
+  - tipo: "Modulo financiero o con logica compleja"
+    m_horas_min: 5
+    m_horas_max: 8
+    horas_facturables_min: 2.4
+    horas_facturables_max: 3.8
+    usd_min: 84
+    usd_max: 134
+
+  - tipo: "Parser Excel propietario (formato jerarquico, pivot, multi-input)"
+    m_horas_min: 4
+    m_horas_max: 6
+    horas_facturables_min: 1.9
+    horas_facturables_max: 2.9
+    usd_min: 67
+    usd_max: 100
+
+  - tipo: "ABM complejo (padre/hijos, trazabilidad)"
+    m_horas_min: 7.7
+    m_horas_max: 11.5
+    horas_facturables_min: 3.7
+    horas_facturables_max: 5.5
+    usd_min: 129
+    usd_max: 193
+
+  - tipo: "Integracion WS simple (OAuth + mapeo)"
+    m_horas_min: 3
+    m_horas_max: 4
+    horas_facturables_min: 1.4
+    horas_facturables_max: 1.9
+    usd_min: 50
+    usd_max: 67
+
+  - tipo: "Integracion webhook (BackgroundService + HMAC)"
+    m_horas_min: 8
+    m_horas_max: 10
+    horas_facturables_min: 3.8
+    horas_facturables_max: 4.8
+    usd_min: 134
+    usd_max: 168
+
+  - tipo: "Integracion ARCA/AFIP (codigo + cert + homologacion)"
+    m_horas_min: 7
+    m_horas_max: 9
+    horas_facturables_min: 3.4
+    horas_facturables_max: 4.3
+    usd_min: 118
+    usd_max: 151
+    ver_tambien_patron: PAT-006
+
+  - tipo: "Integracion batch doble (rate limit + token refresh)"
+    m_horas_min: 15
+    m_horas_max: 18
+    horas_facturables_min: 7.2
+    horas_facturables_max: 8.6
+    usd_min: 252
+    usd_max: 302
+
+# Modificacion sobre modulo existente (iteracion evolutiva) — usar SIEMPRE que
+# el item reutilice un patron ya resuelto en el mismo repo o cross-proyecto
+# (ver docs/patrones/catalogo.yml), en vez de los rangos de "modulo nuevo" de arriba.
+modificacion_modulo_existente:
+
+  - tipo: "Agregar campo simple"
+    m_horas: 0.5
+    usd: 10
+
+  - tipo: "Agregar regla de negocio"
+    m_horas_min: 1
+    m_horas_max: 2
+    usd_min: 20
+    usd_max: 40
+
+  - tipo: "Nuevo reporte o exportacion (sobre modulo existente)"
+    m_horas_min: 1
+    m_horas_max: 2
+    usd_min: 20
+    usd_max: 40
+
+  - tipo: "Migracion EF requerida"
+    m_horas: 0.5
+    usd: 10
+    nota: "por cada migracion"
+
+  - tipo: "Refactor de vinculo/FK entre entidades existentes + migracion de datos"
+    m_horas_min: 1.5
+    m_horas_max: 2
+    usd_min: 25
+    usd_max: 34
+    fuente: "vinosefue sprint compras proveedor 2026-07-03"
+
+  - tipo: "Nuevo ledger/cuenta corriente reutilizando patron ya existente"
+    m_horas_min: 1
+    m_horas_max: 1.5
+    usd_min: 17
+    usd_max: 25
+    fuente: "vinosefue sprint compras proveedor 2026-07-03"
+    ver_tambien_patron: PAT-001
+
+  - tipo: "ABM manual reutilizando servicios ya existentes"
+    m_horas_min: 0.5
+    m_horas_max: 1
+    usd_min: 10
+    usd_max: 17
+    fuente: "vinosefue sprint compras proveedor 2026-07-03"

@@ -18,7 +18,8 @@ Reglas:
 - indicar riesgos de liberacion y mitigaciones
 - no crear test unitarios
 - no implementar codigo
-- no ejecutar pruebas en navegador (nada de automatizar UI con Playwright/Selenium u otra herramienta); para casos con `deteccion_qa.tipo: ui`, describir el procedimiento de prueba manual paso a paso (pantalla, campos, acciones, resultado esperado) para que el usuario la ejecute a mano y reporte el resultado
+- **ejecutar verificacion automatizada por navegador (2026-08-14, cambio de politica)** para: (a) items del catalogo `regresiones-manuales.yml` con `deteccion_qa.tipo: ui`, (b) los patrones objetivamente chequeables de `32-estandares-qa-implementador.instructions.md` (combo pre-poblado en Editar, botones de estado coincidentes con las transiciones reales, ausencia de error 500 en listados, link de sidebar respaldado por autorizacion real, etc.), y (c) los criterios de aceptacion criticos marcados como verificables por UI en el analisis funcional. Ver `33-verificacion-automatizada-qa.instructions.md` para la metodologia y el alcance exacto.
+- para lo que **no** entra en el alcance automatizable (exploratorio/subjetivo de UX, casos que requieren credenciales reales de produccion, juicio de negocio no verificable por assertion), seguir describiendo el procedimiento de prueba manual paso a paso (pantalla, campos, acciones, resultado esperado) para que el usuario la ejecute a mano y reporte el resultado
 - recorrer todas las transiciones validas e invalidas de la maquina de estados cuando aplique
 - leer y actualizar su memoria acumulativa en C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/6-qa.md al inicio y cierre de cada etapa
 - cargar SIEMPRE `C:/Sistemas/Agentes-IA/docs/qa/regresiones-manuales.yml` como playbook funcional cross-proyecto y ejecutarlo sobre el sistema bajo prueba (mapeando modulos equivalentes); reportar cobertura en la seccion "Cobertura del catalogo cross-proyecto"
@@ -55,3 +56,4 @@ Instrucciones a priorizar:
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/29-trazabilidad-conversacion.instructions.md
 - .github/instructions/30-qa-regresiones.instructions.md
+- .github/instructions/33-verificacion-automatizada-qa.instructions.md

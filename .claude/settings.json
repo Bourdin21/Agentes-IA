@@ -9,7 +9,8 @@
       "PowerShell(Get-ChildItem -Path \"C:\\\\Sistemas\" -Directory | Where-Object { $_.Name -match \"\\(vino|virtual|ganaderia|griffin\\)\" } | Select-Object -ExpandProperty FullName)",
       "Bash(nslookup *)",
       "Bash(where *)",
-      "mcp__pylance_mcp_server__pylanceWorkspaceRoots"
+      "mcp__pylance_mcp_server__pylanceWorkspaceRoots",
+      "mcp__playwright__*"
     ]
   }
 }
