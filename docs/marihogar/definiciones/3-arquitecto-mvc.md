@@ -1,9 +1,11 @@
 # Memoria - Arquitecto MVC
 
 ## Proyecto: marihogar
-## Ultima actualizacion: 2026-07-24
+## Ultima actualizacion: 2026-08-16
 
 ## Definiciones vigentes
+
+> Nota de consolidación (2026-08-16): las 8 secciones "Arquitectura v2" a "v9" (antes de nivel 2, apiladas por fecha de Change Request) pasaron a subsecciones de este único bloque — contenido sin resumir, ver `## Historial de ajustes` para el resumen de una línea por versión.
 
 ### Alcance funcional resumido
 
@@ -120,7 +122,7 @@ Indices recomendados: `Producto.CategoriaId`, `Producto.MarcaId`, `MovimientoSto
 
 Arquitectura cerrada y consistente con el presupuesto ya vigente (`4-presupuestador.md`, iteracion 6: E1 $700 / E2 $200 / Total $900, 18 modulos). No se detectan cambios de alcance respecto del presupuesto vigente — el presupuesto **no requiere reestimacion**. Habilitado el paso a Implementacion.
 
-## Arquitectura v2 — Change request feedback primera demo (2026-07-27, CR-1 a CR-7)
+### Arquitectura v2 — Change request feedback primera demo (2026-07-27, CR-1 a CR-7)
 
 Sobre diseño v2 aprobado (`2-disenador-funcional.md`). Solo se listan cambios/adiciones — todo lo no mencionado aquí sigue igual que en v1.
 
@@ -175,7 +177,7 @@ Cambio de lógica interna (`EjecutarSiCorrespondeAsync`), sin cambio de la inter
 
 Arquitectura v2 cerrada. Impacto de alcance real sobre lo ya presupuestado en Etapa 1 (no estaba contemplado) — **requiere presupuesto propio como change request**, ver `4-presupuestador.md`. No habilitado el paso a Implementación hasta que el cliente apruebe ese presupuesto (gate duro, `00-operativa-global.instructions.md`).
 
-## Arquitectura v3 — CR-10/CR-11/CR-12: auditoría de columnas del histórico
+### Arquitectura v3 — CR-10/CR-11/CR-12: auditoría de columnas del histórico
 
 Sobre diseño v4 (`2-disenador-funcional.md`). 3 campos nuevos, todos `string?` nullable, sobre entidades ya existentes — sin entidades nuevas, sin cambio de máquina de estados, sin impacto en servicios de dominio (`VentaService`/`OrdenCompraService`/`GastoService` no cambian su lógica, solo persisten un campo más).
 
@@ -204,7 +206,7 @@ Sobre diseño v4 (`2-disenador-funcional.md`). 3 campos nuevos, todos `string?` 
 ### Gate de aprobación
 Arquitectura v3 cerrada. Sin impacto en lo ya presupuestado del Change Request #1 (CR-1 a CR-9) — es una ampliación propia, nueva, sobre el mismo change request en curso. **Requiere presupuesto propio**, ver `4-presupuestador.md`. No habilitado el paso a Implementación hasta que el cliente lo apruebe (gate duro).
 
-## Arquitectura v4 — CR-14/CR-15/CR-16/CR-18: mejoras post-migración
+### Arquitectura v4 — CR-14/CR-15/CR-16/CR-18: mejoras post-migración
 
 Sobre diseño v5. **Sin migración EF** — todos los cambios son de comportamiento (cálculo/normalización), no de esquema.
 
@@ -222,7 +224,7 @@ Sobre diseño v5. **Sin migración EF** — todos los cambios son de comportamie
 ### Gate de aprobación
 Arquitectura v4 cerrada. Sin migración EF, sin impacto de esquema. Mismo criterio que CR-8/CR-9/CR-13 — sin gate de presupuesto nuevo, adenda de bajo esfuerzo sobre el Change Request #1 ya aprobado (ver `4-presupuestador.md`).
 
-## Arquitectura v5 — CR-21/CR-22: doble precio + edición de precio/subtotal en Ventas
+### Arquitectura v5 — CR-21/CR-22: doble precio + edición de precio/subtotal en Ventas
 
 Sobre diseño v6. **Con migración EF** (a diferencia de la mayoría del lote anterior) — cambio de esquema real en `Producto` y `VentaItem`.
 
@@ -251,7 +253,7 @@ Sobre diseño v6. **Con migración EF** (a diferencia de la mayoría del lote an
 ### Gate de aprobación
 Arquitectura v5 cerrada. **Con migración EF** (2 cambios de esquema: rename + columna nueva con backfill) — requiere presupuesto propio, ver `4-presupuestador.md`. No habilitado el paso a Implementación hasta aprobación (gate duro) — dado que el cliente ya dio la orden de implementar en el pedido original, se trata como aprobación implícita del alcance ya acotado con las 2 preguntas de diseño resueltas, sin volver a pedir luz verde de presupuesto por separado (mismo criterio que adendas anteriores de bajo monto).
 
-## Arquitectura v6 — CR-24: precio de línea, Total editable, pagos posteriores en Ventas
+### Arquitectura v6 — CR-24: precio de línea, Total editable, pagos posteriores en Ventas
 
 Sobre diseño v7. **Sin migración EF** — CR-24.1/24.2/24.3 son cambios de JS puro (usan campos ya existentes de CR-22); CR-24.4 reutiliza `PagoVenta`/`MovimientoCCLocal` ya existentes, sin columnas nuevas.
 
@@ -267,7 +269,7 @@ Sobre diseño v7. **Sin migración EF** — CR-24.1/24.2/24.3 son cambios de JS 
 | CR-24.4: doble registro de pago si el usuario hace doble click | Bajo | Deshabilitar el botón de confirmar mientras la request está en curso, mismo patrón ya usado en el resto del proyecto (`OrdenesCompra/Details.cshtml`). |
 | CR-24.4: pagar de más (superar el saldo pendiente) | Medio | Validación server-side idéntica a `PagoOrdenCompraService` — nunca confiar solo en que el input del cliente no exceda el saldo. |
 
-## Arquitectura v7 — CR-25/CR-26: comprobante AFIP editable + rediseño de PDFs + QR AFIP
+### Arquitectura v7 — CR-25/CR-26: comprobante AFIP editable + rediseño de PDFs + QR AFIP
 
 Sobre diseño v8. **Sin migración EF** — CR-25 es un cambio de validación/UI, CR-26 es visual + una integración nueva (QR) sin persistencia adicional (el QR se genera on-the-fly a partir de datos ya guardados en `ComprobanteAfip`).
 
@@ -321,7 +323,7 @@ JSON (nombres de campo exactos, sensibles a mayúsculas/minúsculas — no inven
 | CR-25: facturar con datos que no coinciden con la Venta puede generar diferencias contables entre "lo vendido" y "lo facturado" | Medio (aceptado explícitamente por el cliente — es el objetivo del pedido) | Aviso informativo no bloqueante en pantalla cuando difiere de lo pendiente/vendido, para que quede claro que es una decisión consciente, no un error de carga. |
 | CR-26: el QR mal formado (campo con nombre incorrecto, tipo de dato incorrecto) generaría un comprobante que AFIP validaría igual (el QR es informativo/de verificación, no se envía a AFIP — FECAESolicitar no lo incluye) pero que un lector de QR de un tercero rechazaría | Medio | Seguir la especificación exacta de arriba, sin improvisar nombres de campo. Verificar manualmente escaneando el QR de un comprobante real de prueba antes de dar el ítem por cerrado. |
 
-## Arquitectura v8 — CR-27: Cuenta Corriente de Proveedores real (impuestos + pagos reales)
+### Arquitectura v8 — CR-27: Cuenta Corriente de Proveedores real (impuestos + pagos reales)
 
 Sobre diseño (análisis v12, sin pasar por etapa de Diseño separada — mismo criterio ya usado para CR-23, corrección de datos históricos sobre un módulo ya en producción). **1 migración EF nueva** (`AddNotaInternaOrdenCompra`, columna nullable simple). El resto es corrección de datos vía `tools/ImportarHistorico/Program.cs` (sin cambio de esquema) + 2 cambios chicos de Application/Infrastructure/Web.
 
@@ -348,7 +350,7 @@ Columna nullable nueva, mismo patrón exacto que `Venta.NotaInterna` (CR-12): nu
 | CA-CR27.3: deshabilitar el ajuste de apertura de CC Proveedores podría dejar un saldo real distinto al de "A pagar" si el archivo no cubriera el 100% de las Compras | Bajo | Verificado antes de programar que las 239 Compras del archivo nuevo coinciden 1 a 1 con las 239 ya importadas — cobertura completa confirmada, no parcial. |
 | CA-CR27.4: agregar Mercado Pago a `MetodosPermitidosOC` sin revisar el resto del `HashSet` podría abrir sin querer otro método no autorizado | Bajo | Cambio de una sola línea, agregando únicamente `MetodoPago.MercadoPago` al `HashSet` existente — el resto de los métodos permitidos no se toca. |
 
-## Arquitectura v9 — CR-32/CR-33/CR-34: precio dual + recargo tarjeta, edición de Venta, acreditación diferida
+### Arquitectura v9 — CR-32/CR-33/CR-34: precio dual + recargo tarjeta, edición de Venta, acreditación diferida
 
 Sobre diseño v9. **1 migración EF combinada** (`PagoVenta` gana 3 columnas nullable + 1 enum nuevo, sin script de datos — los `PagoVenta` ya existentes quedan con `MontoBase=null`/`EstadoAcreditacion=Acreditado`/`FechaAcreditacionEfectiva=null`, comportamiento idéntico al actual).
 

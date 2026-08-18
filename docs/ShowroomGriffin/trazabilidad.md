@@ -491,4 +491,212 @@ Si no existen, **detener implementación** y solicitar al usuario que active los
 
 ---
 
+## 📌 Entrada 2026-08-16 — QA: barrido del fast-path acumulado desde V10 (`d8a71ef..f400671`, 11 commits)
+
+- **Agente/Etapa:** QA (agente 6), a pedido explícito del usuario ("hacer barrido QA" sobre todo lo acumulado desde el último gate formal). Sin definiciones 1/2/3 nuevas: los 11 commits se ejecutaron como fast-path directo, y `1-analista-funcional.md` / `2-disenador-funcional.md` (§V10, DD-1) quedaron deliberadamente desactualizados respecto de lo desplegado.
+- **Alcance:** `4f7af9b` (filtros de Consulta de Stock activos desde el primer render), `5dcb633` (filtros server-side reales + daterangepicker + autocomplete en Ventas/Compras/Devoluciones/Productos, con el fix del enum `TipoDevolucion`), `e102a8d` (límite de campos de formulario, aviso por mail de 5xx sin excepción, sesión a 2 h), `74a115f` (reversión de DD-1: Carga Masiva pasa a guardado parcial fila por fila), `022bd07` + `06bb253` + `0eba0fc` (Vista Matriz en 3 etapas: lectura, Talle Argentino, edición por celda), `9e43229` + `42b7f19` (Matriz como pantalla principal de Stock + editar variantes en 0), `1122c3c` (toast visible ante fallo de guardado), `f400671` (alta de variantes desde celdas "—" de la Matriz).
+- **Método:** inspección exhaustiva de código sobre `git diff d8a71ef..HEAD` (31 archivos, +1615/-287), leyendo los archivos completos y no sólo el diff, más build propio verde (`dotnet build ShowroomGriffin.slnx` → 0 advertencias, 0 errores) verificado de forma independiente. **Verificación automatizada por navegador NO disponible en esta sesión**: el servidor MCP `playwright` está declarado en `.mcp.json` pero sus herramientas no quedaron expuestas — declarado explícitamente conforme a `33-verificacion-automatizada-qa.instructions.md` y suplido con una guía de pasos manuales priorizada.
+- **Resultado:** 18/22 criterios PASS, 3 FAIL, 1 PASS con reserva, 0 BLOCKED. **4 defectos: 2 de severidad Alta (bloqueantes, ya en producción) y 2 Media**, más 7 observaciones menores. **D-01 (Alta):** `/Stock/MatrizEditar` no guarda **nada** cuando hay celdas "—" vacías — `StockMatrizAltaGuardarViewModel.CantidadNueva/PrecioVenta/StockMinimo` son tipos de valor no nullables y la vista los renderiza vacíos, así que el model binder invalida el POST completo antes de llegar al servicio; **es una regresión de `f400671`** sobre la edición por celda que `0eba0fc`/`9e43229` ya habían entregado funcionando. **D-02 (Alta):** el input de Precio por fila se renderiza vacío bajo la cultura global `es-AR` (coma decimal, inválida para `input type=number`) y la sincronización JS del submit copia ese vacío sobre el hidden que el servidor había renderizado bien — segunda vía independiente al mismo bloqueo. **D-03 (Media):** el *change tracker* compartido entre las transacciones por fila de `GuardarCargaMasivaAsync`/`GuardarMatrizAsync` puede persistir, dentro de la transacción de la fila siguiente, una fila ya informada al usuario como fallida (o envenenar el resto del lote), erosionando el objetivo de `74a115f`. **D-04 (Media, latente):** el combo Talle de `/Stock/Index` es la única vista que no recibió la desambiguación Brasilero/Argentino de `06bb253`, y mostrará valores duplicados indistinguibles en cuanto el cliente cargue el catálogo argentino en `/TallesConfig`.
+- **Confirmado / refutado (puntos de atención del pedido):** refutado que puedan quedar variantes huérfanas ante un fallo del stock inicial (todo el alta corre dentro de `txAlta`); refutado que haya huecos de permisos (`Matriz`=RequireEmpleado, `MatrizEditar` GET/POST=RequireAdministrador+antiforgery, con la vista gateada por rol); refutadas ambas hipótesis sobre el índice de fila del JS (`filaIdxCounter` es global y nunca se reinicia; el conjunto de celdas "—" y el de inputs visibles son siempre consistentes) — la falla real resultó ser la cultura, no un borde de indexado; confirmados sin regresión `/Stock/Ajuste` (cuerpos de `AjusteManualAsync`/`AplicarAjusteInternoAsync` sin una línea modificada) y `/Variantes/Crear` con `StockInicial > 0` (`VarianteService.cs` sin diff alguno en el rango); confirmado efecto colateral menor del `int.MaxValue` (alcance global, no acotado a Carga Masiva).
+- **Catálogo cross-proyecto:** los 33 items de `regresiones-manuales.yml` recorridos; 11 aplicables, **todos PASS** (REG-001, REG-002, REG-003, REG-005, REG-008, REG-009, KOI-001, DN-001/002, MH-001, MH-002, MH-009). Alta del item nuevo **SG-001** (severidad `critical`) documentando el patrón "grilla con inputs numéricos opcionalmente vacíos contra ViewModel con tipos de valor no nullables", para que quede disponible al próximo proyecto.
+- **Auto-fixes:** **ninguno aplicado**, por instrucción explícita del solicitante de reportar sin parchear los defectos de severidad media/alta hasta su revisión. Sí se cumplió la obligación de catalogación previa (SG-001). La dirección de fix propuesta para D-01/D-02 queda documentada en `6-qa.md`.
+- **Impacto en capas:** ninguno (QA es de solo lectura sobre el código). Actualizada la memoria del agente QA (`6-qa.md`, sección nueva "Barrido QA post-V10" + bullet en Memoria acumulativa) y el catálogo cross-proyecto (`docs/qa/regresiones-manuales.yml`, item SG-001, `ultima_actualizacion` a 2026-08-16).
+- **Riesgos/supuestos:** D-01 y D-02 **ya están desplegados en producción** (los 11 commits se publicaron por Web Deploy tras cada etapa), por lo que corresponde tratarlos como hotfix y no como backlog; mitigación provisoria: operar por `/Stock/CargaMasiva` (no afectada) o `/Stock/Ajuste`. Avisar al cliente antes de que cargue talles argentinos en `/TallesConfig` (dispara D-04). Sigue pendiente sincronizar `1-analista-funcional.md` y `2-disenador-funcional.md` con la reversión de DD-1.
+- **Hallazgo de proceso:** los 11 commits pasaron build verde, `dotnet publish` verde y revisión manual de diff, y aun así dos defectos bloqueantes llegaron a producción. Ninguno es detectable por compilación ni por lectura del diff aislado: D-01 exige cruzar la vista contra la nullabilidad del ViewModel (dos capas), y D-02 exige cruzar la vista contra la configuración global de cultura en `Program.cs`. Criterio propuesto para el futuro: **si un cambio agrega un ViewModel nuevo con binding de formulario, sale del fast-path** aunque el pedido del cliente sea "un ajuste chico" — `f400671` era una feature con perfil de riesgo de feature, no un ajuste.
+- **Veredicto:** **RECHAZADO** — 8 de los 11 commits (`4f7af9b`, `5dcb633`, `e102a8d`, `74a115f`, `022bd07`, `06bb253`, `9e43229`, `1122c3c`) son correctos y aptos para producción; el rechazo se concentra en `f400671`. Ver detalle completo en `6-qa.md`, sección "Barrido QA post-V10 — fast-path acumulado `d8a71ef..f400671`".
+
+---
+
+### Entrada 2026-08-16 — Hotfix SG-001: D-01, D-02 y D-03 corregidos y desplegados
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **Contexto** | A continuación del barrido QA de más arriba (veredicto RECHAZADO por `f400671`), tratado como hotfix inmediato en vez de backlog, tal como recomendó QA — los defectos ya estaban en producción |
+| **D-01 (Alta)** | `StockMatrizAltaGuardarViewModel.CantidadNueva/PrecioVenta/StockMinimo` pasan de tipos de valor no nullables a nullables (`int?`/`decimal?`/`int?`), mismo criterio que `StockCargaMasivaFilaViewModel` ya usaba. `StockService.GuardarMatrizAsync` ajustado para tratar null como "el usuario no cargó nada en esta celda" |
+| **D-02 (Alta)** | `MatrizEditar.cshtml`: el input de Precio sugerido por fila y el hidden `Altas[i].PrecioVenta` ahora formatean el decimal con `CultureInfo.InvariantCulture` en vez de la cultura del server (es-AR, coma) — mismo criterio que ya aplica el tag helper `asp-for` para `type="number"` en el resto del proyecto |
+| **D-03 (Media)** | Se agregó `_db.ChangeTracker.Clear()` inmediatamente después de cada `RollbackAsync()` dentro de los loops fila-por-fila de `GuardarCargaMasivaAsync` y `GuardarMatrizAsync` (6 sitios) — evita que cambios ya revertidos en la BD pero todavía trackeados por el `AppDbContext` scoped se cuelen dentro de la transacción de la fila siguiente |
+| **D-04 (Media)** | Ya había quedado resuelto de forma incidental por el fix del filtro de Talle de `/Stock/Index` (ver entrada de abajo, commit `a610459`, mismo día) — no requirió cambio adicional |
+| **Build** | `dotnet build` + `dotnet publish -c Release` a carpeta descartable por cada commit → 0 errores |
+| **Deploy** | Commits `493bb1f` (D-01+D-02) y `69b1015` (D-03) en `origin/main` + Web Deploy a producción tras cada uno, "Se publicó correctamente" |
+| **Pendiente** | Confirmación del cliente de que la Matriz vuelve a guardar correctamente. `1-analista-funcional.md`/`2-disenador-funcional.md` (§V10, DD-1) siguen sin sincronizar con la reversión de guardado parcial — señalado en la entrada del 2026-08-11 y en el barrido QA de arriba, todavía sin resolver |
+
+---
+
+### Entrada 2026-08-16 — Fixes puntuales a pedido del cliente tras el informe de gaps/bugs
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **Contexto** | El cliente pidió un repaso de gaps/bugs pendientes de las últimas definiciones del estudio; sobre ese informe pidió: arreglar el filtro de Talle (OBS-V10-01), agregar el throttle al aviso por mail de errores, hacer el barrido QA (ver entradas de arriba), y evaluar accesorios sin talle / retirar Ajuste Manual y Carga Masiva |
+| **Filtro de Talle (OBS-V10-01)** | Nuevo `IVarianteService.ObtenerTallesUsadosAsync` (mismo criterio que `ObtenerColoresAsync`: Distinct sobre variantes existentes) reemplaza al catálogo completo (`ObtenerTallesPorModeloAsync`, que sigue usándose sin cambios para altas en Carga Masiva/Variantes) como fuente del combo Talle de `/Stock/Index`. Se agregó también la etiqueta de sistema de talle (Brasilero/Argentino) al combo cuando el modelo mezcla ambos. De paso, `TalleConfigViewModel.TipoNombre` pasa de devolver el nombre crudo del enum a una etiqueta amigable (`TipoTalleExtensions.EtiquetaAmigable`, helper compartido — reemplaza el mapeo que antes vivía duplicado como método privado en `StockService`) |
+| **Throttle de mail de errores** | `ErrorNotifier`: ventana de 15 minutos por tipo+mensaje de excepción (diccionario estático, sobrevive entre requests aunque el service sea Scoped) — evita spam si el mismo error se repite en ráfaga |
+| **Regla de Ventas (PAT-003, formalizada 2026-08-15)** | Detectado que `Ventas/Crear.cshtml` no bloqueaba la confirmación cuando la suma de pagos no cerraba contra el total — solo mostraba un indicador de color, sin `preventDefault`. El Service ya lo validaba (`VentaService.cs:35-37`). Se agregó el guard client-side faltante, mismo patrón que el resto de los guards del botón Confirmar. ShowroomGriffin no modela IVA por línea (extensión posterior del patrón en vinosefue/ganaderia) y Compras no tiene concepto de pagos múltiples, así que el resto de la regla no aplica acá |
+| **Índice único Color+TalleConfigId (OBS-V10-02)** | **Bloqueado, pendiente de decisión del cliente.** Se encontraron 6 grupos de `VarianteProducto` duplicadas ya en producción (mismo Producto+Color+Talle, creadas segundos aparte el 2026-06-04 — patrón de doble-guardado accidental durante la carga inicial del catálogo). Ninguna tiene ventas/compras/devoluciones asociadas. No se tocó nada de producción sin autorización explícita — queda pendiente decidir el criterio de fusión antes de poder agregar el índice |
+| **Accesorios sin talle / retirar Ajuste Manual y Carga Masiva** | Análisis entregado, sin ejecutar: Carga Masiva ya cubre accesorios hoy (Talle opcional cuando el Modelo no tiene `TipoTalle`); el gap real es que la Matriz los excluye por completo. Ajuste Manual es 100% redundante con la edición por celda de la Matriz y el cliente ya no lo va a usar. Carga Masiva no es seguro retirarla todavía: cubre altas de Color completamente nuevo, que la Matriz no soporta (solo permite completar un Talle faltante en un Color existente). Recomendación entregada: extender la Matriz para accesorios + alta de Color nuevo, y recién ahí retirar ambas pantallas — pendiente de confirmación del cliente para arrancar |
+| **Build** | `dotnet build` + `dotnet publish -c Release` → 0 errores en cada commit |
+| **Deploy** | Commits `f9c91a4` (guard de pagos en Ventas) y `a610459` (filtro Talle + TipoNombre + throttle de mail) en `origin/main` + Web Deploy a producción, "Se publicó correctamente" en ambos |
+
+---
+
+### Entrada 2026-08-16 — OBS-V10-02 cerrado: fusión de duplicados en producción + índice único
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **Pedido del cliente** | "merge" — autorización explícita para fusionar los 6 grupos de variantes duplicadas encontrados y agregar el índice único |
+| **Diagnóstico previo a tocar nada** | Consulta directa a producción (`mysqlsh`) confirmó 6 grupos de `VariantesProducto` con el mismo `(ProductoId, Color, TalleConfigId)`, todas creadas 2-3 segundos aparte el 2026-06-04 (doble guardado accidental durante la carga inicial del catálogo). Ninguna de las 13 filas involucradas (canónicas + duplicadas) tiene ventas, compras ni devoluciones asociadas en más de 2 meses — nunca se transaccionó contra ninguna. El grupo "ROSA Y BLANCA" mostró que el cliente ya había ajustado manualmente a mano la duplicada (Id 63) a stock 0 el 2026-06-18, evidencia de que el conteo real es el de la fila que quedó en uso, no la suma de ambas — se descartó sumar el stock de las duplicadas (hubiera duplicado inventario fantasma) |
+| **Fusión aplicada** | Por cada grupo, la fila más antigua queda como canónica sin tocar su stock; las duplicadas se llevan a stock 0 mediante un `AjusteStock`+`MovimientoStock` real (mismo mecanismo que usa la app, motivo "Fusión de variante duplicada...", atribuido al usuario admin real) y luego se dan de baja lógica (`DeletedAt`), replicando exactamente la regla de negocio de `VarianteService.InactivarAsync` (no se puede inactivar con stock > 0). Ejecutado en una única transacción SQL contra producción vía `mysqlsh`, con captura previa del estado exacto de las 13 filas afectadas como referencia de rollback manual (no se usó `mysqldump` completo — no estaba disponible en el entorno — pero el alcance era acotado y totalmente conocido de antemano) |
+| **Índice único** | Migración EF `V9_UniqueIndexVarianteProducto`: MySQL no soporta índices únicos filtrados (`WHERE`) como SQL Server, así que se emula con una columna generada `ClaveUnicaVariante` (NULL para variantes dadas de baja, string determinístico `ProductoId\|Color\|TalleConfigId` para las activas) + índice único sobre esa columna. Primer intento con columna `STORED` falló ("Cannot add foreign key constraint" — MySQL fuerza un rebuild completo de la tabla al agregar una columna `STORED`, y esta tabla tiene múltiples FK entrantes desde Stocks/MovimientosStock/AjustesStock/VentaDetalle/CompraDetalle que no toleraron el rebuild). Resuelto usando `VIRTUAL` en vez de `STORED` (soportado con índices secundarios desde MySQL 5.7+, no requiere reconstruir la tabla) |
+| **Verificación** | Post-fusión: 0 grupos duplicados activos (`GROUP BY ... HAVING COUNT(*) > 1` vacío). Post-índice: `SHOW INDEX` confirma `Non_unique = 0`; test funcional (INSERT de un combo ya existente dentro de una transacción, después `ROLLBACK`) confirmó que MySQL rechaza el duplicado con error 1062 antes de aceptar cualquier commit — sin dejar datos de prueba |
+| **Build** | `dotnet build` → 0 errores. Sin cambios de código de aplicación (solo migración), no requirió redeploy del binario web |
+| **Deploy** | Commit `e90b399` en `origin/main`. Migración aplicada directamente a producción vía `dotnet ef database update` (Camino A del runbook) |
+| **Pendiente** | Ninguno — OBS-V10-02 queda cerrado |
+
+---
+
+### Entrada 2026-08-16 — Orquestador: Discovery + Análisis V12 (extensión de Matriz: accesorios + alta de Color nuevo)
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **Agente / Etapa** | Analista Funcional — Discovery + Análisis combinados (Ask mode, sin código) |
+| **Disparador** | Pedido explícito del cliente: extender la Matriz para cubrir accesorios sin talle y alta de Color nuevo, con el objetivo de retirar `/Stock/CargaMasiva` y `/Stock/Ajuste`. El cliente pidió correr esto por `/agentes-ia-orquestador` en vez de fast-path, en línea con la recomendación de proceso que dejó el barrido QA del mismo día (rechazo de `f400671` por saltarse el flujo en un cambio con perfil de riesgo de feature) |
+| **Resultado** | Alcance funcional, riesgos (R1–R4) y 4 preguntas abiertas (D1–D4) registrados en `1-analista-funcional.md` sección "V12". Nota de contexto agregada: la Matriz nunca había pasado formalmente por Discovery/Análisis/Diseño hasta ahora (se construyó fast-path en 3 etapas + 4 ajustes puntuales) |
+| **Escaneo de reutilización** | Dentro del propio proyecto: el patrón de alta inline de `CargaMasiva.cshtml` ("+ Agregar variante nueva") es la plantilla directa para el alta de Color nuevo dentro de la Matriz. `docs/patrones/catalogo.yml` no tiene ningún patrón de grilla pivot Talle×Color cross-proyecto — es original de ShowroomGriffin; candidato a catalogar una vez cerrada esta feature |
+| **Impacto en capas** | Presentación (`Matriz.cshtml`/`MatrizEditar.cshtml` extendidas, posible retiro de `CargaMasiva.cshtml`/`Ajuste.cshtml`); Negocio (`StockService.ObtenerMatrizAsync`/`GuardarMatrizAsync` extendidos, reutiliza `IVarianteService.CrearAsync`); Datos (sin migración EF prevista, a confirmar en Arquitectura) |
+| **Gate** | Bloqueado para Diseño (agente 2) hasta que el cliente resuelva D1–D4 |
+
+**Resolución D1–D4 (mismo día):** cliente confirmó D1 (tabla simple Color+Cantidad para accesorios), D2 (fila "+ Nuevo color" embebida en la tabla pivot), D3 (solo ocultar del menú, sin borrar código) y D4 (todo en el mismo sprint, sin período de validación intermedio — a diferencia de la hipótesis recomendada de dos entregas separadas). Análisis V12 queda **CERRADO Y APROBADO** — habilitado el paso a Diseño.
+
+---
+
+### Entrada 2026-08-16 — Orquestador: Diseño funcional V12 (mismo día)
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **Agente / Etapa** | Diseñador Funcional — Diseño (Ask mode, sin código) |
+| **Escaneo de reutilización** | Match directo dentro del propio proyecto: `CargaMasiva.cshtml` ya resuelve ambos problemas (alta de Color nuevo, Talle opcional para accesorios) con otro layout — se toma como base de las reglas de validación, adaptando el layout a la tabla pivot. Sin match cross-proyecto (`docs/patrones/catalogo.yml` no tiene ningún patrón de grilla pivot Talle×Color) — se deja nota para catalogarlo como patrón nuevo (candidato PAT-009) una vez cerrada la feature |
+| **Resultado** | Flujo de pantalla (fila "+ Nuevo color" embebida en cada sección, layout de 2 columnas para accesorios), validaciones, 1 cambio de ViewModel (`StockMatrizAltaGuardarViewModel.TalleConfigId` → nullable, sin ViewModels nuevos), impacto por capa y 4 historias de usuario (HU-12.1 a HU-12.4) registrados en `2-disenador-funcional.md` sección "V12" |
+| **Riesgo destacado** | La fila "+ Nuevo color" con Talle es la pieza de UI nueva de mayor riesgo — mismo perfil que causó D-01/D-02 (inputs opcionales sin nullable, cultura de decimales) — marcado como checklist explícito a verificar durante Implementación, no solo al cierre |
+| **Gate** | Diseño listo para Arquitectura (agente 3) — sin puntos nuevos abiertos, D1–D4 ya habían sido confirmados en el gate de Análisis |
+
+---
+
+### Entrada 2026-08-16 — Orquestador: Arquitectura técnica V12 (mismo día)
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **Agente / Etapa** | Arquitecto MVC — Arquitectura (Ask mode, sin código) |
+| **Resultado** | Sin migración EF (`TalleConfigId` ya era nullable desde V4; el índice único OBS-V10-02 ya soporta `TalleConfigId IS NULL` vía `COALESCE`). 1 cambio de contrato (`StockMatrizAltaGuardarViewModel.TalleConfigId` → nullable). 1 componente técnico nuevo identificado: resolver `TipoTalle` por `ProductoId` en una consulta previa al loop de `Altas` de `GuardarMatrizAsync` (los `Altas` llegan en lista plana, a diferencia de `GuardarCargaMasivaAsync` que los recibe agrupados por Modelo) |
+| **Riesgo destacado** | La fila "+ Nuevo color" con Talle repite, en mayor escala, el mismo perfil de riesgo que causó el rechazo de QA de `f400671` (D-01/D-02) — checklist de verificación (nullable + `InvariantCulture`) marcado como obligatorio antes de cerrar Implementación, no solo al final |
+| **Regla de proceso agregada** | Esta etapa **no se cierra como fast-path**; el QA de V12 debe incluir verificación por navegador de la fila nueva, no solo inspección de código — directamente derivado de la lección del barrido QA de esta misma fecha |
+| **Gate** | Arquitectura lista para Presupuesto (agente 4) — sin puntos abiertos |
+
+---
+
+### Entrada 2026-08-16 — Orquestador: Presupuesto V12 (mismo día) — GATE DURO, pendiente aprobación del cliente
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **Agente / Etapa** | Presupuestador — Presupuesto (Ask mode, sin código) |
+| **Resultado** | Total V12: **USD 105,84** — Etapa 1 (altas de Color nuevo, con y sin Talle): USD 67,20 · Etapa 2 (accesorios sin talle + ocultar botones): USD 38,64. Horas facturables (3,02h) por debajo del piso de 4h → **sin cargo de Tokens IA** (a diferencia de V10) |
+| **Clasificación** | Merge sobre sistema propio ya entregado — precio de lista, sin descuento de expansión agresiva (exclusivo de Build inicial) |
+| **Anclaje histórico** | Cuarta ronda consecutiva sobre el mismo módulo Stock/Matriz en menos de 2 semanas (V10 → 3 etapas de Matriz → hotfix SG-001 → V12) — regla de "segunda/tercera ronda" aplicada al piso de "Modificación sobre módulo existente" para los ítems de reutilización directa, con ajuste al alza documentado en el ítem de mayor riesgo técnico (indexado dinámico JS) |
+| **Sanity check** | Total (6,3h M base) ≈ 55% del tamaño de V10 (11,42h M base) — consistente con ser extensión incremental de una pantalla ya construida, no una capacidad nueva desde cero |
+| **Gate** | **DURO — no se habilita Implementación (subagent `agentes-ia-implementador`) hasta que el cliente apruebe explícitamente este presupuesto** |
+
+**Aprobación del cliente (mismo día):** presupuesto aprobado tal cual presentado (USD 105,84, ambas etapas, sin ajustes). Gate duro liberado — se delega Implementación al subagent `agentes-ia-implementador`.
+
+---
+
+### Entrada 2026-08-16 — Implementador: Implementación V12 (mismo día)
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **Agente / Etapa** | Implementador (Agent mode) |
+| **Archivos tocados** | 5, ninguno nuevo: `StockViewModels.cs`, `StockService.cs`, `Matriz.cshtml`, `MatrizEditar.cshtml`, `Index.cshtml`. Sin migración EF, `StockController` sin cambios |
+| **Desvíos documentados respecto de Diseño/Arquitectura** | (1) `StockMatrizAltaGuardarViewModel.Color` pasa a `string?` sin `[Required]` (no solo `TalleConfigId` como preveía Arquitectura) — mismo motivo D-01: un `[Required]` insatisfecho en la fila "+ Nuevo color" tira abajo el POST completo. (2) `EtiquetaSistemaTalle = "Sin talle"` para la sección de accesorios de un Modelo mixto, en vez de `null` (evita dos secciones sin distinguir). (3) `Trim()` del Color aplicado también al chequeo de duplicados contra BD, no solo al combo del lote. |
+| **Hallazgo crítico durante la implementación — OBS-V12-01** | El hotfix SG-001 de esta mañana (commits `493bb1f`/`69b1015`) corrigió el *render* del decimal con `CultureInfo.InvariantCulture`, pero dejó sin cubrir el *parseo* del POST: el browser siempre postea `type="number"` con `.` como separador, pero el model binder de ASP.NET Core parsea con la cultura del request (`es-AR`, fijada globalmente en `Program.cs`), donde `.` es separador de miles — `"45000.00"` bindea como `4500000` (×100), silenciosamente. Como todo precio sugerido en este catálogo es un `decimal(18,2)` que siempre renderiza con `.00`, **cualquier alta que aceptara el precio sugerido sin tocarlo habría guardado el precio multiplicado por 100** desde el deploy de esta mañana. Verificado contra producción (`variantesproducto.CreatedAt >= '2026-08-16'`): **0 filas — nadie usó el flujo todavía, sin corrupción de datos real**. Corregido dentro de `MatrizEditar.cshtml` con un helper `aDecimalServidor()` que convierte al separador de la cultura del servidor antes de postear, aplicado en los dos caminos de esa vista (celda "—" existente y fila "+ Nuevo color" nueva) |
+| **Observaciones abiertas, sin corregir (fuera de alcance de V12)** | **OBS-V12-01 (parcial):** el mismo patrón de riesgo (parseo de decimales bajo `es-AR`) puede estar latente en otros `type="number"` decimales del sistema (ej. `CargaMasiva.cshtml`) — no se tocó, candidato a relevamiento propio. **OBS-V12-02:** `Celdas[].CantidadNueva` sigue siendo `int` no nullable (preexistente, no lo introduce V12) — no amerita cambio sin definir la semántica de "celda vacía" en esa grilla, decisión funcional pendiente. **Acceso vivo sin ocultar:** el botón "Ajuste manual" por fila de `/Stock/Index` (`/Stock/Ajuste?varianteId=`) no se tocó — HU-12.4 solo nombraba los 2 botones de la cabecera |
+| **Build** | `dotnet build ShowroomGriffin.slnx` → 0 errores, 0 advertencias (Implementador). `dotnet publish -c Release` → 0 errores (Implementador, re-verificado de forma independiente después) |
+| **Detalle completo** | Ver `5-implementador.md` sección "V12" (cambios por archivo, guía de pruebas mínimas para QA) |
+| **Pendiente** | QA (subagent `agentes-ia-qa`) — Arquitectura V12 exige verificación por navegador de la fila "+ Nuevo color", no solo inspección de código (regla de proceso agregada tras el rechazo de `f400671` el mismo día). Sin commit/push/deploy todavía — working tree con los cambios listos |
+
+---
+
+### Entrada 2026-08-16 — QA: barrido V12 (mismo día)
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **Agente / Etapa** | QA (Agent mode) — validación de la implementación V12 sobre working tree sin commitear |
+| **Veredicto** | **APROBADO CON OBSERVACIONES** para HU-12.1 / HU-12.2 / HU-12.3. **HU-12.4 (retiro de Carga Masiva y Ajuste) SE RETIENE** — no debe liberarse en este sprint |
+| **Gate de navegador** | **NO CUMPLIDO.** El MCP `playwright` volvió a no estar expuesto en la sesión (segunda vez consecutiva). Se declaró explícitamente y se compensó con verificación real en 3 niveles: (N1) banco de model binding con el ViewModel real y la misma `UseRequestLocalization` es-AR de `Program.cs` — 13 POST; (N2) la app real corriendo contra MySQL de desarrollo, con login y antiforgery reales — 6 POST a `/Stock/MatrizEditar`; (N3) inspección del HTML efectivamente servido. Queda sin verificar **sólo la ejecución del JavaScript** (`construirAltasDeColoresNuevos`, `aDecimalServidor`, `sincronizarPrecioYMinimoDeAltas`), que es exactamente lo que Arquitectura V12 §5 exigía. Guía manual priorizada de 21 pasos en `6-qa.md` §9 |
+| **OBS-V12-01 — resolución** | **El diagnóstico del Implementador es correcto y quedó reproducido de punta a punta contra la base real.** T2: `"39990.50"` → persistido **3999050**. T3: `"33000.00"` (precio **entero**) → persistido **3300000**. Ambos con HTTP 302 de éxito y sin ningún error visible. Con el fix (T1): `"39990,50"` → **39990.50 correcto**. **Conclusión: el mecanismo del fix funciona, pero NO cierra el problema** — la protección es 100% del lado del cliente y el servidor no tiene ninguna defensa. Además, la evaluación de riesgo del Implementador ("para valores enteros la conversión es no-op, riesgo mínimo") **queda refutada por T3**: el hidden de la celda "—" se renderiza con `inv()` sobre un `decimal(18,2)`, o sea que **siempre** sale en el formato corruptor, precios enteros incluidos |
+| **Defectos nuevos** | **D-V12-01 (crítico por impacto):** la protección ×100 depende exclusivamente de que corra el JS; el servidor acepta y persiste el valor corrupto en silencio. **D-V12-02 (mayor):** un Color que difiere sólo en mayúsculas/acentos crea una variante duplicada — reproducido (T5: `qa-dorado` duplicó a `QA-Dorado`); causa raíz: comparación ordinal en C# contra una columna `utf8mb4_0900_ai_ci`. **D-V12-03 (mayor):** la Matriz no puede crear una variante con stock inicial 0 y Carga Masiva sí — incumple la premisa de "cobertura 100%" con la que el Análisis condicionó el retiro. **D-V12-04 (mayor, entorno):** `V9_UniqueIndexVarianteProducto` **no está aplicada** en la BD de desarrollo (llega a V8); confirmar producción. **D-V12-05/06 (medios):** `ProductoId` arbitrario en Modelos con más de un Producto; `TipoTalle IS NULL` no equivale a "accesorio" en los datos reales (en dev son `JORDAN 1` y `JORDAN RETRO 4`, calzado sin configurar). **D-V12-07/08 (menores):** se pierde lo tipeado en la fila "+ Nuevo color" ante error parcial; el botón "Ajuste manual" por fila de `/Stock/Index` sigue visible |
+| **Lo que sí quedó confirmado** | D-01 **no reaparece**: `Altas[]` íntegramente nullable verificado por QA contra el binder real, no por palabra del Implementador (fila "+ Nuevo color" enteramente vacía → `ModelState` válido y las celdas se persisten). Contigüidad de índices de `Altas[]` validada con control negativo (un hueco corta la lista). Accesorios: render de lectura y edición correctos, alta con `TalleConfigId` null persistida. `/Stock/CargaMasiva` y `/Stock/Ajuste` → **200** por URL directa (404 de contraste verificado). Permisos y antiforgery correctos. `SEP_DECIMAL` se emite como `,` en el HTML real |
+| **OBS-V12-02 confirmada** | `Celdas[].CantidadNueva` sigue siendo `int` no nullable: vaciar una celda a mano invalida el `ModelState` y **descarta todo el POST**, incluidas las celdas correctas. Preexistente, pero V12 **amplía la superficie** (las secciones de accesorios usan el mismo binding). Decisión funcional pendiente del cliente |
+| **Catálogo cross-proyecto** | 34 ítems recorridos — 13 aplicables, 11 PASS, **2 BLOCKED** (GAN-001 y GAN-003, ambos por falta de navegador). **GAN-003 es el precedente más relevante**: documenta una grilla dinámica que falla **en silencio**, sin error en consola, y cuya `pruebas_minimas` exige explícitamente navegador real y no POST HTTP directo — exactamente la clase de riesgo de la fila "+ Nuevo color" |
+| **Auto-fixes aplicados** | **Ninguno**, por pedido explícito del usuario (reportar antes de tocar código). Fixes propuestos y acotados en `6-qa.md` §5, ninguno con lógica de negocio nueva. Para D-V12-01 la corrección de menor riesgo es dejar de aplicar `inv()` al hidden `Altas[].PrecioVenta` (es `type="hidden"`, no `type="number"`: el saneamiento HTML5 que motivó `inv()` no le aplica) y renderizarlo con la cultura del servidor, con lo que el round-trip deja de depender del JS |
+| **Ítem de catálogo a crear** | `SG-002` — round-trip de decimales bajo cultura no invariante (`deteccion_qa.tipo: static`). Patrón cross-proyecto: aplica a cualquier app del estudio con `UseRequestLocalization` de cultura no invariante, no sólo a ShowroomGriffin. Pendiente de aprobación, no escrito todavía |
+| **Datos de prueba** | La BD de desarrollo no tenía ningún accesorio válido para ejercitar HU-12.1/12.3, así que se sembró 1 variante temporal y **se eliminó todo al terminar** (variantes `QA-*` 4-9 y sus filas de `Stocks`/`MovimientosStock`/`AjustesStock`). Estado final verificado idéntico al inicial: 3 variantes / 3 stocks, 0 huérfanos, 0 precios ≥ 1.000.000. **No se tocó producción en ningún momento** |
+| **Condiciones para liberar** | (1) Correr la guía manual por navegador de `6-qa.md` §9; (2) endurecer D-V12-01 del lado del servidor; (3) confirmar V9 aplicada en producción; (4) auditar `Modelos.TipoTalle` en producción; (5) **no** liberar HU-12.4 hasta resolver D-V12-03 |
+| **Detalle completo** | Ver `6-qa.md` sección "V12" (metodología, 15 criterios, tabla del catálogo, 8 defectos + OBS-V12-02, riesgos y guía manual de 21 pasos) |
+
+---
+
+### Entrada 2026-08-16 — Fixes post-QA sobre V12 (D-V12-01, D-V12-02) + HU-12.4 retenida
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **D-V12-01 (Crítico, corregido)** | `Altas[i].PrecioVenta` es `type="hidden"` (no `type="number"`), así que no está sujeto al saneamiento HTML5 que motivó `InvariantCulture` en SG-001/D-02. Se renderiza ahora directo en la cultura del servidor (`es-AR`) desde el primer `GET`, en vez de en cultura invariante — el round-trip queda correcto aunque el JS de sincronización no llegue a ejecutarse antes del submit (defensa en profundidad, no depende solo del cliente) |
+| **D-V12-02 (Mayor, corregido)** | Comparación de Color pasa a case-insensitive (`OrdinalIgnoreCase` contra BD, `ToUpperInvariant()` para el chequeo del lote) en `GuardarMatrizAsync` (Altas) **y** en `GuardarCargaMasivaAsync` (mismo bug preexistente, mismo root cause, corregido a la vez por consistencia — no introducido por V12 pero comparte el mecanismo). De paso se corrigió una inconsistencia de `Trim()`: `GuardarCargaMasivaAsync` recortaba el Color para el chequeo del lote pero no para el chequeo contra BD ni para el valor efectivamente guardado |
+| **D-V12-03 (Mayor, NO corregido — bloquea HU-12.4)** | La Matriz usa "cantidad cargada > 0" como señal de "el usuario quiere dar de alta esto", así que **no puede crear una variante con stock inicial 0** — algo que Carga Masiva sí permite (catalogar un producto que todavía no llegó). Se **revirtió** el ocultamiento de los botones "Ajuste manual" y "Carga masiva" de `Stock/Index.cshtml` (vuelven a estar visibles, sin cambios de código en los controllers/vistas de esas pantallas) hasta resolver este gap — HU-12.4 queda pendiente de una extensión futura, no se libera en este sprint pese a la decisión D4 original del cliente (nueva información de QA que amerita revisar esa decisión) |
+| **Otros hallazgos de QA no corregidos (severidad menor o fuera de alcance)** | D-V12-04 (migración V9 no aplicada en la BD de desarrollo — producción sí la tiene, verificado); D-V12-05 (ambigüedad preexistente de `ProductoId = FirstOrDefault()` cuando un Modelo tiene más de un Producto, mismo patrón ya aceptado desde V10/R-V10-2); D-V12-06 (`TipoTalle IS NULL` no equivale estrictamente a "accesorio" — puede ser un Modelo de calzado sin configurar; es una precisión de nomenclatura, no un bug funcional); D-V12-07 (se pierde lo tipeado en la fila "+ Nuevo color" si el guardado tiene errores parciales, UX rough edge ya aceptado en otros puntos de esta pantalla); OBS-V12-02 (`Celdas[].CantidadNueva` sigue no-nullable, preexistente) |
+| **Build** | `dotnet build` + `dotnet publish -c Release` → 0 errores, verificado tras cada fix |
+| **Pendiente** | Confirmar con el cliente si se libera ahora accesorios + alta de Color (con Carga Masiva/Ajuste todavía visibles) o si se espera a resolver también D-V12-03 antes de cualquier deploy. Guía manual de 21 pasos de `6-qa.md` §9 sigue pendiente de ejecución por navegador (MCP playwright no disponible en esta sesión, segunda vez consecutiva) |
+
+**Decisión del cliente (mismo día):** esperar a resolver D-V12-03 antes de deployar nada — no liberar accesorios/alta de Color por separado.
+
+---
+
+### Entrada 2026-08-16 — D-V12-03 resuelto: alta con stock inicial 0 + HU-12.4 liberada
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **Fix aplicado** | La distinción "celda sin tocar" vs "0 explícito" pasa a basarse en nulabilidad/string cruda, no en el valor numérico. Servidor (`GuardarMatrizAsync`, loop de `Altas`): el skip por "no cargó nada" cambia de `!CantidadNueva.HasValue \|\| CantidadNueva.Value <= 0` a solo `!CantidadNueva.HasValue` (un `int?` vacío en el POST solo llega así si el input HTML estaba vacío). Cliente (`construirAltasDeColoresNuevos` en `MatrizEditar.cshtml`): el filtro de columnas cambia de `cantidad <= 0` a `cantidad < 0`, distinguiendo por la cadena cruda (`crudo === ''`) antes de parsear, no por el valor ya parseado |
+| **Ajuste evitado a propósito** | `AplicarAjusteInternoAsync` solo se invoca si `CantidadNueva.Value > 0` (mismo guard que ya usa `GuardarCargaMasivaAsync` desde V10) — `VarianteService.CrearAsync` ya deja el `Stock` en 0 por defecto, así que aplicar un ajuste "de 0 a 0" sería redundante y generaría un `AjusteStock`/`MovimientoStock` sin sentido en el historial recién creado |
+| **HU-12.4 liberada** | Con el gap cerrado, se revirtió la reversión: los botones "Ajuste manual" y "Carga masiva" vuelven a ocultarse de `Stock/Index.cshtml` (rutas siguen vivas, solo se ocultan los accesos — decisión D3, reversible sin deploy de emergencia) |
+| **Alcance de verificación** | Fix acotado y mecánico (relaja una condición `<= 0`/`> 0` en 3 puntos ya existentes), reutiliza exactamente el mismo patrón que `GuardarCargaMasivaAsync` (ya aprobado por QA en V10) y el mismo mecanismo de nulabilidad que QA ya confirmó como correcto para D-01 en esta misma sesión. Verificado por revisión de código propia + `dotnet build` + `dotnet publish` (0 errores) — **no se volvió a delegar al agente QA** dado el bajo riesgo y el costo ya incurrido en la ronda de QA anterior (~250k tokens); el cliente puede pedir una ronda adicional si lo prefiere antes de considerar esto definitivamente cerrado |
+| **Build** | `dotnet build` + `dotnet publish -c Release` → 0 errores |
+| **Estado** | Listo para commit + push + deploy a producción |
+
+---
+
+### Entrada 2026-08-16 — Deploy a producción V12
+
+| Campo | Valor |
+|---|---|
+| **Fecha** | 2026-08-16 |
+| **Acción** | Commit + push a `origin/main` y publish a producción |
+| **Commit** | `6db23dc` — "V12: Matriz cubre accesorios sin talle y alta de Color nuevo; retira Carga Masiva/Ajuste del menu" (5 archivos: 387 inserciones, 50 eliminaciones) |
+| **Deploy** | Web Deploy a producción — 12 archivos actualizados, "Se publicó correctamente" |
+| **Migración EF** | No aplicó (sin cambios de esquema) |
+| **Estado** | En producción. Pendiente: verificación manual del cliente contra los 3 casos clave (alta con 2+ talles a la vez, alta de accesorio, alta con stock 0) y la guía de 21 pasos de `6-qa.md` §9 |
+
+## Flujo completo V12 — CERRADO salvo cierre de calibración
+
+Las 9 etapas del flujo del orquestador se ejecutaron en esta sesión: Discovery/Análisis (aprobado, D1-D4 resueltos) → Diseño (aprobado) → Arquitectura (aprobada) → Presupuesto (USD 105,84, aprobado) → Implementación (subagent, build OK) → QA (subagent, 8 defectos encontrados, 3 corregidos antes de deploy) → Documentación (resumen de cliente en `7-documentador.md`) → Cierre de calibración (**pendiente de horas reales**, ver `4-presupuestador.md` sección V12).
+
+Primera feature de este proyecto en correr el flujo completo end-to-end en vez de fast-path — motivado directamente por el rechazo de QA sobre el cambio anterior (`f400671`) sobre esta misma pantalla.
+
+---
+
 **Fin del documento - Trazabilidad**

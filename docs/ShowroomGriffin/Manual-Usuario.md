@@ -168,6 +168,30 @@ El sistema actualiza solo el stock en cada operación:
 
 Todo movimiento queda registrado y se puede consultar el historial completo de cualquier variante.
 
+### Vista Matriz (pantalla principal de Stock)
+Al entrar a **Stock** desde el menú, la pantalla que ves por defecto es la **Matriz**: una grilla que organiza el stock igual que la planilla del comercio — Marca → Modelo → Color en filas, Talle en columnas, con la cantidad en cada celda. Si el modelo mezcla dos sistemas de numeración a la vez (por ejemplo Talle Brasilero y Talle Argentino), aparecen como secciones separadas dentro del mismo Modelo.
+
+- Elegí una **Marca** para ver su matriz completa.
+- Las celdas con stock bajo (por debajo del mínimo configurado) quedan resaltadas.
+- Botón **Vista Lista** para volver al listado plano tradicional (con todos los filtros: Marca, Modelo, Talle, Color, Estado).
+
+**Editar stock desde la Matriz (Administrador):**
+1. Con una Marca seleccionada, botón **Editar**.
+2. Cada celda con número es editable directamente — cambiá la cantidad y es el nuevo stock resultante (no se suma, se reemplaza).
+3. Las celdas con un guión (**—**) son talles que todavía no existen para ese color. Si cargás una cantidad ahí, el sistema da de alta esa variante nueva automáticamente, usando el Precio y Stock Mínimo sugeridos al costado de la fila (podés modificarlos antes de guardar).
+4. Completá el **Motivo** del ajuste y guardá.
+5. Si alguna celda tiene un error (por ejemplo, un dato inválido), el sistema guarda igual todo lo que estaba bien y te avisa puntualmente cuál celda falló, sin perder el resto de la carga.
+
+> La Matriz solo permite agregar un Talle nuevo a un Color que ya existe. Para dar de alta un Color completamente nuevo, o para cargar stock de accesorios que no usan talle (bijou, carteras, etc.), usá **Carga masiva** (ver abajo).
+
+### Carga masiva de stock
+Pensada para cargar o corregir el stock de todos los productos de una Marca de una sola vez, en vez de variante por variante.
+1. Menú → **Stock** → botón **Carga masiva** (solo Administrador).
+2. Elegí la Marca: aparece una grilla agrupada por Modelo, con todas sus variantes existentes y la cantidad actual precargada.
+3. Editá las cantidades que necesites — no hace falta completar todas.
+4. Para dar de alta un Color (nuevo o combinado con un Talle nuevo) que todavía no existe, usá "+ Agregar variante nueva" dentro de la sección del Modelo correspondiente, indicando Color, Talle (si el Modelo lo usa), Precio de Venta, Stock Mínimo y la cantidad inicial.
+5. Un único botón guarda todo el lote: lo que está OK se guarda, y si algo tiene un error se informa puntualmente sin perder el resto.
+
 ### Carga inicial
 Cuando agregás una variante nueva, el stock arranca en 0. Para cargar el stock inicial:
 1. Menú → **Stock** → buscar la variante.

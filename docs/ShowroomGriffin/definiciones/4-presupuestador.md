@@ -355,3 +355,105 @@ Implementación (subagent `agentes-ia-implementador`) y QA (subagent `agentes-ia
 **Dato objetivo disponible mientras tanto (no es "horas reales" de facturación, es tiempo de ejecución de agentes):** el subagent de Implementación corrió 20,4 min y el de QA 7,2 min (≈27,5 min combinados de ejecución de agente) — coherente con el patrón ya documentado en `27-presupuesto-parametros.instructions.md` de que el desarrollo asistido por IA corre muy por debajo de las horas PERT (ratios históricos 4x-7x en este dataset). No se usa este dato como cierre oficial de calibración porque no captura el tiempo real de decisión/revisión de Joaquín en la sesión.
 
 **Acción pendiente:** cuando el cliente/Joaquín registre las horas reales de esta sesión (relevamiento + decisiones + revisión de código), completar esta tabla y aplicar el Paso 9 de recalibración si el desvío promedio supera el 20% (altamente probable dado el patrón histórico).
+
+---
+
+## V12 — Presupuesto: extensión de Matriz (accesorios + alta de Color nuevo) + retiro de Carga Masiva/Ajuste (2026-08-16)
+
+**Input:** `1-analista-funcional.md`, `2-disenador-funcional.md`, `3-arquitecto-mvc.md` — todos sección V12, CERRADOS Y APROBADOS.
+**Clasificación de negocio:** mejora sobre sistema propio ya entregado — **Merge, NO Build inicial de cliente nuevo**. No aplica el descuento de expansión agresiva ni el piso de USD 280 (exclusivo de Build inicial); se cotiza a precio de lista de "Modificación sobre módulo existente".
+
+### Paso 0 — Anclaje histórico
+
+| Ítem | Referencia elegida | Horas base referencia | Motivo |
+|---|---|---:|---|
+| Accesorios sin talle en Matriz | V10 — "Filtros completos en Consulta de Stock" (3,0 h M) | 3,0 h | Comparable más cercano: modificación de un método de Service ya existente + ajuste de vista, sin migración, sin capa nueva |
+| Alta de Color nuevo con Talle (fila embebida + indexado JS dinámico) | Tabla "Modificación sobre módulo existente" — "Agregar regla de negocio" (piso 1-2h), ajustado al alza por driver técnico nuevo no cubierto por esa fila | 2,0 h (techo de la fila + ajuste documentado) | Aplica la regla de "segunda/tercera ronda sobre el mismo módulo" (esta Marca/pantalla ya tuvo Carga Masiva, 3 etapas de Matriz, y el hotfix SG-001 — todas rondas previas sobre el mismo módulo Stock) → ancla en el piso de reutilización, no en rangos de módulo nuevo. Se documenta un ajuste al alza explícito por el driver de indexado dinámico de `Altas[]` en JS (sin precedente exacto en las filas de "modificación", más cercano al patrón `renumerarFilasNuevas` de `CargaMasiva.cshtml`, ya construido y por ende reutilizable, pero adaptado a una tabla pivot en vez de filas planas) |
+| Alta de Color nuevo en accesorio (sin Talle) | Misma fila que el ítem anterior, sin el driver de indexado dinámico (una sola celda por fila) | 1,0 h (piso de la fila) | Reutilización directa del mecanismo de alta ya construido (`StockMatrizAltaGuardarViewModel`/`GuardarMatrizAsync`), sin complejidad de JS adicional |
+| Ocultar botones Carga Masiva / Ajuste Manual | Tabla principal — "Ajuste puntual" | 0,5–1 h (piso) | Quitar 2 `<a>`/botones de una vista ya existente, sin lógica nueva |
+
+Cuarta ronda consecutiva sobre el mismo módulo Stock/Matriz en menos de 2 semanas (V10 → 3 etapas fast-path de Matriz → hotfix SG-001 → V12) — máxima aplicabilidad de la regla de "segunda/tercera ronda", ver Paso 7.
+
+### Paso 1-6 — Estimación por ítem
+
+| # | Ítem funcional | Tipo | Drivers concretos | O | M | P | PERT (h) | Riesgo | Cont. | Horas finales |
+|---|---|---|---|---:|---:|---:|---:|---|---:|---:|
+| 1 | Accesorios sin talle en Matriz (lectura + edición) | Modificación sobre módulo existente | `ObtenerMatrizAsync` deja de descartar secciones `TalleConfig == null`; layout de 2 columnas (Color+Cantidad) en `Matriz.cshtml` y `MatrizEditar.cshtml`; sin migración | 1,3 | **2,0** | 3,5 | **2,13** | Bajo | 8% | **2,30** |
+| 2 | Alta de Color nuevo en Modelo con Talle | Modificación sobre módulo existente + driver técnico nuevo | Fila "+ Nuevo color" embebida en tabla pivot, 1 input de cantidad por columna de Talle, indexado dinámico de `Altas[]` en JS antes del submit, consulta adicional de `TipoTalle` por `ProductoId` en `GuardarMatrizAsync`, checklist SG-001 (nullable + `InvariantCulture`) aplicado desde el diseño | 2,0 | **3,0** | 5,0 | **3,17** | Medio | 15% | **3,64** |
+| 3 | Alta de Color nuevo en accesorio (sin Talle) | Modificación sobre módulo existente | Misma fila "+ Nuevo color" pero de una sola celda (sin indexado dinámico por columnas), `TalleConfigId = null` | 0,7 | **1,0** | 1,8 | **1,08** | Bajo | 8% | **1,17** |
+| 4 | Ocultar botones "Ajuste manual" y "Carga masiva" en `Stock/Index` | Ajuste puntual | Quitar 2 elementos de UI, sin lógica de negocio, sin eliminar rutas (D3) | 0,2 | **0,3** | 0,5 | **0,32** | Bajo | 8% | **0,35** |
+
+**Totales:** PERT base = **6,70 h** · Horas finales con contingencia = **7,46 h**.
+
+### Paso 7 — Autocorrección por ítem
+
+| # | Ítem | Horas base (M) | Referencia (piso/mediana) | Ratio | Decisión | Justificación |
+|---|---|---:|---:|---:|---|---|
+| 1 | Accesorios sin talle | 2,0 | 3,0 (V10 Filtros) | **0,67** | Mantener | Menor esfuerzo que la referencia: no toca `ExportarExcelAsync` ni agrega parámetros a `ListarAsync`, solo cambia el criterio de agrupación de una consulta ya existente + layout de vista |
+| 2 | Alta Color con Talle | 3,0 | 2,0 (piso "modificación") | **1,50** | Mantener, con justificación documentada (excede el 30% permitido) | El driver de indexado dinámico de `Altas[]` en JS no tiene precedente exacto en las filas de "modificación sobre módulo existente" — es la pieza técnica de mayor riesgo señalada por Arquitectura (mismo perfil que causó D-01/D-02 el mismo día). Anclar solo en el piso de reutilización subestimaría el esfuerzo real de blindar ese mecanismo desde el diseño |
+| 3 | Alta Color accesorio | 1,0 | 1,0 (piso "modificación") | **1,00** | Mantener | Sin desvío — reutilización directa sin driver adicional |
+| 4 | Ocultar botones | 0,3 | 0,5-1 (piso "ajuste puntual") | **0,3-0,6** | Mantener (por debajo del piso, justificado) | Cambio real más chico que el piso típico de "ajuste puntual" (ni siquiera toca lógica, solo remueve 2 elementos de markup) |
+
+### Paso 8 — Sanity check del total del proyecto
+
+Comparable más cercano: V10 (11,42 h M base / 12,91 h con contingencia, para construir 2 pantallas nuevas desde una base parcial). Este V12 (6,3 h M base / 7,46 h con contingencia) es **~55% del tamaño de V10**, consistente con ser una extensión incremental de una pantalla ya construida el mismo día (reutiliza 4 componentes ya existentes: `StockMatrizAltaGuardarViewModel`, `GuardarMatrizAsync`, `ObtenerMatrizAsync`, el patrón de indexado dinámico de `CargaMasiva.cshtml`) en vez de una capacidad nueva desde cero. Dentro de rango esperado, sin ajuste adicional.
+
+### Paso 9 — Cierre numérico
+
+| Paso | Horas base (M) | Horas finales | USD (M x $16,80) |
+|---|---:|---:|---:|
+| A — preliminar | 6,3 | 7,46 | — |
+| B — final (post-autocorrección, sin cambios) | 6,3 | 7,46 | **USD 105,84** |
+
+### Facturación al cliente
+
+| Ítem | M (h) | USD lista (M x $16,80) |
+|---|---:|---:|
+| Alta de Color nuevo en Modelo con Talle | 3,0 | 50,40 |
+| Alta de Color nuevo en accesorio (sin Talle) | 1,0 | 16,80 |
+| Accesorios sin talle en Matriz (lectura + edición) | 2,0 | 33,60 |
+| Ocultar botones Ajuste manual / Carga masiva | 0,3 | 5,04 |
+| **Subtotal (Etapa 1 + Etapa 2)** | **6,3** | **105,84** |
+
+Horas facturables internas = 6,3 / 2,5 x 1,20 = **3,02 h — por debajo del piso de 4 h → NO corresponde cargo de Tokens IA** (regla vigente: "No aplica a iteraciones evolutivas menores a 4 h facturables, salvo indicación contraria"), a diferencia de V10 (5,28 h, sí superaba el piso).
+
+- **Tokens IA:** no aplica (ver arriba).
+- **Descuento de expansión agresiva:** NO aplica (Merge sobre sistema propio, no Build inicial).
+- **Total del proyecto V12: USD 105,84.**
+
+### Etapas para el cliente
+
+Aunque D4 confirmó que ambas etapas se entregan juntas en el mismo sprint (sin período de validación intermedio), se mantiene la agrupación funcional estándar para claridad del alcance:
+
+- **Etapa 1 (resuelve el dolor real — las dos capacidades que hoy dependen de Carga Masiva):** Alta de Color nuevo en Modelo con Talle (USD 50,40) + Alta de Color nuevo en accesorio (USD 16,80) = **USD 67,20**.
+- **Etapa 2 (cobertura completa + limpieza de menú):** Accesorios sin talle en Matriz (USD 33,60) + Ocultar botones (USD 5,04) = **USD 38,64**.
+- **Total: USD 105,84.**
+
+### Mantenimiento anual
+
+Sin cambios — mismo plan vigente que V10/V11, esta cotización cubre solo el desarrollo puntual de V12.
+
+### Riesgos y supuestos del presupuesto
+
+| # | Tipo | Descripción | Impacto si se materializa |
+|---|---|---|---|
+| RP-V12-1 | Riesgo | El indexado dinámico de `Altas[]` en JS para la fila "+ Nuevo color" con Talle es la pieza de mayor riesgo técnico de esta entrega — mismo perfil que causó el rechazo de QA de `f400671` el mismo día (D-01/D-02) | +1-2 h si aparece un defecto post-QA equivalente a D-01/D-02, ya presupuestado parcialmente en la contingencia del 15% de este ítem |
+| RP-V12-2 | Riesgo | Volumen de columnas de Talle por sección (hasta 10+ en algunos Modelos) puede hacer la fila "+ Nuevo color" visualmente apretada — ajuste de CSS no cuantificado | +0,5 h si requiere layout responsivo adicional |
+| SP-V12-1 | Supuesto | No se elimina código de `CargaMasiva`/`Ajuste` en este sprint (D3) — la limpieza de código queda fuera de alcance y presupuesto de V12 | Si el cliente pide eliminación de código en el mismo sprint, se cotiza aparte |
+| SP-V12-2 | Supuesto | El QA de esta etapa incluye verificación por navegador de la fila nueva (no solo inspección de código), por la regla de proceso agregada tras el rechazo de `f400671` — no genera costo adicional al cliente (el QA no se factura por separado, va dentro del ciclo de desarrollo) | — |
+
+### Pruebas mínimas requeridas
+Ver `3-arquitecto-mvc.md` sección V12, punto 5 ("Estrategia de pruebas funcionales") — 5 casos nuevos específicos + regla de no-fast-path para el QA de esta etapa.
+
+### Estado
+PRESUPUESTO V12 **APROBADO POR EL CLIENTE** (2026-08-16, mismo día — ambas etapas, sin ajustes). Total: **USD 105,84** (Etapa 1: USD 67,20 / Etapa 2: USD 38,64 / sin Tokens IA por estar bajo el piso de 4h facturables). Gate duro liberado — se delega Implementación al subagent `agentes-ia-implementador`.
+
+### Cierre de calibración estimado vs real — PENDIENTE
+
+| Ítem | Horas estimadas (PERT+cont.) | Horas reales | Desvío % | Motivo |
+|---|---:|---:|---:|---|
+| Alta de Color nuevo con Talle | 3,64 | — | — | Pendiente de cierre de Implementación/QA |
+| Alta de Color nuevo en accesorio | 1,17 | — | — | Pendiente de cierre de Implementación/QA |
+| Accesorios sin talle en Matriz | 2,30 | — | — | Pendiente de cierre de Implementación/QA |
+| Ocultar botones | 0,35 | — | — | Pendiente de cierre de Implementación/QA |
+| **Total** | **7,46** | **—** | **—** | — |

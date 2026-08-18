@@ -3,9 +3,11 @@
 ## Proyecto: marihogar *(nombre provisional — confirmar con cliente)*
 ## Ultima actualizacion: 2026-08-15
 
----
+## Definiciones vigentes
 
-## Análisis funcional v2 — CERRADO 2026-07-06
+> Nota de consolidación (2026-08-16): esta sección agrupa lo que antes eran 12 secciones de nivel 2 apiladas por fecha ("Análisis funcional v2" + "Discovery + Análisis v3" a "v14"). Se mantiene el contenido completo tal cual (sin resumir ni comprimir, dado su volumen y densidad de decisiones de negocio con cifras/CUIT/porcentajes exactos) bajo un único encabezado de nivel 2, ordenado cronológicamente — cada bloque documenta explícitamente cuándo corrige o amplía a uno anterior (ver especialmente CR-13 sobre CR-6, CR-23 sobre CR-6/CR-22, CR-27 sobre CR-19, CR-40 sobre CR-38). Ver `## Historial de ajustes` para el resumen de una línea por versión.
+
+### Análisis funcional v2 — CERRADO 2026-07-06
 
 ### Contexto del negocio
 - Rubro: venta de productos de decoración y hogar
@@ -22,14 +24,14 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 
 ---
 
-## Módulos confirmados — 18 módulos
+### Módulos confirmados — 18 módulos
 
 ### Grupo 1 — Captación y ventas
 | # | Módulo | Descripción | Complejidad |
 |---|---|---|---|
 | M1 | CRM de Leads | Leads desde WhatsApp, máquina de estados, historial | Media |
-| M4 | Presupuestador | Cotización multi-línea, PDF, envío WhatsApp | Media |
-| M5 | Gestión de ventas | Multi-pago, estados, impacto automático en CC del local | Alta |
+| M4 | Presupuestador | Cotización multi-línea, PDF | Media |
+| M5 | Gestión de ventas | Multi-pago, estados, impacto automático en CC del local, envío WhatsApp (CR-4) | Alta |
 | M6 | Entregas a domicilio | Dirección, fecha, cobro en destino, mobile-friendly | Media |
 | M8 | Bot WhatsApp | Inbound webhook, reconocimiento de anuncio (referral Meta), preguntas de calificación por producto | **Muy alta** |
 
@@ -68,7 +70,7 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 
 ---
 
-## Procesos principales confirmados
+### Procesos principales confirmados
 
 ### Proceso de venta
 1. Meta Ad (producto específico) → cliente escribe WhatsApp → bot detecta anuncio (referral) → captura nombre + preguntas de calificación → registra Lead
@@ -91,7 +93,7 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 
 ---
 
-## Máquinas de estados confirmadas (6)
+### Máquinas de estados confirmadas (6)
 
 **Lead:** Nuevo → Contactado → Presupuesto enviado → Vendido / Perdido
 *(también: Contactado → Visita programada / Entrega programada)*
@@ -108,7 +110,7 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 
 ---
 
-## Criterios de aceptación — módulos nuevos
+### Criterios de aceptación — módulos nuevos
 
 **M11 — CC Local**
 - CA-N1: Cada venta genera automáticamente un movimiento de ingreso en la CC
@@ -153,7 +155,7 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 
 ---
 
-## Permisos por rol — actualizados
+### Permisos por rol — actualizados
 
 | Acción | Administrador | Vendedor |
 |---|---|---|
@@ -177,7 +179,7 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 
 ---
 
-## Supuestos confirmados
+### Supuestos confirmados
 
 - Sistema web responsivo — mobile-friendly obligatorio para vistas de entrega y cobro
 - Un único punto de venta AFIP (local)
@@ -189,7 +191,7 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 - Proyección calculada con promedio histórico + compromisos futuros (P4-B)
 - Un solo local / una sola caja
 
-## Exclusiones confirmadas
+### Exclusiones confirmadas
 - App móvil nativa
 - E-commerce / carrito de compras
 - Integración con sistemas contables externos
@@ -200,7 +202,7 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 
 ---
 
-## Banderas tempranas — v2
+### Banderas tempranas — v2
 
 | Bandera | Estado |
 |---|---|
@@ -214,7 +216,7 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 
 ---
 
-## Riesgos y supuestos
+### Riesgos y supuestos
 
 | Riesgo | Nivel | Detalle |
 |---|---|---|
@@ -227,7 +229,7 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 
 ---
 
-## Componentes reutilizables identificados
+### Componentes reutilizables identificados
 
 | Componente | Fuente | Reutilización en marihogar |
 |---|---|---|
@@ -240,7 +242,7 @@ El relevamiento v2 describe un sistema de gestión comercial completo (18 módul
 
 ---
 
-## Discovery + Análisis v3 — Feedback de la primera demo (2026-07-27)
+### Discovery + Análisis v3 — Feedback de la primera demo (2026-07-27)
 
 Etapa 1 ya en producción. El cliente usó el sistema y trajo 7 pedidos de cambio + 2 tareas de análisis. Se trata como **change request sobre un sistema ya entregado**, no como alcance nuevo desde cero — impacta el presupuesto ya cerrado de Etapa 1 y requiere re-presupuesto propio (ver `4-presupuestador.md`).
 
@@ -297,7 +299,7 @@ Etapa 1 ya en producción. El cliente usó el sistema y trajo 7 pedidos de cambi
 - **Confirmación explícita ya vigente, sin cambio**: cheques solo aplican a Compras a proveedores (`PagoOrdenCompra`), nunca a Ventas — esto ya es así desde el diseño original (Sprint 4), el cliente lo reconfirma, no requiere cambio de código.
 - **Impacto**: `Cheque` necesita un flag `Notificado` (bool) o reutilizar `Notification` existente con una consulta "¿ya se notificó este cheque?" antes de disparar una nueva. `ChequeAcreditacionHostedService.EjecutarSiCorrespondeAsync` cambia su lógica: de "acreditar" a "notificar sin acreditar".
 
-## Discovery + Análisis v4 — Ampliación durante Sprint CR-A (2026-07-27, CR-8 y CR-9)
+### Discovery + Análisis v4 — Ampliación durante Sprint CR-A (2026-07-27, CR-8 y CR-9)
 
 ### CR-8 — Sugerir el total como monto por defecto al agregar un pago
 - **Contexto**: hoy, tanto en el sub-formulario de pago de Venta como el de OrdenCompra, el campo Monto de una fila nueva de pago arranca vacío (o en 0) — el usuario siempre tiene que tipear el importe a mano, incluso cuando paga todo de una vez (el caso más común).
@@ -311,7 +313,7 @@ Etapa 1 ya en producción. El cliente usó el sistema y trajo 7 pedidos de cambi
 - **CA-CR9.3**: Proyección financiera deja explícito, en el promedio histórico de ingresos, qué proporción corresponde a ventas ya facturadas (informativo, no cambia la fórmula de proyección ya definida en M17 — evita que el cliente interprete el ingreso proyectado como "todo en blanco").
 - No cambia ninguna regla de negocio existente (el ingreso en `MovimientoCCLocal` se sigue generando igual, facturada o no) — es exclusivamente una dimensión nueva de lectura en los reportes ya existentes.
 
-## Discovery + Análisis v5 — Auditoría columna por columna de los 4 Excel históricos (2026-07-27)
+### Discovery + Análisis v5 — Auditoría columna por columna de los 4 Excel históricos (2026-07-27)
 
 Pedido explícito del cliente: no limitarse a las columnas ya usadas por `tools/ImportarHistorico/` (CR-6) — revisar **todas** las columnas de los 4 archivos de `Importacion/` (Proveedores, Compras, Ventas, Gastos), descartar las que están vacías, y para las que tienen datos reales sin propiedad equivalente hoy en el sistema, analizar cómo modelarlas. **Este análisis es independiente de la decisión pendiente de ejecutar CR-6 en producción (el cliente dijo "todavía no" el 2026-07-27) — no la asume ni la bloquea.** Auditoría hecha con Excel COM (fill-rate % y valores de muestra por columna, sobre las 4 hojas completas: 32 Proveedores, 464 líneas de Compras/239 compras, 983 líneas de Ventas/634 ventas, 481 Gastos).
 
@@ -353,7 +355,7 @@ Tipo de comprobante y N° de factura de Compras (CR-1), impuestos discriminados 
 ### Fuente de reutilización obligatoria
 Ninguno de los 3 gaps (CR-10/11/12) tiene precedente de código en otros proyectos del estudio — son campos simples (string nullable) sobre entidades ya existentes, sin patrón externo que reutilizar más allá de lo que ya aplica el propio proyecto (mismo criterio de campo opcional ya usado en `Proveedor.Observaciones`).
 
-## Discovery + Análisis v6 — CR-13: Ventas históricas con factura real (corrección a la conclusión de CR-6)
+### Discovery + Análisis v6 — CR-13: Ventas históricas con factura real (corrección a la conclusión de CR-6)
 
 Pedido/corrección explícita del cliente: "todas las ventas que tienen número de comprobante y punto de venta están facturadas. Este dato se tiene que guardar en el modelo de facturación y migrar datos correspondientes."
 
@@ -368,7 +370,7 @@ Pedido/corrección explícita del cliente: "todas las ventas que tienen número 
 ### Nota de proceso
 Este hallazgo se trata como corrección/ampliación del Change Request #1 ya en curso (mismo canal, mismo cliente, sin alcance nuevo de negocio — es una corrección de precisión sobre CR-6/CR-9 ya aprobados), no como un change request nuevo separado. Se implementa junto con CR-10/CR-11/CR-12 (Sprint CR-E), sin gate de presupuesto nuevo — mismo criterio ya usado para CR-8/CR-9 (adenda menor sobre trabajo ya aprobado, esfuerzo bajo por no requerir migración).
 
-## Discovery + Análisis v7 — CR-14 a CR-18: mejoras post-migración pedidas por el cliente (2026-07-28)
+### Discovery + Análisis v7 — CR-14 a CR-18: mejoras post-migración pedidas por el cliente (2026-07-28)
 
 Lote de 5 pedidos del cliente, algunos ya resueltos directamente como operación de datos, el resto a implementar en código.
 
@@ -409,7 +411,7 @@ Lote de 5 pedidos del cliente, algunos ya resueltos directamente como operación
 - **Efecto en CC Proveedores**: al cubrir cada Cargo con su Pago exacto, el saldo de cada proveedor llega a $0 de forma natural — el movimiento de ajuste de apertura de CR-18 (que hasta ahora hacía ese trabajo con un único ajuste por proveedor) deja de ser necesario para CC Proveedores específicamente (su propia lógica lo detecta solo: si el saldo ya da 0, no postea nada). CC Local no se ve afectado — sigue necesitando su propio ajuste de apertura, ya que no depende de los pagos de OC.
 - **Impacto**: cambio exclusivo en `tools/ImportarHistorico/Program.cs` (sección Compras) — sin cambio de modelo, sin migración EF.
 
-## Discovery + Análisis v8 — CR-21/CR-22: doble precio de Producto + precio/subtotal editables en Ventas (2026-07-28)
+### Discovery + Análisis v8 — CR-21/CR-22: doble precio de Producto + precio/subtotal editables en Ventas (2026-07-28)
 
 Pedido explícito del cliente, ya en producción con datos reales. Impacta la pantalla de mayor uso diario del sistema (Ventas) — se trata con el mismo cuidado que la "Especificación UX elevada" original de esa pantalla.
 
@@ -430,7 +432,7 @@ Pedido explícito del cliente, ya en producción con datos reales. Impacta la pa
 - **CA-CR22.4**: el Total de la venta = suma de los Subtotales de línea (ya no Cantidad×Precio recalculado aparte), y se actualiza en pantalla "on demand" (en vivo, sin recargar) a medida que se edita cualquier campo de cualquier línea — mismo patrón ya usado para cantidad.
 - **Impacto**: `VentaItem.Subtotal` nuevo (migración con backfill `Cantidad×PrecioUnitario` para las 973 líneas ya existentes, sin cambiar ningún Total de Venta ya cerrada). `VentaService.ConfirmarAsync` cambia su regla de precio de "siempre servidor" a "servidor si Vendedor, cliente-validado si Administrador".
 
-## Discovery + Análisis v9 — CR-23: corrección exhaustiva del importe y forma de pago de Ventas históricas (2026-07-29)
+### Discovery + Análisis v9 — CR-23: corrección exhaustiva del importe y forma de pago de Ventas históricas (2026-07-29)
 
 Pedido explícito del cliente tras revisar los datos ya migrados en producción: "el precio de las ventas migradas que se cargaron no coincide con el precio en el sistema [...] el metodo de pago tampoco coincide [...] Hacer un analisis mas exaustivo sobre las ventas para emparejar los datos."
 
@@ -464,7 +466,7 @@ No requirió cambio — se verificó que el campo ya se guarda tal cual desde la
 ### Impacto
 Cambio exclusivo en `tools/ImportarHistorico/Program.cs` (sección Ventas): `VentaItem.Subtotal` pasa a leerse de "Total Venta" (antes `Cantidad×PrecioUnitario`); nuevo parser `ParsearFormasPagoVenta`/`MapearMetodoPagoVenta` reemplaza el pago único Efectivo hardcodeado; `Venta.Estado` se resuelve después de parsear los pagos (antes hardcodeado `Pagada`). Sin cambio de modelo — todos los campos ya existían (creados por CR-6/CR-12/CR-22). Requiere una nueva corrida completa del importador (vaciar + reimport) tanto en `marihogar_dev` como, con confirmación explícita del cliente, en producción — misma operación ya repetida varias veces en este proyecto.
 
-## Discovery + Análisis v10 — CR-24: corrección de IVA en Ventas, Total editable, pagos posteriores (2026-07-30)
+### Discovery + Análisis v10 — CR-24: corrección de IVA en Ventas, Total editable, pagos posteriores (2026-07-30)
 
 Pedido del cliente sobre el sistema ya en producción con datos reales (post CR-23).
 
@@ -483,7 +485,7 @@ Pedido del cliente sobre el sistema ya en producción con datos reales (post CR-
 ### Impacto
 Cambio de UI en `Ventas/Create.cshtml` (CR-24.1/24.2/24.3, sin cambio de modelo — usa los mismos campos ya creados por CR-22). Capacidad nueva `IPagoVentaService`/`PagoVentaService` + acción en `VentasController` + UI en `Ventas/Details.cshtml` (CR-24.4) — sin migración EF, reutiliza `PagoVenta`/`MovimientoCCLocal` ya existentes.
 
-## Discovery + Análisis v11 — CR-25/CR-26: comprobante AFIP totalmente editable + rediseño de PDFs (2026-07-30)
+### Discovery + Análisis v11 — CR-25/CR-26: comprobante AFIP totalmente editable + rediseño de PDFs (2026-07-30)
 
 ### CR-25 — ComprobantesAfip/Create totalmente personalizable
 Pedido: "quiero que en ComprobantesAfip/Create la factura sea totalmente personalizable, si el cliente quiere modificar cantidades, importes, subtotales y totales, dejar modificarlo, tener la venta como referencia no como fuente de verdad."
@@ -501,7 +503,7 @@ Pedido: "quiero mejorar el diseño grafico de los comprobantes remitos pdf y fac
 - **CA-CR26.2**: tablas con columnas numéricas alineadas a la derecha, total destacado visualmente (caja/borde), mismo criterio de jerarquía en ambos documentos para que se sientan de la misma familia visual.
 - **CA-CR26.3**: la factura AFIP suma el código QR real según la especificación de AFIP, visible en el pie del documento.
 
-## Discovery + Análisis v12 — CR-27: Cuenta Corriente de Proveedores real (impuestos + pagos reales, reemplaza CR-19)
+### Discovery + Análisis v12 — CR-27: Cuenta Corriente de Proveedores real (impuestos + pagos reales, reemplaza CR-19)
 
 Pedido: "Hacer importacion de los datos de las cuenta corrientes de los proveedores... analizar que datos esta cargando el usuario de cada compra y de cada pago, ver cuales columnas son utiles para que de bien los numeros de las cuentas corrientes y el modelo le sirva." Disparado por un archivo nuevo entregado por el cliente: `Informe Cuentas Corrientes Movimientos de Proveedores 30-07-2026 1052 Hs.xlsx` — ledger real de 572 movimientos (239 Compras + 333 Pagos, 17 proveedores), 34 columnas, con saldo corrido ("A pagar") que cierra exacto contra el propio archivo.
 
@@ -537,7 +539,7 @@ Con cobertura 100% real y completa de las 239 Compras, el saldo que queda por pr
 ### CA-CR27.5 — Nota interna en OrdenCompra
 `OrdenCompra.NotaInterna` (nuevo campo, mismo patrón que `Venta.NotaInterna` de CR-12) para no perder el detalle real de la columna `Descripción` (135/239 Compras, planes de pago informales tipo echeq acordados con el proveedor).
 
-## Discovery + Análisis v13 — CR-32/CR-33/CR-34: precio dual + recargo por tarjeta, edición completa de Venta, acreditación diferida de tarjeta (2026-08-11)
+### Discovery + Análisis v13 — CR-32/CR-33/CR-34: precio dual + recargo por tarjeta, edición completa de Venta, acreditación diferida de tarjeta (2026-08-11)
 
 Pedido del cliente sobre Ventas (pantalla de mayor uso diario), 3 ítems relacionados entre sí. 4 decisiones confirmadas vía `AskUserQuestion` antes de diseñar (ver debajo de cada CR).
 
@@ -588,7 +590,7 @@ Pedido: "cuando la venta es pago con tarjeta, el pago se acredita en una fecha p
 ### Impacto conjunto (los 3 CR comparten cambios de modelo/servicio en Venta/PagoVenta)
 Domain: `PagoVenta` gana `MontoBase` (CR-32) + `EstadoAcreditacion`/`FechaAcreditacionEfectiva` (CR-34), nuevo enum `EstadoAcreditacionPago`. Migración EF combinada. Application/Infrastructure: `VentaService.ConfirmarAsync`/`PagoVentaService.RegistrarPagoAsync` recalculados para postear `MovimientoCCLocal` por línea de pago (no más un único Ingreso por el Total) y respetar `EstadoAcreditacion`; nuevo `VentaService.EditarAsync` (CR-33); nuevo `IVentaService.AcreditarPagoAsync` (CR-34); `ProyeccionFinancieraService` ampliado (CR-34.3). Web: `Ventas/Create.cshtml` (columnas de precio CR-32.1, sin cambio de gate de edición cruda), nueva `Ventas/Edit.cshtml` (CR-33), `Ventas/Details.cshtml` (badges + acción de acreditar, CR-34.4).
 
-## Discovery + Análisis v14 — CR-40: modelo de precios negro/con IVA/tarjeta, % descuento/recargo por producto, cuotas configurables (2026-08-15)
+### Discovery + Análisis v14 — CR-40: modelo de precios negro/con IVA/tarjeta, % descuento/recargo por producto, cuotas configurables (2026-08-15)
 
 Pedido del cliente, explícito para quedar como regla de negocio permanente ("aplicar la siguiente lógica al sistema y también al modelo de agentes IA para futuros desarrollos") — no es solo una corrección puntual, es la forma en que MariHogar arma un precio, documentada acá como fuente de verdad para cualquier CR futuro que toque Producto/Venta/Pago.
 
@@ -626,7 +628,18 @@ Pedido explícito del cliente sobre cómo tiene que estar hecho el cálculo: "un
 ### Impacto de modelo/servicio
 Domain: `PorcentajeHelper` (nuevo), `Producto.PorcentajeDescuento`/`PorcentajeRecargo`, `VentaItem.RecargoPorcentaje`, `ConfiguracionCuotaTarjeta` (entidad nueva, sin `SoftDestroyable` — tabla de configuración de 4 filas fijas, no un documento con alta/baja). 3 migraciones EF. Application/Infrastructure: `IConfiguracionCuotaTarjetaService`/`ConfiguracionCuotaTarjetaService` (nuevo), `ProductoService`/`VentaService` ampliados. Web: `Productos/Create.cshtml`/`Edit.cshtml` (2 campos nuevos), `ConfiguracionCuotasController`/`Views/ConfiguracionCuotas/Index.cshtml` (pantalla nueva, link de sidebar bajo Catálogo), `Ventas/Create.cshtml`/`Edit.cshtml`/`Details.cshtml` (relabel + columna "% Rec." + precarga de cuotas).
 
+### Nota de consistencia — patrón genérico "PAT-003" del estudio vs. comportamiento aprobado de marihogar
+
+`32-estandares-qa-implementador.instructions.md` formalizó el 15/08/2026 un patrón genérico ("Venta con IVA + pago dividido en multiples metodos", PAT-003) que exige que la suma de los pagos de una venta sea **exactamente igual** al Total, bloqueando el guardado si no cierra "ni de más ni de menos" — aplicable, según esa instrucción, a todo proyecto con módulo de venta. MariHogar diverge de esa regla en 2 puntos **a propósito, ya aprobados con el cliente**, y no debe interpretarse como un incumplimiento en futuras auditorías:
+
+1. **CR-39** permite confirmar una Venta con pagos sumando MENOS que el Total (o sin ningún pago) — queda `Pendiente`/`PagadaParcial`, cobrable después desde `Ventas/Details` ("Registrar pago", CR-24.4). Pedido explícito del cliente.
+2. El sistema permite pagos sumando MÁS que el Total (vuelto en efectivo — caso real de comercio: el cliente paga con un billete más grande y se le da cambio) — la UI incluso lo etiqueta explícitamente ("Vuelto $X").
+
+Lo que sí se mantiene sin excepción, y es donde aplica el espíritu real de PAT-003 en este proyecto: el server-side nunca confía en un pago no-Efectivo que exceda lo cargado a precio "Con IVA" en la venta (CA-CR40.3, validación en `VentaService.ConfirmarAsync`/`PagoVentaService.RegistrarPagoAsync`).
+
 ## Historial de ajustes
+- 2026-08-15: Bug reportado por el cliente tras la auditoría — "al crear la venta con los pagos configurados, estos se guardan en un solo pago". Causa raíz real encontrada (no el sospechoso inicial de los botones "Todo efectivo/transferencia", descartado por el cliente): `jquery.maskMoney.js` intercepta cada tecla con `preventDefault()` y escribe el valor a mano, sin disparar nunca el evento `input` nativo del browser — el único evento que dispara es `change`, y solo al perder el foco. Los handlers de Precio contado/tarjeta, Subtotal, Monto de pago y Total editable en `Ventas/Create.cshtml` y `Ventas/Edit.cshtml` escuchaban únicamente `'input'`, así que el array JS que arma el payload de guardado quedaba "congelado" en el valor inicial de cada campo mientras el usuario tipeaba, aunque la pantalla mostrara el número correcto — si el usuario clickeaba "Confirmar"/"Agregar" sin que el campo llegara a perder el foco antes, se enviaba el valor viejo (o vacío) en vez del tipeado. Corregido escuchando también `'change'` en los 6 campos afectados, más una relectura defensiva de todos los campos `.money` justo antes de armar el payload final (por si algún campo no llega a hacer blur). Documentado también como estándar genérico del estudio en `23-web.instructions.md` para cualquier proyecto que reutilice este plugin vendored.
+- 2026-08-15: Auditoría completa de los 18 módulos de Etapa 1 (código vs. documentación), pedida por el cliente. Corregidos: precarga de precio equivocada en Facturación AFIP (usaba precio Negro aun en líneas "Con IVA"); bug de terceros en `jquery.maskMoney.js` que pisaba montos de pago ya cargados; botón "Todo transferencia" de Ventas sin contemplar el tope "Con IVA" de CR-40 (ahora fuerza esa opción de precio en todas las líneas antes de armar el pago); falta de traza en el ledger de stock del script de reconciliación del 14/08 (ahora genera `MovimientoStock` tipo Ajuste); `ProductoService.UpdateAsync` sin capturar conflicto de concurrencia con Aumento masivo; fila de la tabla resumen de módulos que prometía envío WhatsApp desde Presupuesto (en realidad es de Venta, CR-4); fila de criterios de aceptación de Sprint 4 desactualizada respecto de CR-7 (acreditación de cheques). También, con confirmación explícita del cliente: unificado el Proveedor duplicado "CARDOZO, JUAN CRUZ" (Id=15 sobrevive, Id=22 se soft-deletea) pendiente desde la auditoría de CR-27 — verificado primero que ambos registros son byte-idénticos en todos los campos fiscales (mismo CUIT 20-38325877-5, mismo domicilio fiscal completo, mismo criterio de verificación que CR-17) y que Id=22 no tiene ninguna OrdenCompra ni MovimientoCCProveedor asociado (0/0), por lo que no hizo falta reasignar FKs como en CR-17, solo el soft-delete. **Aplicado en `marihogar_dev`, pendiente replicar en producción en el próximo despliegue** (no se toca producción sin autorización explícita separada). Hallazgo pendiente de confirmación del cliente, no auto-corregido: certificado AFIP de producción real ya cargado (28/07/2026) contradice la documentación vigente en varios documentos del agente, que sigue describiendo el certificado como pendiente. Detalle completo en el reporte de auditoría entregado al cliente.
 - 2026-08-15: Discovery + Análisis v14 — CR-40, regla de negocio permanente pedida explícitamente por el cliente para quedar documentada (no solo implementada): modelo de precios en negro (solo efectivo sin factura) vs. con IVA/21% (efectivo con factura, transferencia, MercadoPago, Banco Carrefour, o tarjeta — decidido con el cliente que estos 3 métodos van siempre "con IVA"); % descuento/recargo configurable por Producto (precarga el default editable por línea que ya existía desde CR-38); pantalla admin nueva de % interés por cantidad de cuotas (3/6/9/12); y la matemática correcta de porcentajes invertibles (`PorcentajeHelper`, dividir para revertir un recargo, nunca restar el mismo %) aplicada retroactivamente y documentada también como estándar de código del estudio. **Mismo día, revisión de consistencia pedida por el cliente** ("revisar la lógica de ventas y pagos en base a las últimas definiciones"): encontrado y cerrado un hueco real (CA-CR40.3) — la regla "tarjeta siempre con IVA" no tenía candado server-side desde que CR-38 sacó el recargo automático del pago, se agregó la validación que lo garantiza de verdad.
 - 2026-08-11: Discovery + Análisis v13 — CR-32 (precio contado/tarjeta visible para ambos roles + recargo real del 21% aplicado al monto cubierto por cada línea de pago, no por ítem fijo — mecánica fijada con un ejemplo numérico real del cliente), CR-33 (edición completa de Venta ya creada, bloqueada únicamente si ya tiene un Comprobante AFIP con CAE real emitido) y CR-34 (acreditación diferida de pagos con tarjeta — fecha efectiva + Estado Pendiente/Acreditado, el ingreso en CC Local se difiere hasta acreditar, a diferencia del precedente de Cheque que postea inmediato). 4 decisiones de diseño confirmadas con el cliente vía `AskUserQuestion` antes de diseñar. Los 3 comparten cambios de modelo en `PagoVenta` (`MontoBase`, `EstadoAcreditacion`, `FechaAcreditacionEfectiva`) — 1 migración EF combinada.
 - 2026-07-30: Discovery + Análisis v12 — CR-27, disparado por un archivo nuevo del cliente (ledger real de Cuenta Corriente de Proveedores). 3 hallazgos: (1) el Total de las 239 OC históricas no incluía impuestos (subvaluado ~$19,4M); (2) CR-19 había marcado todo como pagado de forma ficticia, el archivo nuevo trae el pago real de 333 movimientos; (3) Mercado Pago se usa realmente para pagar a proveedores (excluido hasta ahora por decisión de diseño de CR-3). 2 decisiones confirmadas con el cliente (corregir el Total con impuestos reales; habilitar Mercado Pago también hacia adelante). Corrección del histórico (hallazgos 1/2, mismo criterio que CR-23 — dato ya migrado incorrecto) + 2 capacidades nuevas menores (Mercado Pago para OC, NotaInterna en OrdenCompra).

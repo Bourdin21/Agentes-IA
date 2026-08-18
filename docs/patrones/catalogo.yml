@@ -25,7 +25,7 @@
 # en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
 
 version: 1
-ultima_actualizacion: 2026-08-15
+ultima_actualizacion: 2026-08-17
 
 patrones:
 
@@ -201,6 +201,57 @@ patrones:
     dependencias: []
     notas: "Repos fuera del baseline BlankProject (no MVC/.NET) — igual quedan en este catalogo por ser reutilizables."
 
+  - id: PAT-009
+    nombre: "Tema oscuro (dark/light toggle) persistido por usuario"
+    categoria: ui
+    descripcion: >
+      Preferencia de tema por usuario (PreferenciaUsuario.TemaOscuro, 1:1 con ApplicationUser) +
+      cookie crm-tema para render SSR correcto antes de que corra JS. Atributo data-theme en
+      <html>, paleta oscura como override de tokens CSS via [data-theme="dark"] (nunca reglas de
+      componente duplicadas). Boton de toggle en topbar, POST /Account/ToggleTema con reload
+      completo tras el cambio (para re-renderizar componentes que fijan color al crearse, ej.
+      Chart.js). Login tambien aplica la preferencia guardada.
+    cuando_usar: >
+      Todo proyecto nuevo sobre el baseline BlankProject — ya viene incluido en el template
+      desde 2026-08-15 (portado desde la-platense), no hace falta reconstruirlo por proyecto.
+      Para un proyecto YA iniciado antes de esa fecha, backportear si el cliente lo valora.
+    proyecto_origen: la-platense (Ferreteria La Platense, en produccion real)
+    proyectos_que_lo_usan:
+      - blankproject (portado al template base, 2026-08-15)
+    archivos_referencia:
+      - proyecto: blankproject
+        path: "BlankProject.Web/Views/Shared/_Layout.cshtml, BlankProject.Web/Controllers/AccountController.cs (ToggleTema), BlankProject.Web/wwwroot/css/olvidata-theme.css (bloque [data-theme=\"dark\"]), BlankProject.Domain/Entities/PreferenciaUsuario.cs"
+        motivo: "Implementacion de referencia ya integrada al template base"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      Ver seccion "Tema oscuro (dark/light toggle)" en 25-frontend-design-system.instructions.md
+      para el detalle completo de implementacion.
+
+  - id: PAT-010
+    nombre: "ArgentinaTime (hora correcta en hosting compartido)"
+    categoria: infraestructura
+    descripcion: >
+      Helper estatico que convierte UTC a hora de Argentina (ART, UTC-3, sin horario de verano) y
+      calcula rangos "hoy calendario" para queries EF — reemplaza DateTime.Now/.ToLocalTime(),
+      que dependen de la zona horaria del SO del servidor (casi nunca Argentina en hosting
+      compartido, causando horas mostradas incorrectas al cliente).
+    cuando_usar: >
+      Cualquier fecha/hora visible al usuario final, o logica de negocio sensible al dia
+      calendario (topes diarios, reportes "de hoy"). Nunca usar DateTime.Now directo en
+      Web/Infrastructure sobre el baseline BlankProject.
+    proyecto_origen: crm-olvidata (bug real encontrado 2026-07-30, hosting site4now.net)
+    proyectos_que_lo_usan:
+      - la-platense
+      - blankproject (portado al template base)
+    archivos_referencia:
+      - proyecto: blankproject
+        path: "BlankProject.Application/Helpers/ArgentinaTime.cs"
+        motivo: "Helper ya integrado al template base — ArgentinaTime.Now / .From(utc) / .HoyRangoUtc()"
+        pendiente_verificar: false
+    dependencias: []
+    notas: "Ver seccion dedicada en 10-blankproject-base.instructions.md."
+
   - id: PAT-008
     nombre: "DataTables server-side + filtro por columna visible"
     categoria: ui
@@ -214,9 +265,124 @@ patrones:
       - vinosefue
       - ganaderia
       - labipac
+      - la-platense
     archivos_referencia: []
     dependencias: []
     notas: >
       Este es un patron normativo (regla de diseño), no un componente de codigo puntual —
       la referencia de implementacion es el checklist "10a" en
       26-checklists.instructions.md, no un archivo especifico.
+
+  - id: PAT-009
+    nombre: "Importacion de archivo con preview -> confirmar (staging + reporte de excepciones)"
+    categoria: integracion
+    descripcion: >
+      Servicio de importacion de un archivo Excel/CSV subido por el usuario, en dos pasos: (1)
+      previsualizar (analiza el archivo completo, lo deja en staging, devuelve contadores de
+      altas/actualizaciones/omitidas + muestra de filas + lista de excepciones, sin persistir
+      nada); (2) confirmar (recorre el MISMO archivo con la MISMA funcion de proceso y persiste).
+      Upsert idempotente por una clave de negocio explicita, y reporte de excepciones por fila
+      dividido en bloqueantes (la fila no se importa) e informativas (se importa con un valor por
+      defecto).
+    cuando_usar: >
+      Cualquier import de datos masivos desde un archivo que el usuario sube por pantalla:
+      migracion de catalogo legado, listas de precios de proveedor, padrones, importacion de
+      historicos. No aplica a sincronizacion contra una API externa (ver FabaImportService en
+      labipac para ese caso).
+    proyecto_origen: la-platense (Etapa 3, migracion de catalogo)
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Application/Interfaces/ICatalogoMigracionService.cs (REMOVIDO — ver nota)"
+        motivo: "Contrato completo del patron (previsualizar / obtener preview / listar excepciones / exportar / confirmar)"
+        pendiente_verificar: true
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/CatalogoMigracionService.cs (REMOVIDO — ver nota)"
+        motivo: "Implementacion: staging por token validado como Guid, lectura ClosedXML por nombre de columna, upsert por lotes, excepciones"
+        pendiente_verificar: true
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Web/Controllers/MigracionCatalogoController.cs (REMOVIDO — ver nota)"
+        motivo: "Coordinacion HTTP: limite de request elevado, sesion de revision de excepciones, confirmar"
+        pendiente_verificar: true
+      - proyecto: marihogar
+        path: "tools/ImportarHistorico/Program.cs"
+        motivo: "Precedente batch (consola de un solo uso) del mismo problema: ClosedXML + escribir entidades directo sin pasar por los Services de negocio"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-008
+    notas: >
+      Cinco decisiones que hacen que el patron funcione y conviene copiar tal cual:
+      (1) UNA sola funcion de proceso con un flag `persistir` — garantiza que el preview no pueda
+      desalinearse de lo que realmente pasa al confirmar;
+      (2) el archivo subido queda en staging (temp del SO) con un token validado como Guid antes de
+      construir cualquier ruta (evita path traversal), junto a un JSON con el analisis, para que el
+      reporte de excepciones se pueda paginar/exportar despues sin re-parsear el archivo;
+      (3) todas las consultas de matcheo usan `IgnoreQueryFilters()`: el indice unico de MySQL no
+      distingue soft-deleted, asi que un registro dado de baja sigue ocupando su clave y hay que
+      revivirlo en vez de fallar el insert;
+      (4) el import NUNCA pisa los campos que el sistema nuevo calcula o el usuario administra a
+      mano (stock, clasificaciones manuales) — una reimportacion no debe perder trabajo hecho;
+      (5) subir el limite de request (`RequestSizeLimit`/`RequestFormLimits`): el default de Kestrel
+      es 30 MB y un archivo de catalogo completo lo supera.
+      Limitacion conocida a resolver si el volumen es grande: corre sincrono dentro del request
+      HTTP. Con decenas de miles de filas conviene partir el archivo en tandas (la idempotencia lo
+      hace seguro) o mover el proceso a un hosted service.
+      CAVEAT 2026-08-17: en la-platense el cliente decidio que la migracion de catalogo real es
+      un caso de uso UNICO (una sola vez, con acceso directo al backup del cliente), y pidio
+      resolverla con un script de consola (tools/MigracionCatalogo, ver PAT-010 y
+      5-implementador.md) en vez de esta pantalla web — los 3 archivos de
+      ICatalogoMigracionService/CatalogoMigracionService/MigracionCatalogoController fueron
+      commiteados y luego borrados en la misma etapa (commits 71daf36 y 42cae2a). El patron
+      preview->confirmar sigue vigente para cualquier import RECURRENTE por archivo (ej. futura
+      importacion de listas de precios de proveedor) — para la-platense especificamente, la
+      referencia viva de ese caso ya no existe en el working tree, solo en el historial de git.
+
+  - id: PAT-010
+    nombre: "Stock arranca en cero + verificacion por conteo, priorizada por rotacion ABC"
+    categoria: dominio
+    descripcion: >
+      Estrategia para llevar el stock de un sistema nuevo (post-migracion desde un sistema
+      legado, o alta inicial de catalogo) al stock fisico real, sin bloquear la operacion del
+      negocio ni exigir un inventario general de una sola vez. Tres piezas: (1) todo producto
+      nuevo/migrado arranca con Stock=0 y un flag StockVerificado=false — el sistema nunca
+      inventa un numero de partida, porque el stock del sistema legado (si existe) no es
+      confiable; (2) el unico camino para pasar a verificado es el ajuste manual auditado
+      (usuario, fecha, cantidad anterior/nueva, motivo obligatorio) — nunca una carga masiva
+      silenciosa; (3) el conteo fisico se prioriza por clasificacion ABC (rotacion de ventas,
+      ver PAT de clasificacion ABC si se cataloga aparte): oleada A primero (pocos productos,
+      alto impacto), oleada B despues, y la oleada C (la mayoria del catalogo, bajisimo impacto
+      individual) se resuelve por "verificacion organica" — se cuenta el producto la proxima vez
+      que se vende o se repone, en vez de dedicarle un operativo aparte.
+    cuando_usar: >
+      Cualquier proyecto que migre o de alta un catalogo con muchos items (cientos a cientos de
+      miles) donde el numero de stock de origen no es confiable o no existe, y no es viable
+      frenar el negocio para un inventario general. Requiere tener o poder calcular alguna
+      clasificacion de importancia/rotacion por item (ABC por ventas, frecuencia de pedido,
+      valor, etc.) para poder priorizar las oleadas — sin eso, el patron se reduce solo a las
+      piezas (1) y (2).
+    proyecto_origen: la-platense (Etapa 3, migracion de catalogo — 112.485 productos migrados
+      desde un sistema legado sin stock confiable)
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Domain/Entities/Producto.cs"
+        motivo: "Campos Stock (arranca en 0) y StockVerificado (bool, arranca en false)"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/AjusteStockService.cs"
+        motivo: "AplicarAjusteAsync: unico camino a StockVerificado=true, con AjusteStock (entidad de auditoria: usuario, fecha, cantidad anterior/nueva, motivo obligatorio) e HistorialAsync para consultarla"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Web/Controllers/StockController.cs, Views/Stock/Index.cshtml"
+        motivo: "Filtros combinables de Categoria + Clasificacion ABC + Verificado, base para armar las planillas de conteo por oleada/sector sin necesitar un reporte nuevo"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      El documento entregado al cliente de La Platense (manual de usuario + plan de
+      sincronizacion, 2026-08-17) es el artefacto de comunicacion de este patron — reutilizable
+      como plantilla de redaccion, no solo el codigo: contexto (por que el stock arranca en
+      cero), plan de oleadas A/B/C con "verificacion organica" para la cola larga, y como medir
+      avance con los filtros ya existentes en vez de pedir un reporte nuevo de entrada. Si el
+      volumen de conteo lo justifica en un proyecto futuro, la mejora natural es agregar un
+      indicador de "% verificado por categoria/oleada" sobre la misma pantalla de Stock — no
+      construirlo de entrada, esperar a que se pida.

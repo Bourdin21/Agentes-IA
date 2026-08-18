@@ -1,9 +1,11 @@
 # Memoria - Disenador funcional
 
 ## Proyecto: marihogar
-## Ultima actualizacion: 2026-07-27 (Diseño v3 — Sprint CR-B)
+## Ultima actualizacion: 2026-08-16
 
 ## Definiciones vigentes
+
+> Nota de consolidación (2026-08-16): las 8 secciones "Diseño v2" a "v9" (antes de nivel 2, apiladas por fecha de Change Request) pasaron a subsecciones de este único bloque — contenido sin resumir, ver `## Historial de ajustes` para el resumen de una línea por versión.
 
 ### Alcance funcional resumido
 
@@ -330,7 +332,7 @@ Tabla base = tabla "Permisos por rol" ya cerrada en `1-analista-funcional.md`. A
 - `VentaService.ConfirmarAsync`, `OrdenCompraService.RecibirAsync`, `ChequeService.AcreditarAsync/RechazarAsync`, `GastoService.CrearAsync` son los puntos donde se genera movimiento de stock y/o CC — deben ejecutar en una unica transaccion de base de datos (todo o nada).
 - `ChequeAcreditacionHostedService` (IHostedService, patron ganaderia) corre diariamente, es idempotente (no reacredita un cheque ya Acreditado) y dispara `INotificationService` al finalizar cada acreditacion.
 
-## Diseño v2 — Change request feedback primera demo (2026-07-27, CR-1 a CR-7)
+### Diseño v2 — Change request feedback primera demo (2026-07-27, CR-1 a CR-7)
 
 Sobre análisis v3 aprobado (`1-analista-funcional.md`). No reabre ni contradice el diseño v1 — son extensiones puntuales sobre pantallas ya existentes.
 
@@ -402,7 +404,7 @@ No es una pantalla nueva de uso diario — es una herramienta de una sola vez (m
 - HU-14.6: Como Administrador, quiero que el sistema me avise cuando un cheque llega a su fecha de vencimiento, pero que la acreditación quede en mis manos, para poder confirmar primero con el banco que el cheque efectivamente se cobró antes de darlo por acreditado en el sistema.
   - CA: el cheque NO cambia de estado solo al vencer. La notificación aparece una única vez por cheque (no se repite todos los días mientras siga Pendiente). "Acreditar" sigue siendo una acción manual explícita, disponible en cualquier momento desde que vence (no solo el día exacto).
 
-## Diseño v3 — Sprint CR-B: CR-8 (sugerir monto) + CR-9 (desglose facturado/no facturado)
+### Diseño v3 — Sprint CR-B: CR-8 (sugerir monto) + CR-9 (desglose facturado/no facturado)
 
 Sobre análisis v4 (`1-analista-funcional.md`, "Discovery + Análisis v4"). Extensiones puntuales sobre pantallas ya existentes (Ventas/Create, OrdenesCompra/Details, Dashboard, Caja, Proyección financiera) — no reabren diseño v1/v2.
 
@@ -426,7 +428,7 @@ Sobre análisis v4 (`1-analista-funcional.md`, "Discovery + Análisis v4"). Exte
 - HU-17.3: Como Administrador, quiero ver, junto al ingreso promedio histórico de la Proyección financiera, qué proporción de ese promedio corresponde a ventas ya facturadas, para no interpretar el ingreso proyectado como si fuera todo en blanco.
   - CA: dato informativo (porcentaje), no altera ninguna fórmula de proyección ya definida en M17 (CA-CR9.3).
 
-## Diseño v4 — CR-10/CR-11/CR-12: auditoría de columnas del histórico
+### Diseño v4 — CR-10/CR-11/CR-12: auditoría de columnas del histórico
 
 Sobre análisis v5 (`1-analista-funcional.md`, "Discovery + Análisis v5"). 3 campos nuevos sobre pantallas ya existentes — no reabre diseño v1/v2/v3.
 
@@ -454,7 +456,7 @@ Sobre análisis v5 (`1-analista-funcional.md`, "Discovery + Análisis v5"). 3 ca
 ### Nota de alcance
 Los 3 ítems son extensiones de un campo sobre un formulario ya diseñado — no generan wireframe nuevo ni cambian ninguna máquina de estados. El diseño de detalle de UI (posición exacta del campo, si va colapsado detrás de un "Agregar nota") queda a criterio del implementador dentro del patrón visual ya establecido, sin volver a este gate.
 
-## Diseño v5 — CR-14/CR-15/CR-16/CR-18: mejoras post-migración
+### Diseño v5 — CR-14/CR-15/CR-16/CR-18: mejoras post-migración
 
 Sobre análisis v7. Extensiones puntuales sobre pantallas ya existentes, sin wireframe nuevo.
 
@@ -468,7 +470,7 @@ Sobre análisis v7. Extensiones puntuales sobre pantallas ya existentes, sin wir
 
 CR-17 no requiere diseño (operación de datos, sin pantalla nueva ni cambio de flujo). CR-18 no requiere diseño (cambio interno del script de importación, sin UI).
 
-## Diseño v6 — CR-21/CR-22: doble precio + edición de precio/subtotal en Ventas (solo Administrador)
+### Diseño v6 — CR-21/CR-22: doble precio + edición de precio/subtotal en Ventas (solo Administrador)
 
 Sobre análisis v8. Extiende `Productos/{Create,Edit,Index}` y la pantalla de mayor uso diario (`Ventas/Create`) — se mantiene el layout ya elevado (dos columnas desktop/checkout mobile), solo se agregan controles dentro de la fila de cada línea.
 
@@ -486,7 +488,7 @@ Sobre análisis v8. Extiende `Productos/{Create,Edit,Index}` y la pantalla de ma
   - CA: para el rol Vendedor, sin cambios respecto del comportamiento actual — Precio Unit. y Subtotal de cada línea siguen siendo texto fijo (no input), calculados server-side, sin ningún control de IVA visible.
 - **Nota de seguridad explícita para Arquitectura**: la restricción de edición no puede ser solo de UI (ocultar/mostrar el input según el rol) — el servidor debe revalidar el rol en `VentaService.ConfirmarAsync` y descartar cualquier precio/subtotal recibido de un usuario que no sea Administrador, igual que hace hoy para todos los roles.
 
-## Diseño v7 — CR-24: precio de línea con 4 elementos, Total editable, pagos posteriores en Ventas
+### Diseño v7 — CR-24: precio de línea con 4 elementos, Total editable, pagos posteriores en Ventas
 
 Sobre análisis v10. Extiende `Ventas/Create.cshtml` y `Ventas/Details.cshtml` (pantalla de mayor uso diario) — mismo layout ya elevado, solo cambios dentro de la fila/carrito y una capacidad nueva en Details.
 
@@ -499,7 +501,7 @@ Sobre análisis v10. Extiende `Ventas/Create.cshtml` y `Ventas/Details.cshtml` (
 - HU-5.20 (CR-24.5): Como Vendedor/Administrador, quiero caer directo en el detalle de la venta recién creada, para poder seguir operando sobre ella (cobrar el resto, programar entrega, facturar) sin un paso intermedio.
   - CA: al confirmar una Venta desde `Ventas/Create`, redirige a `Ventas/Details/{id}` (reemplaza la pantalla de éxito in-page ya existente).
 
-## Diseño v8 — CR-25/CR-26: comprobante AFIP editable + rediseño de PDFs
+### Diseño v8 — CR-25/CR-26: comprobante AFIP editable + rediseño de PDFs
 
 Sobre análisis v11.
 
@@ -510,7 +512,7 @@ Sobre análisis v11.
   - CA: encabezado con nombre del negocio, CUIT y logo en ambos PDF. Tablas con números alineados a la derecha. Total destacado.
 - HU-7.8 (CR-26, cumplimiento): la factura AFIP muestra el código QR exigido por AFIP (RG 4291), visible en el pie de la primera página.
 
-## Diseño v9 — CR-32/CR-33/CR-34: precio dual + recargo tarjeta, edición de Venta, acreditación diferida
+### Diseño v9 — CR-32/CR-33/CR-34: precio dual + recargo tarjeta, edición de Venta, acreditación diferida
 
 Sobre análisis v13. Extiende `Ventas/Create.cshtml`/`Ventas/Details.cshtml` (sin cambio de layout general) y agrega una pantalla nueva (`Ventas/Edit.cshtml`).
 

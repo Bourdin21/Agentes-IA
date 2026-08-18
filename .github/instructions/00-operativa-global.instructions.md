@@ -29,6 +29,7 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - Cada agente tiene un unico archivo de memoria por proyecto en C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/.
 - Al trabajar sobre un proyecto, leer primero la version vigente del agente y luego editar ese mismo archivo.
 - No crear archivos nuevos para el mismo agente y proyecto: siempre editar el existente.
+- Editar significa actualizar la seccion de definiciones vigentes IN-PLACE (reemplazar el dato viejo, no dejarlo al lado con una nota de correccion) — nunca agregar una seccion nueva fechada por cada ronda de trabajo sobre el mismo tema. El unico lugar que crece por append es `## Historial de ajustes`, y ahi solo una linea corta por cambio. Ver `29-trazabilidad-conversacion.instructions.md` para el detalle completo de esta regla.
 - Cada ajuste relevante debe registrarse en C:/Sistemas/Agentes-IA/docs/<proyecto>/trazabilidad.md.
 - El indice consolidado de proyectos vive en C:/Sistemas/Agentes-IA/docs/indice.md.
 

@@ -1,7 +1,274 @@
 # Memoria - QA
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-08-10
+## Ultima actualizacion: 2026-08-17 (v2 — QA de Etapa 3: migración de catálogo, rama `migracion-catalogo`)
+
+---
+
+# Etapa 3 — Migración de catálogo (QA, 2026-08-17)
+
+## Alcance funcional validado
+
+Rama `migracion-catalogo`, cambios **sin commitear**, revisión pre-merge de los ítems de app de la
+Etapa 3 (ítems 2 a 6 del WBS): `CodigoProveedorProducto`, `Proveedor` mínimo, extensión de
+`Producto`/`Cliente`, `ICatalogoMigracionService`, `IClasificacionAbcAutomaticaService`, pantallas de
+importación (`Views/MigracionCatalogo/*`, 4 vistas) y de excepciones.
+
+**Fuera de alcance de esta validación** (no es código de esta etapa): el ítem 1 del WBS (herramienta
+batch de extracción/limpieza contra el backup real) y el ítem 7 (carga a producción). Entregas 1 y 2 no
+se revalidaron: solo se verificó que esta etapa no las rompa (regresión puntual).
+
+**Metodología: sin ejecución en caliente.** No hay base con la migración aplicada — el Implementador
+generó `EntregaTres_MigracionCatalogo` y **no la aplicó a ninguna base**. Evidencia = lectura completa
+de código por capa + `dotnet build`. Los casos que exigen UI/datos reales quedan como procedimiento
+manual para Joaquín (ver "Pruebas manuales pendientes").
+
+## Build
+
+`dotnet build FerreteriaLaPlatense.slnx` → **Compilación correcta, 0 Errores**. 9 advertencias, todas
+preexistentes y ajenas a Etapa 3: 8×NU1902 (MailKit/MimeKit) + 1×CS0114 (`HomeController.StatusCode`,
+ya documentada en el QA de Entrega 1). Verificado antes y después de los dos auto-fixes.
+
+## Cobertura por criterio de aceptación (PASS/FAIL/BLOCKED)
+
+| Criterio de aceptación (origen) | Resultado | Evidencia |
+|---|---|---|
+| Dedup de nombre: conservar el de venta más reciente en `VentaItem`, respaldo `FechaModificacionPrecio` (analista, "Regla de deduplicación de nombres — versión final") | **N/A en esta etapa** | Es el paso 1 del flujo 10 (extracción/limpieza batch), ítem 1 del WBS explícitamente **no implementado**. El importador recibe un dataset ya deduplicado y no tiene forma de aplicar la regla (el formato de archivo no trae `FechaModificacionPrecio` ni historial de ventas del legacy). Queda como criterio a validar cuando se construya la herramienta. |
+| Dedup de `articuloProveedor` por última importación con `Procesado=1` y `ArticuloKey` no nulo (analista) | **N/A en esta etapa** | Ídem: paso 1. La hoja `CodigosPorProveedor` ya llega conciliada; el importador solo valida unicidad del par `(proveedor, código)` dentro del archivo y contra la base. |
+| Exclusión de productos sin nombre | **PASS** | `CatalogoMigracionService.LeerProductos`: excepción **bloqueante** "El producto no tiene nombre. No se importa." y `ProductosOmitidos++`. Cubre el caso real del legacy (3.203 artículos con nombre vacío y `Activo=1`), que la regla "excluir inactivos" no filtraba. |
+| Exclusión de productos con precio de venta 0 | **PASS** | Ídem, guard `!precioVenta.HasValue \|\| precioVenta.Value <= 0` → bloqueante. |
+| Exclusión de productos inactivos | **N/A en esta etapa** | El formato de intercambio no tiene columna `activo` por diseño: el filtro de `Activo=0` (20.536 filas) corresponde al paso 1. Decisión coherente, pero conviene dejarla explícita para que nadie espere que el importador la aplique. |
+| Producto sin categoría válida → "Sin categoría" en vez de bloquear (analista) | **PASS** | Excepción **informativa** + `CatalogoPorDefecto.Categoria`. Mismo criterio aplicado a marca y modelo. |
+| ABC por Pareto 12 meses sobre `VentaItem`, ventana móvil configurable | **PASS con defecto corregido** | `ClasificacionAbcAutomaticaService.RecalcularAsync`: ventana `MesesVentana` (appsettings + parámetro de pantalla), `GroupBy` en base de datos, piso en 0 para netos negativos, cortes 80/95 configurables y validados. **Defecto D1 detectado y corregido por QA**: la agregación no filtraba `Venta.Estado`, así que los borradores contaban como venta (ver Defectos). |
+| La ventana ABC se calcula en la zona horaria correcta (riesgo declarado por el Implementador) | **PASS** | Confirmado en el código final, no solo en el relato de cierre: `hastaUtc = DateTime.UtcNow`, `desdeUtc = hastaUtc.AddMonths(-meses)`, comparados contra `Venta.Fecha`, que se persiste en UTC (`Venta.Fecha = DateTime.UtcNow` en la entidad). La conversión a hora Argentina (`ArgentinaTime.From`) se aplica **solo** a `FechaDesde`/`FechaHasta` del DTO, para mostrar. El bug de comparar columna UTC contra `ArgentinaTime.Now` **no** está presente. |
+| `ClasificacionABCSugerida` nunca pisa `ClasificacionABC` (R10, diseñador flujo 10 punto 3) | **PASS** | Triple verificación: (a) el recálculo por lote solo asigna `entidad.ClasificacionABCSugerida`; (b) `ProductoService.EditarAsync/CrearAsync` escribe `ClasificacionABC` (campo manual del ABM) y **no** la sugerida, con comentario explícito; (c) el único camino sugerida→manual es `AceptarSugerenciaAsync`, invocado por `ProductosController.AceptarClasificacionAbcSugerida` (POST + antiforgery + `RequireAdministracion` + confirmación SweetAlert2), que además rechaza el caso "ya coinciden" y "sin sugerencia". |
+| Idempotencia: reimportar el mismo archivo da 0 altas y no duplica | **PASS (por revisión de código)** | Claves de identidad: `Producto` por `Codigo`; `Cliente` por `CuitDni`, y si no lo trae por nombre exacto **solo contra clientes sin CUIT** (evita borrarle el CUIT a un homónimo); `CodigoProveedorProducto` por `(ProveedorId, CodigoDelProveedor)`. Todas las consultas de matcheo usan `IgnoreQueryFilters()`, así que un registro soft-deleted se revive en vez de chocar con el índice único (MySQL no distingue soft-deleted en un índice único). En la 2ª corrida: productos → `EsAlta=false`; códigos → `yaMapeados` contiene la clave → `Actualizaciones`; clientes → `porCuit`/`porNombreSinCuit` matchean → `Actualizaciones`. Los catálogos (Marca/Modelo/Categoría/Proveedor) ya existen → `faltantes=0`. **Verificación funcional pendiente** (requiere base). |
+| La reimportación no pisa `Stock` ni `ClasificacionABC` manual | **PASS** | En el upsert de `ProcesarProductosAsync` se asignan exclusivamente `Nombre`, `MarcaId`, `ModeloId`, `CategoriaId`, `PrecioCompra`, `PrecioVenta`, `PorcentajeIVA`, `UnidadVenta`, `Bonificacion`, `ClasificacionABCSugerida`, `CodigoBarras`. **No** se tocan `Stock`, `StockVerificado`, `StockMinimo`, `ClasificacionABC`, `PrecioConDescuento`, `UnidadCompra`, `FactorConversion`. Decisión de diseño correcta y deliberada: el import escribe por `DbContext` y no por los Services de negocio, justamente para que estos no estampen valores propios. |
+| No se puede confirmar el import sin revisar el reporte de excepciones (diseñador, "Validaciones de UI") | **PASS** | Doble barrera, no solo UI: la vista deshabilita el botón y muestra el aviso, y `MigracionCatalogoController.Confirmar` repite el guard server-side (`TotalExcepciones > 0 && !ExcepcionesFueronRevisadas(token)` → redirect con mensaje). La marca se setea al abrir `Excepciones` y vive en `Session` (registrada y con `UseSession()` antes del middleware de endpoints). Un archivo sin excepciones no exige abrir el reporte — interpretación razonable del criterio. |
+| Archivo con hoja o columna obligatoria faltante se rechaza completo, sin importar nada | **PASS** | `ObtenerHoja`/`LeerEncabezado` lanzan `ArchivoMigracionInvalidoException` con el detalle de lo que falta; `PrevisualizarAsync` la captura, descarta el staging y devuelve `CreateError`. No hay persistencia posible antes de esa validación. |
+| Permisos: todo lo nuevo detrás de `RequireAdministracion` | **PASS** | Verificado controller por controller, no por el reporte del Implementador: `MigracionCatalogoController` con `[Authorize(Policy="RequireAdministracion")]` **a nivel de clase** (cubre las 7 acciones, incluidas `ExcepcionesListar` y `ExportarExcepciones`); `StockController.RecalcularClasificacionAbc` y `ProductosController.AceptarClasificacionAbcSugerida` con el atributo a nivel de acción (sus clases son `RequireCatalogoConsulta`, que incluye Vendedor — el atributo de acción es imprescindible y está). La policy resuelve a SuperUsuario+Administrador; el link de sidebar usa exactamente `User.IsInRole("SuperUsuario") \|\| User.IsInRole("Administrador")`. |
+| `Proveedor` no rompe nada existente y su migración es puramente aditiva | **PASS** | `20260817164053_EntregaTres_MigracionCatalogo`: solo `AddColumn` ×6 (todas `nullable: true`) + `CreateTable` ×2 + `CreateIndex` ×3. **Ningún `AlterColumn`, `DropColumn` ni cambio sobre tablas/columnas de Entregas 1/2.** FKs `Restrict` (no cascada destructiva). `Down()` es el reverso limpio. `Proveedor` no tiene ABM, ni sidebar, ni se referencia desde ninguna entidad preexistente: solo `CodigoProveedorProducto` (tabla nueva) la apunta. Riesgo real es de coordinación futura (el módulo de Compras debe ampliarla, no recrearla), ya documentado en el XML-doc de la entidad. |
+
+## Cobertura del catálogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
+
+Cargado completo (43 ids, incluye el LP-001 creado en este ciclo). Mapeo contra los módulos tocados por
+Etapa 3. Los ids ya marcados N/A en el QA de Entrega 1 por módulo inexistente que siguen sin superficie
+en esta etapa se agrupan al final.
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| REG-001 (RowVersion MySQL) | no | N/A | El proyecto no usa `RowVersion` ni control de concurrencia optimista en ninguna entidad (grep sobre Domain/Data: 0 hits). Las 2 entidades nuevas heredan `SoftDestroyable`, sin token de concurrencia. |
+| REG-002 / REG-006 (campos condicionales de un select) | no | N/A | Ningún select nuevo de esta etapa condiciona campos obligatorios adicionales. |
+| REG-003 / REG-005 / REG-007 / REG-009 (Select2 / autocomplete AJAX / cascada) | no | N/A | Sin Select2 ni autocomplete en las vistas nuevas ni en los bloques agregados a `Productos`/`Clientes` (grep: 0 hits). Los combos son `<select>` poblados server-side. |
+| REG-004 / KOI-004 / VSF-001 / VSF-002 (botones derivados del estado real, transiciones completas) | no | N/A | Esta etapa no agrega máquina de estados ni botones de transición. El flujo de import es lineal (subir → previsualizar → confirmar), sin estados persistidos. |
+| REG-008 (recálculo de UI sin perder foco) | no | N/A | Sin grillas dinámicas con recálculo por `input`/`keyup` en las vistas nuevas. |
+| REG-010 / KOI-003 / KOI-005 / KOI-006 (sidebar vs autorización real) | **sí** | **PASS** | Verificado por revisión de código, los 4 puntos del checklist: el controller existe (`MigracionCatalogoController`), la ruta del link coincide (`asp-controller="MigracionCatalogo"` / `asp-action="Index"`, acción `Index()` presente), el atributo de autorización es el esperado (`RequireAdministracion` a nivel de clase) y la condición de roles del link es idéntica a la de la policy. Sin links huérfanos ni roles sin link. |
+| KOI-001 (SweetAlert2 fuera del `<form>`) | **sí** | **PASS** | `Productos/Edit.cshtml`: el botón "Aceptar sugerencia" está **dentro** del form de edición pero debe postear a **otro** action — se resuelve con `btn-swal-confirm` + `data-form-id="formAceptarSugerencia"` y un `<form>` separado, **no anidado**, fuera del form principal. Es exactamente el patrón que KOI-001 exige. El diálogo avisa además que se pierden los cambios sin guardar. |
+| KOI-002 (falta export a Excel) | **sí** | **PASS** | El reporte de excepciones tiene `ExportarExcepciones` (botón + action + `IExportService`), con encabezados en español. |
+| DN-001 / DN-002 (DataTable server-side + Include de colección) | **sí (por patrón)** | **PASS** | El listado nuevo (`ExcepcionesListar`) es server-side pero **no toca EF**: filtra/ordena/pagina en memoria sobre el JSON de staging, así que la causa raíz (2+ `Include` de colección + orden dinámico + `Skip`/`Take`) no puede darse. Los listados EF de `Stock`/`Productos` no se modificaron. |
+| CRM-003 (DataTable ignora `order[0][column]`) | **sí** | **PASS** | `ListarExcepcionesAsync` implementa el ordenamiento server-side por `SortColumn`/`SortDirection` con `switch` sobre las 5 columnas reales, y `DataTableRequestHelper.Parse` sí lee `order[0][column]` → `columns[i][data]` → `order[0][dir]`. Los nombres del `switch` coinciden con los `data` declarados en la vista. |
+| CRM-002 (control visible para un rol que la acción rechaza) | **sí** | **PASS** | El botón "Aceptar sugerencia" está envuelto en `User.IsInRole("SuperUsuario") \|\| User.IsInRole("Administrador")`, coincidente con `RequireAdministracion` de la acción. Defensa en profundidad correcta en ambos lados. |
+| GAN-001 (guard "al menos un ítem" sobre lista dinámica) | no | N/A | Sin listas dinámicas bindeadas por índice en esta etapa. |
+| GAN-003 (`<script type="text/x-template">` con Tag Helper) | no | N/A | Sin templates JS en las vistas nuevas (grep: 0 hits). |
+| GAN-004 (`<datalist>` nativo) | no | N/A | Sin `<input list>`/`<datalist>`. |
+| GAN-002 / VSF-001 (backfill que no filtra por estado de la entidad relacionada) | **sí (por patrón)** | **FAIL → corregido** | Antecedente conceptual del defecto **D1**: un cálculo masivo que agrega filas hijas sin considerar el estado del documento padre. Ver Defectos y el ítem nuevo **LP-001**. |
+| **MH-001 (IN sobre colección local de string en MySQL/EF Core 10)** | **sí** | **FAIL → corregido** | **Reaparición real del patrón catalogado.** Dos `Where(...Contains(...))` sobre `List<string>` locales en `CatalogoMigracionService`, ambos en el camino de persistir. Ver Defectos (**D2**). |
+| MH-002 (enum serializado como int rompe el badge) | **sí** | **PASS** | `ExcepcionMigracionDto.Seccion` es `string` y `Bloqueante` es `bool`; el `render` de la vista los interpreta correctamente. Sin enums crudos en el JSON de la grilla. |
+| MH-003 (validación solo client-side) | **sí** | **PASS** | El guard de "revisó el reporte de excepciones" y el rango de la ventana ABC (1-120 meses) están **los dos** en cliente y en servidor (`RecalcularAsync` revalida el rango y los cortes Pareto; `Confirmar` revalida la revisión del reporte). |
+| MH-005 (endpoint no revalida estado server-side) | **sí** | **PASS** | `Confirmar`, `Excepciones`, `ExcepcionesListar` y `ExportarExcepciones` revalidan el token contra el staging en cada request y devuelven un mensaje de negocio si venció; el token se valida como GUID antes de construir la ruta (previene path traversal). |
+| MH-009 (fecha calendario pura desplazada por conversión de huso) | **sí** | **PASS** | Las fechas nuevas (`FechaAnalisis`, `FechaDesde`/`FechaHasta` del ABC) se renderizan server-side con `ToString("dd/MM/yyyy HH:mm")` en Razor, no vía JSON+moment.js, así que la causa raíz no aplica. |
+| MH-010 (maskMoney no dispara `input`) | no | N/A | Sin campos de dinero editables en las pantallas nuevas (los importes del preview son solo lectura). |
+| SG-001 (inputs opcionales vacíos contra ViewModel no nullable) | **sí** | **PASS** | Los campos nuevos de `ProductoFormViewModel` (`Bonificacion`) y `ClienteFormViewModel` (`Domicilio`/`Localidad`/`Email`/`Notas`) son todos `string?`; `RecalculoClasificacionAbcViewModel.MesesVentana` es `int` **no** nullable pero tiene default 12 y el input nunca se renderiza vacío. Sin grillas de inputs indexados. |
+| KOI-006, MH-004, MH-006, MH-007, MH-008, MH-011, CRM-001, CRM-004, CRM-005, CRM-006, REG-002…REG-009 (módulos sin superficie en esta etapa: Compras/OC, Caja mensual, Remitos, Bot/CRM, AFIP NC) | no | N/A | Módulos no tocados por Etapa 3 (varios todavía no implementados en el proyecto: Compras, Devoluciones/NC). Sin equivalente que probar. |
+| **LP-001 (nuevo, creado en este ciclo)** | **sí** | **FAIL → corregido** | Ver D1. |
+
+## Defectos detectados
+
+### D1 — `major` — El recálculo ABC contaba las ventas en Borrador como rotación real (CORREGIDO)
+
+- **Capa:** Infrastructure. **Archivo:** `FerreteriaLaPlatense.Infrastructure/Services/ClasificacionAbcAutomaticaService.cs`.
+- **Detección:** revisión de código + contraste contra el precedente interno del propio repo.
+- **Síntoma:** la agregación de rotación filtraba **solo por fecha**
+  (`i.Venta.Fecha >= desdeUtc && i.Venta.Fecha <= hastaUtc`), sin mirar `Venta.Estado`. En este proyecto la
+  venta **nace editable** (`Borrador`) y sus `ItemVenta` existen desde que se agrega la línea, así que un
+  borrador abandonado —o de prueba— sumaba cantidad vendida e inflaba la clase ABC sugerida del producto.
+  Con el módulo de anulación por NC de Entrega 3, las ventas `Anulada` sumarían igual.
+- **Evidencia de que es un defecto y no una decisión:** `DashboardService.ObtenerProductosMasVendidos`
+  hace **exactamente la misma agregación** (`ItemVenta.Cantidad` por producto sobre una ventana) y sí filtra
+  `v.Estado == EstadoVenta.Facturada`. Dos cálculos de rotación en el mismo repo con criterios distintos: el
+  que no filtra es el que está mal. El criterio funcional del analista es "cantidad vendida", y un borrador
+  no vendió nada.
+- **Fix aplicado:** agregado `i.Venta.Estado == EstadoVenta.Facturada` al `Where`, contra el conjunto
+  **explícito** de estados consumados (no `!= Borrador`, que dejaría pasar `Anulada`). Actualizado el
+  XML-doc de la clase para que el criterio documentado coincida con el código.
+- **Catalogado como `LP-001`** en `docs/qa/regresiones-manuales.yml` + sección nueva de patrón generalizable
+  ("Agregaciones sobre filas hijas de un documento con máquina de estados") en
+  `32-estandares-qa-implementador.instructions.md`.
+
+### D2 — `blocker` — El "Confirmar la importación" habría fallado con 500 en MySQL (CORREGIDO)
+
+- **Capa:** Infrastructure. **Archivo:** `FerreteriaLaPlatense.Infrastructure/Services/CatalogoMigracionService.cs`.
+- **Detección:** ejecución del catálogo cross-proyecto — item **MH-001**, cuya `nota_qa_sprint4` acota el
+  riesgo a colecciones locales de **string** y lo confirma empíricamente contra
+  `MySql.EntityFrameworkCore` 10.0.1. **Este proyecto usa ese provider y esa versión exacta.**
+- **Síntoma esperado:** dos `Where(coleccionLocalDeString.Contains(columna))` traducidos a `IN` de SQL:
+  (1) `ProcesarProductosAsync`, `codigos.Contains(p.Codigo)` con `codigos` = `List<string>` del lote;
+  (2) `ProcesarCodigosProveedorAsync`, `codigos.Contains(c.CodigoDelProveedor)`, ídem.
+  El provider no asigna type mapping al parámetro de array de strings →
+  `InvalidOperationException: Expression '@codigos' in the SQL tree does not have a type mapping assigned` → 500.
+- **Por qué era grave:** ambos están **solo en el camino de persistir** (`if (!persistir) return;` corta antes
+  en el preview). El operador habría visto un preview perfecto y el fallo aparecería recién al confirmar —
+  el paso más caro y menos reversible del flujo, y el que el propio Implementador marcó como la prueba más
+  importante de la etapa. No se detectó antes porque la migración EF nunca se aplicó a ninguna base.
+- **Fix aplicado (adaptado, no copiado):** el `archivos_fix` canónico de MH-001 es "traer la tabla a memoria
+  y filtrar en proceso", **inaceptable acá**: `Productos` tiene 121.691 filas y el bucle procesa lotes de 500
+  (≈244 relecturas del catálogo completo). En su lugar se convirtió el `IN` de string en un `IN` de `Id`
+  (colección de `int`, segura según la propia nota del catálogo), aprovechando que **ambos métodos ya tenían
+  en memoria** el mapa `codigo→Id` / `clave→Id` de la proyección completa que hacen al arrancar: **cero
+  consultas extra** y semántica idéntica (ambas proyecciones usan `IgnoreQueryFilters()`, así que el conjunto
+  alcanzado por `Id` es el mismo que alcanzaba el `IN` por string, soft-deleted incluidos). Para
+  `CodigoProveedorProducto` se agregó el diccionario `idPorClave` sobre la proyección ya existente.
+- **Registrado** como `nota_qa_laplatense_etapa3` en MH-001 (reaparición en otro proyecto + la lección de que
+  el fix canónico no escala a tablas de volumen).
+
+### D3 — `minor` — La reimportación sobreescribe la sugerencia ABC recién calculada (ACEPTADO, no corregido)
+
+- El upsert de producto asigna `entidad.ClasificacionABCSugerida = f.ClasificacionABCSugerida`. Si el
+  operador corre "Recalcular clasificación ABC" y después reimporta el archivo, la sugerencia calculada se
+  reemplaza por la del archivo (o por `null`, si la columna viene vacía).
+- No se corrige: `clasificacionABCSugerida` es una columna declarada del formato de intercambio y el campo
+  manual `ClasificacionABC` —el que importa— nunca se toca. Se resuelve volviendo a recalcular.
+- **Acción:** documentado acá y en Riesgos. Conviene avisarlo en la pantalla o recalcular al final del import;
+  queda como mejora menor para el Implementador, no bloquea.
+
+### D4 — `informativo` — Entrega 2 nunca pasó por el gate de QA
+
+- La memoria de QA solo tenía el ciclo de Entrega 1 (2026-08-10). Ventas/AFIP/Caja/Gastos/Entregas/Dashboard
+  se cerraron el 2026-08-11 y **no hay registro de QA**. No es un defecto de Etapa 3, pero sí un riesgo de
+  liberación: esta etapa se apoya en `ItemVenta`/`Venta` (para el ABC) y en `Cliente` (para el import), que
+  nunca fueron validados funcionalmente.
+- **Observación colateral** (Entrega 2, fuera de alcance, no corregida): `DashboardService` usa
+  `DateTime.Today` para armar la ventana del mes contra `Venta.Fecha`, que está en UTC — es la misma clase de
+  bug de huso horario que el Implementador sí evitó en el ABC. Recomendado revisarlo en el QA pendiente de
+  Entrega 2.
+
+## Auto-fixes aplicados por QA
+
+| id catálogo | defecto | archivos tocados | resultado post-parche |
+|---|---|---|---|
+| `LP-001` (nuevo) | D1 — ABC contaba borradores | `FerreteriaLaPlatense.Infrastructure/Services/ClasificacionAbcAutomaticaService.cs` (filtro `Estado == Facturada` + XML-doc) | `dotnet build` → 0 errores. Verificación funcional pendiente de base (prueba manual 4 de abajo). |
+| `MH-001` (existente, reaparición) | D2 — `IN` de string en MySQL | `FerreteriaLaPlatense.Infrastructure/Services/CatalogoMigracionService.cs` (relectura de lote por `Id` en los 2 puntos + `idPorClave`) | `dotnet build` → 0 errores. Verificación funcional pendiente de base (prueba manual 2). |
+
+Ninguno de los dos introduce lógica de negocio nueva: D1 replica el criterio de estado que ya usaba
+`DashboardService` en el mismo repo, y D2 replica el patrón de evitar `IN` de string ya catalogado.
+
+## Pruebas manuales pendientes (a ejecutar por Joaquín — requieren UI y base con la migración aplicada)
+
+**Prerequisito obligatorio antes de cualquier prueba en caliente:**
+`dotnet ef database update --project FerreteriaLaPlatense.Infrastructure --startup-project FerreteriaLaPlatense.Web`
+(la migración `EntregaTres_MigracionCatalogo` **no fue aplicada** por el Implementador). Hace falta además un
+`.xlsx` de prueba con las 3 hojas y una decena de filas cada una — no se necesita el dataset real.
+
+1. **Permisos (cierra la verificación en caliente de REG-010/KOI-005).** Con un usuario `Vendedor`: el link
+   "Migración de catálogo" no debe aparecer en el sidebar, y `/MigracionCatalogo` por URL directa debe dar
+   **403, no 500 ni acceso silencioso**. Repetir con `POST /Stock/RecalcularClasificacionAbc` y
+   `POST /Productos/AceptarClasificacionAbcSugerida`. Con `Administrador`: el link aparece bajo Catálogo y la
+   pantalla carga.
+2. **Confirmación del fix D2 (la prueba más importante).** Subir el archivo → revisar → **Confirmar**. Debe
+   completar y mostrar la pantalla de resultado con los mismos números que el preview. Si apareciera un 500
+   con `does not have a type mapping assigned`, el fix no alcanzó y hay que escalar al Implementador.
+3. **Idempotencia.** Reimportar **exactamente el mismo archivo**: el preview debe mostrar **0 altas y todas
+   actualizaciones** en las 3 secciones y 0 catálogos a crear; el total de productos y clientes del sistema no
+   debe cambiar. Después: editar a mano un producto migrado (stock mínimo por el ABM, stock por "Ajustar",
+   clasificación ABC manual), reimportar, y verificar que **stock y clasificación ABC manual siguen como los
+   dejó usted**.
+4. **Confirmación del fix D1.** Crear una venta con 500 unidades de un producto que no rota y **dejarla en
+   Borrador**. Recalcular ABC a 12 meses → ese producto **no** debe quedar A/B por el borrador, y no debe
+   contarse en "productos con ventas en el período". Después facturar esa venta y recalcular → ahora sí debe
+   reflejarse.
+5. **Excepciones.** Archivo con: producto sin nombre, producto sin precio de venta, código repetido, código de
+   proveedor apuntando a un `codigoProducto` inexistente, y cliente sin nombre. Cada uno debe aparecer con su
+   motivo y marcado "No se importa"; el resto del archivo debe importarse igual. Verificar que con al menos una
+   excepción el botón "Confirmar" arranca **deshabilitado**, y que se habilita recién después de abrir el
+   reporte y volver al resumen. Probar además a confirmar por POST directo sin haber abierto el reporte: debe
+   rechazarlo con mensaje (guard server-side).
+6. **Filtros y export del reporte.** Filtrar por sección, por texto del motivo y por "No se importa"; ordenar
+   haciendo click en cada encabezado (verifica CRM-003 en caliente). Exportar a Excel: mismas filas y
+   encabezados en español.
+7. **Archivo inválido.** Subir un `.xlsx` al que le falte una hoja, y otro al que le falte una columna
+   obligatoria: debe rechazarlos con un mensaje que diga qué falta, **sin importar nada**.
+8. **Ventana ABC.** Recalcular con ventana de 1 mes y comparar contra 12 meses: los resultados deben cambiar
+   (menos productos con venta). Verificar que el recálculo **no** cambió la clasificación manual de ningún
+   producto (comparar el listado de `Stock` antes y después).
+9. **"Aceptar sugerencia".** En un producto donde la sugerencia difiera, usar el botón y confirmar → el campo
+   manual queda con el valor sugerido. Reintentarlo debe avisar que ya coinciden. Verificar que el botón
+   **no** aparece para `Vendedor`.
+10. **Regresión de Entrega 1/2.** Alta y edición de producto por el ABM normal, con y sin bonificación (el
+    combo de marca/modelo/categoría de Editar debe seguir llegando con el valor asignado); alta y edición de
+    cliente con los 4 campos nuevos vacíos (deben guardar: son opcionales) y con un email mal escrito (debe
+    bloquear con mensaje); una venta completa Borrador → Facturada.
+
+## Riesgos de liberación (Etapa 3)
+
+1. **La migración EF no está aplicada a ninguna base.** Prerequisito absoluto y bloqueante para cualquier
+   prueba. Es aditiva pura, así que el riesgo de aplicarla es bajo — pero hacer backup antes igual.
+2. **Nada de esta etapa se ejecutó nunca.** Los dos defectos encontrados (uno de ellos `blocker`) salieron de
+   revisión de código, no de ejecución. Sin las pruebas manuales 2 y 3 no hay evidencia de que el import
+   funcione de punta a punta. **Es el riesgo principal.**
+3. **Tiempo de proceso con 121.691 productos sin medir** (riesgo ya declarado por el Implementador, sigue
+   abierto). El import es síncrono dentro del request. Mitigación operativa: partir el archivo en tandas
+   aprovechando la idempotencia. Medir con el dataset real antes de comprometer una ventana de corte.
+4. **Staging en el temp del sistema operativo**, sin limpieza automática: los archivos con datos del cliente
+   quedan en `%TEMP%/FerreteriaLaPlatense/migracion-catalogo/` y **hay que borrarlos a mano**. Si el hosting
+   recicla el proceso entre analizar y confirmar, hay que volver a subir (el sistema lo avisa con un mensaje
+   claro, no rompe con 500 — verificado en código).
+5. **La deduplicación real (paso 1) no existe todavía.** Los criterios de aceptación centrales de la etapa
+   (dedup de nombre y de `articuloProveedor`) **no son validables** con lo implementado: dependen de la
+   herramienta batch del ítem 1 del WBS, que hay que construir y que va a necesitar su propio ciclo de QA.
+   Conviene no comunicar la Etapa 3 como "migración terminada": está el importador, no la extracción.
+6. **Entrega 2 sin QA** (D4). Esta etapa se apoya en `Venta`/`ItemVenta`/`Cliente`, nunca validados.
+7. `Proveedor` mínimo: cuando se implemente Compras, hay que **ampliar** la entidad, no recrearla. Riesgo de
+   coordinación, ya documentado en el XML-doc.
+8. `Bonificacion` es informativa y no participa de ningún cálculo de precio — si el cliente espera que "33+5"
+   descuente, es alcance nuevo.
+
+## Estado go/no-go (Etapa 3)
+
+**GO CONDICIONADO** al merge de la rama, con dos condiciones de cumplimiento obligatorio:
+
+1. Aplicar `EntregaTres_MigracionCatalogo` a la base de desarrollo.
+2. Ejecutar las pruebas manuales **1, 2, 3, 4 y 5** (permisos, confirmar, idempotencia, fix del ABC,
+   excepciones) y reportar PASS/FAIL. Las pruebas 2 y 4 son la verificación en caliente de los dos auto-fixes
+   de este ciclo y **no pueden saltearse**.
+
+Fundamento: el código está bien construido —el diseño de idempotencia es sólido y deliberado, los permisos
+son correctos controller por controller, la migración es aditiva pura y el bug de huso horario que el
+Implementador declaró haber corregido está efectivamente corregido en el código final—, pero **el `blocker`
+D2 demuestra el costo de cerrar una etapa sin ejecutar nada**: el camino de confirmación, que es el corazón
+de la etapa, habría fallado en la primera prueba real. Con los dos fixes aplicados y el build limpio no hay
+motivo para frenar el merge, pero **no hay GO para la carga a producción** hasta tener las pruebas en caliente
+y la herramienta del paso 1.
+
+## Checklist de salida para merge (Etapa 3)
+
+- [x] `dotnet build FerreteriaLaPlatense.slnx` → 0 errores (verificado 3 veces: inicial y tras cada auto-fix).
+- [x] Permisos verificados controller por controller, no por el reporte del Implementador.
+- [x] Migración EF revisada línea por línea y confirmada aditiva pura.
+- [x] Idempotencia revisada a fondo por código (claves de identidad, `IgnoreQueryFilters`, campos no pisados).
+- [x] `IClasificacionAbcAutomaticaService` confirmado: nunca escribe `ClasificacionABC`; ventana en UTC correcta.
+- [x] Catálogo cross-proyecto ejecutado (43 ids) y cobertura reportada.
+- [x] 2 defectos corregidos con auto-fix + catalogados (`LP-001` nuevo, `MH-001` reaparición).
+- [x] Patrón generalizable agregado a `32-estandares-qa-implementador.instructions.md`.
+- [ ] **Migración aplicada a la base de desarrollo** (pendiente, bloqueante para pruebas).
+- [ ] **Pruebas manuales 1-5 ejecutadas por Joaquín** (pendiente, bloqueante para producción).
+- [ ] Pendiente (no bloqueante): D3 — avisar o recalcular la sugerencia ABC tras un reimport.
+- [ ] Pendiente (no bloqueante): QA de Entrega 2, nunca ejecutado (D4).
+- [ ] Pendiente (no bloqueante): confirmar con Joaquín las 3 decisiones que tomó el Implementador (productos sin
+      venta en `C` y no `null`; unidades no modeladas → `Unidad`; CC de clientes no se migra).
+
+---
+
+# Entrega 1 — Catálogo / Stock / Usuarios (QA, 2026-08-10)
 
 ## Definiciones vigentes
 

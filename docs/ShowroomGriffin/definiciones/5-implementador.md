@@ -2320,6 +2320,128 @@ No se escaneo fuera del proyecto: el propio pedido identificaba la plantilla a r
 
 ---
 
+## V12 — Extension de la Vista Matriz (accesorios sin talle + alta de Color nuevo) + ocultamiento de Carga Masiva/Ajuste (2026-08-16)
+
+**Input:** `1-analista-funcional.md` (V12, D1-D4 confirmadas), `2-disenador-funcional.md` (V12, HU-12.1 a HU-12.4), `3-arquitecto-mvc.md` (V12), `4-presupuestador.md` (V12, USD 105,84 aprobado por el cliente). Las 4 definiciones cerradas y aprobadas antes de escribir codigo (gate cumplido). Primera extension de la Matriz que pasa por el flujo completo del estudio, tras el rechazo de QA del mismo dia (D-01/D-02/SG-001).
+
+### 0. Escaneo de reutilizacion (obligatorio)
+
+- **Cross-proyecto:** se escanearon los `5-implementador.md` de los demas proyectos en `C:\Sistemas\Agentes-IA\docs\*\definiciones\`. Sin match: la grilla pivot Talle x Color es original de ShowroomGriffin (ya confirmado en Diseño, candidato PAT-009 para catalogar despues). No se porto codigo ajeno.
+- **Dentro del proyecto:** se extendieron los componentes ya existentes de la Etapa 3.1 (`StockMatrizAltaGuardarViewModel`, `StockService.GuardarMatrizAsync`, `IVarianteService.CrearAsync`, `AplicarAjusteInternoAsync`). **No se creo ningun ViewModel, service, controller ni accion nueva.** La validacion condicional de Talle se copio literal en criterio de `GuardarCargaMasivaAsync` (que ya la resolvia para accesorios), y el renumerado de indices en JS toma como referencia `renumerarFilasNuevas` de `CargaMasiva.cshtml`, adaptado a la tabla pivot.
+
+### Cambios por capa
+
+**Application:**
+- `ShowroomGriffin.Application/DTOs/Stock/StockViewModels.cs`
+  - `StockMatrizFilaViewModel`: nueva constante `public const int ClaveCeldaSinTalle = 0` — clave sentinel del diccionario `Celdas` para la celda unica "Cantidad" de las secciones sin talle (segura porque los `TalleConfigId` reales son siempre positivos/autoincrementales). Las vistas la referencian por nombre, no hardcodean el `0`.
+  - `StockMatrizAltaGuardarViewModel.TalleConfigId`: `int` `[Required]` → `int?` sin `[Required]` (segun Arquitectura; mismo patron que `StockCargaMasivaFilaViewModel.TalleConfigId`).
+  - `StockMatrizAltaGuardarViewModel.Color`: `string` `[Required]` → `string?` sin `[Required]`, conservando `[MaxLength(50)]` — **desvio respecto de Arquitectura, ver Desviaciones #1.**
+  - `CantidadNueva` (`int?`), `PrecioVenta` (`decimal?`) y `StockMinimo` (`int?`) quedaron **sin tocar**, nullable como los dejo el hotfix SG-001 del mismo dia.
+
+**Infrastructure:**
+- `ShowroomGriffin.Infrastructure/Services/StockService.cs`
+  - `ObtenerMatrizAsync` (~L655): se elimina el `if (grupoSeccion.Key == null) continue;`. Las variantes sin `TalleConfig` (accesorios) arman ahora una `StockMatrizSeccionViewModel` con `Talles = []`. `EtiquetaSistemaTalle` recibe `"Sin talle"` **solo** si ese Modelo mezcla sistemas (si no, queda `null` como siempre) — sin esto, en un Modelo mixto la seccion de accesorios quedaba sin etiqueta y era indistinguible de la de talles.
+  - `ObtenerMatrizAsync` (~L694): la clave de `filaVm.Celdas` pasa de `TalleConfig!.Id` a `TalleConfigId ?? StockMatrizFilaViewModel.ClaveCeldaSinTalle`.
+  - `GuardarMatrizAsync`, loop de `Altas` (~L800): consulta previa unica (no por fila, mismo patron que `combinacionesExistentes`) `tipoTallePorProducto` sobre `_db.Productos` proyectando `p.Modelo.TipoTalle`. Dentro del loop: (a) si el `ProductoId` no esta en el diccionario → error puntual "El producto de esta alta no existe o fue dado de baja" (cubre el caso de Producto soft-deleted, que el query filter global excluye); (b) Talle obligatorio **solo** si `tipoTalleModelo.HasValue` — los accesorios dan de alta con `TalleConfigId` null.
+  - `GuardarMatrizAsync`: se normaliza `var colorAlta = alta.Color.Trim()` una sola vez y se usa en la deduplicacion del lote, en el chequeo contra `combinacionesExistentes` **y** en `CrearAsync`. Antes el `Trim()` se aplicaba solo al combo del lote y el chequeo contra la BD usaba el valor crudo — irrelevante mientras el Color venia de un hidden con un valor ya existente, pero ahora es texto tipeado a mano y `" Rojo "` habria esquivado el chequeo de duplicados contra `"Rojo"`.
+  - **Sin cambios de firma** en `IStockService`/`IVarianteService`.
+
+**Web:**
+- `ShowroomGriffin.Web/Views/Stock/Matriz.cshtml` (solo lectura) — si `seccion.Talles.Count == 0`, renderiza una tabla de 2 columnas Color | Cantidad (D1) en vez del pivot; la celda se busca por `StockMatrizFilaViewModel.ClaveCeldaSinTalle` y conserva el link a Historial y el resaltado `EnAlerta`. Sin fila de alta (la vista de lectura no edita).
+- `ShowroomGriffin.Web/Views/Stock/MatrizEditar.cshtml` — cambio principal:
+  - Rama nueva para secciones sin talle: tabla Color | Cantidad | "Precio / min. (color nuevo)". Las filas existentes editan su cantidad con el mismo binding `Celdas[i]` que las secciones con talle (contador `idx` compartido, sin huecos).
+  - Fila `"+ Nuevo color"` al final de **cada** seccion (con y sin talle), solo si `modelo.ProductoId.HasValue`. En las secciones con talle lleva un input de cantidad por columna de Talle + un unico par Precio/Minimo que aplica a todos los talles de esa fila (D2); en las secciones sin talle, Color + Cantidad + Precio + Minimo en una sola fila (HU-12.3).
+  - **Los inputs de esa fila NO tienen atributo `name`** (clases `nc-color`/`nc-cantidad`/`nc-precio`/`nc-stockmin` + `data-talle-id`/`data-producto-id`): asi no postean por si solos y el JS genera los `Altas[i]` recien en el submit, una entrada por Talle con cantidad > 0, con indices contiguos arrancando en `#altasNextIndex` (emitido despues de todas las secciones, cuando `altaIdx` ya es el total renderizado estaticamente). Es el equivalente de `renumerarFilasNuevas` de Carga Masiva adaptado al pivot: el model binder corta la lista al primer indice faltante, asi que la contigüidad es la propiedad critica.
+  - Validacion de UI: si hay cantidades cargadas sin Color tipeado → toast SweetAlert2 y **no** se envia el formulario. Si hay Color pero ninguna cantidad → se ignora la fila en silencio (AC de HU-12.2). La generacion es idempotente (`$('#altasGeneradas').empty()` al inicio), asi que cancelar el Swal y reintentar no duplica altas.
+  - El titulo del bloque de errores de alta pasa de "estos talles nuevos" a "estas variantes nuevas" (ahora tambien lista colores nuevos).
+- `ShowroomGriffin.Web/Views/Stock/Index.cshtml` — se quitan los botones "Ajuste manual" y "Carga masiva" (D3/HU-12.4), reemplazados por un comentario Razor que explica la decision y su reversibilidad. **No se toco** `StockController.Ajuste`/`CargaMasiva` ni sus vistas: ambas rutas siguen respondiendo por URL directa.
+- `StockController`: **sin cambios**. `ReconstruirVistaEdicionAsync` y `PrecargarCantidades` ya iteran `Celdas.Values` de forma generica, asi que cubren las celdas de accesorios sin modificacion.
+
+### Migracion EF
+**No aplica**, como preveia Arquitectura. `VarianteProducto.TalleConfigId` ya era `int?` desde V4, y el indice unico `(ProductoId, Color, COALESCE(TalleConfigId,-1))` agregado el mismo dia (OBS-V10-02, commit `e90b399`) ya cubre los accesorios sin cambios.
+
+### Desviaciones respecto de Diseño/Arquitectura
+
+1. **`StockMatrizAltaGuardarViewModel.Color` pasa a `string?` sin `[Required]`** (Arquitectura solo listaba `TalleConfigId`). Motivo: es exactamente el modo de falla D-01. Hasta V12 el `Color` venia de un hidden siempre poblado con un color ya existente, asi que el `[Required]` jamas se disparaba; con la fila "+ Nuevo color" pasa a ser texto tipeado a mano, y un `[Required]` insatisfecho invalida el `ModelState` completo → `MatrizEditar` re-renderiza sin guardar **nada**, incluidas las celdas correctas. La obligatoriedad ya estaba implementada por fila en `GuardarMatrizAsync` (`"El color es obligatorio."`), que marca solo esa alta. Riesgo neto: menor que dejarlo.
+2. **`EtiquetaSistemaTalle = "Sin talle"` para la seccion de accesorios de un Modelo mixto** — no estaba en el diseño (que asumia `EtiquetaSistemaTalle = null`). Sin esto, `EtiquetaTipoTalle(null)` devuelve `null` y un Modelo que mezcla accesorios con calzado mostraba dos secciones con el mismo titulo y sin forma de distinguirlas. Solo aplica al caso mixto; en el caso normal la etiqueta sigue siendo `null` como antes.
+3. **Normalizacion del Color con `Trim()`** en el chequeo contra la BD y en el alta (antes solo se aplicaba al combo del lote). Ver "Infrastructure" arriba.
+4. **Error nuevo "El producto de esta alta no existe o fue dado de baja"** — no estaba especificado. Antes, un `ProductoId` invalido llegaba a `CrearAsync` y reventaba por FK, cayendo en el `catch` generico ("No se pudo crear la variante"). Como el diccionario `tipoTallePorProducto` ya hay que consultarlo, el chequeo sale gratis y el mensaje es especifico.
+5. **OBS-V12-01 (hallazgo, ver abajo): fix de binding decimal en el POST**, fuera del alcance literal de V12.
+
+### OBS-V12-01 — Bug de cultura en el POST de decimales (la contracara de D-02)
+
+**Hallazgo, no pedido, corregido en esta entrega.** El hotfix SG-001 de hoy resolvio el lado del **render** (formatear con `InvariantCulture` para que el browser no descarte el `value`). El lado del **POST** quedo sin cubrir y es igual de silencioso:
+
+- El navegador siempre postea un `<input type="number">` con "." como separador decimal (spec HTML5).
+- El model binder de ASP.NET Core parsea decimales con la cultura del **request** (`es-AR`, fijada por `app.UseRequestLocalization` en `Program.cs` ~L192, primer middleware del pipeline) y `NumberStyles.Number` — donde "." es separador de **miles**.
+- Verificado empiricamente con `dotnet run` sobre `decimal.TryParse(s, NumberStyles.Number, new CultureInfo("es-AR"))`: `"45000.00"` → `4500000`, `"1234.5"` → `12345`, `"45000"` → `45000` (correcto), `"45000,50"` → `45000,50` (correcto).
+
+Impacto en produccion **hoy, antes de V12**: `Altas[i].PrecioVenta` se renderiza con `inv(fila.PrecioVentaSugerido)` y `PrecioVenta` es `decimal(18,2)`, asi que un precio de 45000 sale como `"45000.00"` y **se guardaba como 4.500.000** al dar de alta un talle desde una celda "—". Antes del hotfix el sintoma era distinto (el campo quedaba vacio y la fila fallaba con "El precio debe ser mayor a 0"), o sea que el hotfix convirtio un error visible en una corrupcion silenciosa x100.
+
+**Fix aplicado (acotado a `MatrizEditar.cshtml`):** helper JS `aDecimalServidor(valor)` que convierte el "." al separador de la cultura del server (`@CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator`, no hardcodeado) antes de postear. Se aplica a los dos caminos de esa vista: el `PrecioVenta` generado por la fila "+ Nuevo color" y el ya existente `sincronizarPrecioYMinimoDeAltas()` de las celdas "—". Para valores enteros (el caso dominante en produccion) la conversion es no-op, asi que el riesgo de regresion es minimo.
+
+**Fuera de alcance, queda abierto para el cliente:** el mismo bug existe en `CargaMasiva.cshtml` (`Modelos[i].Filas[j].PrecioVenta`, `<input type="number" step="0.01">` bindeado directo) y potencialmente en cualquier otro `type="number"` decimal del sistema (Ventas, Compras, Aumento Masivo). **No se toco** porque excede V12 y `CargaMasiva` ademas queda sin acceso desde la UI por D3. Recomendacion: relevamiento propio (candidato a V13), o resolverlo de raiz agregando `SupportedCultures` con `InvariantCulture` para el binding, o un `IModelBinderProvider` de decimal invariante.
+
+### OBS-V12-02 — Riesgo D-01 preexistente no corregido (informativo)
+
+`StockMatrizCeldaGuardarViewModel.CantidadNueva` sigue siendo `int` **no nullable**. Las celdas de stock existente se renderizan siempre precargadas, asi que en uso normal nunca postean vacio; pero si el usuario **borra** el contenido de una celda, ese POST se cae entero por `ModelState` (con toast rojo visible, no en silencio). Es preexistente, no lo introduce V12, y hacerlo `int?` obliga a decidir la semantica de "celda vacia" (¿ignorar la celda o error puntual?) — decision funcional que no corresponde tomar en Implementacion. Se deja documentado para que QA lo evalue y, si corresponde, entre como item propio.
+
+### Evidencia de build
+- `dotnet build ShowroomGriffin.slnx` → **Compilación correcta. 0 Advertencia(s), 0 Errores.** (32,5 s)
+- `dotnet publish ShowroomGriffin.Web/ShowroomGriffin.Web.csproj -c Release -o <carpeta scratchpad descartada>` → **0 errores, 0 advertencias.** Compilacion de vistas Razor verificada de dos formas: (a) el output publicado **no contiene ningun `.cshtml`** ni el paquete `Mvc.Razor.RuntimeCompilation`, o sea que las vistas se compilan dentro de `ShowroomGriffin.Web.dll`; (b) inspeccion de literales del assembly publicado → `Views_Stock_MatrizEditar`, `fila-nuevo-color`, `nc-cantidad`, `altasGeneradas` y `construirAltasDeColoresNuevos` presentes.
+- Revision de codigo propia sobre el diff completo (`git diff`). **Sin smoke test funcional por navegador** — corresponde al agente QA (separacion de roles del proyecto), y Arquitectura V12 lo declaro obligatorio para esta etapa.
+
+### Checklist D-01 / D-02 (verificacion obligatoria pedida por Arquitectura)
+
+| Campo / input nuevo o modificado | Tipo en el ViewModel | D-01 (nullable) | D-02 (cultura) |
+|---|---|---|---|
+| `Altas[].TalleConfigId` | `int?`, sin `[Required]` | OK — modificado en V12 | N/A (entero) |
+| `Altas[].Color` | `string?`, sin `[Required]` | OK — modificado en V12 (desvio #1) | N/A (texto) |
+| `Altas[].CantidadNueva` | `int?` | OK — sin tocar, sigue nullable | N/A (entero) |
+| `Altas[].PrecioVenta` | `decimal?` | OK — sin tocar, sigue nullable | Render: `inv()` (InvariantCulture). POST: `aDecimalServidor()` (OBS-V12-01) |
+| `Altas[].StockMinimo` | `int?` | OK — sin tocar, sigue nullable | N/A (entero) |
+| `Altas[].ProductoId` | `int`, `[Required]` | OK — siempre posteado con valor real (hidden estatico o generado); nunca puede llegar vacio | N/A (entero) |
+| `.nc-precio` (input visible, fila "+ Nuevo color") | — | Arranca vacio, sin `value` renderizado | Render: N/A (sin `value`). POST: `aDecimalServidor()` |
+| `.nc-cantidad` / `.nc-stockmin` (inputs visibles) | — | Arrancan vacios; el JS ignora los vacios y no genera `Altas[i]` | N/A (enteros) |
+| `Celdas[].CantidadNueva` de accesorios | `int` (preexistente) | Ver OBS-V12-02 — no modificado, riesgo preexistente documentado | N/A (entero) |
+
+### Pruebas minimas requeridas para QA
+
+Base heredada (no repetir aca): guardado parcial, duplicados y permisos de Carga Masiva / Matriz Etapa 3, ya en `6-qa.md`.
+
+- [ ] **HU-12.1** `/Stock/Matriz` con una Marca que tenga accesorios (Modelo con `TipoTalle` null) → la seccion aparece como tabla Color | Cantidad, con el link a Historial y el resaltado rojo si esta bajo el minimo.
+- [ ] **HU-12.1** `/Stock/MatrizEditar?marcaId=` → editar la Cantidad de un accesorio existente con Motivo → se guarda y se refleja en `/Stock/Matriz` y en el Historial.
+- [ ] **HU-12.2 (caso critico)** Modelo CON talle: fila "+ Nuevo color" → tipear un Color y cargar cantidad en **2 o mas columnas de Talle a la vez** + Precio + Minimo → se crean N variantes, una por talle, todas con el mismo Color, el mismo Precio y el mismo Stock Minimo, y con el stock inicial cargado.
+- [ ] **HU-12.2 (caso critico)** Mismo formulario, fila "+ Nuevo color" **vacia** (el caso mas frecuente): guardar cambios de otras celdas → no se crea ninguna variante, no aparece ningun error, y las celdas normales SI se guardan (este es el modo de falla exacto de D-01).
+- [ ] **HU-12.2** Color tipeado pero **ninguna** cantidad cargada → no se crea nada y no aparece error (silencio).
+- [ ] **HU-12.2** Cantidades cargadas **sin** Color → toast amarillo de SweetAlert2 y el formulario **no** se envia.
+- [ ] **HU-12.2** Color nuevo que en realidad ya existe para ese Producto+Talle → error puntual de esa combinacion, sin perder el resto del guardado.
+- [ ] **HU-12.2** Cancelar el Swal de confirmacion, cambiar un valor y volver a guardar → **no** se duplican las altas (verifica la idempotencia de `construirAltasDeColoresNuevos`).
+- [ ] **HU-12.3** Modelo SIN talle: fila "+ Nuevo color" con Color + Cantidad + Precio + Minimo → se crea 1 variante con `TalleConfigId` null.
+- [ ] **HU-12.3** Misma fila sin Precio o sin Minimo → error puntual de esa alta ("El precio de venta debe ser mayor a 0" / "El stock minimo debe ser mayor o igual a 0"), sin tirar abajo el resto del POST.
+- [ ] **OBS-V12-01 (verificar explicitamente)** Dar de alta un talle desde una celda "—" cuyo **Precio sugerido tenga decimales** (ej. 45000,50) → la variante creada debe quedar con **45000,50**, no con 4.500.050. Repetir el mismo caso desde la fila "+ Nuevo color" tipeando `45000.50` en el input de Precio.
+- [ ] **HU-12.4** `/Stock/Index` → ya no aparecen los botones "Ajuste manual" ni "Carga masiva".
+- [ ] **HU-12.4** `/Stock/Ajuste` y `/Stock/CargaMasiva` por URL directa → siguen respondiendo normalmente (no se eliminaron).
+- [ ] **Regresion** Marca sin accesorios (solo calzado) → la Matriz y la Matriz editable se ven y se comportan exactamente igual que antes de V12.
+- [ ] **Regresion** Celdas "—" (alta de talle en Color existente) → siguen funcionando; los indices de `Altas[]` no colisionan con los que genera el JS de la fila "+ Nuevo color".
+- [ ] **Permisos** `/Stock/MatrizEditar` sigue exigiendo `RequireAdministrador`; un Empleado solo ve `/Stock/Matriz`.
+
+### Checklist de salida para merge
+- [x] Compila sin errores ni advertencias (`dotnet build` + `dotnet publish` para validar Razor).
+- [x] Sin migracion EF (confirmado contra Arquitectura).
+- [x] Logica de negocio en `StockService`; `StockController` sin cambios; vistas sin logica de negocio.
+- [x] Sin ViewModels/servicios/acciones nuevas — se extendieron los de la Etapa 3.1, como pedia el escaneo de reutilizacion.
+- [x] Checklist D-01/D-02 verificado campo por campo (tabla arriba), aplicado desde el primer borrador y no al final.
+- [x] `CantidadNueva`/`PrecioVenta`/`StockMinimo` siguen nullable (no se revirtio el hotfix SG-001).
+- [x] SweetAlert2 reutilizado desde `_Layout.cshtml`, sin librerias ni scripts nuevos.
+- [x] `/Stock/Ajuste` y `/Stock/CargaMasiva` intactos (D3: solo se ocultan los accesos, decision revertible).
+- [x] Verificado que no queden otros accesos huerfanos: el menu (`_Layout.cshtml`) nunca linkeo esas rutas. **Queda vivo un acceso**: el boton "Ajuste manual" por fila de la grilla de `/Stock/Index` (~L218, `/Stock/Ajuste?varianteId=`). No se removio porque no es uno de los dos botones que nombra HU-12.4 y es un acceso por variante puntual, de otro perfil de uso — **decision del cliente si tambien debe ocultarse.**
+- [ ] QA manual pendiente — obligatorio por navegador para la fila "+ Nuevo color" (regla de proceso de Arquitectura V12: esta etapa NO se cierra como fast-path).
+- [ ] Commit/push/deploy pendiente — a cargo del usuario (pedido explicito de no commitear en esta tarea).
+- [ ] `trazabilidad.md` — la entrada la agrega el usuario despues de revisar (pedido explicito).
+
+---
+
 ## Resumen as-built del proyecto (mergeado 2026-07-23 desde memoria local, snapshot 2026-05-19)
 
 > Nota de mergeo: todo lo anterior en este archivo es el **plan** pre-implementacion (R1-R12, detallado y code-heavy). Esta seccion es el resumen **as-built** real encontrado en `C:\Sistemas\ShowroomGriffin\docs\ShowroomGriffin\definiciones\5-implementador.md` (memoria local del proyecto), que documenta convenciones y decisiones tal como quedaron implementadas — util para no tener que releer las 2000+ lineas de plan para entender el estado actual del codigo.

@@ -1,7 +1,7 @@
 # Memoria - Disenador funcional
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-07-30
+## Ultima actualizacion: 2026-08-17 (v6 — flujo 10: migracion de catalogo Etapa 3, retomado con datos reales + clasificacion ABC automatica)
 
 ## Definiciones vigentes
 
@@ -88,6 +88,27 @@ Se retira este flujo del diseño actual. Se cotiza y diseña en una fase posteri
 **Casos especiales contemplados:**
 - Producto sin código de fábrica: el cliente le asigna uno propio con su ticketeadora manual, y lo carga en el sistema — sin distinción funcional para el resto del sistema (venta, stock, etc.) respecto de un código de fábrica.
 
+**10. Migración de catálogo (Etapa 3) — retomada 2026-08-17 con acceso real a la base del sistema actual**
+
+Base: `1-analista-funcional.md` sección "Etapa 3 — Migración de catálogo" (análisis completo con datos reales: 121.691 artículos activos, reglas de barrido/deduplicación, fuente de ventas confirmada `VentaItem`/`Operacion`).
+
+- **1. Extracción y limpieza (batch, sin UI — corre una vez, antes del import a producción).** Sobre una copia del backup del cliente (no se conecta en vivo a su sistema):
+  1. Excluir `Articulo` con `Activo=0`, `Nombre` vacío, o `PrecioVenta=0`.
+  2. Resolver duplicados de nombre (grupos con >1 activo): conservar el de venta más reciente en `VentaItem`/`Operacion`; si ninguno vendió, el de `FechaModificacionPrecio` más reciente (ver regla final en `1-analista-funcional.md`).
+  3. Resolver `articuloProveedor` (58,8M filas históricas): tomar por `(ProveedorKey, CodigoProv)` solo la fila del `IngresoKey` más reciente con `Procesado=1` y `ArticuloKey IS NOT NULL` → construye `CodigoProveedorProducto` limpio.
+  4. Resolver código de barras (`Codigo`) compartido por más de un artículo: preferir el vínculo hacia el artículo que sobrevivió la deduplicación del punto 2; si dos artículos "ganadores" comparten el mismo código de barras, es inconsistencia real de datos → generar en un reporte de excepciones, no bloquea el resto del import.
+  5. Calcular clasificación ABC inicial por artículo: Pareto 80/95 sobre cantidad vendida en `VentaItem` de los últimos 12 meses (relativo a la fecha del backup) — el resto (sin venta en la ventana) arranca en "C" sin verificar, mismo criterio que la puesta a punto de stock de Entrega 1.
+  6. Generar un **reporte de excepciones** (no un bloqueo): artículos sin `Rubro` válido (asignados a categoría "Sin categoría" por defecto), códigos de barra en conflicto sin resolver, grupos de duplicados sin ningún ganador claro.
+  - Resultado de este paso: un dataset limpio listo para cargar Producto/CodigoProveedorProducto/Cliente en el sistema nuevo.
+- **2. Carga al sistema nuevo — CORREGIDO 2026-08-17: por script directo, no por pantalla web.** Joaquín decidió que, al ser una carga de una sola vez, no tiene sentido pasar por un flujo de subida de archivo + preview + confirmar en la app — se hace con un script que escribe directo en la base (reutilizando las entidades `Producto`/`CodigoProveedorProducto`/`Cliente`/`Proveedor` ya definidas). **Se retira `ICatalogoMigracionService`/`MigracionCatalogoController` y las vistas asociadas, ya implementadas — no se usan.** Esto es exclusivo de la migración histórica: la futura importación de listas de precios de proveedor (flujo 3, recurrente, la sigue operando el personal de La Platense) sigue siendo por archivo vía pantalla, son necesidades distintas — no se confunde una con la otra.
+- **3. Clasificación ABC automática — ida y vuelta con el criterio manual ya existente (Entrega 1).** El campo `Producto.ClasificacionABC` (ya editable a mano desde Entrega 1) pasa a tener además un cálculo automático sugerido:
+  - Job/acción manual "Recalcular clasificación ABC" (no en tiempo real por venta — se recalcula por lote, ej. mensual o a demanda desde una pantalla de administración) que recorre `ItemVenta` de los últimos 12 meses (ventana móvil, no todo el histórico) y aplica el mismo criterio Pareto 80/95 documentado en el análisis.
+  - El resultado se guarda como **sugerencia** — el campo sigue siendo editable a mano por el cliente en cualquier momento (no contradice R10/analisis v1: "la clasificación la hace el cliente por su cuenta"). La pantalla de Producto/Catálogo muestra el valor sugerido junto al valor vigente si son distintos, con un botón para aceptar la sugerencia.
+
+**Casos especiales contemplados:**
+- Producto nuevo (sin historial de venta, dado de alta después de la migración): sin sugerencia ABC hasta que acumule ventas — el campo queda en blanco/"C" por defecto, editable a mano igual que hoy.
+- Reimportación / segunda corrida del paso 1 (ej. el cliente pide corregir algo después de la primera migración): el proceso debe ser idempotente sobre `CodigoProveedorProducto` (actualizar, no duplicar, si el `Producto` ya fue migrado antes).
+
 ### ViewModels definidos
 
 - `ProductoFormViewModel`: incluye `UnidadVenta`, `UnidadCompra` (nullable), `FactorConversion` (nullable), `PrecioCompra`, `PrecioVenta`, `PrecioConDescuento`, `PorcentajeIVA`, `MarcaId`, `ModeloId`, `CategoriaId`.
@@ -98,6 +119,10 @@ Se retira este flujo del diseño actual. Se cotiza y diseña en una fase posteri
 - `DashboardViewModel`: 3 niveles (estado del día, salud financiera, tendencias) — ver flujo 6.
 - `AjusteStockViewModel`: producto, cantidad actual, cantidad nueva, motivo — genera registro auditado.
 - `VentaEditableViewModel` (extendido): campo de escaneo de código de barras que agrega un `ItemVentaViewModel` automáticamente al detectar un código válido.
+- ~~`ImportacionCatalogoMigracionViewModel`~~ / ~~`ReporteExcepcionesMigracionViewModel`~~ — **retirados 2026-08-17** junto con `ICatalogoMigracionService` (ver arriba).
+- `RecalculoClasificacionAbcViewModel` (Etapa 3): parámetro de ventana en meses (default 12) para la acción manual "Recalcular clasificación ABC".
+- `ProductoFormViewModel` (extendido, Etapa 3): agrega `Bonificacion` (texto libre tipo `"33+5"`, ver gap confirmado en Análisis) y `ClasificacionABCSugerida` (solo lectura, junto al `ClasificacionABC` editable ya existente).
+- `ClienteFormViewModel` (extendido, Etapa 3): agrega `Domicilio`, `Localidad`, `Email`, `Notas` (campos confirmados como gap en Análisis).
 
 ### Validaciones de UI acordadas
 
@@ -105,6 +130,8 @@ Se retira este flujo del diseño actual. Se cotiza y diseña en una fase posteri
 - No permitir guardar un producto con `UnidadCompra != UnidadVenta` sin `FactorConversion` > 0.
 - No permitir confirmar importación de lista de proveedor sin revisar el preview.
 - Bloquear a nivel de autorización (no solo de UI) el acceso de un empleado a la cuenta corriente de otro.
+- No permitir confirmar la importación de migración de catálogo (Etapa 3) sin haber revisado el conteo del reporte de excepciones (no bloquea el import, pero exige que el usuario haya abierto/visto el reporte antes de confirmar).
+- El botón "Aceptar sugerencia" de clasificación ABC automática nunca sobrescribe el valor manual sin una acción explícita del usuario — el cálculo por lote solo actualiza el campo `ClasificacionABCSugerida`, nunca `ClasificacionABC` directamente.
 
 ### Logica de distribucion de elementos en pantalla
 - priorizar simplicidad visual y comprension inmediata del flujo
@@ -124,6 +151,8 @@ Se retira este flujo del diseño actual. Se cotiza y diseña en una fase posteri
 - `IAnulacionVentaService`: valida que la venta esté en estado `Facturada`, coordina devolución de stock + emisión de NC + transición a `Anulada`.
 - `IAjusteStockService`: aplica una corrección manual de stock con motivo, genera auditoría (usuario, fecha, valor anterior/nuevo).
 - `ICodigoBarrasLookupService`: resuelve un producto a partir de un código escaneado (propio o de fábrica) para el flujo de venta.
+- ~~`ICatalogoMigracionService`~~ — **retirado 2026-08-17**: la carga del catálogo histórico va por script directo a la base, no por un Service de la app (ver flujo 10, paso 2, corrección de Joaquín).
+- `IClasificacionAbcAutomaticaService` (Etapa 3): recalcula por lote la clasificación ABC sugerida de todos los productos sobre una ventana móvil de ventas (12 meses configurable), usando Pareto 80/95 por cantidad vendida en `ItemVenta` — nunca escribe el campo manual `ClasificacionABC` directo, solo `ClasificacionABCSugerida`. Se mantiene — es una funcionalidad permanente del sistema (recalculable en cualquier momento), no exclusiva de la migración.
 
 ## Historial de ajustes
 - 2026-07-30: Diseño v1 — flujos de venta editable, conversión de unidades, importación de listas de proveedor y cuenta corriente de empleados definidos como los cuatro flujos no triviales del sistema.
@@ -131,3 +160,4 @@ Se retira este flujo del diseño actual. Se cotiza y diseña en una fase posteri
 - 2026-07-30 (v3): agregado el flujo de puesta a punto de stock inicial (clasificación ABC + conteo focalizado + arranque suave con stock negativo permitido + ajuste manual auditado) — responde al problema real del cliente de no tener stock confiable hoy por la rotación de artículos.
 - 2026-07-30 (v4): agregado el flujo de código de barras (etiquetado con ticketeadora + escaneo en venta). Retirado el flujo de migración de catálogo (pospuesto, se cotiza en una fase posterior) — el flujo de puesta a punto de stock inicial queda independiente de la migración.
 - 2026-07-30 (v5): simplificado el flujo de código de barras — la ticketeadora es manual (no se integra con el sistema); se retira la generación/impresión de etiquetas, queda solo la vinculación del código al producto y la lectura en venta.
+- 2026-08-17 (v6): retomado el flujo de migración de catálogo (Etapa 3, flujo 10) con datos reales del sistema actual (ver `1-analista-funcional.md`). Diseñado en 2 pasos: (1) extracción/limpieza batch sin UI (excluye inactivos/sin nombre/precio cero, dedup por venta más reciente o fecha de modificación, dedup de `articuloProveedor` por última importación procesada+matcheada, ABC inicial por Pareto 12 meses) y (2) importación con UI reutilizando el patrón preview→confirmar ya usado para listas de proveedor. Agregado el mecanismo de clasificación ABC automática por lote como sugerencia editable, sin reemplazar el campo manual ya existente de Entrega 1 (no contradice R10). Agregados los ViewModels `ImportacionCatalogoMigracionViewModel`, `ReporteExcepcionesMigracionViewModel`, y extendidos `ProductoFormViewModel`/`ClienteFormViewModel` con los gaps confirmados (bonificación compuesta, campos de Cliente, ABC sugerida).

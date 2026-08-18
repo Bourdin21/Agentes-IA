@@ -1,18 +1,17 @@
-﻿# 2 — Diseño Funcional v2
-## Sistema de Gestión Comercial — ShowroomGriffin
-**Versión:** 2.0  
-**Estado:** En diseño  
-**Base:** `1-analista-funcional.md` v2 aprobado (decisiones P1–P15 + C11a cerradas)  
-**Predecesor:** v1.0 (F0–F8 implementados — base del sistema operativa)
+﻿# Memoria - Disenador funcional
 
-> Este documento diseña exclusivamente los **12 cambios nuevos (C01–C12)** sobre la base ya implementada.  
-> El diseño v1 (`diseño-funcional.md`) permanece vigente para los módulos base.
+## Proyecto: ShowroomGriffin — Sistema de Gestión Comercial
+## Ultima actualizacion: 2026-08-16
 
----
+## Definiciones vigentes
 
-## 1. Alcance funcional resumido
+> Nota de consolidación (2026-08-16): este archivo no seguía la plantilla estándar del estudio. Diseñaba los 12 cambios (C01-C12) sobre la base v1 ya implementada, y tenía 2 secciones de nivel 2 apiladas después (V10, V12). Se agregó la estructura estándar sin resumir ni tocar el contenido técnico; ver `## Historial de ajustes` al final. El diseño v1 original (`diseño-funcional.md`, archivo legacy fuera de este barrido) sigue siendo la referencia de los módulos base F0-F8.
+>
+> **Versión:** 2.0 — **Base:** `1-analista-funcional.md` v2 aprobado (decisiones P1–P15 + C11a cerradas) — **Predecesor:** v1.0 (F0–F8 implementados, base del sistema operativa). Este documento diseña exclusivamente los **12 cambios nuevos (C01–C12)** sobre la base ya implementada.
 
-### Cambios agrupados por área de impacto
+### 1. Alcance funcional resumido
+
+#### Cambios agrupados por área de impacto
 
 | Grupo | Cambios | Descripción |
 |---|---|---|
@@ -22,7 +21,7 @@
 | **G4 — Postventa** | C07 | Búsqueda rápida en Cambios/Devoluciones |
 | **G5 — Roles y Stock** | C06, C08 | Rol Empleado + mejora visual de Stock |
 
-### Nuevo modelo conceptual (post-refactor)
+#### Nuevo modelo conceptual (post-refactor)
 ```
 Categoría  ──(1:N)──►  Marca  ──(1:N)──►  Modelo
                                               │
@@ -42,11 +41,11 @@ Categoría  ──(1:N)──►  Marca  ──(1:N)──►  Modelo
 
 ---
 
-## 2. Lógica de distribución estándar (design system — herencia v1 + extensiones v2)
+### 2. Lógica de distribución estándar (design system — herencia v1 + extensiones v2)
 
 La lógica de distribución del sistema base se extiende con los siguientes patrones nuevos:
 
-### Patrón: Selector de variante anidado (combos cascadeados)
+#### Patrón: Selector de variante anidado (combos cascadeados)
 Usado en: Alta Venta, Alta Compra, modal de cambio en Devoluciones.
 
 ```
@@ -69,7 +68,7 @@ Usado en: Alta Venta, Alta Compra, modal de cambio en Devoluciones.
   - **Indumentaria:** Categoría → Marca → Modelo → Color → Talle (TalleConfig Indumentaria)
   - **Accesorios:** Categoría → Marca → Modelo → Color (sin talle)
 
-### Patrón: Modal de alta rápida
+#### Patrón: Modal de alta rápida
 Usado en: Crear cliente rápido desde Venta.
 
 ```
@@ -88,9 +87,9 @@ Usado en: Crear cliente rápido desde Venta.
 
 ---
 
-## 3. Flujo de pantallas por módulo (delta v2)
+### 3. Flujo de pantallas por módulo (delta v2)
 
-### 3.1 Módulo Maestros — Marcas y Modelos (nuevo)
+#### 3.1 Módulo Maestros — Marcas y Modelos (nuevo)
 
 #### Pantalla: /Marcas/Index
 **Rol:** Administrador  
@@ -145,7 +144,7 @@ Usado en: Crear cliente rápido desde Venta.
 
 ---
 
-### 3.2 Módulo Productos (modificado)
+#### 3.2 Módulo Productos (modificado)
 
 #### Pantalla: /Productos/Crear — /Productos/Editar (delta)
 Se agrega la cascada Categoría → Marca → Modelo antes del campo Nombre.
@@ -191,7 +190,7 @@ Se agrega selector de Talle desde TalleConfig (dropdown en lugar de texto libre)
 
 ---
 
-### 3.3 Módulo Ventas (modificado — C01, C02, C03, C04, C09)
+#### 3.3 Módulo Ventas (modificado — C01, C02, C03, C04, C09)
 
 #### Pantalla: /Ventas/Crear (delta)
 
@@ -257,7 +256,7 @@ Agregar fila "Anotaciones" en el bloque de encabezado de la venta:
 
 ---
 
-### 3.4 Módulo Compras (modificado — C05)
+#### 3.4 Módulo Compras (modificado — C05)
 
 #### Pantalla: /Compras/Crear — /Compras/Editar (delta)
 Reemplazar el Select2 de texto libre de variante por el selector anidado (mismo componente que Ventas).
@@ -270,7 +269,7 @@ Reemplazar el Select2 de texto libre de variante por el selector anidado (mismo 
 
 ---
 
-### 3.5 Módulo Devoluciones (modificado — C07)
+#### 3.5 Módulo Devoluciones (modificado — C07)
 
 #### Pantalla: /Devoluciones/Crear (delta)
 Se reemplaza el campo "Número de venta" por un buscador multi-criterio antes de iniciar el wizard.
@@ -302,7 +301,7 @@ El paso "Elegir nuevo producto" del wizard usa el mismo selector anidado de 5 co
 
 ---
 
-### 3.6 Módulo Stock (modificado — C06, C08)
+#### 3.6 Módulo Stock (modificado — C06, C08)
 
 #### Pantalla: /Stock/Index (delta)
 Mejora visual: reorganización de filtros, indicadores claros de alerta, acceso habilitado para rol Empleado.
@@ -339,9 +338,9 @@ Mejora visual: reorganización de filtros, indicadores claros de alerta, acceso 
 
 ---
 
-## 4. ViewModels propuestos — delta v2
+### 4. ViewModels propuestos — delta v2
 
-### 4.1 Nuevos (G1 — Refactor estructural)
+#### 4.1 Nuevos (G1 — Refactor estructural)
 
 #### `MarcaViewModel`
 | Campo | Tipo | Validación |
@@ -372,7 +371,7 @@ Mejora visual: reorganización de filtros, indicadores claros de alerta, acceso 
 
 ---
 
-### 4.2 Modificados
+#### 4.2 Modificados
 
 #### `ProductoViewModel` (delta)
 | Campo | Cambio |
@@ -404,7 +403,7 @@ Mejora visual: reorganización de filtros, indicadores claros de alerta, acceso 
 
 ---
 
-### 4.3 Nuevos (G2 — Flujo de Venta)
+#### 4.3 Nuevos (G2 — Flujo de Venta)
 
 #### `ClienteRapidoViewModel` (para modal C02)
 | Campo | Tipo | Validación |
@@ -432,7 +431,7 @@ Mejora visual: reorganización de filtros, indicadores claros de alerta, acceso 
 
 ---
 
-### 4.4 Nuevos (G4 — Devoluciones)
+#### 4.4 Nuevos (G4 — Devoluciones)
 
 #### `BuscarVentaRequest` (búsqueda multi-criterio C07)
 | Campo | Tipo | Validación |
@@ -444,9 +443,9 @@ Mejora visual: reorganización de filtros, indicadores claros de alerta, acceso 
 
 ---
 
-## 5. Contratos funcionales por servicio (delta v2)
+### 5. Contratos funcionales por servicio (delta v2)
 
-### 5.1 `IMarcaService` (nuevo)
+#### 5.1 `IMarcaService` (nuevo)
 ```
 CrearAsync(MarcaViewModel vm) → ServiceResult<int>
 EditarAsync(MarcaViewModel vm) → ServiceResult
@@ -456,7 +455,7 @@ ListarAsync(DataTableRequest) → DataTableResponse<MarcaViewModel>
 ObtenerPorCategoriaAsync(int categoriaId) → List<MarcaViewModel>  // Para cascada AJAX
 ```
 
-### 5.2 `IModeloService` (nuevo)
+#### 5.2 `IModeloService` (nuevo)
 ```
 CrearAsync(ModeloViewModel vm) → ServiceResult<int>
 EditarAsync(ModeloViewModel vm) → ServiceResult
@@ -466,7 +465,7 @@ ListarAsync(DataTableRequest, int? marcaId) → DataTableResponse<ModeloViewMode
 ObtenerPorMarcaAsync(int marcaId) → List<ModeloViewModel>  // Para cascada AJAX
 ```
 
-### 5.3 `IVarianteService` (delta — métodos nuevos)
+#### 5.3 `IVarianteService` (delta — métodos nuevos)
 ```
 // Endpoints AJAX para combos anidados (C03/C05)
 ObtenerColoresPorModeloAsync(int modeloId) → List<string>
@@ -474,20 +473,20 @@ ObtenerTallesPorModeloColorAsync(int modeloId, string? color) → List<TalleConf
 ResolverVarianteAsync(VarianteSelectorRequest req) → ServiceResult<VarianteSelectorResponse>
 ```
 
-### 5.4 `IClienteService` (delta — método nuevo)
+#### 5.4 `IClienteService` (delta — método nuevo)
 ```
 CrearRapidoAsync(ClienteRapidoViewModel vm) → ServiceResult<ClienteViewModel>
 // Crea con datos mínimos; resto de campos quedan null para completar después
 // Política: RequireVendedor (no solo Admin)
 ```
 
-### 5.5 `IVentaService` (delta — ajuste naming)
+#### 5.5 `IVentaService` (delta — ajuste naming)
 ```
 // Sin cambios de firma; internamente: Observaciones → Anotaciones
 // VentaCreateViewModel.Anotaciones se mapea a Venta.Anotaciones
 ```
 
-### 5.6 `IDevolucionService` (delta — método nuevo)
+#### 5.6 `IDevolucionService` (delta — método nuevo)
 ```
 BuscarVentasParaDevolucionAsync(BuscarVentaRequest req) 
     → List<VentaListItemViewModel>
@@ -495,7 +494,7 @@ BuscarVentasParaDevolucionAsync(BuscarVentaRequest req)
 // Filtra por fecha, clienteId, texto parcial de producto/variante
 ```
 
-### 5.7 `IStockService` (sin cambios de firma)
+#### 5.7 `IStockService` (sin cambios de firma)
 ```
 // ListarAsync ya existente; se agrega filtro por MarcaId y ModeloId en DataTableRequest
 // Internamente el service aplica los nuevos filtros
@@ -503,16 +502,16 @@ BuscarVentasParaDevolucionAsync(BuscarVentaRequest req)
 
 ---
 
-## 6. Máquina de estados — delta v2
+### 6. Máquina de estados — delta v2
 
-### 6.1 Venta (extensión)
+#### 6.1 Venta (extensión)
 
 | Origen | Evento | Destino | Guarda | Acción | Error esperado |
 |---|---|---|---|---|---|
 | (∅) | `CrearVenta` | Confirmada | (igual v1) + `Anotaciones` opcional max 1000 chars | (igual v1) | (igual v1) |
 | Confirmada / Entregada | `IniciarDevolucion` | (mismo) | Estado Confirmada **o** Entregada (ampliado desde v1 que solo era Entregada) | Redirige a `/Devoluciones/Crear?ventaId=X` | "Solo ventas Confirmadas o Entregadas admiten devolución" |
 
-### 6.2 Soft delete — entidades nuevas
+#### 6.2 Soft delete — entidades nuevas
 
 | Origen | Evento | Entidad | Guarda | Acción | Error |
 |---|---|---|---|---|---|
@@ -522,9 +521,9 @@ BuscarVentasParaDevolucionAsync(BuscarVentaRequest req)
 
 ---
 
-## 7. Reglas de negocio y permisos por módulo/acción — delta v2
+### 7. Reglas de negocio y permisos por módulo/acción — delta v2
 
-### 7.1 Matriz de permisos ampliada (rol Empleado nuevo)
+#### 7.1 Matriz de permisos ampliada (rol Empleado nuevo)
 
 | Acción | SuperUsuario | Admin | Vendedor | **Empleado** |
 |---|---|---|---|---|
@@ -548,14 +547,14 @@ BuscarVentasParaDevolucionAsync(BuscarVentaRequest req)
 | Gestión Usuarios | ✅ | ✅ | ❌ | ❌ |
 | Auditoría | ✅ | ✅ | ❌ | ❌ |
 
-### 7.2 Policy nueva: `RequireEmpleado`
+#### 7.2 Policy nueva: `RequireEmpleado`
 ```
 RequireEmpleado = SuperUsuario | Administrador | Vendedor | Empleado
 ```
 Se aplica en los controllers de: `VentasController`, `DevolucionesController`, `StockController` (Index).  
 Las acciones de ajuste/admin dentro de esos controllers mantienen `RequireAdministrador`.
 
-### 7.3 Menú de navegación por rol
+#### 7.3 Menú de navegación por rol
 | Ítem de menú | Admin | Vendedor | Empleado |
 |---|---|---|---|
 | Dashboard | ✅ | ✅ | ✅ (versión mínima) |
@@ -572,9 +571,9 @@ Las acciones de ajuste/admin dentro de esos controllers mantienen `RequireAdmini
 
 ---
 
-## 8. Impacto funcional por capa
+### 8. Impacto funcional por capa
 
-### 8.1 Presentación (Web)
+#### 8.1 Presentación (Web)
 
 | Elemento | Tipo de cambio | Detalle |
 |---|---|---|
@@ -591,7 +590,7 @@ Las acciones de ajuste/admin dentro de esos controllers mantienen `RequireAdmini
 | Vistas modificadas | 6 | Ventas/Crear, Ventas/Detalle, Compras/Crear, Devoluciones/Crear, Stock/Index, Variantes/Crear |
 | JS | NUEVO/MODIFICAR | Componente de 5 combos anidados (reutilizable); autofill pago; recálculo automático precios |
 
-### 8.2 Negocio (Application)
+#### 8.2 Negocio (Application)
 
 | Elemento | Tipo | Detalle |
 |---|---|---|
@@ -605,7 +604,7 @@ Las acciones de ajuste/admin dentro de esos controllers mantienen `RequireAdmini
 | ViewModels nuevos | 5 | MarcaViewModel, ModeloViewModel, TalleConfigViewModel, ClienteRapidoViewModel, VarianteSelectorRequest/Response, BuscarVentaRequest |
 | ViewModels modificados | 3 | ProductoViewModel, VarianteViewModel, VentaCreateViewModel |
 
-### 8.3 Datos (Infrastructure)
+#### 8.3 Datos (Infrastructure)
 
 | Elemento | Tipo | Detalle |
 |---|---|---|
@@ -622,7 +621,7 @@ Las acciones de ajuste/admin dentro de esos controllers mantienen `RequireAdmini
 
 ---
 
-## 9. Riesgos y supuestos
+### 9. Riesgos y supuestos
 
 | # | Tipo | Descripción | Mitigación |
 |---|---|---|---|
@@ -636,11 +635,11 @@ Las acciones de ajuste/admin dentro de esos controllers mantienen `RequireAdmini
 
 ---
 
-## 10. Plan funcional por etapas para el arquitecto (delta v2)
+### 10. Plan funcional por etapas para el arquitecto (delta v2)
 
 > Las etapas originales F0–F8 ya están implementadas. Este plan cubre exclusivamente el trabajo nuevo.
 
-### Etapa V1-E1 — Refactor estructural del modelo (BLOQUEA TODO LO DEMÁS)
+#### Etapa V1-E1 — Refactor estructural del modelo (BLOQUEA TODO LO DEMÁS)
 **Objetivo:** Nuevo árbol Categoría→Marca→Modelo + TalleConfig + seed.  
 **Entregables funcionales:**
 - Entidades Marca, Modelo, TalleConfig creadas y migraciones aplicadas.
@@ -652,7 +651,7 @@ Las acciones de ajuste/admin dentro de esos controllers mantienen `RequireAdmini
 - Formulario de Variante con selector de talle predefinido.
 **Criterio cierre:** Se puede crear un producto completo con la nueva jerarquía; las variantes existentes no se rompieron.
 
-### Etapa V1-E2 — Combos anidados en Ventas y Compras
+#### Etapa V1-E2 — Combos anidados en Ventas y Compras
 **Objetivo:** Reemplazar Select2 libre por selector de 5 combos anidados.  
 **Dependencia:** V1-E1 completa.  
 **Entregables funcionales:**
@@ -665,7 +664,7 @@ Las acciones de ajuste/admin dentro de esos controllers mantienen `RequireAdmini
 - PrecioUnitario editable con recálculo automático de subtotal/total.
 **Criterio cierre:** Se puede completar una venta y una compra end-to-end con combos anidados.
 
-### Etapa V1-E3 — Modal cliente + Búsqueda rápida devoluciones
+#### Etapa V1-E3 — Modal cliente + Búsqueda rápida devoluciones
 **Objetivo:** Flujos de UX rápidos para operatoria diaria.  
 **Dependencia:** V1-E2 completa (comparte vistas de venta).  
 **Entregables funcionales:**
@@ -677,7 +676,7 @@ Las acciones de ajuste/admin dentro de esos controllers mantienen `RequireAdmini
 - Combos anidados en modal de cambio de variante (wizard devoluciones).
 **Criterio cierre:** Vendedor puede crear cliente y devolver producto sin salir del flujo de venta/devolución.
 
-### Etapa V1-E4 — Rol Empleado + mejora visual Stock
+#### Etapa V1-E4 — Rol Empleado + mejora visual Stock
 **Objetivo:** Nuevo rol operativo + interfaz de stock mejorada.  
 **Dependencia:** V1-E1 (para que los filtros de stock ya usen Marca/Modelo).  
 **Entregables funcionales:**
@@ -686,7 +685,7 @@ Las acciones de ajuste/admin dentro de esos controllers mantienen `RequireAdmini
 - Vista /Stock/Index rediseñada: filtros Categoría/Marca/Modelo/Color/Talle; indicadores visuales 🟢🟡🔴⚫; precios de costo ocultos para Empleado/Vendedor.
 **Criterio cierre:** Un usuario con rol Empleado puede operar sin ver módulos no autorizados; stock muestra indicadores visuales.
 
-### Dependencias entre etapas v2
+#### Dependencias entre etapas v2
 
 ```
 V1-E1 (Refactor estructural)
@@ -697,7 +696,7 @@ V1-E1 (Refactor estructural)
 
 ---
 
-## 11. Checklist de salida — Diseño funcional v2
+### 11. Checklist de salida — Diseño funcional v2
 
 ```
 DISEÑO FUNCIONAL v2 — CHECKLIST
@@ -719,13 +718,13 @@ DISEÑO FUNCIONAL v2 — CHECKLIST
 
 ---
 
-## 12. Handoff a Arquitectura
+### 12. Handoff a Arquitectura
 
-### Paquete entregado
+#### Paquete entregado
 1. `1-analista-funcional.md` v2 (decisiones P1–P15 + C11a cerradas).
 2. Este documento `2-disenador-funcional.md` v2.
 
-### Preguntas abiertas para el arquitecto
+#### Preguntas abiertas para el arquitecto
 
 1. **Renombrado de tabla `Subgrupos` → `Marcas`:** ¿Renombrar físicamente la tabla EF o mantener nombre de tabla legacy y cambiar solo el nombre de clase/relación?
 2. **TalleId en VarianteProducto:** ¿FK estricta a TalleConfig o campo string? con validación en service? Recomendado: FK estricta para integridad.
@@ -735,11 +734,11 @@ DISEÑO FUNCIONAL v2 — CHECKLIST
 
 ---
 
-## V10 — Diseño funcional: Carga masiva de stock por Marca + filtros completos en Consulta de Stock (2026-07-30)
+### V10 — Diseño funcional: Carga masiva de stock por Marca + filtros completos en Consulta de Stock (2026-07-30)
 
 **Input:** `1-analista-funcional.md` sección "V10", decisiones Q1–Q6 confirmadas por el cliente. Analisis cerrado y aprobado.
 
-### 0. Escaneo de reutilización cross-proyecto (obligatorio antes de diseñar)
+#### 0. Escaneo de reutilización cross-proyecto (obligatorio antes de diseñar)
 
 Se escaneó `C:/Sistemas/Agentes-IA/docs/*/definiciones/{2-disenador-funcional,5-implementador}.md` de todos los proyectos del historial buscando "carga masiva" / "alta rápida inline" / "filas dinámicas + un submit".
 
@@ -754,11 +753,11 @@ Se escaneó `C:/Sistemas/Agentes-IA/docs/*/definiciones/{2-disenador-funcional,5
 
 **Punto de atención — ajuste sobre lo definido en Análisis:** en `1-analista-funcional.md` se había dejado como criterio de aceptación "si una fila falla, el resto del lote no se pierde (parcial)". El patrón de referencia (labipac RN-12) usa **atomicidad total: todo el lote o nada**, que es más simple, más segura para trazabilidad de stock (evita estados intermedios confusos: "algunas variantes con stock nuevo, otras no") y ya está probada en producción. **Se propone adoptar atomicidad total** para la carga masiva de stock, reemplazando el criterio parcial del Análisis. Queda marcado como decisión de Diseño a confirmar en el gate (no se aplica todavía sin esa confirmación).
 
-### 1. Alcance funcional resumido
+#### 1. Alcance funcional resumido
 
 Sin cambios de alcance respecto a lo aprobado en Análisis (Q1 absoluto, Q2 scope Marca completa, Q3 crea variante al vuelo con Precio de Venta + Stock Mínimo en la grilla, Q6 Estado reemplaza botón). Este diseño instancia ese alcance en pantallas, ViewModels y reglas concretas, reutilizando el patrón de labipac.
 
-### 2. Flujo de pantallas y wireframes textuales
+#### 2. Flujo de pantallas y wireframes textuales
 
 #### WF-A1: Stock — Carga Masiva (pantalla nueva)
 **Ruta:** `GET /Stock/CargaMasiva?marcaId={id}` (selección) · `POST /Stock/CargaMasiva` (guardado del lote)
@@ -809,7 +808,7 @@ Se agrega botón "Carga masiva" (btn-outline-primary) junto al botón "Ajuste ma
 - El link `/Stock/Index?soloAlertas=true` (usado desde Dashboard) se preserva: al llegar con ese querystring, la pantalla precarga el combo Estado en "Bajo".
 - `ExportarExcelAsync` recibe los mismos filtros nuevos (`talleConfigId`, `estado`) para mantener consistencia grilla/export (regla de filtros de `25-frontend-design-system.instructions.md`: cada columna visible tiene su filtro).
 
-### 3. ViewModels propuestos
+#### 3. ViewModels propuestos
 
 | VM | Campos | Validación |
 |---|---|---|
@@ -820,10 +819,10 @@ Se agrega botón "Carga masiva" (btn-outline-primary) junto al botón "Ajuste ma
 
 `EstadoStockFiltro` (nuevo enum, Web o Application): `Todos = 0, OK = 1, Limite = 2, Bajo = 3`. Mapea a la misma lógica que hoy ya calcula `EnAlerta`/`Deficit` en `StockListItemViewModel` (Bajo = `StockActual <= StockMinimo`; Límite = `0 < Deficit <= 5`; OK = resto).
 
-### 4. Máquina de estados
+#### 4. Máquina de estados
 No aplica. Se reutilizan los flujos existentes de `AjusteStock`/`MovimientoStock` (sin estados propios) y el alta de `VarianteProducto` no tiene máquina de estados (entidad simple con soft delete).
 
-### 5. Reglas de negocio y permisos
+#### 5. Reglas de negocio y permisos
 
 | Ref | Regla | Capa |
 |---|---|---|
@@ -836,7 +835,7 @@ No aplica. Se reutilizan los flujos existentes de `AjusteStock`/`MovimientoStock
 | RN-B1 | Filtro Talle en `/Stock/Index`: dependiente de Modelo, deshabilitado hasta elegir Modelo (mismo patrón que Color) | Web |
 | RN-B2 | Filtro Estado reemplaza al botón "Solo alertas"; el deep-link `?soloAlertas=true` sigue funcionando preseleccionando Estado=Bajo | Web |
 
-### 6. Impacto funcional por capa
+#### 6. Impacto funcional por capa
 
 **Presentación (Web):**
 - `StockController`: + acciones `CargaMasiva` (GET/POST) y endpoint AJAX de validación de duplicado si se decide validar antes del submit.
@@ -853,7 +852,7 @@ No aplica. Se reutilizan los flujos existentes de `AjusteStock`/`MovimientoStock
 - Sin migración EF: `VarianteProducto`, `Stock`, `AjusteStock`, `MovimientoStock`, `TalleConfig` ya existen con todos los campos necesarios.
 - Alta de `VarianteProducto` + su fila `Stock` asociada (hoy cada variante ya tiene 1:1 `Stock` — confirmar en Arquitectura cómo se crea ese registro relacionado al dar de alta desde este flujo, mismo mecanismo que usa hoy `/Variantes/Crear`).
 
-### 7. Riesgos y supuestos
+#### 7. Riesgos y supuestos
 
 - **DD-1 (decisión a confirmar en el gate):** atomicidad total del lote (todo o nada) en vez del criterio parcial documentado en Análisis — ver §0.
 - **DD-2:** volumen de filas por Marca (varios Modelos × Color × Talle) puede ser grande; a diferencia de labipac (filas sueltas sin agrupar), acá se agrupa visualmente por Modelo con `<details>`/acordeón colapsable para no saturar la pantalla — validar con el cliente si el volumen típico lo requiere.
@@ -861,7 +860,7 @@ No aplica. Se reutilizan los flujos existentes de `AjusteStock`/`MovimientoStock
 - Riesgo heredado de Análisis: concurrencia por fila vía `RowVersion` de `VarianteProducto` debe seguir chequeándose aunque el guardado sea atómico a nivel de lote (cada fila igual valida su propia versión antes de aplicar).
 - Riesgo heredado: `ExportarExcelAsync` debe sumar `talleConfigId`/`estado` para no quedar inconsistente con los filtros nuevos de la grilla.
 
-### 8. Historias de usuario
+#### 8. Historias de usuario
 
 **HU-M1** — Como Administrador, quiero cargar el stock de todas las variantes de una Marca en una sola pantalla, para no tener que repetir el ajuste manual variante por variante.
 - AC: al elegir una Marca, veo todas sus variantes existentes agrupadas por Modelo, con su stock actual y un campo editable de cantidad nueva.
@@ -883,16 +882,122 @@ No aplica. Se reutilizan los flujos existentes de `AjusteStock`/`MovimientoStock
 - AC: el combo Estado reemplaza al botón "Solo alertas" y se combina con el resto de los filtros.
 - AC: el link directo `?soloAlertas=true` sigue funcionando, precargando Estado=Bajo.
 
-### 9. Plan funcional por etapas para Arquitectura
+#### 9. Plan funcional por etapas para Arquitectura
 
 - **Etapa V10-A — Filtros completos en Consulta de Stock:** combo Talle + combo Estado (reemplaza botón), ajuste de `ListarAsync`/`ExportarExcelAsync`. Sin dependencias, menor esfuerzo — puede hacerse primero o en paralelo.
 - **Etapa V10-B — Carga masiva de stock por Marca:** pantalla `CargaMasiva`, `ObtenerParaCargaMasivaAsync`, `GuardarCargaMasivaAsync` (atómico), alta de `VarianteProducto` inline. Depende de que la Arquitectura confirme el mecanismo exacto de alta de `VarianteProducto`+`Stock` asociado dentro de la misma transacción del lote.
 
-### DD-1 — Resuelto por el cliente (2026-07-30)
+#### DD-1 — Resuelto por el cliente (2026-07-30)
 
 **Decisión confirmada:** persistencia **atómica (todo o nada)** — si una fila falla, no se guarda ninguna del lote — **pero** la pantalla debe: (a) mostrar los errores puntuales por fila (qué falló y en qué fila), y (b) **no perder los datos ya tipeados** en el resto de las filas al re-renderizar tras el error (el usuario corrige solo lo que falló, sin tener que volver a cargar todo el lote de cero).
 
 **Impacto en diseño:** `POST /Stock/CargaMasiva` que falla en validación de servidor devuelve la misma vista (`return View(vm)`) con el `StockCargaMasivaViewModel` completo tal como fue enviado (todas las filas con sus valores ingeridos) + `ModelState` con los errores puntuales anclados a cada fila (mismo patrón MVC estándar de `asp-validation-for` por campo, ya usado en todo el proyecto — no requiere mecanismo nuevo). No se transaccionan filas parciales en ningún caso.
 
-### Estado
+#### Estado
 DISEÑO FUNCIONAL V10 CERRADO Y APROBADO. DD-1 resuelto (atómico + errores por fila + no pérdida de datos tipeados). Listo para Arquitectura.
+
+#### Corrección post-cierre (2026-08-11) — Reversión de DD-1
+
+**El comportamiento real desplegado ya NO es el de DD-1 arriba.** El cliente pidió explícitamente invertir el criterio: *"guardar todos los productos que están OK e informar los que tienen errores"*, en vez de descartar el lote completo si una fila falla. Cambio aplicado como fix directo (fuera de gates, mismo criterio ya usado en este proyecto para correcciones sobre funcionalidad recién entregada) — commit `74a115f`, documentado en `trazabilidad.md` entrada "2026-08-11 — Reversión de DD-1".
+
+- **HU-M3 queda obsoleta tal como está escrita arriba** ("si algo falla no se guarda nada a medias"). Reemplazada en la práctica por: *"Como Administrador, quiero que si algo falla en una fila de la carga masiva, esa fila puntual no se guarde pero el resto del lote sí, para no perder el trabajo de las filas que estaban bien."*
+- **Mecanismo real:** `StockService.GuardarCargaMasivaAsync` abre una transacción propia **por fila** (no una única transacción para todo el lote). Si una fila falla, rollback solo de esa fila; el resto sigue procesándose y se persiste.
+- El mismo criterio de guardado parcial (transacción por fila/celda) se reutilizó después en la Vista Matriz editable (`StockService.GuardarMatrizAsync`, ver sección nueva más abajo) — quedó establecido como el patrón estándar de este proyecto para guardados en lote, reemplazando la atomicidad total como default.
+
+#### V10.1 — Vista Matriz de Stock (Marca → Modelo → Color × Talle) (2026-08-11, retroactivo)
+
+No se generó un diseño funcional formal previo para esta feature (se hizo con `EnterPlanMode` + preguntas directas al cliente en el chat, no por el flujo de agentes). Se deja este resumen para que el historial de diseño no quede con un vacío entre V10 y lo que hoy es la pantalla principal de Stock:
+
+- **Pedido:** que la pantalla de Stock se vea como la planilla Excel real del cliente — pivot Marca→Modelo→Color (filas) × Talle (columnas), con la cantidad en cada celda.
+- **Decisiones del cliente:** (1) la Matriz **convive** con la Consulta de Stock plana existente (no la reemplaza); (2) es **editable por celda**, no solo lectura; (3) el caso "mismo Modelo con dos sistemas de talle a la vez" (Talle Brasilero + Talle Argentino) se modela como distinción real; (4) solo se muestran celdas con stock > 0 en la vista de lectura (fiel al Excel).
+- **Etapa 1 (022bd07):** `IStockService.ObtenerMatrizAsync` + `StockController.Matriz` + `Views/Stock/Matriz.cshtml`, solo lectura.
+- **Etapa 2 (06bb253):** nuevo valor de enum `TipoTalle.ZapatillaAdultoArgentino` — sin migración EF (persiste como int), sin seed hardcodeado (el cliente carga los valores reales vía el ABM genérico `/TallesConfig` ya existente).
+- **Etapa 3 (0eba0fc):** `StockController.MatrizEditar` (GET/POST) + `StockService.GuardarMatrizAsync`, mismo patrón de guardado parcial fila-por-fila que Carga Masiva. Acotado a una Marca por vez para no repetir el problema de formularios gigantes (mismo motivo que el incidente de 500 de Carga Masiva, ver `trazabilidad.md`).
+- **Ampliaciones post-Etapa 3, todas fast-path (sin gates):**
+  - `9e43229`/`42b7f19` — Matriz pasa a ser la pantalla principal del menú Stock; la edición admite variantes en stock 0 (parámetro `soloConStock`).
+  - `1122c3c` — errores de guardado ahora disparan el toast global de SweetAlert2 (antes solo se veían en un `<div>` pasivo, fácil de no notar).
+  - `f400671` — las celdas "—" (Color existente sin variante para ese Talle) pasan a ser editables: cargar una cantidad ahí da de alta la variante nueva (`StockMatrizAltaGuardarViewModel`, mismo patrón de transacción por fila + Precio/Stock Mínimo sugeridos por fila de Color).
+- **Limitación de alcance conocida:** la Matriz solo permite completar un Talle faltante para un Color que **ya existe**. No permite dar de alta un Color completamente nuevo para un Modelo (las filas solo se arman a partir de colores con al menos una variante existente) — eso sigue siendo exclusivo de Carga Masiva. Tampoco cubre Modelos sin sistema de Talle (accesorios): `ObtenerMatrizAsync` descarta esas secciones (`TalleConfig == null`) — pendiente de evaluación, ver `trazabilidad.md`.
+
+---
+
+### V12 — Diseño: extensión de Matriz (accesorios + alta de Color nuevo) y retiro de Carga Masiva/Ajuste (2026-08-16)
+
+**Input:** `1-analista-funcional.md` sección "V12", decisiones D1–D4 confirmadas por el cliente. Análisis cerrado y aprobado.
+
+#### 0. Escaneo de reutilización
+
+- **Dentro del proyecto (match directo):** `CargaMasiva.cshtml` ya resuelve, con otro layout, exactamente los dos problemas de esta feature — fila de alta con Color+Talle+Precio+StockMinimo+Cantidad (para Color nuevo), y Talle opcional según `Modelo.TipoTalle` (para accesorios). Se toma como base funcional para las reglas de validación; el layout se adapta a la tabla pivot en vez de copiarse literal (la tabla de la Matriz es más angosta por columna que la grilla de Carga Masiva).
+- **Cross-proyecto:** `docs/patrones/catalogo.yml` no tiene ningún patrón de grilla pivot Talle×Color — es original de ShowroomGriffin. No hay match para portar. Se deja nota para catalogar esta feature como patrón reutilizable (candidato PAT-009) una vez cerrada, dado que cualquier proyecto con variantes por Talle×Color podría necesitarla.
+- **Decisión:** no se reutiliza código ajeno; se extiende el propio `StockMatrizAltaGuardarViewModel`/`GuardarMatrizAsync` ya construidos el mismo día para la alta-desde-celda-vacía, en vez de crear un mecanismo paralelo.
+
+#### 1. Flujo de pantalla y navegación
+
+**Sin cambios de navegación:** sigue siendo `/Stock/Matriz` (lectura) → botón "Editar" → `/Stock/MatrizEditar?marcaId=` (edición), acotado a una Marca por vez, igual que hoy.
+
+**Dentro de `MatrizEditar`, por cada Modelo:**
+- Si el Modelo tiene sistema de Talle (como hoy): tabla pivot Color × Talle, con las celdas existentes editables y las celdas "—" editables para alta de Talle faltante (sin cambios, ya construido) **+ una fila nueva al final: "+ Nuevo color"**, con un input de texto para Color y un input de cantidad por cada columna de Talle (D2), colapsada/vacía por defecto (no ocupa espacio visual si el usuario no la usa).
+- Si el Modelo NO tiene sistema de Talle (accesorio, `TipoTalle == null`): tabla de 2 columnas, Color | Cantidad (D1), una fila por Color existente (editable, mismo criterio que hoy: precarga `StockActual`, guarda solo si cambia) **+ una fila "+ Nuevo color"** al final con input de Color + Cantidad + Precio + Stock Mínimo (sin columnas de Talle que llenar, todo en la misma fila).
+
+**`Matriz.cshtml` (solo lectura):** agrega las secciones de accesorios con el mismo layout de 2 columnas (D1), sin fila de alta (la vista de lectura no edita, igual que hoy con las secciones de Talle).
+
+**`Stock/Index.cshtml`:** se quitan los botones "Ajuste manual" y "Carga masiva" (D3 — solo se ocultan, el código de `StockController.Ajuste`/`CargaMasiva` y sus vistas queda intacto, sin ruta de acceso desde el menú ni desde esta pantalla).
+
+#### 2. Validaciones de UI y mensajes
+
+- Fila "+ Nuevo color" (con Talle): el Color es obligatorio si se cargó alguna cantidad en cualquiera de sus columnas de Talle — mismo criterio de "silencio si no se tocó nada" que ya usa `CargaMasiva` para sus filas nuevas. Si se cargó Color pero ninguna cantidad, se ignora la fila completa (nada que dar de alta).
+- Fila "+ Nuevo color" (sin Talle, accesorios): Color obligatorio si se cargó una Cantidad > 0; Precio de Venta obligatorio y > 0; Stock Mínimo obligatorio y ≥ 0 — mismos mensajes ya usados en la alta-desde-celda-vacía actual.
+- Duplicados: mismo mecanismo ya construido (`combosEnEsteLote` + chequeo contra `VariantesProducto` existentes, respaldado ahora también por el índice único de BD agregado el 2026-08-16) — un Color nuevo que coincide con uno ya existente en el mismo Producto se informa como error puntual de esa fila, sin descartar el resto del guardado.
+- Precio de Venta y Stock Mínimo de la fila "+ Nuevo color" (con Talle): un único par de inputs por fila que aplica a **todos** los Talles cargados en esa fila (mismo criterio "sugerido por fila" ya usado en la alta-desde-celda-vacía, no un precio distinto por Talle).
+
+#### 3. ViewModels propuestos (extienden, no reemplazan, los de la Etapa 3.1)
+
+- `StockMatrizAltaGuardarViewModel.TalleConfigId`: pasa de `int` (`[Required]`) a `int?` **sin** `[Required]` — necesario para que una alta de accesorio (sin sistema de Talle) pueda postear sin Talle. Mismo patrón ya usado en `StockCargaMasivaFilaViewModel.TalleConfigId`, donde la obligatoriedad se valida condicionalmente en el Service según si el Modelo tiene `TipoTalle` configurado.
+- `StockMatrizSeccionViewModel`: sin cambios de forma — cuando el Modelo no tiene Talle, se arma con `Talles = []` (lista vacía) y cada `StockMatrizFilaViewModel.Celdas` tiene una única entrada con una clave sentinel reservada (`0`, ya que los `TalleConfigId` reales son siempre positivos por ser autoincrementales) para la celda "Cantidad" única. La vista distingue el layout por `seccion.Talles.Count == 0`.
+- Sin ViewModels nuevos — todo se resuelve extendiendo los 4 ya existentes de la Etapa 3.1 (`StockMatrizCeldaViewModel`, `StockMatrizFilaViewModel`, `StockMatrizAltaGuardarViewModel`, `StockMatrizGuardarViewModel`).
+
+#### 4. Eventos de negocio relevantes
+
+- Alta de Color nuevo con múltiples Talles a la vez: se traduce en **N registros de `Altas`** (uno por Talle con cantidad cargada), todos con el mismo Color tipeado por el usuario — no requiere una entidad "Color" propia en el modelo de datos (sigue sin existir, `Color` es y sigue siendo un campo de texto en `VarianteProducto`, sin catálogo). Cada uno se procesa como alta independiente en su propia transacción, mismo patrón ya vigente.
+- Alta de Color nuevo en accesorio: un único registro de `Altas` con `TalleConfigId = null`.
+
+#### 5. Impacto por capa
+
+- **Application:** `StockMatrizAltaGuardarViewModel.TalleConfigId` → nullable. Sin DTOs nuevos.
+- **Infrastructure:** `StockService.ObtenerMatrizAsync` deja de descartar secciones con `TalleConfig == null` (arma una `StockMatrizSeccionViewModel` con `Talles = []` en su lugar). `StockService.GuardarMatrizAsync`: el loop de `Altas` incorpora la validación condicional de Talle obligatorio (según si el `Modelo` del `ProductoId` de esa alta tiene `TipoTalle` configurado) — mismo criterio que ya usa `GuardarCargaMasivaAsync`.
+- **Web:** `Matriz.cshtml`/`MatrizEditar.cshtml` con el nuevo layout de accesorios + fila "+ Nuevo color" (JS de sincronización análogo al ya construido para Precio/Stock Mínimo sugeridos, extendido para propagar el Color tipeado a cada `Altas[i].Color` de la fila). `Stock/Index.cshtml`: quita 2 botones. `StockController`: sin acciones nuevas — reutiliza `Matriz`/`MatrizEditar` ya existentes.
+- **Datos:** sin migración EF. `TalleConfigId` en `VarianteProducto` ya es nullable (soporta accesorios desde el modelo original).
+
+#### 6. Riesgos de implementación
+
+- **Fila "+ Nuevo color" con Talle es la pieza de UI nueva de mayor riesgo** (mismo perfil que causó D-01/D-02): requiere que TODOS sus inputs (incluida la cantidad por cada columna de Talle) sean opcionales/nullable en el binding, y que cualquier valor decimal (Precio) se renderice con `CultureInfo.InvariantCulture` — checklist explícito a verificar antes de cerrar Implementación, no solo al final.
+- Índices `filaIdx`/`altaIdx` de la vista ya existente crecen con una fila más por sección — sin riesgo nuevo (el contador ya es global y no se reinicia, confirmado por QA el mismo día).
+- Ocultar los botones de `Stock/Index.cshtml` sin eliminar las rutas: verificar que ningún otro lugar del sistema (Dashboard, otros menús) siga linkeando a `/Stock/CargaMasiva` o `/Stock/Ajuste` de forma directa, para no dejar accesos huérfanos sin el contexto de los botones removidos.
+
+#### 7. Historias de usuario
+
+**HU-12.1** — Como Administrador, quiero ver y editar el stock de mis accesorios (sin talle) en la misma Matriz que uso para calzado, para no tener que ir a otra pantalla.
+- AC: al elegir una Marca con Modelos de accesorios, la Matriz muestra una sección por Modelo con una tabla Color | Cantidad.
+- AC: editar la Cantidad de un Color existente guarda igual que en las secciones con Talle (solo si cambió, con Motivo obligatorio).
+
+**HU-12.2** — Como Administrador, quiero dar de alta un Color completamente nuevo para un Modelo con Talle directamente desde la Matriz, para no depender de Carga Masiva.
+- AC: la fila "+ Nuevo color" al final de cada sección con Talle permite tipear un Color y cargar cantidad en una o más columnas de Talle a la vez.
+- AC: si cargo Color pero ninguna cantidad, no se crea nada (silencio, sin error).
+- AC: si el Color+Talle ya existe para ese Producto, se informa el error puntual de esa combinación sin perder el resto del guardado.
+
+**HU-12.3** — Como Administrador, quiero dar de alta un Color nuevo de un accesorio directamente desde la Matriz, con su Precio y Stock Mínimo.
+- AC: la fila "+ Nuevo color" de una sección sin Talle pide Color, Cantidad, Precio de Venta y Stock Mínimo en una sola fila.
+- AC: mismas validaciones de obligatoriedad que la alta con Talle, sin pedir ningún dato de Talle.
+
+**HU-12.4** — Como Administrador, quiero dejar de ver los accesos a "Ajuste manual" y "Carga masiva" en Stock, para no confundirme sobre cuál pantalla usar.
+- AC: `Stock/Index.cshtml` no muestra los botones "Ajuste manual" ni "Carga masiva".
+- AC: las rutas `/Stock/Ajuste` y `/Stock/CargaMasiva` siguen respondiendo si se accede directamente por URL (no se eliminan, solo se ocultan los accesos) — decisión D3, revertible sin deploy de emergencia si hiciera falta.
+
+#### Estado
+DISEÑO FUNCIONAL V12 CERRADO Y APROBADO (decisiones D1–D4 ya confirmadas por el cliente en el gate de Análisis, sin puntos nuevos abiertos en Diseño). Listo para Arquitectura.
+
+## Historial de ajustes
+- 2026-07 (v2.0): Diseño funcional de los 12 cambios (C01-C12) sobre la base v1 (F0-F8) ya implementada — alcance, distribución estándar, flujo de pantallas, ViewModels, contratos por servicio, máquina de estados, reglas de negocio/permisos, impacto por capa, riesgos, plan por etapas.
+- 2026-07-30: V10 — Diseño de carga masiva de stock por Marca + filtros completos en Consulta de Stock.
+- 2026-08-16: V12 — Diseño de extensión de Matriz (accesorios + alta de Color nuevo) y retiro (oculto) de Carga Masiva/Ajuste.
+- 2026-08-16: Reestructuración documental — se agregó el encabezado estándar `## Proyecto:`/`## Ultima actualizacion:`/`## Definiciones vigentes` y este historial, sin tocar el contenido técnico existente.

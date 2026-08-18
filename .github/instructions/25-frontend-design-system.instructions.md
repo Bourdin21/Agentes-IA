@@ -5,12 +5,12 @@ applyTo: "**/Web/**/*.{cshtml,css,js}"
 
 # Librerias UI
 - Bootstrap 5 (override en olvidata-theme.css)
-- Font Awesome 6.5.1
+- Font Awesome 6.5.1 — **self-hosted** desde `wwwroot/lib/fontawesome/` (vigente Agosto 2026, ver seccion "Fuentes e iconos self-hosted" abajo), no CDN
 - jQuery local
-- SweetAlert2
-- DataTables 1.13.8 + Bootstrap 5 theme
-- Select2 + Bootstrap 5 theme
-- DateRangePicker + Moment.js
+- SweetAlert2 (CDN — no auto-hosteado, ver nota abajo)
+- DataTables 1.13.8 + Bootstrap 5 theme (CDN)
+- Select2 + Bootstrap 5 theme (CDN)
+- DateRangePicker + Moment.js (CDN)
 
 # Tokens visuales clave
 - Primary: #2b9de4
@@ -67,6 +67,27 @@ Bug detectado en KOI (2026-08-12): en celdas de tabla angostas, el espacio HTML 
 - Nombre de clase sugerido: `.ov-monto` (o equivalente del proyecto) aplicada explicitamente en el `<td>`/`<span>` del importe — no un selector generico por posicion de columna, para no romper el wrap de columnas de texto largo que si deben poder cortar linea.
 - Si el proyecto ya tiene un helper de formato de moneda (`FormatoMoneda`, `MoneyHelper`, etc.), evaluar que la clase forme parte del propio helper (ej. un metodo que devuelva el HTML completo con el `<span class="ov-monto">`) en vez de depender de que cada vista se acuerde de aplicarla a mano.
 - Este criterio es un estandar de desarrollo para todas las implementaciones futuras (no una decision puntual por proyecto) — mismo patron que el fix de tema oscuro de KOI (Etapa 9), que tambien paso de bug puntual a regla del design system compartido.
+
+# Fuentes e iconos self-hosted (obligatorio, vigente Agosto 2026)
+
+Aplicado sobre el template `blankproject` (repo base de todo proyecto nuevo) a partir de la actualizacion visual de olvidata.com.ar (Astro 4→7, fuentes self-hosted, iconos SVG en vez de CDN — "cero requests a CDNs externos"). Portado al baseline MVC con el mismo objetivo, adaptado a lo que es seguro y de bajo riesgo en un stack server-rendered con Bootstrap 5 + jQuery (no se adopto inline-SVG-por-icono ni un router client-side — ver justificacion abajo).
+
+- **Inter (400/500/600/700)** self-hosted en `wwwroot/fonts/inter/*.woff2`, declarado via `@font-face` en `wwwroot/css/fonts.css` (linkeado antes de `olvidata-theme.css` en `_Layout.cshtml`). Reemplaza el `<link>` a `fonts.googleapis.com` + los `preconnect` — cero requests a Google Fonts.
+- **Font Awesome 6.5.1** self-hosted en `wwwroot/lib/fontawesome/` (css + webfonts woff2 de solid/regular/brands, sin los .ttf de fallback ni v4compatibility — no se usan en el baseline). Reemplaza el `<link>` a `cdnjs.cloudflare.com`. Ningun `<i class="fas fa-...">` existente cambia de markup — es un swap de origen del archivo, no un cambio de icono.
+- **Por que NO se migro a iconos SVG inline (a diferencia de olvidata.com.ar):** requeriria curar y verificar visualmente cada glyph usado (con el riesgo de mapear mal un alias FA5→FA6 sin poder confirmar el render), y tocar cada uso de `<i class="fas fa-X">` en todas las vistas de todo proyecto derivado del template. Self-hostear el paquete FA6 completo logra el mismo objetivo ("cero CDN externo") sin ese riesgo ni ese esfuerzo. Si un proyecto puntual necesita reducir aun mas el peso de assets, evaluar iconos SVG inline ahi como decision de ese proyecto, no como cambio de baseline.
+- **SweetAlert2 / DataTables / Select2 / daterangepicker+Moment siguen via CDN** — no entraron en este alcance (son librerias de interaccion mas pesadas, self-hostearlas requiere gestion de version via libman u otro mecanismo, no es parte de la actualizacion de fuentes/iconos). Evaluar aparte si se vuelve prioridad.
+- **GSAP / animaciones de scroll / fondo animado en canvas — deliberadamente NO portado.** Esos patrones de olvidata.com.ar son apropiados para un sitio de marketing; en pantallas de carga de datos y listados (el grueso de lo que se construye sobre este baseline) suman peso JS y ruido visual sin aportar valor — la app ya tiene microinteracciones sutiles en CSS puro (`.ov-card:hover`, `.ov-stat-card:hover { transform: translateY(-2px) }`, `.btn-ov-primary:hover { transform: translateY(-1px) }`) que cubren el nivel de polish apropiado para este tipo de sistema.
+
+# Tema oscuro (dark/light toggle) — obligatorio en todo proyecto nuevo (vigente Agosto 2026)
+
+Portado desde `la-platense` (Ferreteria La Platense, en produccion real) al template `blankproject`, tras detectar que el template base no tenia el toggle de tema aunque ya proyectos derivados si lo habian construido — ver `docs/patrones/catalogo.yml` PAT-009.
+
+- Preferencia persistida por usuario en `PreferenciaUsuario` (1:1 con `ApplicationUser`, campo `TemaOscuro`) + cookie `crm-tema` (para que el SSR renderice el tema correcto antes de que el JS corra).
+- `<html data-theme="@(Context.Request.Cookies["crm-tema"] ?? "light")">` en `_Layout.cshtml`; toda la paleta oscura se define como override de tokens CSS via `[data-theme="dark"]` en `olvidata-theme.css` — nunca duplicar reglas de componente, solo redefinir `--ov-*`.
+- Boton de toggle en el topbar (icono sol/luna), `POST /Account/ToggleTema` (`[Authorize][ValidateAntiForgeryToken]`) actualiza la DB y renueva la cookie; el JS hace `location.reload()` tras el toggle (no solo cambia el atributo en vivo) para que todo — incluidos componentes que fijan color una sola vez al crearse (ej. Chart.js si el proyecto lo usa) — se re-renderice ya con el tema correcto desde el SSR.
+- El login tambien aplica la preferencia guardada seteando la cookie `crm-tema` al autenticar (no solo el toggle la setea).
+- Requiere `@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery _antiForgery` + `<meta name="csrf-token" content="@_antiForgery.GetAndStoreTokens(Context).RequestToken" />` en el layout para que el fetch del toggle pueda mandar el token.
+- Este criterio es un estandar de desarrollo para todas las implementaciones futuras — el template ya lo trae, no hay que reconstruirlo por proyecto.
 
 # Listados: DataTables + filtros por columna (obligatorio, vigente Julio 2026)
 

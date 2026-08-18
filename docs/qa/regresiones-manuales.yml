@@ -26,7 +26,7 @@
 
 version: 1
 proyecto: ShowroomGriffin
-ultima_actualizacion: 2026-07-02
+ultima_actualizacion: 2026-08-17
 
 regresiones:
 
@@ -738,9 +738,10 @@ regresiones:
     expectativa: "docs/crm-olvidata/definiciones/2-disenador-funcional.md HU-10 CA2: 'pausar/reanudar requiere confirmacion y queda registrado en auditoria (via usuario autenticado, no header compartido)'. El propio implementador lo listo como prueba minima #7 en 5-implementador.md ('pausar/reanudar... queda en AuditLog, verificar en Audit/Index como SuperUsuario')."
     causa_raiz: "IsStandby es un campo estatico sin representacion en base de datos (decision de Arquitectura, ver 3-arquitecto-mvc.md §2: 'flag Standby estatico leido/escrito desde BotController'). El unico mecanismo de auditoria automatica del sistema (AppDbContext.OnBeforeSaveChanges) solo captura cambios sobre EntityEntry del ChangeTracker durante SaveChanges; un toggle que no crea/modifica ninguna entidad nunca genera un AuditEntry, a diferencia de ContactosController.CambiarEstado (que si modifica Contacto.EstadoEmbudo, una entidad real, y por eso si audita correctamente)."
     capa: Web
+    estado: OBSOLETO — ver fix_aplicado
     archivos_fix:
       - path: OlvidataCRM.Web/Controllers/BotController.cs
-        motivo: "PENDIENTE DE AUTORIZACION (Implementador): en TogglePausa, insertar manualmente un AuditLog (UserId/UserName desde User, Action='Update', EntityName='OutboundScheduler', NewValues=JSON con el nuevo valor de IsStandby, Timestamp=DateTime.UtcNow, IpAddress desde HttpContext) y llamar a _db.SaveChangesAsync() antes del redirect. Requiere volver la accion async (hoy es 'IActionResult' sincronico)."
+        motivo: "OBSOLETO — no aplicar. El fix aplicado el 2026-07-17 (ver fix_aplicado abajo) escribia manualmente a _db.AuditLogs dentro de TogglePausa. El 2026-07-28 el cliente pidio explicitamente eliminar la funcionalidad de auditoria en su totalidad (entidad AuditLog, tabla completa via migracion RemoveAuditLog, controller, vistas, sidebar) — como parte de ese alcance se removio tambien, a proposito, el registro manual de auditoria de TogglePausa que este item pedia. Hoy no existe ninguna tabla AuditLogs a la que escribir; reintroducir este fix requeriria recrear toda la funcionalidad de auditoria que el cliente decidio sacar, no es un 'defecto pendiente'. Ver trazabilidad.md 2026-07-28 ('eliminación completa de la pestaña Auditoría') para la decision completa."
     migracion_ef: null
     deteccion_qa:
       tipo: static
@@ -761,6 +762,7 @@ regresiones:
           motivo: "TogglePausa() vuelto async Task<IActionResult>; inserta AuditLog manual (Action=Update, EntityName=OutboundScheduler, NewValues=JSON de IsStandby, UserId/UserName/IpAddress desde el request) y llama _db.SaveChangesAsync() antes del redirect. Fix aditivo, el toggle en si no cambio."
       build: "dotnet build OlvidataCRM.slnx -> Compilacion correcta, 0 Errores (mismos 9 warnings preexistentes, ninguno nuevo)."
       verificacion: "Verificable por codigo y por prueba manual UI (pausar/reanudar + revisar Audit/Index como SuperUsuario), no requiere credenciales externas. Prueba manual UI queda como hand-off a QA."
+      superseded_por: "2026-07-28 — el cliente pidio eliminar la funcionalidad de auditoria en su totalidad (entidad AuditLog, tabla AuditLogs via migracion RemoveAuditLog, AuditController, Views/Audit/, sidebar). El registro manual de este fix en TogglePausa se removio explicitamente como parte de ese alcance (no fue un olvido). Item cerrado como OBSOLETO el 2026-08-14 tras una auditoria de proyecto que lo señalo por error como 'fix documentado pero ausente en el codigo' — la ausencia es correcta y esperada, consecuencia de una decision de producto posterior, no una regresion. Ver trazabilidad.md 2026-07-28 y 2026-08-14."
 
   - id: CRM-002
     modulo: "Contactos / Details (selector 'Cambiar estado')"
@@ -974,6 +976,7 @@ regresiones:
           motivo: "usuarioIds materializado en memoria (ToListAsync + Where en-proceso) en vez de Contains() traducido a SQL IN sobre una coleccion local."
       build: "dotnet build MariHogar.slnx -> Compilacion correcta, 0 Errores (re-verificado por QA el 2026-07-24)."
       verificacion: "Verificado por QA via revision de codigo (MariHogar.Infrastructure/Services/StockService.cs lineas 49-57): el fix esta presente y sigue el mismo patron ya usado en UsersController.GetData. Grep de '.Contains(' sobre todos los Services/Controllers nuevos del sprint (CategoriaService/MarcaService/ProductoService/StockService/ProductosController) no encontro otra ocurrencia del patron riesgoso. Item no estaba catalogado todavia en este archivo pese a que el fix ya se habia aplicado — QA lo cataloga ahora para cumplir la obligacion de trazabilidad cross-proyecto (30-qa-regresiones.instructions.md)."
+    nota_qa_laplatense_etapa3: "Reaparicion del patron en OTRO proyecto (La Platense, rama migracion-catalogo, Etapa 3 migracion de catalogo, detectada por QA el 2026-08-17 por revision de codigo pre-merge, ANTES de aplicar la migracion EF a ninguna base). CatalogoMigracionService tenia dos IN sobre coleccion local de STRING — justo el caso que este item marca como riesgoso — ambos en el camino de PERSISTIR (nunca en el de preview, que retorna antes): (1) ProcesarProductosAsync, 'codigos.Contains(p.Codigo)' con codigos como List<string> del lote; (2) ProcesarCodigosProveedorAsync, 'codigos.Contains(c.CodigoDelProveedor)', idem. El proyecto usa MySql.EntityFrameworkCore 10.0.1, exactamente el provider y version donde este item se reprodujo empiricamente en marihogar. Efecto esperado: el operador ve un preview limpio y el 'Confirmar la importacion' revienta con InvalidOperationException/500 sin importar nada — o sea, el bug se manifiesta recien en el paso mas caro y menos reversible del flujo. Fix aplicado por QA (auto-fix, derivado de este item): NO se uso el 'traer la tabla completa a memoria' del archivos_fix original, porque aca la tabla es Productos con 121.691 filas dentro de un loop de lotes de 500 (244 relecturas del catalogo completo). Se reemplazo por relectura del lote POR Id (coleccion local de int, segura segun nota_qa_sprint4), aprovechando que ambos metodos ya tenian en memoria el mapa codigo->Id / clave->Id de la proyeccion completa que hacen al arrancar: cero consultas extra y semantica identica (ambas proyecciones usan IgnoreQueryFilters, asi que el conjunto alcanzado por Id es el mismo que alcanzaba el IN por string, soft-deleted incluidos). Leccion para el catalogo: el fix canonico de MH-001 ('materializar y filtrar en memoria') solo es aceptable cuando la tabla es chica; en tablas de volumen hay que convertir el IN de string a un IN de Id, no traerse la tabla."
     nota_qa_sprint4: "Refinamiento de alcance (marihogar, Sprint 4, 2026-07-24): QA encontro un nuevo caso del patron generico 'Where(coleccionLocal.Contains(...))' en CCProveedorService.ObtenerSaldosAsync ('_db.MovimientosCCProveedor.Where(m => ids.Contains(m.ProveedorId))' con ids como HashSet<int> local, consumido por ProveedorService.ListarAsync para la columna Saldo de Proveedores/Index) y lo reprodujo empiricamente contra marihogar_dev (MySQL real, provider MySql.EntityFrameworkCore 10.0.1 tal cual usa el proyecto, NO Pomelo) con un programa C# standalone que invoca el Service real. Resultado: el patron con HashSet<int>/List<int> (tipo primitivo con type mapping trivial) NO reproduce el error -- la consulta se traduce y ejecuta correctamente. Se reprodujo en el mismo experimento, como control, el patron ORIGINAL exacto de este item (HashSet<string> contra _db.Users.Contains) y ESE SI lanza la misma InvalidOperationException ('Expression @usuarioIds ... no type mapping assigned'). Conclusion: el riesgo real de MH-001 es especifico de colecciones locales de tipo string (probablemente por ambiguedad de charset/collation al parametrizar el arreglo), no de int/otros primitivos con mapping directo. CCProveedorService.ObtenerSaldosAsync se confirma seguro (PASS), sin necesidad de auto-fix. Se deja esta nota para que futuros ciclos de QA no traten como bloqueante cada '.Contains()' sobre coleccion local de tipo primitivo (int/long/etc.), y sigan poniendo el foco de grep en colecciones de string (ids de Identity, codigos, etc.)."
 
   - id: MH-002
@@ -1300,3 +1303,158 @@ regresiones:
           motivo: "moment(d).format('DD/MM/YYYY') -> moment.utc(d).format('DD/MM/YYYY') en la columna fecha."
       build: "dotnet build MariHogar.slnx -c Release --no-incremental -> Compilacion correcta, 0 Errores (9 warnings preexistentes de siempre, ninguno nuevo) — el fix es JS puro dentro de vistas Razor, sin impacto de compilacion C#, re-verificado por QA despues del cambio."
       verificacion: "Verificado por QA con un programa C# standalone (referenciando MariHogar.Infrastructure + MariHogar.Web, conectado a marihogar_dev real) que reproduce exactamente la serializacion JSON de MVC con el converter nuevo registrado y simula la conversion de huso horario que aplicaria moment.js en un navegador Argentina: confirmado que un Gasto real (Id=480, Fecha=2025-05-05T00:00:00 Unspecified) se serializa como '2025-05-05T00:00:00Z' y que moment(d) (sin .utc()) lo mostraria como 04/05/2025 (bug), mientras que moment.utc(d) lo muestra como 05/05/2025 (correcto, mismo dia guardado). No reproducido en navegador real (regla de proceso de este proyecto: QA no automatiza UI) — el usuario debe confirmar visualmente en las 3 pantallas antes de dar el sprint por cerrado, ya que no hay Entregas ni Cheques cargados todavia en marihogar_dev para verificar esos 2 casos con datos reales (si se replican con Gastos, que si tiene datos, el patron es identico)."
+
+  - id: MH-010
+    modulo: "Ventas — Crear/Editar (campos de plata sobre jquery.maskMoney.js: Precio contado/tarjeta, Subtotal, Monto de pago, Total editable)"
+    titulo: "jquery.maskMoney.js nunca dispara el evento nativo 'input' del navegador durante la escritura — solo dispara 'change' de jQuery, y unicamente al perder el foco — por lo que un handler que sincroniza el array JS de estado escuchando solo 'input' queda desactualizado con lo que el usuario tipeo hasta que el campo hace blur"
+    severidad: critical
+    reproducido_en: "marihogar - master (working tree), reportado por el cliente el 2026-08-15 ('al crear la venta con los pagos configurados, estos se guardan en un solo pago') sobre una Venta real (#660/#661, Total $24.999,81) — causa raiz confirmada por lectura linea por linea de jquery.maskMoney.js (MariHogar.Web/wwwroot/lib/maskmoney/jquery.maskMoney.js), no por reproduccion en navegador (regla de proceso de este proyecto: no se levanta la app)."
+    pasos:
+      - "Como cualquier rol, ir a Ventas/Create, agregar 1+ productos al carrito."
+      - "En 'Formas de pago', click 'Agregar' para crear una linea (metodo Efectivo, monto default = saldo pendiente)."
+      - "Escribir un monto PARCIAL en el campo de esa linea (ej. reemplazar el default por un valor menor) SIN hacer click/tab fuera del campo todavia."
+      - "Click 'Agregar' de nuevo para crear una segunda linea, o directamente click 'Confirmar venta' sin haber perdido el foco del primer campo antes."
+    sintoma: "La pantalla muestra el monto tipeado correctamente en cada campo (el plugin gestiona el enmascarado visual internamente), pero al confirmar la venta se guarda un unico PagoVenta con el monto ORIGINAL/default de la primera linea (o el total completo), y cualquier segunda linea con monto vacio/null se descarta silenciosamente por el filtro 'monto > 0'. Mismo patron de perdida de dato silenciosa aplica a los campos de Precio contado/tarjeta y Subtotal editables por Administrador, y al Total editable con reparto proporcional (CR-24.3)."
+    expectativa: "El array JS que arma el payload de guardado (pagos[idx].monto, carrito[idx].precioUnitario/precioTarjeta/subtotal) debe reflejar siempre el ultimo valor visible en pantalla al momento de confirmar/guardar, sin depender de que el campo pierda el foco antes."
+    causa_raiz: "jquery.maskMoney.js intercepta cada tecla (digitos, backspace, delete) con event.preventDefault() en sus handlers de keypress/keydown y escribe el nuevo valor via $input.val(...) de forma programatica (funciones internas applyMask/maskAndPosition) — .val() de jQuery NUNCA dispara el evento nativo 'input' del DOM. El unico evento que el plugin dispara es un 'change' sintetico de jQuery, y solo dentro de blurEvent (linea 'if ($input.val() !== onFocusValue) { $input.change(); }'), es decir unicamente cuando el campo pierde el foco Y el valor cambio desde que lo gano. Los handlers de Ventas/Create.cshtml y Ventas/Edit.cshtml (.inp-precio-venta, .inp-preciotarjeta-venta, .inp-subtotal-venta, .inp-monto-pago, #inpTotalVenta) escuchaban unicamente $(document).on('input', selector, ...) — evento que en la practica nunca se dispara durante la escritura en estos campos — dejando el array JS congelado en el valor con el que se creo la fila hasta que un blur incidental (ej. clickear otro control) disparara el 'change' que nadie escuchaba tampoco."
+    capa: Web
+    archivos_fix:
+      - path: MariHogar.Web/Views/Ventas/Create.cshtml
+        motivo: "Los 5 handlers .inp-precio-venta / .inp-preciotarjeta-venta / .inp-subtotal-venta / .inp-monto-pago / #inpTotalVenta pasan de escuchar solo 'input' a escuchar 'input change'. Ademas, el handler de '.btn-confirmar-venta' relee explicitamente cada campo .money visible del DOM (leerMoney) y sincroniza carrito[idx]/pagos[idx] justo antes de armar itemsPayload/pagosPayload, como defensa adicional por si el ultimo campo editado no llego a perder el foco antes del click."
+      - path: MariHogar.Web/Views/Ventas/Edit.cshtml
+        motivo: "Mismo fix en los 3 handlers .inp-precio-venta / .inp-preciotarjeta-venta / .inp-subtotal-venta (no tiene Formas de pago ni Total editable), mas la misma relectura defensiva en '#btnGuardarVenta' antes de armar itemsPayload."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Ventas/Create — '#listaPagos .inp-monto-pago', '.inp-precio-venta', '.inp-preciotarjeta-venta', '.inp-subtotal-venta', '#inpTotalVenta'"
+      condicion_falla: "Escribir un monto en un campo .money (sin blur), agregar una segunda linea/campo y confirmar/guardar -> el valor persistido en base difiere del ultimo valor mostrado en pantalla para ese campo antes del blur."
+    criterio_aceptacion:
+      - "Agregar 2+ lineas de pago con metodos y montos distintos (que sumen el total) sin clickear fuera de ningun campo entre pasos -> Confirmar venta -> se crean N PagoVenta, cada uno con el monto exacto tipeado en su linea."
+      - "Editar el Precio contado/tarjeta o el Subtotal de un item y clickear directo en 'Confirmar venta' (sin blur previo del campo editado) -> el valor guardado en VentaItem coincide con el ultimo tipeado, no con el valor por defecto de la linea."
+      - "Editar el Total (CR-24.3) y confirmar sin blur previo -> el reparto proporcional usa el ultimo total tipeado."
+    pruebas_minimas:
+      - "Venta con 2 lineas de pago (Efectivo parcial + Transferencia por el resto) que sumen el Total exacto -> Details debe mostrar 2 PagoVenta, no 1."
+      - "Como Administrador, editar el Precio tarjeta de un item y confirmar sin tocar otro campo antes -> VentaItem.PrecioTarjeta persistido coincide con el tipeado."
+    fix_aplicado:
+      fecha: "2026-08-15"
+      por: "orquestador"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Web/Views/Ventas/Create.cshtml
+          motivo: "'input' -> 'input change' en los 5 handlers de campos .money + relectura defensiva del DOM en el click de Confirmar venta."
+        - path: MariHogar.Web/Views/Ventas/Edit.cshtml
+          motivo: "'input' -> 'input change' en los 3 handlers de campos .money + relectura defensiva del DOM en el click de Guardar cambios."
+      build: "Sin impacto de compilacion C# (fix 100% JS dentro de vistas Razor) — Domain/Application/Infrastructure re-verificados con dotnet build en el mismo ciclo (0 errores); MariHogar.Web no se pudo re-compilar por lock del servidor de desarrollo del usuario corriendo en paralelo (mismo patron ya documentado en este proyecto), vistas Razor se recompilan en caliente sin reinicio."
+      verificacion: "Verificado por lectura linea por linea de jquery.maskMoney.js (keypressEvent/keydownEvent/applyMask/blurEvent) confirmando que 'change' es el unico evento disparado y solo en blur. No reproducido en navegador (regla de proceso: no se levanta la app) — pendiente confirmacion visual del usuario con una venta real de 2+ formas de pago antes de dar el hallazgo por cerrado del todo."
+    documentado_tambien_en: "C:/Sistemas/Agentes-IA/.github/instructions/23-web.instructions.md (regla generica 'jquery.maskMoney.js — nunca escuchar solo input en un campo enmascarado', aplicable a cualquier proyecto que reutilice este plugin vendored, ej. delicias-naturales)."
+
+  - id: MH-011
+    modulo: "Facturacion AFIP — precarga de items al facturar (ComprobanteAfipService.ObtenerPrecargaAsync)"
+    titulo: "La precarga de PrecioUnitario en la pantalla de Facturar siempre usa el precio 'Negro' (VentaItem.PrecioUnitario) aunque la linea se haya vendido a precio 'Con IVA' (TipoPrecio=Tarjeta), precargando sistematicamente un valor mas bajo que lo realmente cobrado"
+    severidad: major
+    reproducido_en: "marihogar - master (working tree), hallazgo propio durante auditoria completa del proyecto (15/08/2026), confirmado por lectura de codigo, no reproducido en navegador."
+    pasos:
+      - "Crear una Venta con al menos 1 item vendido a precio 'Con IVA (21%)' (TipoPrecio=Tarjeta) y confirmarla."
+      - "Ir a Ventas/Details de esa venta y abrir la pantalla 'Facturar' (ComprobanteAfip)."
+      - "Observar el PrecioUnitario precargado para esa linea."
+    sintoma: "El PrecioUnitario precargado es el precio 'Negro' de la linea (VentaItem.PrecioUnitario, el precio base sin el 21%), no el precio realmente cobrado (VentaItem.Subtotal / Cantidad), aunque la venta se haya cobrado a precio Con IVA — el Administrador puede corregirlo a mano (CR-25, la Venta es precarga/referencia), pero el valor por defecto queda sistematicamente por debajo de lo cobrado, con riesgo real de subfacturar si no se corrige."
+    expectativa: "La precarga debe reflejar el precio unitario REAL de la linea tal como se cobro (Subtotal/Cantidad), sea cual sea el TipoPrecio elegido — el Administrador sigue pudiendo editarlo, pero el default no debe requerir correccion manual en el caso mas comun (linea vendida Con IVA)."
+    causa_raiz: "ComprobanteAfipService.ObtenerPrecargaAsync mapeaba VentaItemParaFacturarDto.PrecioUnitario directo desde VentaItem.PrecioUnitario, campo que SIEMPRE guarda el precio 'Negro'/contado de la linea (ver VentaService.ConfirmarAsync) independientemente del TipoPrecio elegido — el recargo del 21% de una linea Con IVA vive en VentaItem.Subtotal, no en PrecioUnitario."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/ComprobanteAfipService.cs
+        motivo: "ObtenerPrecargaAsync: PrecioUnitario del DTO pasa de 'i.PrecioUnitario' a 'i.Cantidad > 0 ? Math.Round(i.Subtotal / i.Cantidad, 2) : i.PrecioUnitario' — precarga el precio unitario real cobrado en vez del precio Negro fijo."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "GET pantalla Facturar de una Venta con al menos 1 VentaItem.TipoPrecio=Tarjeta — comparar VentaItemParaFacturarDto.PrecioUnitario contra VentaItem.Subtotal/Cantidad."
+      condicion_falla: "PrecioUnitario precargado != Subtotal/Cantidad para una linea con TipoPrecio=Tarjeta."
+    criterio_aceptacion:
+      - "Venta con 1+ lineas a precio Con IVA -> pantalla Facturar precarga PrecioUnitario = Subtotal/Cantidad de cada linea, no el precio Negro."
+      - "Venta con todas las lineas a precio Negro (Contado) -> sin cambio de comportamiento (Subtotal/Cantidad coincide con PrecioUnitario en ese caso)."
+    pruebas_minimas:
+      - "Venta con 1 item Cantidad=2, PrecioUnitario=1000 (Negro), TipoPrecio=Tarjeta -> Subtotal=2420 (1000x1,21x2) -> pantalla Facturar debe precargar PrecioUnitario=1210, no 1000."
+    fix_aplicado:
+      fecha: "2026-08-15"
+      por: "orquestador"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/ComprobanteAfipService.cs
+          motivo: "Precarga de PrecioUnitario corregida a Subtotal/Cantidad."
+      build: "dotnet build MariHogar.Infrastructure/MariHogar.Infrastructure.csproj -c Debug -> Compilacion correcta, 0 errores."
+      verificacion: "Verificado por lectura de codigo (cambio de 1 linea de mapeo DTO). No reproducido en navegador (regla de proceso: no se levanta la app) — pendiente confirmacion visual del usuario facturando una venta real con lineas Con IVA."
+
+  # ── Entradas especificas del proyecto ShowroomGriffin (BlankProject .NET 10 + EF Core + MySQL) ──
+
+  - id: SG-001
+    modulo: "Stock / MatrizEditar (grilla pivot Color x Talle con altas desde celdas vacias)"
+    titulo: "Una grilla que postea inputs numericos opcionalmente vacios contra un ViewModel con tipos de valor NO nullables bloquea el POST completo por error de model binding, sin guardar ninguna fila valida"
+    severidad: critical
+    reproducido_en: "main (commit f400671, ya desplegado a produccion)"
+    pasos:
+      - "Como Administrador, ir a /Stock/Matriz y elegir una Marca cuya tabla muestre al menos una celda vacia '—'."
+      - "Pulsar 'Editar stock de esta marca' para entrar a /Stock/MatrizEditar?marcaId=X."
+      - "Modificar la cantidad de una o mas celdas que SI tienen stock."
+      - "Dejar vacias todas las celdas '—' (caso normal: el usuario no quiere dar de alta esos talles)."
+      - "Escribir un Motivo y pulsar 'Guardar cambios', confirmando el dialogo SweetAlert2."
+    sintoma: "Aparece un toast rojo de error con un mensaje generico de framework (tipo \"The value '' is invalid.\") y NO se guarda absolutamente nada: ni las altas ni las celdas existentes que se habian editado correctamente. El historial de movimientos de stock queda sin registros nuevos."
+    expectativa: "Se guardan las celdas modificadas y las celdas '—' vacias se ignoran en silencio (criterio explicito del propio servicio: 'if (alta.CantidadNueva <= 0) continue; // el usuario no cargo nada en esta celda')."
+    causa_raiz: "Doble causa independiente, ambas en la frontera vista <-> ViewModel. (1) StockMatrizAltaGuardarViewModel declara CantidadNueva como int, PrecioVenta como decimal y StockMinimo como int — tipos de valor NO nullables — mientras MatrizEditar.cshtml renderiza el input de cantidad SIN atributo value. Un <input type=number> vacio postea cadena vacia; SimpleTypeModelBinder la convierte a null y, al no ser el tipo nullable, agrega error de ModelState via ValueMustNotBeNullAccessor, por lo que el guard !ModelState.IsValid del controller retorna antes de invocar el servicio. El ViewModel analogo de Carga Masiva (StockCargaMasivaFilaViewModel) si usa int?/decimal?, por eso esa pantalla no falla. (2) La cultura global de la app es es-AR, asi que Razor serializa el decimal sugerido con coma decimal ('45000,00'); el algoritmo de saneamiento de valor de HTML5 deja vacio cualquier input type=number cuyo valor no sea un valid floating-point number, y la funcion JS que sincroniza el precio de la fila hacia los hidden de cada alta copia ese vacio SOBRE el hidden que el servidor ya habia renderizado bien — destruyendo un valor correcto y produciendo el mismo error de binding por una segunda via."
+    capa: Application + Web
+    archivos_fix:
+      - path: ShowroomGriffin.Application/DTOs/Stock/StockViewModels.cs
+        motivo: "StockMatrizAltaGuardarViewModel: pasar CantidadNueva/PrecioVenta/StockMinimo a int?/decimal?/int? (misma forma que StockCargaMasivaFilaViewModel)."
+      - path: ShowroomGriffin.Infrastructure/Services/StockService.cs
+        motivo: "GuardarMatrizAsync: ajustar los guards del loop de Altas a HasValue antes de comparar/usar los valores."
+      - path: ShowroomGriffin.Web/Views/Stock/MatrizEditar.cshtml
+        motivo: "Renderizar el precio sugerido con CultureInfo.InvariantCulture, y en sincronizarPrecioYMinimoDeAltas() no sobrescribir el hidden cuando el input visible este vacio."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "Cualquier vista que postee inputs indexados opcionales (Coleccion[i].Campo) contra un ViewModel cuyo miembro correspondiente sea un tipo de valor no nullable (int/decimal/DateTime sin ?); y cualquier <input type=number> cuyo value se renderice desde un decimal bajo una cultura con coma decimal."
+      condicion_falla: "Existe al menos un input del formulario que puede quedar vacio y cuyo miembro destino en el ViewModel NO es nullable; o un input type=number con value renderizado desde decimal/decimal? sin CultureInfo.InvariantCulture."
+    criterio_aceptacion:
+      - "Guardar la Matriz de una marca con celdas '—' vacias persiste las celdas modificadas y no reporta error."
+      - "El input de Precio por fila muestra el precio sugerido, no un campo vacio."
+      - "Cargar una cantidad en una celda '—' crea la variante con el precio y stock minimo sugeridos correctos."
+      - "Los mensajes de error que ve el usuario son de negocio (en castellano), nunca mensajes de model binding del framework."
+    pruebas_minimas:
+      - "Editar 2 celdas con stock dejando todas las '—' vacias -> debe guardar."
+      - "Editar 2 celdas y ademas cargar cantidad en 1 celda '—' -> debe guardar ambas cosas."
+      - "Vaciar a mano el precio de una fila y cargar una '—' de esa fila -> debe dar error de negocio claro, no error de binding."
+      - "Regresion: /Stock/CargaMasiva sigue guardando con filas vacias (ViewModel nullable, no afectado)."
+
+  # ── Entradas especificas del proyecto La Platense (ferreteria, BlankProject .NET 10 + EF Core + MySQL) ──
+
+  - id: LP-001
+    modulo: "Clasificacion ABC automatica (ClasificacionAbcAutomaticaService.RecalcularAsync) — Etapa 3, migracion de catalogo"
+    titulo: "El calculo por lote de rotacion ABC agrega ItemVenta de TODAS las Ventas de la ventana sin filtrar Venta.Estado: los borradores (carritos editables que todavia no vendieron) y las ventas anuladas cuentan como cantidad vendida e inflan la clase ABC sugerida del producto"
+    severidad: major
+    reproducido_en: "migracion-catalogo (cambios sin commitear, revision de codigo pre-merge)"
+    pasos:
+      - "Como Administrador, crear una Venta nueva y agregar un item con una cantidad alta de un producto que normalmente no rota (ej. 500 unidades)."
+      - "Dejar la venta en estado Borrador — NO facturarla (no emitir comprobante AFIP)."
+      - "Ir a /Stock y ejecutar 'Recalcular clasificacion ABC' con ventana de 12 meses."
+      - "Abrir el producto del borrador en /Productos/Edit y mirar la clasificacion ABC sugerida."
+    sintoma: "El producto del borrador aparece con clasificacion ABC sugerida 'A' (o 'B') pese a no tener ninguna venta real: el resumen del recalculo lo cuenta en 'productos con ventas en el periodo' y le sugiere una clase alta. Borrar el borrador o dejarlo abandonado no revierte la sugerencia hasta el siguiente recalculo. En un sistema con el modulo de anulacion por nota de credito ya implementado, el mismo efecto lo produce una venta Anulada."
+    expectativa: "Solo los items de Ventas efectivamente consumadas (Estado == Facturada) cuentan como cantidad vendida para el Pareto. Un Borrador no vendio nada y una Anulada se revirtio: ninguno de los dos debe influir en la rotacion. Es el mismo criterio que ya aplica DashboardService.ObtenerProductosMasVendidos sobre la misma agregacion."
+    causa_raiz: "La query de agregacion filtra unicamente por rango de fechas sobre la navegacion (i.Venta.Fecha >= desdeUtc && i.Venta.Fecha <= hastaUtc) y omite el predicado de estado de la entidad padre. ItemVenta existe desde que se agrega la linea al Borrador (la Venta nace editable en este proyecto y se vuelve inmutable al facturar), por lo que la tabla hija contiene filas que no representan ninguna venta consumada. Patron generalizable: un calculo agregado sobre filas hijas debe filtrar por el estado actual de la entidad padre, contra el conjunto explicito de estados validos (== Facturada), nunca por fecha sola ni por una comparacion negativa generica (!= Borrador) que dejaria pasar los estados terminales como Anulada."
+    capa: Infrastructure
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/ClasificacionAbcAutomaticaService.cs
+        motivo: "RecalcularAsync: agregar i.Venta.Estado == EstadoVenta.Facturada al Where de la agregacion de ItemsVenta, y documentar el criterio en el XML-doc de la clase (punto 2)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "Cualquier agregacion/ranking/Pareto sobre una tabla hija de un documento con maquina de estados (ItemVenta, ItemCompra, DetalleRemito): revisar que el Where incluya el estado del padre, no solo el rango de fechas."
+      condicion_falla: "Existe una query que agrupa/suma filas hijas de un documento con estados (Borrador/Facturada/Anulada, Borrador/Generada/Cancelada) filtrando por fecha del padre pero SIN filtrar su Estado contra el conjunto explicito de estados consumados."
+    criterio_aceptacion:
+      - "El recalculo ABC ignora por completo los items de Ventas en Borrador y en Anulada."
+      - "El contador 'productos con ventas en el periodo' del resumen del recalculo coincide con la cantidad de productos que aparecen en ventas Facturadas de la ventana."
+      - "El criterio de estado esta documentado en el XML-doc del servicio, alineado con el codigo."
+      - "El recalculo sigue escribiendo unicamente ClasificacionABCSugerida, nunca ClasificacionABC."
+    pruebas_minimas:
+      - "Venta en Borrador con cantidad alta de un producto sin rotacion -> recalcular -> el producto NO debe quedar A/B por ese borrador."
+      - "Facturar esa misma venta -> recalcular -> ahora si debe reflejarse en la sugerencia."
+      - "Regresion: el resumen del recalculo (A/B/C y productos con venta) sigue devolviendo numeros coherentes con el total del catalogo."
+      - "Regresion: 'Aceptar sugerencia' en la ficha de producto sigue copiando la sugerencia al campo manual."

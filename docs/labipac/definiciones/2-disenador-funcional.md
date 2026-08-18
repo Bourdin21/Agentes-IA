@@ -1,274 +1,134 @@
-﻿# Memoria - Disenador funcional
+# Memoria - Disenador funcional
 
 ## Proyecto: labipac
-## Ultima actualizacion: 2026-07-23 (sesion 3 — diseno de Produccion Mensual por Centro de Salud)
-
-## Sesion 3 (2026-07-23) — Diseno funcional: Produccion Mensual por Centro de Salud
-
-Input: `1-analista-funcional.md` sesion 5, ANALISIS CERRADO, P11-P14 confirmadas.
-
-### 1. Alcance funcional resumido
-1. ABM nuevo de Centros de Salud (catalogo simple: Nombre, Tipo Privado/Mutual, Activo).
-2. `ProduccionMensual` gana selector opcional de Centro de Salud al crear el periodo; RN-11 pasa a validar unicidad por Mes+Anio+CentroSaludId.
-3. Listado/historial de Produccion Mensual: columna y filtro por Centro de Salud.
-4. Reporte PDF: nombre del Centro de Salud en el encabezado cuando el periodo lo tiene asignado.
-
-### 2. Flujo de pantallas y wireframes textuales
-
-**WF-13: Centros de Salud Index (pantalla nueva)**
-- Ruta: `GET /CentrosSalud`
-- Mismo patron que WF-01 (Unidades Bioquimicas Index): DataTables client-side, columnas Nombre / Tipo (badge Privado=secondary, Mutual=info) / Estado / Acciones (Editar, Baja logica, Reactivar).
-- Boton "Nuevo Centro de Salud" -> Create.
-
-**WF-14: Centros de Salud Create/Edit (pantalla nueva)**
-- Ruta: `GET/POST /CentrosSalud/Create`, `/CentrosSalud/Edit/{id}`
-- Mismo patron que WF-02: col-md-6, campo Nombre (text, requerido), campo Tipo (select Privado/Mutual), checkbox Activo (solo en Edit).
-
-**Ajuste WF-07 (Produccion Mensual — Crear Periodo):** se agrega campo "Centro de Salud" (Select2 opcional, con opcion vacia "Sin centro asignado (global)" seleccionada por defecto), poblado con `CentroSaludService.GetActivasAsync()`. Sin cambios en el resto del formulario (Mes, Anio, Notas).
-
-**Ajuste WF-06 (Produccion Mensual — Index/Historial):** se agrega columna "Centro de Salud" (muestra nombre o "— Global —" si es null) y un filtro dropdown sobre esa columna (patron DataTables client-side ya usado en otros listados del sistema, ej. filtro de Tipo en Unidades Bioquimicas si existiera, o filtro nuevo estandar `select` ligado a la columna).
-
-**WF-15: Ajuste reporte PDF (sin cambio de pantalla)**
-- En el encabezado del PDF de `ReportePdf`, si `ProduccionMensual.CentroSaludId != null`, se agrega una linea "Centro de Salud: {Nombre} ({Tipo})" debajo del titulo de periodo. Si es null, no se muestra la linea (sin cambio visual respecto a hoy).
-
-### 3. ViewModels propuestos
-
-| VM | Campos | Validaciones |
-|---|---|---|
-| VM-17 `CentroSaludCreateViewModel`/`EditViewModel` | Nombre, Tipo (enum), Activo (solo Edit) | Nombre requerido (<=150), Tipo requerido |
-| VM-18 `CentroSaludRowViewModel` | Id, Nombre, Tipo, Activo | — |
-| VM-06 `ProduccionMensualCreateViewModel` (modificado) | + `CentroSaludId` (int?), + `CentrosSaludDisponibles` (SelectList) | CentroSaludId opcional; si se informa, debe existir y estar activo |
-| VM-07 `ProduccionMensualRowViewModel` (modificado) | + `NombreCentroSalud` (string?, "— Global —" si null) | — |
-| VM-08 `ProduccionMensualDetalleViewModel` (modificado) | + `NombreCentroSalud` (string?) | — |
-
-### 4. Maquina de estados
-No aplica. Sin cambios respecto al alcance original (P4-A).
-
-### 5. Reglas de negocio y permisos
-
-| Ref | Regla | Capa |
-|---|---|---|
-| RN-22 | `CentroSalud.Nombre` obligatorio, <=150 caracteres | DataAnnotation |
-| RN-23 | `CentroSalud.Tipo` obligatorio (Privado o Mutual) | DataAnnotation |
-| RN-24 (reemplaza RN-11) | No puede existir mas de un periodo por combinacion Mes+Anio+CentroSaludId, tratando NULL como un valor propio (solo un periodo "global" sin centro por Mes+Anio) | Service |
-| RN-25 | `CentroSaludId` en `ProduccionMensual` es opcional; si se informa, debe corresponder a un `CentroSalud` activo y no eliminado | Service |
-
-**Permisos:** ABM de Centros de Salud usa `[Authorize]` sin politica especifica, igual que Unidades Bioquimicas y Practicas.
-
-### 6. Impacto funcional por capa
-- **Presentacion:** 1 controller nuevo (`CentrosSaludController`, acciones Index/Create/Edit/Delete/Restore igual que `UnidadesBioquimicasController`), 2 vistas nuevas (Index, Create/Edit compartido), ajustes en `ProduccionMensualController` (Create GET/POST agregan CentroSaludId), `Views/ProduccionMensual/Crear.cshtml` (selector nuevo), `Views/ProduccionMensual/Index.cshtml` (columna+filtro), `ReportePdf` (linea de encabezado condicional).
-- **Negocio:** nuevo contrato `ICentroSaludService` (mismo shape que `IUnidadBioquimicaService`: GetAllAsync, GetActivasAsync, GetByIdAsync, CreateAsync, UpdateAsync, DeleteAsync, RestoreAsync); `IProduccionMensualService.CreateAsync` ajusta la validacion de unicidad (RN-24 reemplaza RN-11).
-- **Datos:** nueva entidad `CentroSalud` (hereda SoftDestroyable) + nuevo enum `TipoCentroSalud` (Privado, Mutual). Campo nuevo `ProduccionMensual.CentroSaludId` (FK nullable). Migracion EF requerida.
-
-### 7. Riesgos y supuestos
-- DD-04: la unicidad Mes+Anio+CentroSaludId con NULL como valor propio no es un unique index nativo simple en MySQL — se resuelve en Service con una consulta explicita que distingue el caso NULL (mismo patron ya usado para RA-03 de la arquitectura original de Mes+Anio).
-- DD-05: se acepta la convivencia de nombres duplicados entre `CentroSalud` y `Mutual` (FABA) sin vinculo — decision explicita del cliente (P12), no es un defecto.
-- Riesgo heredado: ninguno nuevo sobre el flujo de snapshot de precios ni el calculo de totales (sin cambios).
-
-### 8. Plan funcional por etapas (para Arquitectura)
-- **Etapa unica** (alcance chico, sin dependencias internas entre los 3 items): ABM Centro de Salud (base) -> selector en Crear Periodo + RN-24 (depende del ABM) -> columna/filtro en Index + ajuste PDF (independientes entre si, pueden ir en paralelo).
-
-### Historias de usuario
-
-**HU-06** — Como usuario del sistema, quiero cargar un periodo de Produccion Mensual para un Centro de Salud especifico (privado o mutual), para poder llevar la produccion separada por cliente.
-- AC: al crear un periodo, puedo elegir opcionalmente un Centro de Salud de un listado de activos.
-- AC: puedo crear varios periodos para el mismo Mes/Anio si cada uno tiene un Centro de Salud distinto (o uno solo sin centro).
-- AC: si intento crear un periodo duplicado (mismo Mes+Anio+Centro, o mismo Mes+Anio sin centro ya existente), el sistema lo impide con un mensaje claro.
-
-**HU-07** — Como usuario del sistema, quiero administrar un catalogo simple de Centros de Salud, para poder darlos de alta antes de asignarlos a un periodo.
-- AC: puedo crear, editar y dar de baja logica un Centro de Salud con Nombre y Tipo (Privado/Mutual).
-- AC: el catalogo distingue visualmente el Tipo con un badge.
-
-**HU-08** — Como usuario del sistema, quiero ver y filtrar el historial de Produccion Mensual por Centro de Salud, para ubicar rapido los periodos de un cliente puntual.
-- AC: el listado muestra una columna con el nombre del Centro de Salud o "— Global —" si no tiene.
-- AC: puedo filtrar el listado por Centro de Salud.
-
-**HU-09** — Como usuario del sistema, quiero que el PDF de un periodo muestre el Centro de Salud al que corresponde, para poder identificarlo al imprimirlo o enviarlo.
-- AC: si el periodo tiene Centro de Salud asignado, el PDF lo muestra en el encabezado.
-- AC: si no tiene, el PDF se ve igual que hoy (sin la linea).
-
-### Estado
-DISENO FUNCIONAL DE SESION 3 CERRADO. Listo para revision del arquitecto.
-
-## Sesion 2 (2026-07-08) — Diseno funcional de 3 mejoras
-
-Input: `1-analista-funcional.md` sesion 4, ANALISIS CERRADO, preguntas P6-P10 confirmadas.
-
-### 1. Alcance funcional resumido
-1. Pantalla nueva de carga masiva de lineas de Produccion Mensual (filas repetibles, un submit) + alta rapida inline de Perfiles y Practicas (modales AJAX) sin salir de la pantalla.
-2. Propiedad `Unidad` en Perfil (entidad `Practica`) + configuracion global `PrecioPorUnidad` (editable a mano + boton de aumento %), ubicada en el listado de Perfiles. El precio del Perfil pasa a ser 100% calculado (`Unidad x PrecioPorUnidad`), se retira la edicion manual y se ajusta F-001 (Aumento masivo) para excluir Perfiles.
-3. Fix de ancho de columna "Precio unit." en el reporte PDF de Produccion Mensual.
-
-### 2. Flujo de pantallas y wireframes textuales
-
-**WF-11: Produccion Mensual — Carga Masiva (pantalla nueva)**
-- Ruta: `GET/POST /ProduccionMensual/CargaMasiva/{produccionMensualId}`
-- Se accede desde un boton nuevo "Carga masiva" junto a "Agregar ítem" en `Detalle.cshtml`.
-- Header: titulo "Carga masiva — {Periodo}" + badge Periodo historico (mismo patron ya usado, P5-B) + boton "Volver al detalle".
-- Card con tabla dinamica de filas (manejada por JS, sin DataTables — es un formulario, no un listado):
-  - Columnas por fila: Tipo (radio/select Perfil|Practica) · Item (Select2 dependiente del tipo, con opcion "+ Crear nuevo…" al final de la lista) · Cantidad · Precio unitario (autocompletado por AJAX `GetPrecioItem` existente, editable, con aviso de periodo historico igual que hoy) · Subtotal (solo lectura, JS) · Accion Quitar fila.
-  - Boton "+ Agregar fila" al pie de la tabla (clona fila plantilla, minimo 1 fila visible siempre).
-  - Total general (JS, suma de subtotales) visible al pie, antes del boton final.
-  - Boton "Guardar todas las líneas" (submit unico, POST de todas las filas). Boton "Cancelar" vuelve a Detalle sin guardar nada.
-- Modal Alta Rapida Perfil (se abre desde "+ Crear nuevo…" del select de Perfil en cualquier fila): Nombre + Unidad. Muestra "Precio calculado: $ X" en vivo (JS, Unidad × PrecioPorUnidad vigente inyectado en la vista). Sin exigencia de composicion (DD-01, ver Riesgos). Al guardar (AJAX), se inserta como nueva opcion seleccionada en el select de la fila que lo origino, sin recargar la pantalla.
-- Modal Alta Rapida Practica (UnidadBioquimica): Nombre + Precio actual (igual que el ABM existente hoy). Mismo comportamiento de insercion AJAX.
-
-**Ajuste WF-08 (Detalle.cshtml):** se agrega boton "Carga masiva" (btn-outline-primary) junto a "Agregar ítem". El modal "Agregar ítem" existente NO se modifica (sigue sirviendo para alta de una sola linea rapida).
-
-**Ajuste WF-03/WF-04 (Perfiles Index/Create/Edit — hoy "Practicas"):**
-- Index: se agrega columna "Unidad" y se reemplaza la columna "Precio actual" (editable) por "Precio (calculado)" de solo lectura. Se agrega, arriba de la tabla, una card "Precio por Unidad" (mismo patron visual que la card "IVA del período" de `Detalle.cshtml`): valor vigente destacado + input editable con boton "Guardar" + input % con boton "Aumentar %" (confirmacion SweetAlert2, muestra antes/despues de cuantos Perfiles se veran afectados).
-- Create/Edit: se quita el campo "Precio actual" editable. Se agrega campo "Unidad" (numero entero >= 1). Se muestra un texto informativo "Precio calculado: $ X" recalculado en vivo por JS al tipear Unidad (usa `PrecioPorUnidadVigente` inyectado en el ViewModel). La seccion de composicion (Select2 multiple de Unidades Bioquimicas / "Practicas") se mantiene pero pasa a ser **informativa/opcional**, ya no valida contra el precio (se quita el texto "sumatoria de componentes debe superar el precio").
-
-**Ajuste F-001 (`Precios/AumentoMasivo.cshtml`):** se quita el tab "Perfiles" (ya no aplica: el precio de Perfil no se edita manualmente ni cascade). Se agrega una nota informativa: "Los precios de los Perfiles se actualizan automaticamente segun el Precio por Unidad configurado en Perfiles." El tab "Practicas" (UnidadBioquimica) sigue igual, sin cambios de logica.
-
-**WF-12: Fix reporte PDF (sin cambio de pantalla, solo ajuste de reporte)**
-- Columna "Precio unit." pasa de 55 a 75 puntos de ancho fijo en la tabla del PDF (`ProduccionMensualController.ReportePdf`). Se ajusta "Tipo" de 65 a 60 para compensar y mantener balance visual en A4 portrait.
-
-### 3. ViewModels propuestos
-
-| VM | Campos | Validaciones |
-|---|---|---|
-| VM-12 `ProduccionCargaMasivaViewModel` | ProduccionMensualId, Periodo, EsPeriodoHistorico, List\<VM-13\> Filas, PerfilesDisponibles, PracticasDisponibles | Al menos 1 fila con Cantidad >= 1 |
-| VM-13 `ProduccionCargaMasivaFilaViewModel` | TipoItem (enum), ItemId, Cantidad, PrecioSnapshot | Cantidad entero >=1, PrecioSnapshot >=0, TipoItem+ItemId requeridos, sin duplicados TipoItem+ItemId dentro del mismo submit (RN-13) |
-| VM-14 `PerfilAltaRapidaViewModel` | Nombre, Unidad | Nombre requerido (<=150), Unidad entero >=1 |
-| VM-15 `PracticaAltaRapidaViewModel` (UnidadBioquimica) | Nombre, PrecioActual | Igual que ABM existente hoy (Nombre requerido, Precio >=0) |
-| VM-16 `PrecioPorUnidadViewModel` | ValorActual, NuevoValor (edicion manual), PorcentajeAumento (accion aumento) | ValorActual/NuevoValor >=0; PorcentajeAumento 0,01-999,99 |
-| VM-03 `PracticaCreateViewModel` (modificado) | Nombre, **Unidad** (nuevo, reemplaza PrecioActual editable), PrecioPorUnidadVigente (solo lectura, para JS), UnidadBioquimicaIds (ahora opcional), UnidadesDisponibles | Unidad entero >=1. Se quita validacion RN-01 |
-| VM-04 `PracticaRowViewModel` (modificado) | + campo **Unidad** | — |
-
-### 4. Maquina de estados
-No aplica (confirmado en analisis original, P4-A). Los 3 items no introducen estados nuevos.
-
-### 5. Reglas de negocio y permisos
-
-| Ref | Regla | Capa |
-|---|---|---|
-| RN-12 | Guardado de carga masiva es atomico: todas las filas se guardan en una unica transaccion o ninguna | Service |
-| RN-13 | No se permite la misma combinacion TipoItem+ItemId repetida dentro del mismo submit de carga masiva | Service + validacion cliente |
-| RN-14 | Alta rapida de Perfil no exige composicion (relaja RN-02 solo para este flujo); queda "sin composicion" hasta completarla luego en Perfiles/Edit | Service |
-| RN-15 | Alta rapida de Practica (UnidadBioquimica) sin cambios respecto al ABM existente | Service |
-| RN-16 | `Practica.PrecioActual = Unidad * PrecioPorUnidad.ValorVigente`, recalculado al crear/editar el Perfil y en cada cambio del `PrecioPorUnidad` global (recalculo batch de todos los Perfiles activos) | Service |
-| RN-17 | `Unidad` es entero, obligatorio, >= 1 | DataAnnotation |
-| RN-18 | `PrecioPorUnidad.Valor` obligatorio, >= 0 | DataAnnotation + Service |
-| RN-19 | Aumento %: `NuevoValor = round(ValorActual * (1 + %/100), 2)`, aplica sobre el unico valor global, dispara recalculo batch de todos los Perfiles activos | Service |
-| RN-20 | DEROGADA: RN-01 (precio Perfil < sumatoria de componentes) ya no aplica a Perfiles | — |
-| RN-21 | F-001 (`Precios/AumentoMasivo`) deja de ofrecer edicion/cascade sobre Perfiles; sigue aplicando sin cambios sobre Practicas (UnidadBioquimica) | Web |
-
-**Permisos:** alta rapida de Perfil/Practica desde carga masiva usa los mismos permisos que los ABM existentes hoy (`[Authorize]` sin politica especifica). Editar `PrecioPorUnidad` (valor manual o aumento %) requiere `RequireAdministracion` (mismo criterio que F-001 y el guardado de IVA).
-
-### 6. Impacto funcional por capa
-- **Presentacion:** 1 controller nuevo o extendido (`ProduccionMensualController` +3 acciones: `CargaMasiva` GET/POST, `CrearPerfilRapido` AJAX, `CrearPracticaRapido` AJAX), 1 vista nueva (`CargaMasiva.cshtml`) + 2 modales parciales, ajustes en `Detalle.cshtml` (boton nuevo), `Practicas/Index.cshtml` + `Create.cshtml` + `Edit.cshtml` (card Precio por Unidad, columna Unidad, quitar precio editable), `Precios/AumentoMasivo.cshtml` (quitar tab Perfiles), `ReportePdf` (ancho columna).
-- **Negocio:** `IProduccionMensualService` +metodo `AgregarLineasAsync` (batch atomico); `IPracticaService` +logica de recalculo de precio derivado y quitar validacion RN-01; nuevo contrato `IPrecioPorUnidadService` (ObtenerVigente, ActualizarValor, AumentarPorcentaje — dispara recalculo batch).
-- **Datos:** nuevo campo `Practica.Unidad` (int). Nueva entidad/tabla para persistir `PrecioPorUnidad` (valor unico global, con auditoria de quien/cuando lo cambio) — a definir formato exacto en Arquitectura (tabla dedicada vs. fila de configuracion generica). Migracion EF requerida.
-
-### 7. Riesgos y supuestos
-- **DD-01:** se acepta que un Perfil creado por alta rapida quede "sin composicion" (0 Unidades Bioquimicas asociadas) — es un cambio de comportamiento respecto a RN-02 original ("minimo 1 componente"), se relaja porque la composicion ya no determina el precio. Se debe mostrar un badge/aviso "Sin composicion" en el listado de Perfiles para que el usuario la complete si la necesita para otro fin (trazabilidad de laboratorio).
-- **DD-02:** el recalculo batch de todos los Perfiles activos al cambiar `PrecioPorUnidad` reescribe `PrecioActual` de N registros — debe ser una operacion transaccional. Si el volumen de Perfiles crece mucho a futuro, evaluar performance (hoy volumen esperado es bajo, mismo supuesto SA-04 de la arquitectura original).
-- **DD-03:** al guardar una fila de carga masiva para un periodo historico, aplica el mismo aviso P5-B ya vigente (precio pre-completado editable) — no es un caso nuevo, se reutiliza.
-- Riesgo heredado RA-01 (baja logica de UnidadBioquimica con composicion activa en Perfil) ya no aplica al precio (que ahora es independiente de la composicion), pero se mantiene el badge visual informativo si un componente esta inactivo.
-
-### 8. Plan funcional por etapas (para Arquitectura)
-- **Etapa A — Unidad y Precio por Unidad:** campo `Unidad` en Practica, entidad/config `PrecioPorUnidad`, recalculo de precio, ajuste de Perfiles Index/Create/Edit, ajuste de F-001 (quitar tab Perfiles). Es la base de la que depende el resto (el precio mostrado en carga masiva y en el nuevo alta rapida de Perfil depende de esto).
-- **Etapa B — Carga masiva + alta rapida:** pantalla `CargaMasiva`, modales de alta rapida, `AgregarLineasAsync` atomico. Depende de Etapa A para el calculo de precio del alta rapida de Perfil.
-- **Etapa C — Fix PDF:** independiente, sin dependencias, puede hacerse en paralelo o primero (es el de menor esfuerzo).
-
-### Historias de usuario
-
-**HU-01** — Como usuario del sistema, quiero cargar varias lineas de produccion mensual en un solo formulario, para no tener que repetir el modal de a una linea por vez.
-- AC: la pantalla permite agregar N filas dinamicamente antes de guardar.
-- AC: un unico click en "Guardar todas las líneas" persiste todas las filas validas en una sola operacion.
-- AC: si una fila es invalida (cantidad <1, item no seleccionado, duplicado), no se guarda ninguna fila y se muestran los errores puntuales por fila.
-
-**HU-02** — Como usuario del sistema, quiero crear un Perfil o una Practica nueva sin salir de la pantalla de carga masiva, para no interrumpir la carga del mes.
-- AC: cada fila tiene una opcion "+ Crear nuevo…" en su selector de item.
-- AC: al crear, el nuevo registro aparece automaticamente seleccionado en esa fila sin recargar la pagina.
-- AC: crear un Perfil nuevo no exige cargar su composicion (puede completarse despues).
-
-**HU-03** — Como usuario del sistema, quiero configurar el Precio por Unidad y aumentarlo por porcentaje de forma simple, para no tener que editar cada Perfil uno por uno cuando sube el valor de referencia.
-- AC: el valor vigente de Precio por Unidad se ve destacado en el listado de Perfiles.
-- AC: puedo editarlo a mano y guardar.
-- AC: puedo ingresar un porcentaje y aplicar un aumento con un solo click, con confirmacion previa.
-- AC: al aplicar cualquiera de los dos cambios, el precio de todos los Perfiles activos se actualiza automaticamente y se ve reflejado en el listado.
-
-**HU-04** — Como usuario del sistema, quiero que el precio de un Perfil se calcule solo a partir de su cantidad de Unidades, para no tener que fijarlo a mano ni mantenerlo consistente manualmente.
-- AC: al crear/editar un Perfil, no hay campo de precio editable, solo "Unidad".
-- AC: se muestra el precio calculado en vivo (Unidad x Precio por Unidad vigente) antes de guardar.
-- AC: la pantalla de Aumento masivo de precios (F-001) ya no permite editar Perfiles directamente.
-
-**HU-05** — Como usuario del sistema, quiero que el reporte PDF de Produccion Mensual muestre el precio unitario completo sin que se corten los digitos, para poder leerlo correctamente.
-- AC: en un periodo con montos de 4+ digitos, la columna "Precio unit." muestra el valor completo sin recorte ni superposicion.
-
-## Historial de ajustes
-- 2026-06-13: Diseno funcional completo producido. 10 wireframes textuales, 11 ViewModels, 11 reglas de negocio, 3 contratos de Services, plan funcional en 3 etapas. Input: 1-analista-funcional.md aprobado con P1-P5 confirmadas.
-- 2026-07-08: Diseno funcional de 3 mejoras (carga masiva + alta rapida, Unidad/PrecioPorUnidad reemplazando F-001 para Perfiles, fix ancho columna PDF). 1 wireframe nuevo (WF-11 Carga Masiva) + ajustes a WF-03/04/08 y a F-001. 5 ViewModels nuevos + 2 modificados. 10 reglas de negocio nuevas (RN-12 a RN-21, incluye derogacion de RN-01). Plan funcional en 3 etapas (A: Unidad/Precio, B: Carga masiva, C: fix PDF). 5 historias de usuario con criterios de aceptacion. Input: 1-analista-funcional.md sesion 4 aprobada (P6-P10).
+## Ultima actualizacion: 2026-07-23
 
 ## Definiciones vigentes
 
 ### Flujo funcional
 - Login → Dashboard → Sidebar (Configuracion / Produccion)
-- Configuracion: ABM UnidadesBioquimicas, ABM Practicas (con composicion muchos-a-muchos y sumatoria JS)
-- Produccion: Index del historial → Crear periodo → Detalle/Carga (pantalla principal con tabla de lineas + panel resumen)
-- Modal Agregar linea: tipo radio + Select2 por tipo + cantidad + precio editable + aviso historico P5-B via AJAX
-- Modal Editar linea: cantidad + precio editable
-- Eliminar linea: soft delete con SweetAlert2 confirm
+- Configuracion: ABM Unidades Bioquimicas, ABM Practicas ("Perfiles" en UI, con composicion muchos-a-muchos informativa), ABM Centros de Salud.
+- Produccion: Index del historial (con columna/filtro Centro de Salud) → Crear periodo (con selector opcional de Centro de Salud) → Detalle/Carga (tabla de lineas + panel resumen) o Carga Masiva (pantalla dedicada, filas repetibles).
+- Modal Agregar linea: tipo radio + Select2 por tipo + cantidad + precio editable + aviso historico (P5-B) via AJAX.
+- Modal Editar linea: cantidad + precio editable.
+- Eliminar linea: soft delete con SweetAlert2 confirm.
 
-### Pantallas definidas
-- WF-01: Unidades Bioquimicas Index (DataTables client-side, baja logica, reactivar)
-- WF-02: Unidades Bioquimicas Create/Edit (col-md-6, campo precio, estado checkbox)
-- WF-03: Practicas Index (DataTables client-side, columna sumatoria, boton ver composicion)
-- WF-04: Practicas Create/Edit (col-md-6 base + seccion composicion Select2 multiple + sumatoria JS + precio con referencia)
-- WF-05: Practicas Details (tabla composicion readonly + totales)
-- WF-06: Produccion Mensual Index/Historial (DataTables client-side, orden desc, total estimado)
-- WF-07: Produccion Mensual Crear Periodo (col-md-4, mes dropdown, anio, notas)
-- WF-08: Produccion Mensual Detalle/Carga (col-md-8 tabla + col-md-4 panel resumen sticky)
-- WF-09: Modal Agregar Item (radio tipo, Select2 dinamico, cantidad, precio editable + aviso P5-B)
-- WF-10: Modal Editar Linea (campos cantidad y precio editable)
+### Pantallas vigentes
+- WF-01: Unidades Bioquimicas Index (DataTables client-side, baja logica, reactivar).
+- WF-02: Unidades Bioquimicas Create/Edit (col-md-6, campo precio, estado checkbox).
+- WF-03: Practicas/Perfiles Index (DataTables client-side) — columna "Unidad" agregada, columna "Precio actual" (editable) reemplazada por "Precio (calculado)" solo lectura; card "Precio por Unidad" arriba de la tabla (valor vigente + input editable + input % con confirmacion SweetAlert2).
+- WF-04: Practicas/Perfiles Create/Edit — sin campo "Precio actual" editable; campo "Unidad" (entero >=1) con texto informativo "Precio calculado: $ X" recalculado en vivo por JS; seccion de composicion (Select2 multiple) se mantiene pero es informativa/opcional, ya no valida contra el precio.
+- WF-05: Practicas/Perfiles Details (tabla composicion readonly + totales).
+- WF-06: Produccion Mensual Index/Historial — columna "Centro de Salud" (nombre o "— Global —") + filtro dropdown por esa columna.
+- WF-07: Produccion Mensual Crear Periodo — campo "Centro de Salud" (Select2 opcional, default "Sin centro asignado (global)").
+- WF-08: Produccion Mensual Detalle/Carga (col-md-8 tabla + col-md-4 panel resumen sticky) — boton nuevo "Carga masiva" (btn-outline-primary) junto a "Agregar ítem" (el modal existente no cambia).
+- WF-09: Modal Agregar Item (radio tipo, Select2 dinamico, cantidad, precio editable + aviso P5-B).
+- WF-10: Modal Editar Linea (cantidad y precio editable).
+- WF-11: Produccion Mensual — Carga Masiva (pantalla nueva, `GET/POST /ProduccionMensual/CargaMasiva/{id}`) — tabla dinamica de filas (Tipo, Item con Select2 + opcion "+ Crear nuevo…", Cantidad, Precio autocompletado editable, Subtotal JS, Quitar fila), boton "+ Agregar fila", Total general JS, submit unico "Guardar todas las líneas". Modal Alta Rapida Perfil (Nombre + Unidad, precio calculado en vivo, sin exigir composicion) y Modal Alta Rapida Practica (Nombre + Precio actual), ambos con insercion AJAX sin recargar.
+- WF-12: Fix reporte PDF — columna "Precio unit." de 55 a 75pt de ancho fijo (compensado reduciendo "Tipo" de 65 a 60).
+- WF-13: Centros de Salud Index (pantalla nueva) — mismo patron que WF-01, badge Tipo (Privado=secondary, Mutual=info).
+- WF-14: Centros de Salud Create/Edit (pantalla nueva) — mismo patron que WF-02 (Nombre, Tipo select, Activo checkbox en Edit).
+- WF-15: Ajuste reporte PDF — linea "Centro de Salud: {Nombre} ({Tipo})" en el encabezado cuando `CentroSaludId != null`.
+- Ajuste F-001 (`Precios/AumentoMasivo.cshtml`): se quita el tab "Perfiles" (ya no aplica), se agrega nota informativa; el tab "Practicas" (UnidadBioquimica) sigue igual.
 
-### ViewModels definidos (11 total)
-- VM-01: UnidadBioquimicaCreateViewModel / EditViewModel
-- VM-02: UnidadBioquimicaRowViewModel
-- VM-03: PracticaCreateViewModel / EditViewModel (incluye UnidadesDisponibles + PreciosDisponibles para JS)
-- VM-04: PracticaRowViewModel
-- VM-05: PracticaDetailsViewModel
-- VM-06: ProduccionMensualCreateViewModel
-- VM-07: ProduccionMensualRowViewModel
-- VM-08: ProduccionMensualDetalleViewModel (con flag EsPeriodoHistorico para aviso P5-B)
-- VM-09: ProduccionDetalleRowViewModel (con NombreSnapshot, PrecioSnapshot, Subtotal)
-- VM-10: ProduccionDetalleAgregarViewModel (con PrecioSugerido para AJAX, EsPeriodoHistorico)
-- VM-11: ProduccionDetalleEditarViewModel
+### ViewModels vigentes
+- VM-01/VM-02: UnidadBioquimicaCreateViewModel/EditViewModel, UnidadBioquimicaRowViewModel.
+- VM-03 `PracticaCreateViewModel` (modificado): Nombre, **Unidad** (nuevo, reemplaza PrecioActual editable), PrecioPorUnidadVigente (solo lectura), UnidadBioquimicaIds (ahora opcional), UnidadesDisponibles. Validacion RN-01 original removida.
+- VM-04 `PracticaRowViewModel` (modificado): + campo **Unidad**.
+- VM-05: PracticaDetailsViewModel (composicion readonly + totales).
+- VM-06 `ProduccionMensualCreateViewModel` (modificado): + `CentroSaludId` (int?), + `CentrosSaludDisponibles` (SelectList).
+- VM-07 `ProduccionMensualRowViewModel` (modificado): + `NombreCentroSalud` (string?, "— Global —" si null).
+- VM-08 `ProduccionMensualDetalleViewModel` (modificado): + `NombreCentroSalud` (string?); flag `EsPeriodoHistorico` (aviso P5-B).
+- VM-09: ProduccionDetalleRowViewModel (NombreSnapshot, PrecioSnapshot, Subtotal).
+- VM-10: ProduccionDetalleAgregarViewModel (PrecioSugerido para AJAX, EsPeriodoHistorico).
+- VM-11: ProduccionDetalleEditarViewModel.
+- VM-12 `ProduccionCargaMasivaViewModel`: ProduccionMensualId, Periodo, EsPeriodoHistorico, List\<VM-13\> Filas, PerfilesDisponibles, PracticasDisponibles.
+- VM-13 `ProduccionCargaMasivaFilaViewModel`: TipoItem (enum), ItemId, Cantidad, PrecioSnapshot.
+- VM-14 `PerfilAltaRapidaViewModel`: Nombre, Unidad.
+- VM-15 `PracticaAltaRapidaViewModel` (UnidadBioquimica): Nombre, PrecioActual.
+- VM-16 `PrecioPorUnidadViewModel`: ValorActual, NuevoValor, PorcentajeAumento.
+- VM-17 `CentroSaludCreateViewModel`/`EditViewModel`: Nombre, Tipo (enum), Activo (solo Edit).
+- VM-18 `CentroSaludRowViewModel`: Id, Nombre, Tipo, Activo.
 
-### Reglas de negocio modeladas
-- RN-01: PrecioActual(Practica) < SumatoriaComponentes — Service + JS referencia
-- RN-02: Practica requiere al menos 1 componente — Service + DataAnnotation
-- RN-03: Cambio de precio de unidad no afecta historial — por diseno de campo precio_snapshot
-- RN-04: No duplicar mismo item en el mismo periodo — Service
-- RN-05: Precio pre-completado por AJAX al seleccionar item en modal — Controller AJAX
-- RN-06: Aviso de periodo historico (mes/anio != actual) — flag EsPeriodoHistorico en VM
-- RN-07: Cantidad entero >= 1 — DataAnnotation
-- RN-08: PrecioSnapshot >= 0 — DataAnnotation
-- RN-09: Solo items activos en nuevas lineas — Service (filtra GetActivasAsync)
-- RN-10: Total recalculado en tiempo real — JS sobre DataTable
-- RN-11: No duplicar periodo (mismo mes+anio) — Service
+### Maquina de estados
+No aplica en ningun modulo (confirmado en Analisis, P4-A).
 
-### Contratos funcionales de Services
-- IUnidadBioquimicaService: GetAllAsync, GetActivasAsync, GetByIdAsync, CreateAsync, UpdateAsync, DeleteAsync
-- IPracticaService: GetAllAsync, GetActivasAsync, GetByIdAsync, CalcularSumatoria, CreateAsync, UpdateAsync, DeleteAsync
-- IProduccionMensualService: GetAllAsync, GetByIdAsync, CreateAsync, DeleteAsync, GetPrecioVigente, AgregarLineaAsync, EditarLineaAsync, EliminarLineaAsync
+### Reglas de negocio vigentes (estado final, incluye derogaciones/reemplazos)
+| Ref | Regla | Capa | Estado |
+|---|---|---|---|
+| RN-02 | Practica/Perfil admite composicion (relacion M:N) | Service + DataAnnotation | Vigente, ya informativa (ver RN-20) |
+| RN-03 | Cambio de precio de unidad no afecta historial (precio_snapshot) | Diseño de campo | Vigente |
+| RN-04 | No duplicar el mismo item en el mismo periodo | Service | Vigente |
+| RN-05 | Precio pre-completado por AJAX al seleccionar item en modal | Controller AJAX | Vigente |
+| RN-06 | Aviso de periodo historico (mes/año != actual) | Flag EsPeriodoHistorico en VM | Vigente |
+| RN-07 | Cantidad entero >= 1 | DataAnnotation | Vigente |
+| RN-08 | PrecioSnapshot >= 0 | DataAnnotation | Vigente |
+| RN-09 | Solo items activos en nuevas lineas | Service (GetActivasAsync) | Vigente |
+| RN-10 | Total recalculado en tiempo real | JS sobre DataTable | Vigente |
+| RN-12 | Guardado de carga masiva atomico: todas las filas o ninguna | Service | Vigente |
+| RN-13 | Sin combinacion TipoItem+ItemId repetida dentro del mismo submit de carga masiva | Service + cliente | Vigente |
+| RN-14 | Alta rapida de Perfil no exige composicion (relaja RN-02 solo en este flujo) | Service | Vigente |
+| RN-15 | Alta rapida de Practica (UnidadBioquimica) sin cambios respecto al ABM existente | Service | Vigente |
+| RN-16 | `Practica.PrecioActual = Unidad × PrecioPorUnidad.ValorVigente`, recalculado al crear/editar el Perfil y en cada cambio del `PrecioPorUnidad` global (recalculo batch) | Service | Vigente |
+| RN-17 | `Unidad` entero, obligatorio, >= 1 | DataAnnotation | Vigente |
+| RN-18 | `PrecioPorUnidad.Valor` obligatorio, >= 0 | DataAnnotation + Service | Vigente |
+| RN-19 | Aumento %: `NuevoValor = round(ValorActual × (1 + %/100), 2)`, dispara recalculo batch de todos los Perfiles activos | Service | Vigente |
+| RN-20 | Reemplaza RN-01 original ("precio Perfil < sumatoria de componentes") | — | RN-01 DEROGADA para Perfiles |
+| RN-21 | F-001 (`Precios/AumentoMasivo`) ya no ofrece edicion/cascade sobre Perfiles; sigue aplicando sin cambios sobre Practicas (UnidadBioquimica) | Web | Vigente |
+| RN-22 | `CentroSalud.Nombre` obligatorio, <=150 caracteres | DataAnnotation | Vigente |
+| RN-23 | `CentroSalud.Tipo` obligatorio (Privado o Mutual) | DataAnnotation | Vigente |
+| RN-24 | Reemplaza RN-11 original ("no duplicar mismo mes+año"): no puede existir mas de un periodo por Mes+Año+CentroSaludId, tratando NULL como valor propio | Service | RN-11 REEMPLAZADA |
+| RN-25 | `CentroSaludId` en `ProduccionMensual` opcional; si se informa, debe corresponder a un `CentroSalud` activo y no eliminado | Service | Vigente |
+
+**Permisos:** ABM de Centros de Salud, alta rapida de Perfil/Practica desde carga masiva: `[Authorize]` sin politica especifica (igual que Unidades Bioquimicas/Practicas). Editar `PrecioPorUnidad` (valor manual o aumento %): `RequireAdministracion` (mismo criterio que F-001 y guardado de IVA).
+
+### Contratos funcionales de Services vigentes
+- `IUnidadBioquimicaService`: GetAllAsync, GetActivasAsync, GetByIdAsync, CreateAsync, UpdateAsync, DeleteAsync.
+- `IPracticaService`: GetAllAsync, GetActivasAsync, GetByIdAsync, CreateAsync, UpdateAsync, DeleteAsync + logica de recalculo de precio derivado (RN-16), sin la validacion RN-01 original (`CalcularSumatoria` queda como dato informativo).
+- `IProduccionMensualService`: GetAllAsync, GetByIdAsync, CreateAsync (ajustado a RN-24), DeleteAsync, GetPrecioVigente, AgregarLineaAsync, EditarLineaAsync, EliminarLineaAsync, + `AgregarLineasAsync` (batch atomico, carga masiva).
+- `ICentroSaludService` (nuevo, mismo shape que `IUnidadBioquimicaService`): GetAllAsync, GetActivasAsync, GetByIdAsync, CreateAsync, UpdateAsync, DeleteAsync, RestoreAsync.
+- `IPrecioPorUnidadService` (nuevo): ObtenerVigente, ActualizarValor, AumentarPorcentaje (dispara recalculo batch de Perfiles activos).
 
 ### Logica de distribucion de elementos (estandar todo el sistema)
 - Listado: Header + card > DataTables client-side. Badge estado. btn-group-sm acciones.
-- Formulario simple: Header + card > col-md-6 campos + Guardar/Cancelar
-- Formulario con relacion: igual con secciones separadas por divisor visual + Select2 multiple
-- Detalle readonly: Header + card > info + tabla composicion
-- Pantalla principal de trabajo: Header + row col-md-8 tabla + col-md-4 panel resumen sticky
-- Modal: campos minimos + aviso contextual si aplica
+- Formulario simple: Header + card > col-md-6 campos + Guardar/Cancelar.
+- Formulario con relacion: igual, con secciones separadas por divisor visual + Select2 multiple.
+- Detalle readonly: Header + card > info + tabla composicion.
+- Pantalla principal de trabajo: Header + row col-md-8 tabla + col-md-4 panel resumen sticky.
+- Pantalla de carga por filas (Carga Masiva): tabla dinamica manejada por JS (no DataTables — es formulario, no listado) + boton "+ Agregar fila" + total JS + submit unico.
+- Modal: campos minimos + aviso contextual si aplica.
 
-### Supuestos y dependencias
-- Maquina de estados: NO aplica (P4-A).
-- Unico riesgo tecnico pendiente para arquitecto: RF-03 (baja logica de unidad con composicion activa en practica — recalcular sumatoria o snapshot).
-- AJAX endpoint: GET /ProduccionMensual/GetPrecioItem?tipo=&id= para pre-completado de precio en modal.
-- Sumatoria en Practicas Create/Edit puede resolverse con datos del ViewModel en JS (sin AJAX adicional).
+### Riesgos y supuestos vigentes
+- **DD-01:** un Perfil creado por alta rapida puede quedar "sin composicion" (0 Unidades Bioquimicas asociadas) — cambio de comportamiento respecto a RN-02 original, aceptado porque la composicion ya no determina el precio. Se muestra badge/aviso "Sin composicion" en el listado.
+- **DD-02:** el recalculo batch de todos los Perfiles activos al cambiar `PrecioPorUnidad` debe ser transaccional. Volumen esperado bajo (mismo supuesto que la arquitectura original).
+- **DD-03:** al guardar una fila de carga masiva para un periodo historico, aplica el mismo aviso P5-B ya vigente — no es un caso nuevo.
+- **DD-04:** unicidad Mes+Año+CentroSaludId con NULL como valor propio no es un unique index nativo simple en MySQL — se resuelve en Service con consulta explicita que distingue el caso NULL (mismo patron que la unicidad original Mes+Año).
+- **DD-05:** se acepta convivencia de nombres duplicados entre `CentroSalud` y `Mutual` (FABA) sin vinculo — decision explicita del cliente (P12), no es un defecto.
+- Riesgo heredado RA-01 original (baja logica de UnidadBioquimica con composicion activa en Perfil) ya no afecta el precio (independiente de la composicion); se mantiene badge informativo si un componente esta inactivo.
+- Unico riesgo tecnico pendiente heredado del diseño original: RF-03 (baja logica de unidad con composicion activa — recalcular sumatoria/snapshot informativo).
+- AJAX endpoint `GET /ProduccionMensual/GetPrecioItem?tipo=&id=` para pre-completado de precio en modal.
+
+### Historias de usuario vigentes
+**HU-01** — Cargar varias lineas de produccion mensual en un solo formulario. AC: N filas dinamicas antes de guardar; un solo "Guardar todas las líneas" persiste todo; fila invalida bloquea el guardado completo con errores puntuales por fila.
+
+**HU-02** — Crear un Perfil o Practica nueva sin salir de la carga masiva. AC: opcion "+ Crear nuevo…" por fila; el nuevo registro queda seleccionado sin recargar; un Perfil nuevo no exige composicion.
+
+**HU-03** — Configurar el Precio por Unidad y aumentarlo por porcentaje. AC: valor vigente destacado en el listado de Perfiles; editable a mano; aumento por % con confirmacion previa; ambos cambios recalculan todos los Perfiles activos.
+
+**HU-04** — El precio de un Perfil se calcula solo a partir de su cantidad de Unidades. AC: sin campo de precio editable al crear/editar; precio calculado en vivo (Unidad × Precio por Unidad); F-001 ya no permite editar Perfiles.
+
+**HU-05** — El PDF de Produccion Mensual muestra el precio unitario completo sin recorte. AC: montos de 4+ digitos se muestran completos sin superposicion.
+
+**HU-06** — Cargar un periodo de Produccion Mensual para un Centro de Salud especifico. AC: selector opcional de Centro de Salud activo al crear; varios periodos por mismo Mes/Año si cada uno tiene Centro distinto (o uno solo sin centro); duplicado (mismo Mes+Año+Centro, o global duplicado) bloqueado con mensaje claro.
+
+**HU-07** — Administrar un catalogo simple de Centros de Salud. AC: crear/editar/baja logica con Nombre y Tipo; el catalogo distingue el Tipo con badge.
+
+**HU-08** — Ver y filtrar el historial de Produccion Mensual por Centro de Salud. AC: columna con nombre del Centro o "— Global —"; filtro por Centro de Salud.
+
+**HU-09** — El PDF de un periodo muestra el Centro de Salud al que corresponde. AC: si tiene Centro asignado, aparece en el encabezado; si no, el PDF se ve igual que antes.
 
 ## Historial de ajustes
-- 2026-06-13: Diseno funcional completo producido. 10 wireframes textuales, 11 ViewModels, 11 reglas de negocio, 3 contratos de Services, plan funcional en 3 etapas. Input: 1-analista-funcional.md aprobado con P1-P5 confirmadas.
-
+- 2026-06-13: Diseño funcional completo (v1) producido — 10 wireframes textuales (WF-01 a WF-10), 11 ViewModels, 11 reglas de negocio (RN-01 a RN-11), 3 contratos de Services, plan funcional en 3 etapas. Input: `1-analista-funcional.md` v1 aprobado (P1-P5).
+- 2026-07-08 (sesion 2): Diseño de 3 mejoras — carga masiva + alta rápida (WF-11, VM-12 a VM-15), Unidad/PrecioPorUnidad reemplazando el precio manual y el cascade F-001 para Perfiles (RN-16 a RN-21, deroga RN-01), fix de ancho de columna del PDF (WF-12). 5 historias de usuario (HU-01 a HU-05). Input: `1-analista-funcional.md` sesión 4 aprobada (P6-P10).
+- 2026-07-23 (sesion 3): Diseño de Producción Mensual por Centro de Salud — ABM nuevo (WF-13/WF-14, VM-17/VM-18), selector opcional en Crear Periodo (WF-07 ajustado), columna/filtro en historial (WF-06 ajustado), línea en PDF (WF-15), RN-22 a RN-25 (RN-24 reemplaza RN-11). 4 historias de usuario (HU-06 a HU-09). Input: `1-analista-funcional.md` sesión 5 aprobada (P11-P14).
+- 2026-08-16: Reestructuración documental — este archivo tenía el diseño base v1 (`## Definiciones vigentes` original) ubicado *después* de las sesiones 2 y 3 (orden cronológico invertido), con un encabezado `## Historial de ajustes` duplicado a mitad de archivo. Consolidado en una única `## Definiciones vigentes` con el estado final de cada pantalla/ViewModel/regla (marcando explícitamente qué reglas derogaron o reemplazaron a cuáles — RN-20 deroga RN-01, RN-24 reemplaza RN-11) + este historial cronológico único. Ningún dato funcional se perdió.

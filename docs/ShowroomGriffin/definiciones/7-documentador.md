@@ -59,6 +59,7 @@ Coordinar una **sesión de pruebas guiada con Ulises (≈1 h)** para ejecutar lo
 
 - **2026-01-15** — v1.0 borrador. Generado a partir del cierre técnico de E0–E8 (build verde, migraciones aplicadas en local y producción) y el reporte QA v1.1 (0 defectos funcionales abiertos, gate condicional). Pendientes: smoke manual con cliente y cierre del bloqueante de credenciales (RR-01 / D-04).
 - **2026-07-02** — V9 (fast-path): en la pantalla de **Ajuste manual de stock**, al guardar el ajuste de un producto, el sistema ahora permanece en la misma pantalla (con el mensaje de confirmación) en vez de volver al listado general de stock. Pensado para cargar ajustes de varios productos seguidos sin tener que renavegar cada vez. Sin impacto en permisos, validaciones ni otras pantallas. QA técnico aprobado sin observaciones (ver `6-qa.md`, entrada V9). Costo: 0,3 h / USD 12 (tasa USD 40/h).
+- **2026-08-16** — V12: la Vista Matriz pasa a cubrir accesorios sin talle y alta de color nuevo (con o sin stock inicial), y se retiran del menú los botones de Ajuste Manual y Carga Masiva. Primera feature de este proyecto que corrió el flujo completo del estudio (Discovery→Diseño→Arquitectura→Presupuesto→Implementación→QA→Documentación) en vez de fast-path, a raíz de que el cambio anterior sobre esta misma pantalla (alta desde celda vacía) había sido rechazado por QA con 2 defectos bloqueantes ya en producción. QA encontró 8 defectos más sobre V12 (2 corregidos antes de deploy, 1 bloqueaba el retiro del menú y también se corrigió, el resto son observaciones menores o fuera de alcance). Presupuesto: USD 105,84, aprobado por el cliente el mismo día.
 
 ---
 
@@ -96,6 +97,44 @@ Hasta ahora, cargar el stock de un envío nuevo significaba entrar producto por 
 
 ## 6. Próximo paso sugerido
 Coordinar con Ulises una prueba guiada breve (≈15-20 min) sobre la carga masiva de una marca real y los filtros nuevos de Talle/Estado, y confirmar el commit de los cambios antes de considerar el sprint cerrado en producción.
+
+---
+
+> Estado del documento: **borrador sujeto a verificación manual del cliente**, según el punto 6.
+
+---
+
+# OlvidataSoft
+**Resumen de sprint — Vista Matriz: accesorios y alta de color nuevo, en reemplazo de Ajuste Manual y Carga Masiva**
+**OlvidataSoft · Agosto 2026**
+
+## Sobre el proyecto
+Sistema de gestión comercial para Showroom Griffin, en producción. Este sprint completa la Vista Matriz (la pantalla principal de Stock desde hace unos días) para que cubra el 100% de los casos que hasta ahora obligaban a usar otras dos pantallas más lentas.
+
+## 1. Resumen del sprint
+La Vista Matriz ya permitía ver y editar el stock de calzado en una grilla tipo planilla (Marca → Modelo → Color × Talle), pero tenía dos huecos: no mostraba los productos que no usan talle (bijou, carteras, accesorios en general) y no dejaba cargar un color completamente nuevo, solo completar un talle faltante de un color que ya existía. Ambos huecos ya están cerrados. Con eso, los botones de "Ajuste manual" y "Carga masiva" — las dos pantallas más lentas que quedaban — se sacaron del menú de Stock: todo se hace ahora desde la Matriz.
+
+## 2. Cambios principales entregados
+- **Accesorios en la Matriz**: los productos sin talle (bijou, carteras, etc.) ahora aparecen en la Matriz con una tabla simple de Color y Cantidad, en vez de quedar afuera.
+- **Alta de un color nuevo desde la Matriz**: cada sección de la grilla tiene ahora una fila "+ Nuevo color" para cargar un color que todavía no existía — con o sin talle según el producto, cargando cantidad, precio y stock mínimo en el momento.
+- **Alta con stock inicial en cero**: se puede dar de alta un color nuevo con 0 unidades (por ejemplo, un pedido hecho pero que todavía no llegó), sin necesidad de escribir ninguna cantidad.
+- **Menú simplificado**: "Ajuste manual" y "Carga masiva" ya no aparecen como botones en Consulta de Stock — la Matriz cubre todo lo que hacían esas dos pantallas.
+
+## 3. Beneficio para el cliente
+- **Una sola pantalla para todo el stock**: calzado, accesorios, productos existentes y colores nuevos se manejan todos desde la Matriz.
+- **Menos clics para cargar mercadería nueva**: dar de alta un color nuevo ya no requiere salir a otra pantalla.
+- **Se puede catalogar por adelantado**: un producto pedido que todavía no llegó se puede cargar con 0 unidades desde ya, sin esperar a que llegue para registrarlo.
+
+## 4. Pendientes / fuera de alcance
+- Verificación manual en el sistema real (guía de pasos ya preparada para el equipo técnico) antes de dar el sprint por cerrado del todo.
+- Las rutas de "Ajuste manual" y "Carga masiva" siguen existiendo por si hiciera falta volver atrás — solo se sacaron del menú, no se borró nada.
+
+## 5. Riesgos o consideraciones visibles para negocio
+- Durante este sprint se encontró y corrigió un problema que venía de un cambio de esa misma mañana: en un escenario puntual, el sistema podía guardar un precio 100 veces más alto del real sin avisar. Se confirmó contra la base real que **nadie llegó a usar esa función todavía**, así que no hubo ningún precio incorrecto cargado — quedó corregido antes de que pudiera pasar.
+- Como medida extra de seguridad para este tipo de problema, se agregó un control que impide desde la base de datos que se carguen dos veces el mismo color y talle de un producto (antes solo lo evitaba el sistema, ahora también lo respalda la base).
+
+## 6. Próximo paso sugerido
+Probar en el sistema real: dar de alta un color nuevo con varios talles a la vez, dar de alta un accesorio, y cargar un color nuevo con 0 unidades. Confirmar que todo se ve y guarda como se espera antes de considerar el sprint cerrado.
 
 ---
 

@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: crm-olvidata
-## Ultima actualizacion: 2026-07-14
+## Ultima actualizacion: 2026-08-16
 
 ## Definiciones vigentes
 
@@ -338,9 +338,87 @@ Ninguna — no se tocó el modelo de datos ni el esquema.
 - [x] Patrón SweetAlert2 replicado de `Campanas/Index.cshtml` (mismo `confirmButtonColor`, mismos textos de botones).
 - [ ] Prueba manual de usuario (ícono + modal, ver guía de QA arriba) — pendiente, hand-off al usuario/cliente.
 
+## Implementación de gestión comercial y herramientas de canal/venta (2026-08-16)
+
+### 0. Escaneo de reutilización
+
+Se escanearon los `5-implementador.md` de los 20 proyectos de `docs/`. Resultado: **nada reutilizable a nivel entidad/servicio para el núcleo de este alcance.** Existe una entidad `Cliente` en `ShowroomGriffin`, `la-platense`, `marihogar` y `vino-y-se-fue`, pero es un cliente de venta de mostrador (cuenta corriente, condición de IVA, facturación AFIP) — dominio distinto del `Cliente` de este CRM (contacto que cerró, con plan, ticket anual, renovación y NRR). No hay en ningún proyecto `Upsell`, cálculo de NRR, catálogo de templates de WhatsApp, experimento A/B ni pipeline kanban. Sí se reutilizaron **patrones internos del propio proyecto** (criterio de "no desarrollar desde cero" aplicado hacia adentro): DataTables server-side con whitelist de orden por índice de columna (`IndustriasController`/`ContactosController`), acciones AJAX con respuesta JSON (`CampanasController`), confirmación SweetAlert2 (`Industrias/Index`), `ov-stat-card` (`Bot/Index`), y el modal Bootstrap + partial compartido para no duplicar el alta de cliente entre `Contactos/Details` y `Chats/Detail`.
+
+### 1. Alcance funcional resumido
+
+CU-21 a CU-29 (`1-analista-funcional.md`), 8 piezas: `Cliente`, `Upsell`, dashboard de negocio, dashboard de campañas, catálogo de templates, A/B testing, asistente de redacción y pipeline visual. 5 entidades nuevas + 1 enum + 1 campo en `ContactoRespuesta`, 1 migración EF, 3 controllers nuevos y 3 extendidos.
+
+### 2. Plan de ejecución técnica ejecutado (por etapas)
+
+1. Domain: 5 entidades + `EstadoAprobacionMeta` + `ContactoRespuesta.VarianteExperimento`.
+2. Application: `NegocioStatsDto`, `CampanaStatsDto`, `NegocioSettings`.
+3. Infrastructure: `AppDbContext` (5 `DbSet` + configuración), split A/B en `OutboundCampaignService`, registro de `NegocioSettings` en DI.
+4. Web: 5 grupos de ViewModels, `ClientesController`/`NegocioController`/`TemplatesController` nuevos, `CampanasController`/`ContactosController`/`ChatsController` extendidos, 9 vistas nuevas y 7 modificadas.
+5. Build → migración `AddGestionComercial` → aplicación en dev → smoke test autenticado local → aplicación en producción por SQL directo → deploy.
+
+### 3. Cambios por capa
+
+- **Domain**: `Cliente.cs`, `Upsell.cs`, `TemplateWhatsApp.cs`, `CampanaExperimento.cs`, `SugerenciaSeguimiento.cs`, `Enums/EstadoAprobacionMeta.cs` (nuevos); `ContactoRespuesta.cs` (+`VarianteExperimento`).
+- **Application**: `DTOs/NegocioStatsDto.cs`, `DTOs/CampanaStatsDto.cs`, `Settings/NegocioSettings.cs` (nuevos). Sin interfaces nuevas ni cambios de firma en las existentes (`IWhatsAppClient`/`IOutboundCampaignService` intactas), según Arquitectura §2.
+- **Infrastructure**: `AppDbContext.cs` (5 `DbSet` + configuración de precisión/longitudes/FK: `Cascade` en `Upsell`→`Cliente` y `CampanaExperimento`→`CampanaOutbound`, `Restrict` en los 2 FK a `TemplateWhatsApp` y en `Cliente`→`Contacto`); `OutboundCampaignService.cs` (split A/B con semilla determinística por contacto + baja de la lista fija `TemplatesDisponibles`); `DependencyInjection.cs` (`NegocioSettings`).
+- **Web**: controllers `ClientesController.cs`, `NegocioController.cs`, `TemplatesController.cs` (nuevos); `CampanasController.cs` (+`Dashboard`, +`ConfigurarExperimento`, selector de template desde BD), `ContactosController.cs` (+`Pipeline`, +`ClienteId` en `Details`), `ChatsController.cs` (+`SugerirMensaje`, +`ClienteId` en `Detail`). ViewModels: `ClienteViewModels.cs`, `NegocioViewModels.cs`, `TemplateWhatsAppViewModels.cs`, `CampanaDashboardViewModels.cs`, `PipelineViewModels.cs` (nuevos) + campos en `ContactoViewModels`/`ChatViewModels`/`CampanaOutboundViewModels`. Vistas nuevas: `Clientes/Index|Details|Edit`, `Negocio/Dashboard`, `Templates/Index|Create|Edit`, `Campanas/Dashboard`, `Contactos/Pipeline`, `Shared/_ConvertirClienteModal`. Vistas modificadas: `Shared/_Layout` (sección "Negocio"), `Contactos/Details`, `Contactos/Index`, `Chats/Detail`, `Campanas/Edit`, `Campanas/Index`, `Bot/Index`.
+- **Config**: `appsettings.json` → `Olvidata_Negocio:MetaAnualUsd` (default 0 = "meta no configurada").
+
+### 4. Migración EF aplicada
+
+`20260817003040_AddGestionComercial` — 5 tablas (`Clientes`, `Upsells`, `TemplatesWhatsApp`, `CampanasExperimento`, `SugerenciasSeguimiento`) + 1 columna aditiva (`ContactoRespuestas.VarianteExperimento varchar(1) NULL`). Sin `defaultValue` en ninguna columna de fecha/hora (problema conocido de DDL inválido con este proveedor MySQL). Aplicada en dev con `dotnet ef database update`; en producción por SQL directo generado con `dotnet ef migrations script` + su `INSERT` en `__EFMigrationsHistory`, sin correr `database update` contra la base productiva.
+
+Migración de **datos** (no de código, según Arquitectura §3): 1 fila en `TemplatesWhatsApp` (`olv_frio_v3`, `EstadoAprobacionMeta=Aprobado`, `Activo=1`) en dev y producción, para que las campañas ya cargadas (85 activas en producción, todas con `olv_frio_v3`) no queden sin template válido el día del corte. Además, 6 filas de `SugerenciasSeguimiento` — ver riesgos.
+
+### 5. Evidencia de build y pruebas
+
+- `dotnet build -c Release` → **0 errores** (13 warnings, todos preexistentes). Las vistas Razor compilan en build en este proyecto (verificado a propósito introduciendo un error deliberado en una vista y confirmando que la compilación falla).
+- Smoke test **autenticado** local (dev, HTTPS, sesión real por cookie): 200 en `/Clientes`, `/Negocio/Dashboard`, `/Templates`, `/Templates/Create`, `/Campanas/Dashboard`, `/Contactos/Pipeline`, `/Contactos/Details/{id}`, `/Chats/Detail/{id}`, `/Campanas/Edit/{id}`, `/Campanas/Create`, más los flujos POST reales: conversión Contacto→Cliente (302 a la ficha del cliente), alta de upsell (JSON OK), alta de template, alta de experimento A/B y su validación de A=B (rechazada, base sin cambios), y `SugerirMensaje` devolviendo el texto correcto con placeholders resueltos.
+- Verificación numérica del NRR contra datos de prueba: base 1200 + upsell 300 → 125%; con el cliente dado de baja → 25%; sin período anterior → "Datos insuficientes". Los datos de prueba se borraron de dev al terminar.
+- Producción: deploy Web Deploy exitoso al primer intento, `https://portal.olvidata.com.ar/` → 200, y las 5 rutas nuevas → 302 (redirect a login, rutas vivas).
+
+### 6. Riesgos y supuestos
+
+- **Bug encontrado y corregido durante la propia implementación:** el churn del NRR se comparaba tomando `.Date` directo sobre `UpdatedAt` (UTC) contra días calendario argentinos — una baja cargada después de las 21hs ART caía en el día UTC siguiente, quedaba fuera del período y el NRR salía inflado (125% en vez de 25% en la prueba). Corregido pasando por `ArgentinaTime.From()` antes de truncar. Es el mismo tipo de bug ya documentado en `ArgentinaTime`, reaparecido en código nuevo.
+- **No hay campo de fecha de churn en el modelo aprobado.** El churn se marca con `Activo=false` y se fecha con el stamping de auditoría (`UpdatedAt`) como proxy: si un cliente dado de baja se edita después por otro motivo, su fecha de churn se corre a esa edición. Con la cartera actual (decenas de filas) es aceptable; si se vuelve un problema, hace falta un campo propio y una migración.
+- **`SugerenciaSeguimiento` no tiene pantalla de mantenimiento** — ni el Diseño ni la Arquitectura definen una, y tampoco definen el contenido del catálogo. Se cargaron 6 filas genéricas como borrador para que el botón "Sugerir" no nazca inerte; hoy solo son editables por SQL. Los textos necesitan revisión del cliente (o de `olvidata-marketing`) antes de considerarse definitivos.
+- **`AvanceMeta` no tiene valor definido en ninguna definición.** Se implementó como setting (`Olvidata_Negocio:MetaAnualUsd`), default 0 → la card muestra "Meta no configurada" en vez de inventar un porcentaje.
+- **El split A/B no se probó con envíos reales** (implicaría mandar WhatsApp de verdad a contactos reales). La lógica está verificada por lectura: `new Random(contacto.Id)` es determinístico por contacto, así que un reintento no cambia de variante.
+- **`Pais` del dashboard de campañas** se infiere de `ZonaHoraria` (mapa fijo de 7 zonas) y cae a `Region` si no matchea — riesgo ya asumido en Arquitectura §7.
+- Todos los cruces contacto↔campaña y el cálculo de NRR se resuelven **en memoria** (`ToListAsync()` primero), nunca con `Contains()` sobre una colección local dentro de una query — el proveedor MySQL de este proyecto no lo traduce.
+
+### 7. Pruebas mínimas requeridas para QA
+
+1. `Contactos/Details` de un contacto en estado distinto de Cerrado: **no** debe verse el botón "Convertir en Cliente". Cambiar el estado a Cerrado → aparece.
+2. Convertir un contacto Cerrado: el modal precarga fecha de alta = hoy y renovación = hoy + 1 año; cambiar la fecha de alta debe mover la renovación sola, salvo que ya se haya editado a mano. Al guardar redirige a `Clientes/Details`. Volver a `Contactos/Details` → ahora muestra "Ver cliente".
+3. Intentar convertir dos veces el mismo contacto → error "ya tiene un cliente activo asociado" y redirección al cliente existente.
+4. `Clientes/Index`: filtros por plan, estado y vencimiento; semáforo rojo (<30 días), ámbar (<90) y verde. Ordenar por cada columna.
+5. `Clientes/Details`: alta de upsell sin recargar la página, actualización de "Upsells acumulados" y "Valor total"; eliminar un upsell con confirmación y ver que los totales bajan.
+6. `Negocio/Dashboard`: con cartera vacía, NRR = "Datos insuficientes" (no 0%). Con clientes de más de un año y upsells, verificar el porcentaje a mano. Dar de baja un cliente y confirmar que el NRR baja.
+7. `Templates`: alta de un template Borrador → **no** debe aparecer en el selector de `Campanas/Create`. Pasarlo a Aprobado + Activo → aparece. Intentar borrar un template usado por una campaña activa → bloqueado con mensaje.
+8. `Campanas/Edit`: con menos de 2 templates aprobados, la card A/B avisa que faltan templates. Con 2, guardar un experimento 70/30, verificar el badge del header. Intentar A = B → rechazado.
+9. `Campanas/Dashboard`: contrastar la tasa de respuesta de alguna campaña contra el mismo dato filtrado en `Contactos/Index`.
+10. `Contactos/Pipeline`: los conteos por columna deben coincidir con el resumen de embudo de `Contactos/Index`; el link "Ver los N" de una columna debe abrir el listado ya filtrado por ese estado.
+11. `Chats/Detail`: botón "Sugerir" prellena el textarea sin enviar nada; con texto ya escrito pide confirmación antes de pisarlo; en un contacto sin sugerencia aplicable avisa "Sin sugerencia disponible".
+12. Regresión del outbound: con una campaña **sin** experimento activo, el envío diario debe comportarse igual que antes (mismo template configurado, `VarianteExperimento` nulo en `ContactoRespuestas`).
+
+### 8. Checklist de salida para merge
+
+- [x] `dotnet build -c Release` → 0 errores, sin warnings nuevos.
+- [x] Migración `AddGestionComercial` generada, aplicada en dev y en producción (producción por SQL directo + `INSERT` manual en `__EFMigrationsHistory`).
+- [x] Datos de arranque cargados en ambas bases (`olv_frio_v3` + 6 sugerencias), verificados con acentos correctos (utf8mb4).
+- [x] Lógica de negocio en controllers/servicios, no en vistas; sin lógica nueva en Controllers que corresponda a un Service (se siguió el criterio explícito de Arquitectura §2 de no crear una capa de servicio para NRR/métricas).
+- [x] Design system aplicado: DataTables server-side, SweetAlert2 en todas las confirmaciones, `ov-card`/`ov-stat-card`/`ov-badge`, sin CDNs nuevos.
+- [x] Smoke test autenticado de las 11 pantallas/endpoints nuevos en dev + verificación de rutas en producción.
+- [x] Deploy a producción por Web Deploy (nunca FTP), `https://portal.olvidata.com.ar/` → 200.
+- [ ] QA funcional completo (ver guía arriba) — pendiente, hand-off al cliente.
+- [ ] Revisión de los textos de `SugerenciasSeguimiento` con el cliente/`olvidata-marketing` — pendiente.
+- [ ] Definir `Olvidata_Negocio:MetaAnualUsd` con el cliente — pendiente.
+
 ## Historial de ajustes
 - 2026-07-14: Bootstrap técnico inicial — copia de KoiDumplings saneada de lógica de negocio de KOI, a pedido explícito del cliente como base previa a Análisis. Ver detalle completo en `trazabilidad.md`.
 - 2026-07-17: Implementación completa de la migración de BotPublicitario (Domain/Application/Infrastructure/Web + 1 migración EF aplicada). Build en verde. Ver sección completa arriba. Pendiente: QA funcional, configuración de credenciales reales de Meta/Google Maps, validación del mapeo rubro→catálogo de precios, y el runbook de corte de producción (fuera de alcance de esta sesión).
 - 2026-07-17: Fix de los 3 defectos QA `major` detectados en la primera pasada de QA (CRM-001, CRM-004, CRM-006) — ver sección completa arriba. Build en verde. CRM-002/003/005 (minor) explícitamente fuera de esta pasada, quedan pendientes para una pasada futura si el cliente lo pide.
 - 2026-07-17: Import de datos reales de producción de BotPublicitario (238 Contacto) a `olvidatacrm_dev`, vía importador de un solo uso ya descartado. Ver sección completa arriba.
 - 2026-07-21: Implementación completa de "campañas de contacto frío configurables" (CU-13/14/15, HU-12 a HU-16) — 3 entidades nuevas, `CampanasController` + 3 vistas + 4 endpoints AJAX, migración EF (`AddCampanasOutbound`) aplicada, seed automático de 13 campañas + 2 industrias de catálogo. `OutboundCampaignService`/`GoogleMapsService`/`OutboundSchedulerService` migrados de diccionarios hardcodeados a lectura desde BD. Build en verde (2 corridas), seed verificado sin errores. Ver sección completa arriba. Pendiente: QA funcional.
+- 2026-08-16: Implementación completa de "gestión comercial y herramientas de canal/venta" (CU-21 a CU-29) — 5 entidades nuevas + 1 enum + 1 campo, 3 controllers nuevos y 3 extendidos, 10 vistas nuevas y 7 modificadas, migración EF (`AddGestionComercial`) aplicada en dev y producción, deploy verificado en `https://portal.olvidata.com.ar/`. Ver sección completa arriba. 1 bug propio encontrado y corregido en el camino (día calendario UTC vs. ART en el churn del NRR). Pendiente: QA funcional, revisión de los textos de sugerencias y definición de la meta anual de negocio.

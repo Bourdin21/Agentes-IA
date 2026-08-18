@@ -1,43 +1,26 @@
 # Memoria - Arquitecto MVC
 
-## Proyecto: crm-olvidata — migración de BotPublicitario
-## Última actualización: 2026-07-14
+## Proyecto: crm-olvidata — migración de BotPublicitario + evolución continua
+## Última actualización: 2026-08-16
 
 ## Definiciones vigentes
 
-### 0. Alcance funcional resumido (recap)
+### 0. Alcance funcional resumido
 
-Migrar la funcionalidad de `C:\Sistemas\BotPublicitario` a `OlvidataCRM` (`C:\Sistemas\olvidatasoft-crm`, base ya saneada y compilando): captación/calificación automática por WhatsApp, presupuesto automático, outbound diario, búsqueda por Google Maps, notificación in-app, y 5 pantallas de gestión (Contactos, Industrias, Bot/Outbound). Sin `Cliente`/`Upsell`/`Proyecto` (pospuestos).
+`OlvidataCRM` (`C:\Sistemas\olvidatasoft-crm`) es la migración completa de `BotPublicitario` más todo lo construido después: captación/calificación automática por WhatsApp, presupuesto automático, outbound diario multi-campaña/multi-zona-horaria, búsqueda por Google Maps, pantalla de Chats con multimedia, notificaciones de ventana de 24hs, y el módulo de Gestión comercial (Clientes/Upsell/NRR/Templates/A-B testing/pipeline visual). Único rol de sistema: `SuperUsuario` (desde 2026-07-21). Sin `Proyecto`/pipeline de hitos de cobro (vive en VirtualWallet, fuera de alcance por decisión explícita del cliente).
 
-### 1. Mapa de componentes — reutilización vs. nuevo
+### 1. Domain (`OlvidataCRM.Domain`)
 
-**Regla aplicada:** reutilizar todo lo ya resuelto en `OlvidataCRM` (Identity, auditoría, soft delete, notificaciones, `IRepository<T>`, `DataTableRequest/Response`, `ServiceResult`, Design System, health checks, rate limiting, Serilog) y todo lo ya resuelto en `BotPublicitario` (clientes HTTP de Meta/Google ya probados en producción) — nada de esto se reescribe.
-
-| Componente | Origen | Tratamiento |
-|---|---|---|
-| `WhatsAppClient` | `BotPublicitario/WhatsApp/WhatsAppClient.cs` | Se porta **sin cambios de lógica** a `OlvidataCRM.Infrastructure/Services/`. Único cambio: constructor recibe `IOptions<WhatsAppSettings>` en vez de leer `Environment.GetEnvironmentVariable` (consistente con `SmtpSettings` ya existente). |
-| `GoogleMapsService` | `BotPublicitario/WhatsApp/GoogleMapsService.cs` | Se porta igual, mismo cambio de configuración (`IOptions<GoogleMapsSettings>`). El tracking de queries usadas (`queries_used.txt`) pasa a una tabla `GoogleMapsQueryUsada` simple (evita depender de un archivo en disco del servidor, que en hosting compartido puede no persistir entre deploys). |
-| `BotFlowService` | `BotPublicitario/Webhook/BotFlowService.cs` | Se migra: misma máquina de estados (ver Diseño §3), pero lee/escribe `Contacto`/`ContactoRespuesta` vía `AppDbContext` en vez de `ConversationStore` (JSON por teléfono). El mapeo `OutboundTypeToIndustry`/`IndustryPainHook` se reemplaza por consulta a `IndustriaCatalogo`. |
-| `OutboundCampaignService` | `BotPublicitario/WhatsApp/OutboundCampaignService.cs` | Se migra: mismo cronograma por rubro y límites, pero opera sobre `IQueryable<Contacto>` en vez de `CampaignState` (JSON). `contacted_phones.txt` desaparece — el índice único de `Contacto.Telefono` ya garantiza no duplicar. |
-| `OutboundSchedulerService` | `BotPublicitario/Webhook/OutboundSchedulerService.cs` | Se porta como `IHostedService` de `OlvidataCRM.Web`, mismo disparador diario (Mar/Mié/Jue 09:30 ART). El toggle standby pasa de endpoint `X-Admin-Key` a la pantalla `Bot/Index` (Identity). |
-| `MessageLogService` | `BotPublicitario/Webhook/MessageLogService.cs` | Su responsabilidad de logging a `.jsonl` desaparece (la traza ya la da `AuditLog`, automática). Su deduplicación por `message_id` de Meta (evita reprocesar reintentos) se conserva, migrada a un `HashSet` en memoria dentro del nuevo endpoint webhook — **limitación conocida y aceptada igual que hoy**: no sobrevive a un restart del proceso ni escala a múltiples instancias (ver Riesgos técnicos). |
-| `ExcelTrackerService` | `BotPublicitario/WhatsApp/ExcelTrackerService.cs` | **No se porta.** Su función (historial de contactados) la cubre directamente la tabla `Contacto` + `AuditLog`. |
-| `TemplateCreationService`, `CatalogService` | `BotPublicitario/WhatsApp/` | **No se portan** (confirmado en Diseño — sin UI de plantillas/catálogo Meta esta iteración). Siguen existiendo como utilitarios de consola en `BotPublicitario` si hace falta re-ejecutarlos manualmente. |
-| `MetaAdsClient` y scripts Python | `BotPublicitario/MetaAds/` | **No se tocan**, fuera de alcance (confirmado en Discovery/Análisis). |
-
-### 2. Desglose por capa
-
-#### Domain (`OlvidataCRM.Domain`)
-
-Entidades nuevas, todas heredan `SoftDestroyable`:
+Todas las entidades heredan `SoftDestroyable`.
 
 ```csharp
 public class Contacto : SoftDestroyable
 {
-    public string Telefono { get; set; }                  // requerido, único, formato 549...
+    public string Telefono { get; set; }                  // único, ^\d{10,15}$ — cualquier país con código, sin "+"
     public string? NombreContacto { get; set; }
     public string? NombreNegocio { get; set; }
-    public string? Rubro { get; set; }                     // texto libre, resultado de calificación
+    public string? Email { get; set; }
+    public string? Rubro { get; set; }
     public string? Zona { get; set; }
     public string? Direccion { get; set; }
     public double? Lat { get; set; }
@@ -46,9 +29,9 @@ public class Contacto : SoftDestroyable
     public string? ReferidoPor { get; set; }
     public string? MotivoReferido { get; set; }
     public FaseConversacion FaseConversacion { get; set; } = FaseConversacion.Nuevo;
-    public string? Categoria { get; set; }                 // rent | rent_other | build | merge | landing | other
-    public int QuestionIndex { get; set; }                 // progreso dentro de AskingQuestions
-    public int? CantidadUsuarios { get; set; }              // input de calificación usado en el cálculo de presupuesto
+    public string? Categoria { get; set; }
+    public int QuestionIndex { get; set; }
+    public int? CantidadUsuarios { get; set; }
     public EstadoEmbudo EstadoEmbudo { get; set; } = EstadoEmbudo.Pendiente;
     public decimal? PresupuestoCotizadoUsd { get; set; }
     public DateTime? FechaPrimerEnvio { get; set; }
@@ -56,6 +39,9 @@ public class Contacto : SoftDestroyable
     public DateTime? FechaRespuesta { get; set; }
     public DateTime? FechaCompletado { get; set; }
     public DateTime FechaUltimaActividad { get; set; }
+    public DateTime? FechaUltimaLecturaAgente { get; set; }   // última vez que un asesor abrió el chat
+    public bool MarcadoNoLeidoManual { get; set; }             // override manual del cálculo automático de NoLeido
+    public DateTime? FechaUltimaAlertaVentana { get; set; }    // evita re-notificar la misma ventana de 24hs
     public string? UltimoMensajeId { get; set; }
     public string? Notas { get; set; }
 
@@ -67,6 +53,9 @@ public class ContactoRespuesta : SoftDestroyable
     public int ContactoId { get; set; }
     public string Pregunta { get; set; } = string.Empty;
     public string Respuesta { get; set; } = string.Empty;
+    public string? MediaId { get; set; }              // id de media de la Graph API de Meta (no vence)
+    public string? MediaMimeType { get; set; }
+    public string? VarianteExperimento { get; set; }  // "A" | "B" | null — solo si CampanaExperimento estaba activo al enviar
     public Contacto Contacto { get; set; } = null!;
 }
 
@@ -81,15 +70,103 @@ public class IndustriaCatalogo : SoftDestroyable
     public int Orden { get; set; }
 }
 
-// Tabla de apoyo — reemplaza queries_used.txt de GoogleMapsService
+// Reemplaza queries_used.txt de GoogleMapsService
 public class GoogleMapsQueryUsada : SoftDestroyable
 {
     public string Rubro { get; set; } = string.Empty;
     public string Query { get; set; } = string.Empty;
 }
+
+public class CampanaOutbound : SoftDestroyable
+{
+    public string Nombre { get; set; } = string.Empty;
+    public DiasSemana Dias { get; set; }                        // 7 días reales, no solo Mar/Mié/Jue
+    public TimeSpan HoraEnvio { get; set; }
+    public string? ZonaHoraria { get; set; }                    // Id de TimeZoneInfo de Windows; null = Argentina
+    public int LimiteDiario { get; set; }
+    public string TemplateWhatsApp { get; set; } = string.Empty; // valida contra TemplateWhatsApp.Activo && Aprobado
+    public bool Activa { get; set; }
+    public bool Completa { get; set; }              // true cuando TODAS sus industrias quedan SinResultadosNuevos
+    public DateTime? FechaCompletada { get; set; }
+    public ICollection<CampanaOutboundIndustria> Industrias { get; set; } = new List<CampanaOutboundIndustria>();
+}
+
+public class CampanaOutboundIndustria : SoftDestroyable
+{
+    public int CampanaOutboundId { get; set; }
+    public CampanaOutbound CampanaOutbound { get; set; } = null!;
+    public int RachaSinResultadosNuevos { get; set; }   // corridas seguidas sin prospectos nuevos
+    public bool SinResultadosNuevos { get; set; }        // true al llegar al umbral (5) — deja de buscarse sola
+    public int? IndustriaCatalogoId { get; set; }               // opcional — ver Riesgos, gap Farmacia/Estudio
+    public IndustriaCatalogo? IndustriaCatalogo { get; set; }
+    public string ClaveRubro { get; set; } = string.Empty;       // granular: "comercio", "farmacia", etc. — único entre campañas ACTIVAS
+    public ICollection<CampanaQuery> Queries { get; set; } = new List<CampanaQuery>();
+}
+
+public class CampanaQuery : SoftDestroyable
+{
+    public int CampanaOutboundIndustriaId { get; set; }
+    public CampanaOutboundIndustria CampanaOutboundIndustria { get; set; } = null!;
+    public string Query { get; set; } = string.Empty;
+    public string Zona { get; set; } = string.Empty;
+}
+
+public class Cliente : SoftDestroyable
+{
+    public int ContactoId { get; set; }
+    public Contacto Contacto { get; set; } = null!;
+    public PlanSistema Plan { get; set; }
+    public decimal TicketAnualUsd { get; set; }
+    public DateTime FechaAlta { get; set; }
+    public DateTime FechaProximaRenovacion { get; set; }
+    public bool Activo { get; set; } = true;
+    public string? Notas { get; set; }
+    public ICollection<Upsell> Upsells { get; set; } = new List<Upsell>();
+}
+
+public class Upsell : SoftDestroyable
+{
+    public int ClienteId { get; set; }
+    public Cliente Cliente { get; set; } = null!;
+    public string Tipo { get; set; } = string.Empty;   // texto libre corto
+    public decimal MontoUsd { get; set; }
+    public DateTime Fecha { get; set; }
+    public string? Notas { get; set; }
+}
+
+public class TemplateWhatsApp : SoftDestroyable
+{
+    public string Nombre { get; set; } = string.Empty;      // debe coincidir con el nombre aprobado en Meta si Aprobado
+    public string Texto { get; set; } = string.Empty;       // copia local de referencia
+    public string? Rubro { get; set; }                       // null = genérico
+    public string? Pais { get; set; }                         // null = todos los países
+    public EstadoAprobacionMeta EstadoAprobacionMeta { get; set; } = EstadoAprobacionMeta.Borrador;
+    public bool Activo { get; set; } = true;
+}
+
+public class CampanaExperimento : SoftDestroyable
+{
+    public int CampanaOutboundId { get; set; }
+    public CampanaOutbound CampanaOutbound { get; set; } = null!;
+    public int TemplateAId { get; set; }
+    public TemplateWhatsApp TemplateA { get; set; } = null!;
+    public int TemplateBId { get; set; }
+    public TemplateWhatsApp TemplateB { get; set; } = null!;
+    public int PorcentajeB { get; set; }   // 1-99, el resto va a A
+    public bool Activo { get; set; } = true;
+}
+
+public class SugerenciaSeguimiento : SoftDestroyable
+{
+    public EstadoEmbudo EstadoEmbudo { get; set; }
+    public int? DiasMinimo { get; set; }
+    public int? DiasMaximo { get; set; }   // null = sin techo
+    public string? Rubro { get; set; }      // null = genérico
+    public string Texto { get; set; } = string.Empty;
+}
 ```
 
-Enums nuevos (`Domain/Enums/`, persistidos con `HasConversion<int>()` — convención ya vigente):
+Enums (`Domain/Enums/`, persistidos con `HasConversion<int>()`):
 
 ```csharp
 public enum CanalOrigen { AdsPagos = 1, OutboundFrio = 2, Referido = 3, Manual = 4 }
@@ -99,199 +176,113 @@ public enum FaseConversacion { Nuevo = 1, AwaitingCategory = 2, AwaitingIndustry
 public enum EstadoEmbudo
 {
     Pendiente = 1, MensajeEnviado = 2, FollowUpEnviado = 3, Respondido = 4,
-    PresupuestoEnviado = 5, DemoSolicitada = 6, DemoRealizada = 7, PropuestaEnviada = 8,
-    Cerrado = 9, Frio = 10, Descartado = 11, DerivadoManual = 12
+    PresupuestoEnviado = 5, Cerrado = 9, Frio = 10, Descartado = 11, DerivadoManual = 12
 }
+// Los valores 6-8 (DemoSolicitada/DemoRealizada/PropuestaEnviada) nunca se implementaron y fueron
+// eliminados formalmente de las definiciones el 2026-08-14 por decisión del cliente — hoy la venta
+// se maneja directo por WhatsApp vía Chats sin pasar por estados intermedios. Los valores numéricos
+// 6-8 quedan deliberadamente sin reasignar, para no romper datos históricos si algún registro viejo
+// los tuviera persistidos.
 
 public enum PlanSistema { Starter = 1, Pro = 2, Premium = 3, Scale = 4 }
+
+[Flags]
+public enum DiasSemana { Lunes = 8, Martes = 1, Miercoles = 2, Jueves = 4, Viernes = 16, Sabado = 32, Domingo = 64 }
+// Sábado/Domingo existen en el enum pero por política de negocio (sin outreach B2B en fin de
+// semana) ninguna campaña activa los usa hoy.
+
+public enum EstadoAprobacionMeta { Borrador = 1, PendienteRevision = 2, Aprobado = 3, Rechazado = 4 }
 ```
 
-#### Application (`OlvidataCRM.Application`)
+### 2. Application (`OlvidataCRM.Application`)
 
-Interfaces nuevas (`Interfaces/`):
+Interfaces (`Interfaces/`):
 
 ```csharp
-public interface IWhatsAppClient { /* SendTextAsync, SendTemplateAsync, SendListAsync — misma firma que hoy */ }
-public interface IGoogleMapsService { /* SearchDailyAsync, SearchAsync */ }
+public interface IWhatsAppClient
+{
+    // SendTextAsync, SendTemplateAsync, SendListAsync
+    Task<MediaDownloadResult> DownloadMediaAsync(string mediaId); // 2 pasos Graph API: metadata (URL corta) → binario, no cacheable
+}
+public interface IGoogleMapsService
+{
+    Task<IReadOnlyList<string>> RubrosDisponiblesAsync();  // async — antes propiedad sincrónica sobre diccionario estático
+    Task<int> SearchDailyAsync(DayOfWeek day, CancellationToken ct = default); // sin targetTotal — cada campaña define su LimiteDiario
+    Task<int> SearchByRubroAsync(string claveRubro, int maxResults);
+}
 public interface IBotFlowService { Task HandleIncomingAsync(IncomingMessageDto msg, string? contactName); }
 public interface IOutboundCampaignService
 {
-    Task<int> SendDailyBatchAsync(CancellationToken ct = default);
-    Task<int> ProcessFollowUpsAsync(CancellationToken ct = default);
+    Task<int> SendDailyBatchAsync(DayOfWeek? diaOverride = null, int? soloCampanaId = null, CancellationToken ct = default);
+    Task<int> ProcessFollowUpsAsync(DayOfWeek? diaOverride = null, int? soloCampanaId = null, CancellationToken ct = default);
     Task<int> MarkColdAsync(CancellationToken ct = default);
     Task<OutboundStatsDto> GetStatsAsync();
 }
 ```
 
-DTOs nuevos (`DTOs/`): `IncomingMessageDto` (payload normalizado del webhook, para no filtrar el modelo crudo de Meta hasta Negocio), `OutboundStatsDto` (EnviadosHoy, PendientesHoy — calculados con `COUNT` sobre `Contacto`, reemplaza `CampaignStats`), `ContactoListItemDto`.
+DTOs (`DTOs/`): `IncomingMessageDto` (payload normalizado del webhook; `MediaId`/`MediaMimeType`/`MediaFileName` poblados solo si el mensaje es audio/imagen/video/documento/sticker), `OutboundStatsDto`, `ContactoListItemDto`, `MediaDownloadResult(byte[] Bytes, string MimeType)`, `NegocioStatsDto` (ClientesActivos, TicketPromedioReal, Nrr nullable, AvanceMeta), `CampanaStatsDto` (Campana/Rubro/Pais/Enviados/TasaRespuesta/TasaAvancePresupuesto/TasaCierre).
 
-Settings nuevos (`Settings/`, mismo patrón que `FeatureFlags`):
+Settings (`Settings/`, mismo patrón que `SmtpSettings`):
 ```csharp
 public class WhatsAppSettings { public string AccessToken; PhoneNumberId; BusinessAccountId; BusinessId; ApiVersion = "v21.0"; }
 public class GoogleMapsSettings { public string ApiKey; }
-public class BotSettings { public string AdminNotifyPhone; public string VerifyToken; public int DailyLimit = 125; }
+public class BotSettings { public string AdminNotifyPhone; public string VerifyToken; }
 ```
-Secciones de configuración (`appsettings.json`, mismo patrón que `Olvidata_Email`): `Olvidata_WhatsApp`, `Olvidata_GoogleMaps`, `Olvidata_Bot`.
+Secciones de configuración (`appsettings.json`): `Olvidata_WhatsApp`, `Olvidata_GoogleMaps`, `Olvidata_Bot`.
 
-**No se agrega** `IIndustriaCatalogoService` como capa aparte — el CRUD de `IndustriaCatalogo` usa `IRepository<IndustriaCatalogo>` directo desde `IndustriasController` (catálogo simple, mismo patrón que `ConfiguracionController` de la base KOI original para Rubros/Subgrupos, sin necesidad de service intermedio). El cálculo de presupuesto vive dentro de `BotFlowService` (es lógica de negocio del bot, no un servicio reutilizable aparte).
+**Sin capas de servicio por-entidad que no aporten:** `IndustriaCatalogo`, `Cliente`/`Upsell`/`TemplateWhatsApp`/`SugerenciaSeguimiento` usan `IRepository<T>`/`AppDbContext` directo desde su controller (catálogos simples, sin lógica propia). Excepción real: NRR y métricas de campaña son consultas agregadas no triviales — viven como métodos privados en `NegocioController`/`CampanasController` respectivamente, sin crear una capa de servicio nueva solo para esto. El cálculo de presupuesto vive dentro de `BotFlowService` (lógica de negocio del bot, no reutilizable aparte). `TemplatesDisponibles` ya no es una lista fija en código — se resuelve contra la tabla `TemplateWhatsApp`.
 
-#### Infrastructure (`OlvidataCRM.Infrastructure`)
+### 3. Infrastructure (`OlvidataCRM.Infrastructure`)
 
-- `AppDbContext`: agrega `DbSet<Contacto>`, `DbSet<ContactoRespuesta>`, `DbSet<IndustriaCatalogo>`, `DbSet<GoogleMapsQueryUsada>`. `OnModelCreating`: índice único en `Contacto.Telefono`; `ContactoRespuesta.ContactoId` FK `OnDelete(Cascade)`; `IndustriaCatalogo.PrecioBaseUsd` con `HasPrecision(18,2)`; conversión de enums a `int` (mismo patrón que `EstadoUsuario`).
-- `Services/`: `WhatsAppClient`, `GoogleMapsService`, `BotFlowService`, `OutboundCampaignService` (implementaciones, ver §1).
-- `HostedServices/OutboundSchedulerService.cs`: `IHostedService`, dispara `OutboundCampaignService` diariamente, con flag `Standby` estático leído/escrito desde `BotController`.
-- `DependencyInjection.cs`: agrega `Configure<WhatsAppSettings>`, `Configure<GoogleMapsSettings>`, `Configure<BotSettings>`, `AddHttpClient<IWhatsAppClient, WhatsAppClient>()`, `AddHttpClient<IGoogleMapsService, GoogleMapsService>()`, `AddScoped<IBotFlowService, BotFlowService>()`, `AddScoped<IOutboundCampaignService, OutboundCampaignService>()`, `AddHostedService<OutboundSchedulerService>()`.
-- **Paquetes NuGet:** ninguno nuevo. `WhatsAppClient`/`GoogleMapsService` usan `HttpClient` + `System.Text.Json` (ya en el framework). No se porta `ClosedXML` para esto (ya está en Infrastructure para `ExportService`, pero no se necesita para el bot).
+- **`AppDbContext`**: `DbSet<Contacto>`, `DbSet<ContactoRespuesta>`, `DbSet<IndustriaCatalogo>`, `DbSet<GoogleMapsQueryUsada>`, `DbSet<CampanaOutbound>`, `DbSet<CampanaOutboundIndustria>`, `DbSet<CampanaQuery>`, `DbSet<Cliente>`, `DbSet<Upsell>`, `DbSet<TemplateWhatsApp>`, `DbSet<CampanaExperimento>`, `DbSet<SugerenciaSeguimiento>`. Índice único en `Contacto.Telefono`. Cascadas: `ContactoRespuesta`→`Contacto`, `CampanaOutboundIndustria`→`CampanaOutbound`, `CampanaQuery`→`CampanaOutboundIndustria`, `Upsell`→`Cliente` (`OnDelete(Cascade)`); `CampanaOutboundIndustria`→`IndustriaCatalogo` y `CampanaExperimento`→`TemplateWhatsApp` (A/B) con `OnDelete(Restrict)` (evita múltiples rutas de cascada en MySQL / no se borra un template referenciado). `Cliente.ContactoId` sin índice único (un contacto podría tener más de un `Cliente` histórico). `Dias` con `HasConversion<int>()`. Precisiones `decimal` con `HasPrecision(18,2)` donde aplica.
+- **`WhatsAppClient`** (`Services/`): porта de `BotPublicitario` sin cambios de lógica salvo config vía `IOptions<WhatsAppSettings>`. `DownloadMediaAsync` implementa los 2 pasos de la Graph API sobre el mismo `HttpClient` autenticado.
+- **`GoogleMapsService`**: sin diccionarios estáticos `RubrosByDay`/`QueriesByRubro` — resuelve contra `CampanaOutboundIndustria`/`CampanaQuery` (activas o no, para permitir búsqueda manual fuera de campaña activa). Rotación contra `GoogleMapsQueryUsada` sin cambios (ya era tabla). `SearchDailyAsync` reparte `maxResults = Ceiling(campana.LimiteDiario / cantidadIndustriasDeEsaCampana)` por campaña activa del día. **Paginación (2026-08-16):** `SearchAsync` pide hasta 3 páginas de `textsearch` vía `next_page_token` (60 resultados en vez de 20 por query, con el delay de 2s que exige Google antes de que el token sea válido). **Detección de agotamiento:** al final de cada `SearchByRubroAsync` se cuenta cuántos prospectos son genuinamente nuevos (no ya un `Contacto`, mismo criterio de dedupe por teléfono); si 0, sube `CampanaOutboundIndustria.RachaSinResultadosNuevos`, si ≥1 la resetea. Al llegar a 5 (`UmbralRachaSinResultados`) marca `SinResultadosNuevos=true` y `SearchDailyAsync` deja de volver a buscar esa industria en el barrido automático (no afecta la búsqueda manual, CU-11). Cuando todas las industrias de una campaña quedan así, `CampanaOutbound.Completa` se marca automáticamente (sin tocar `Activa`) y dispara notificación in-app a `SuperUsuario` — requirió agregar `INotificationService`/`UserManager<ApplicationUser>` al constructor de `GoogleMapsService`.
+- **`BotFlowService`**: máquina de estados sobre `Contacto`/`ContactoRespuesta` vía `AppDbContext` (no `ConversationStore` JSON). Mapeo rubro→industria contra `IndustriaCatalogo`. Protección de loop post-cierre: cuenta filas `"Mensaje adicional (post-cierre)"` solo si `Id > ultimoMensajeManualId` (Id de la última fila `"[Mensaje manual del asesor]"`) — evita descartar una respuesta genuina a una intervención humana.
+- **`OutboundCampaignService`**: `SendDailyBatchAsync`/`ProcessFollowUpsAsync` consultan `CampanaOutbound` activas cuyo `Dias` incluye el día actual, agrupan por `ClaveRubro` de sus `CampanaOutboundIndustria`, límite por campaña (`campana.LimiteDiario`, no global). Selección de template: `Referido → "olv_referido_v2"` fijo / `follow-up → "olv_nurturing_v2"` fijo / envío frío → `campana.TemplateWhatsApp`, salvo que la campaña tenga un `CampanaExperimento` activo — en ese caso un split determinístico sembrado por `contacto.Id` (no `Random` global, para no cambiar de variante en reintentos) decide `TemplateA`/`TemplateB` según `PorcentajeB` y setea `ContactoRespuesta.VarianteExperimento`. `MarkColdAsync` sin gating por rubro/día. Etiqueta `"[Mensaje de contacto frío]"` como constante interna (`EtiquetaMensajeFrio`).
+- **`OutboundSchedulerService`** (`HostedServices/`) — **reescrito de fondo**: tick cada 5 minutos, compara `HoraEnvio` de cada `CampanaOutbound` contra la hora **local** de su `ZonaHoraria` (`TimeZoneInfo.ConvertTimeFromUtc`, fallback a Argentina si es null/inválida) — ya no un disparador único fijo (Mar/Mié/Jue 09:30 ART para todas). Motivo: la expansión a 8 países (Uruguay, Chile, Paraguay, Bolivia, Perú, Ecuador, Colombia, Venezuela) hacía llegar mensajes 1-2hs antes de lo configurado fuera de Argentina. Toggle standby: `Bot/Index` (Identity), estado en memoria (no persistido — un recycle del app pool lo resetea al default).
+- **`VentanaExpiracionSchedulerService`** (nuevo `HostedService`, `_sp.CreateScope()`): tick cada 15 minutos, notifica in-app a `SuperUsuario` cuando un contacto `DerivadoManual` está a ≤3hs de perder su ventana de 24hs de WhatsApp, usa `Contacto.FechaUltimaAlertaVentana` para no reavisar la misma ventana. Ventana calculada desde el último mensaje **entrante** real (excluye las etiquetas `"[Mensaje manual del asesor]"`/`"[Mensaje de contacto frío]"`/`"[Presupuesto PDF enviado]"`) + 24hs.
+- **`ManualPipelineQueue`** (singleton, señal vía `SemaphoreSlim`) + **`ManualPipelineRunnerService`** (`HostedService`, propio scope de DI): el botón "Ejecutar ahora" de `Bot/Index` encola en vez de bloquear el request HTTP; la corrida real ocurre en el hosted service. Estado en memoria, no persistido (mismo riesgo que el standby).
+- **Deduplicación de webhooks por reintentos de Meta**: `HashSet` en memoria por `message_id`, limitación conocida y aceptada (no sobrevive restart, no escala a múltiples instancias) — mejora futura (índice único sobre `UltimoMensajeId` procesado) no implementada preventivamente (YAGNI).
+- **`SeedData.cs`**: seed idempotente de `IndustriaCatalogo` (13 industrias + "Farmacias"/"Estudios contables o jurídicos" con `CotizaAutomatico=false`, ancla de catálogo sin pricing propio), de `CampanaOutbound`/`CampanaOutboundIndustria`/`CampanaQuery` (una campaña por rubro migrado desde el barrido legacy), y una fila `TemplateWhatsApp` para `"olv_frio_v3"` (`Aprobado`) para que las campañas activas no queden sin template válido.
+- **`DependencyInjection.cs`**: `Configure<WhatsAppSettings/GoogleMapsSettings/BotSettings>`, `AddHttpClient<IWhatsAppClient, WhatsAppClient>()`, `AddHttpClient<IGoogleMapsService, GoogleMapsService>()`, `AddScoped<IBotFlowService, BotFlowService>()`, `AddScoped<IOutboundCampaignService, OutboundCampaignService>()`, `AddHostedService<OutboundSchedulerService>()`, `AddHostedService<VentanaExpiracionSchedulerService>()`, `AddHostedService<ManualPipelineRunnerService>()`, singleton `ManualPipelineQueue`. Sin paquetes NuGet nuevos en todo el ciclo (`HttpClient` + `System.Text.Json` del framework).
+- **Literal cross-capa duplicado (tech-debt conocido):** las etiquetas de evento (`"[Mensaje manual del asesor]"`, etc.) viven como constantes reales en `ChatsController`/`OutboundCampaignService` (Web/Infrastructure) pero se necesitan también en `VentanaExpiracionSchedulerService` (Infrastructure no puede referenciar una constante de Web) — quedan duplicadas como strings crudos con comentario cruzado. Mejora pendiente: extraer a una clase de constantes en `Application`.
 
-#### Web (`OlvidataCRM.Web`)
+### 4. Web (`OlvidataCRM.Web`)
 
-- **Controllers nuevos:** `ContactosController` (`[Authorize(Policy="RequireVendedor")]` — reutiliza policy ya definida en `Program.cs`), `IndustriasController` (`[Authorize(Policy="RequireAdministracion")]`), `BotController` (`[Authorize(Policy="RequireAdministracion")]`).
-- **Webhook de Meta:** se mapea como Minimal API en `Program.cs` (igual patrón que `BotPublicitario/Webhook/Program.cs`, sin forzarlo a un Controller MVC — es la forma más directa de portar `GET/POST /webhook/whatsapp` con verificación de `hub.verify_token`). Sin `[Authorize]` (Meta no manda cookie de sesión) y sin la policy `general` de rate limiting (Meta ya controla su propio ritmo de entrega). Delega inmediatamente a `IBotFlowService` tras el ACK 200 (mismo patrón fire-and-forget que hoy, para evitar timeout/reintentos de Meta).
-- **Vistas:** `Views/Contactos/{Index,Details,Create,Edit}.cshtml`, `Views/Industrias/{Index,Create,Edit}.cshtml`, `Views/Bot/Index.cshtml` — Design System (`ov-card`, `ov-badge`, DataTables server-side), según wireframes de Diseño §1.
-- **Sidebar (`_Layout.cshtml`):** agrega sección "Comercial" (Contactos, visible Vendedor+) y entrada "Bot / Outbound" bajo "Sistema" (visible Administrador+), según Diseño.
+- **Controllers** (todos `[Authorize(Policy = "RequireSuperUsuario")]` — único rol del sistema desde 2026-07-21): `ContactosController` (CRUD, filtros persistidos en `Session`, acción `Pipeline` con `PipelineViewModel`/`ConversionEtapaViewModel` agrupando por `EstadoEmbudo`), `IndustriasController`, `BotController` (`Index`, `EjecutarAhora` — sincrónico, solo encola en `ManualPipelineQueue`), `CampanasController` (`Index`/`GetData`, `Create`/`Edit`, `TogglePausa`, `Delete`, `AgregarQuery`/`EliminarQuery` AJAX, `Dashboard` con `CampanaStatsDto`, `ConfigurarExperimento`, `ReabrirBusqueda` — resetea `Completa`/`SinResultadosNuevos`/`RachaSinResultadosNuevos` tras cargar zonas/queries nuevas, 2026-08-16), `ChatsController` (`Index`/`ListaParcial`, `Detail`/`HiloParcial`, `EnviarMensaje`, `EnviarPresupuestoPdf`, `MarcarNoLeido`, `Media` — proxy de descarga bajo demanda, no público, `SugerirMensaje` AJAX resolviendo `SugerenciaSeguimiento` por `EstadoEmbudo`+`Rubro`+días desde `FechaRespuesta`), `ClientesController` (`Index`/`GetData`, `Details`, `ConvertirDesdeContacto` POST desde `Contactos/Details`/`Chats/Detail`, `AgregarUpsell` AJAX inline), `NegocioController` (`Dashboard` con `NegocioStatsDto` + próximas renovaciones), `TemplatesController` (CRUD estándar).
+- **Webhook de Meta**: Minimal API en `Program.cs` (`GET/POST /webhook/whatsapp`, verificación `hub.verify_token`). Sin `[Authorize]` ni rate limiting general (Meta controla su propio ritmo). Delega a `IBotFlowService` tras ACK 200 (fire-and-forget, evita timeout/reintentos de Meta).
+- **Vistas**: `Contactos/{Index,Details,Create,Edit,Pipeline}`, `Industrias/{Index,Create,Edit}`, `Bot/Index`, `Campanas/{Index,Create,Edit,Dashboard}`, `Chats/{Index,Detail,_ChatThread,_ChatListItems}`, `Clientes/{Index,Details}`, `Negocio/Dashboard`, `Templates/{Index,Create,Edit}` — Design System (`ov-card`, `ov-badge`, DataTables server-side).
+- **Sidebar (`_Layout.cshtml`)**: secciones "Comercial" (Contactos), "Chats", "Negocio" (Clientes, Dashboard de negocio), y "Sistema" (Industrias, Bot/Outbound, Campañas, Templates) — todo visible solo para `SuperUsuario`.
 
-### 3. Modelo de permisos
+### 5. Modelo de permisos
 
-No se crean policies nuevas — se reutilizan las ya definidas en `Program.cs`:
-- `RequireVendedor` (SuperUsuario, Administrador, Vendedor) → Contactos.
-- `RequireAdministracion` (SuperUsuario, Administrador) → Industrias, Bot/Outbound.
-- Webhook público: sin policy de Identity, se autentica solo con `hub.verify_token` de Meta (igual que hoy).
+Único rol de sistema desde el 2026-07-21: `SuperUsuario`. Todos los controllers de esta iteración usan `[Authorize(Policy = "RequireSuperUsuario")]` sin matices — las policies históricas `RequireVendedor`/`RequireAdministracion` no existen en el código actual (confirmado por grep, cero referencias). Excepción única: el webhook de Meta, autenticado solo con `hub.verify_token` (sin cookie de sesión posible). `Chats/Media` está protegido por la policy del controller igual que el resto — no es un endpoint público pese a servir binarios.
 
-Empleado queda sin acceso a estas pantallas por ahora (Diseño lo dejó "a confirmar"; no se define policy nueva hasta que haya un caso de uso concreto — evita crear una policy sin uso).
+### 6. Migraciones EF aplicadas (histórico acumulado, todas aditivas salvo la indicada)
 
-### 4. Migraciones EF
+`AddContactosYCatalogoIndustrias` (4 tablas base) → `AddCampanasOutbound` (3 tablas + 2 filas seed `IndustriaCatalogo`) → `AddZonaHorariaCampana` → `AddMediaFieldsToContactoRespuesta` → `AddEmailToContacto` → `AddFechaUltimaAlertaVentana` → `AddMarcadoNoLeidoManual` → `RemoveAuditLog` (**única no aditiva** — elimina la tabla `AuditLogs` completa, 2026-07-28, decisión explícita del cliente) → `AddGestionComercial` (5 tablas: `Clientes`, `Upsells`, `TemplatesWhatsApp`, `CampanasExperimento`, `SugerenciasSeguimiento` + columna `ContactoRespuestas.VarianteExperimento`) → `AddCampanaBusquedaCompleta` (4 columnas aditivas: `CampanaOutbound.Completa`/`FechaCompletada`, `CampanaOutboundIndustria.RachaSinResultadosNuevos`/`SinResultadosNuevos`). Todas aplicadas primero en `olvidatacrm_dev`.
 
-**Sí, requerida.** Una migración (`dotnet ef migrations add AddContactosYCatalogoIndustrias`) que agrega 4 tablas: `Contactos`, `ContactoRespuestas`, `IndustriaCatalogos`, `GoogleMapsQueryUsadas`. No modifica ninguna tabla existente (Identity/AuditLog/Notification/PreferenciaUsuario quedan intactas). Se aplica primero en dev (`olvidatacrm_dev`, ya verificado que el flujo `dotnet ef database update` funciona en esta base).
+### 7. Riesgos y supuestos vigentes
 
-**Seed adicional:** las 13 industrias ya relevadas en `docs/meta-ads/definiciones/1-analista-funcional.md` (tabla "Fuente de precios — reconciliada") se cargan en `SeedData.cs` como `IndustriaCatalogo` inicial, mismo patrón que el seed de roles/SuperUsuario ya existente (idempotente, `if (await db.IndustriasCatalogo.AnyAsync()) return;`).
+- **Deduplicación de webhooks no persistente** (`HashSet` en memoria) — aceptado, ver Infrastructure §3.
+- **Concurrencia en alta de `Contacto`**: dos flujos pueden intentar crear el mismo teléfono a la vez (webhook vs. outbound). El índice único de `Telefono` actúa como red de seguridad — el flujo que llega segundo captura la excepción de duplicado y hace `UPDATE` en vez de `INSERT`.
+- **Retención de media no garantizada**: `Chats/Media` puede devolver 404 en un adjunto viejo si Meta ya lo purgó — caso esperado, no una excepción sin manejar. Captura de multimedia no es retroactiva (solo mensajes recibidos después del deploy del 2026-08-13 tienen `MediaId`).
+- **Literal cross-capa duplicado** (etiquetas de evento) — ver Infrastructure §3, mejora pendiente no resuelta todavía.
+- **Estado en memoria no persistido**: standby del scheduler y `ManualPipelineQueue` se resetean en cada recycle del app pool (cualquier deploy) — riesgo aceptado desde el diseño original.
+- **Split A/B sembrado por contacto**: obligatorio para que un reintento del pipeline no cambie de variante a un contacto ya asignado.
+- **NRR calculado en memoria (C#), no en SQL**: volumen bajo de `Cliente` (decenas, no miles) — revisar si la cartera crece mucho. Sin período anterior con datos, `NRR = null` → UI muestra "Datos insuficientes", nunca un número inventado.
+- **Campo `Pais` de campaña es inferido por texto** (`Region`/`ZonaHoraria`), no un campo estructurado — suficiente para 8 países bien diferenciados en el texto; si la cantidad crece mucho valdría un campo `Pais` real en `CampanaOutbound`.
+- **Gap de pricing conocido**: "Farmacias" y "Estudios contables/jurídicos" no tienen `PrecioBaseUsd`/cotización automática — quedan siempre `DerivadoManual`, comportamiento heredado y aceptado, no una regresión.
 
-### 5. Riesgos técnicos
+### 8. Estrategia de pruebas
 
-- **Corte de producción (el más crítico):** BotPublicitario sigue operando mientras se construye esto. Runbook propuesto para el "día D": (1) QA funcional completo del nuevo webhook en la ventana de desarrollo aparte, sin tráfico real; (2) importar datos en tránsito (ver siguiente punto); (3) cambiar en el Meta App Dashboard la URL de callback del webhook de WhatsApp de la del `Olvidata.Webhook` actual a la del nuevo endpoint del CRM; (4) mantener el proceso viejo apagado pero no borrado por unos días de respaldo antes de decomisionarlo. Esto es un paso operativo, no requiere código nuevo más allá de lo ya diseñado.
-- **Importación de datos en tránsito:** si al momento del corte hay conversaciones/prospectos activos en `outbound_state.json`, `conversations/*.json`, `contactos.xlsx`, se resuelve con un comando de consola de un solo uso (`dotnet run --project OlvidataCRM.Web -- import-legacy-botpublicitario <ruta>`), no una pantalla del CRM — se descarta después de usarlo una vez.
-- **Deduplicación de webhooks por reintentos de Meta:** se mantiene la limitación actual (HashSet en memoria, no persistente) por decisión de preservar comportamiento legacy. Si se detectan duplicados reales en producción, la mejora futura es un índice único sobre un campo `UltimoMensajeId` procesado — no se implementa preventivamente (YAGNI).
-- **Concurrencia en alta de `Contacto`:** dos flujos pueden intentar crear el mismo teléfono a la vez (webhook responde justo cuando el outbound lo está cargando). El índice único de `Telefono` en MySQL actúa como red de seguridad — el flujo que llega segundo debe capturar la excepción de duplicado y hacer `UPDATE` en vez de `INSERT` (patrón ya usado en el estudio para numeradores/correlativos, ver `27-presupuesto-parametros`/patrones cross-proyecto de `ContadorFactura`).
-- **Cronograma outbound hardcodeado:** el mapeo rubro→día de la semana sigue siendo una constante en código (como hoy), no editable desde la pantalla `Bot/Index` — Diseño no pidió esa edición, se preserva así por alcance.
-
-### 6. Estrategia de pruebas funcionales
-
-QA manual (no automatización de navegador, según preferencia ya establecida del estudio): validar cada historia de usuario de Diseño (HU-01 a HU-11) con pasos concretos contra la base de desarrollo, incluyendo:
-- Webhook simulado con `curl`/Postman contra `/webhook/whatsapp` con payloads de ejemplo (mensaje nuevo, respuesta de calificación, reintento con mismo `message_id`).
-- Verificación de que `AuditLog` registra los cambios de `Contacto` automáticamente (ya provisto por la base, sin código adicional).
-- Prueba de carga del outbound scheduler en modo manual (invocar el `IHostedService` fuera de horario para no esperar al cronograma real).
-
-### Gate de aprobación para pasar a Presupuesto
-
-**Pendiente de confirmación del cliente.** Arquitectura no introduce paquetes NuGet nuevos, no crea policies nuevas, reutiliza el 90% de la lógica de negocio ya escrita y probada en `BotPublicitario`, y requiere 1 migración EF con 4 tablas nuevas sin tocar las existentes. El riesgo principal (corte de producción) tiene un runbook operativo definido, no bloquea el desarrollo.
-
-## Arquitectura técnica — Campañas de contacto frío configurables (CERRADO — 2026-07-21)
-
-**Gate verificado:** Análisis (`1-analista-funcional.md`) y Diseño (`2-disenador-funcional.md`) cerrados y aprobados. Orquestador saltea Presupuesto a pedido explícito del cliente (mismo precedente que la migración original de BotPublicitario, 2026-07-17) — pasa directo a Implementación.
-
-### 0. Alcance funcional resumido (recap)
-
-Reemplazar `OutboundCampaignService.RunDayByType`, `GoogleMapsService.RubrosByDay`/`QueriesByRubro`/`RubrosRetirados` y `BotSettings.DailyLimit` (único) por campañas configurables desde el CRM. 3 entidades nuevas + 1 enum. CU-13/14/15, HU-12 a HU-16.
-
-### 1. Clarificaciones técnicas sobre el Diseño (decisiones de Arquitectura, no cambian lo funcional aprobado)
-
-Dos puntos que el Diseño dejó explícitamente "a definir en Arquitectura" y que al traducirlos a datos reales requieren una decisión técnica:
-
-**a) Granularidad real: "rubro" ≠ "industria del catálogo de precios".** Los ~13 rubros operativos de hoy (`comercio`, `farmacia`, `dieteticas`, `consultorio`, `clinica`, `inmobiliaria`, `indumentaria`, `estudio`, `ganaderia`, `agro`, `servicios`, `maquinaria`, `residuos`) no mapean 1:1 contra las filas de `IndustriaCatalogo` (varios rubros comparten una misma fila de precio — ej. `ganaderia` y `agro` → misma fila "Ganadería / producción agropecuaria"; `consultorio` y `clinica` → misma fila "Laboratorios / consultorios médicos"). Por eso `ClaveRubro` (la clave granular que hoy vive en `Contacto.Rubro` y en las claves de `QueriesByRubro`) se modela en **`CampanaOutboundIndustria`** (la relación campaña↔industria), no en `IndustriaCatalogo` — permite que "Ganadería" y "Agro" sean dos campañas-industria distintas (cada una con su propio cronograma/queries) aunque coticen con el mismo precio base. La regla de negocio "una industria no puede estar en 2 campañas activas" del Diseño se implementa correctamente como **"una `ClaveRubro` no puede estar en 2 campañas activas"** — es la granularidad real del conflicto operativo (dos campañas por igual rubro sí duplicarían contacto; dos campañas con el mismo precio de catálogo pero rubro distinto no).
-
-**b) Queries de búsqueda cuelgan de `CampanaOutboundIndustria`, no de `IndustriaCatalogo`.** Consecuencia directa de (a): si las queries fueran de `IndustriaCatalogo`, "Ganadería" y "Agro" no podrían tener listas de queries independientes pese a ser rubros de búsqueda distintos. Cuelgan de la relación campaña-industria — coincide exactamente con la UI ya diseñada (Pantalla 8, acordeón por industria dentro de la campaña), solo cambia la clave técnica de destino.
-
-**c) `IndustriaCatalogoId` en `CampanaOutboundIndustria` es opcional (nullable).** Dos de los rubros existentes (`farmacia`, `estudio`) **no tienen fila propia en el catálogo de 13 industrias** (gap ya documentado en `5-implementador.md` del ciclo anterior: "Farmacia" y "Contabilidad/Estudios contables" quedan `DerivadoManual`, sin cotización automática). Para preservar el comportamiento legacy completo del seed de migración (decisión de Análisis #5: "una campaña por cada rubro que ya está en `RunDayByType` hoy" — farmacia y estudio están ahí), se agregan **2 filas nuevas a `IndustriaCatalogo`** como parte de esta implementación: "Farmacias" y "Estudios contables / jurídicos", ambas con `CotizaAutomatico=false` (mismo comportamiento de hoy — sin cotización automática, sin cambiar esa lógica) — solo para tener un ancla de catálogo y poder mostrarlas en el Select2 de industrias de la pantalla de campañas. Esto evita dejar 2 rubros del barrido actual sin poder migrarse.
-
-**d) El campo `TemplateWhatsApp` de la campaña gobierna únicamente el primer contacto de `CanalOrigen.OutboundFrio`.** El mensaje de **Referido** sigue fijo en `"olv_referido_v2"` (un contacto Referido no "pertenece" a la campaña de la misma manera — su `Rubro` solo define día/límite de envío vía la campaña que contenga esa `ClaveRubro`, no el template) y el de **follow-up** sigue fijo en `"olv_nurturing_v2"` (etapa distinta del pipeline, no del alta). Motivo: la Pantalla 7/8 del Diseño ofrece "3 opciones" de template en el dropdown, pero mezclar las 3 en un solo campo de campaña rompería el envío de referidos/follow-ups (dejarían de usar su template fijo ya aprobado) — preserva comportamiento legacy salvo indicación contraria (regla obligatoria de la operativa global). En la práctica, hoy el dropdown de campaña solo tiene sentido real con 1 opción (`olv_frio_v3`); las otras 2 quedan listadas para cuando Meta apruebe una variante nueva de mensaje frío en el futuro.
-
-### 2. Impacto técnico por capa
-
-#### Domain (`OlvidataCRM.Domain`)
-
-```csharp
-// Enums/DiasSemana.cs
-[Flags]
-public enum DiasSemana { Martes = 1, Miercoles = 2, Jueves = 4 }
-
-// Entities/CampanaOutbound.cs
-public class CampanaOutbound : SoftDestroyable
-{
-    public string Nombre { get; set; } = string.Empty;
-    public DiasSemana Dias { get; set; }
-    public int LimiteDiario { get; set; }
-    public string TemplateWhatsApp { get; set; } = string.Empty; // validado contra lista fija en el controller
-    public bool Activa { get; set; }
-    public ICollection<CampanaOutboundIndustria> Industrias { get; set; } = new List<CampanaOutboundIndustria>();
-}
-
-// Entities/CampanaOutboundIndustria.cs
-public class CampanaOutboundIndustria : SoftDestroyable
-{
-    public int CampanaOutboundId { get; set; }
-    public CampanaOutbound CampanaOutbound { get; set; } = null!;
-    public int? IndustriaCatalogoId { get; set; }              // opcional, ver §1.c
-    public IndustriaCatalogo? IndustriaCatalogo { get; set; }
-    public string ClaveRubro { get; set; } = string.Empty;      // granular: "comercio", "farmacia", etc. — único entre campañas ACTIVAS
-    public ICollection<CampanaQuery> Queries { get; set; } = new List<CampanaQuery>();
-}
-
-// Entities/CampanaQuery.cs
-public class CampanaQuery : SoftDestroyable
-{
-    public int CampanaOutboundIndustriaId { get; set; }
-    public CampanaOutboundIndustria CampanaOutboundIndustria { get; set; } = null!;
-    public string Query { get; set; } = string.Empty;
-    public string Zona { get; set; } = string.Empty;
-}
-```
-
-`TemplatesDisponibles` (lista fija, no entidad): constante estática `["olv_frio_v3"]` hoy — se deja como `List<string>` estático en `OutboundCampaignService` o `CampanaOutbound` (Application, no Domain) para no crear una tabla de catálogo por 1 solo valor útil; agregar una variante nueva sigue siendo un cambio de código (consistente con la decisión #3 del Análisis).
-
-#### Application (`OlvidataCRM.Application`)
-
-- `IOutboundCampaignService`: sin cambios de firma (`SendDailyBatchAsync`/`ProcessFollowUpsAsync`/`MarkColdAsync`/`GetStatsAsync`) — la implementación cambia de fuente de datos, el contrato no.
-- `IGoogleMapsService.SearchDailyAsync`: cambia de firma — se elimina el parámetro `targetTotal` (antes global, ahora cada campaña define su propio `LimiteDiario`, ver §1). Único caller es `OutboundSchedulerService`, cambio seguro.
-- Nuevo DTO `CampanaOutboundListItemDto` no es necesario — el listado usa un ViewModel directo desde `AppDbContext` (patrón ya usado en `IndustriasController`, sin capa de servicio intermedia).
-
-#### Infrastructure (`OlvidataCRM.Infrastructure`)
-
-- `AppDbContext`: `DbSet<CampanaOutbound>`, `DbSet<CampanaOutboundIndustria>`, `DbSet<CampanaQuery>`. Fluent API: `Dias` con `HasConversion<int>()`; `CampanaOutbound` 1:N `CampanaOutboundIndustria` con `OnDelete(Cascade)`; `CampanaOutboundIndustria` 1:N `CampanaQuery` con `OnDelete(Cascade)`; `CampanaOutboundIndustria` → `IndustriaCatalogo` con `OnDelete(Restrict)` (evita múltiples rutas de cascada en MySQL, `IndustriaCatalogo` nunca se borra físicamente de todas formas).
-- `OutboundCampaignService.SendDailyBatchAsync`/`ProcessFollowUpsAsync`: dejan de leer `RunDayByType`/`RubrosRetirados`; consultan `CampanaOutbound` activas cuyo `Dias` incluye el día actual (`(Dias & flagHoy) == flagHoy`), agrupan candidatos por `ClaveRubro` de sus `CampanaOutboundIndustria`, límite = `campana.LimiteDiario` (por campaña, no global — decisión #1). Selección de template: `contacto.CanalOrigen == Referido ? "olv_referido_v2" : campana.TemplateWhatsApp` (envío frío) / siempre `"olv_nurturing_v2"` (follow-up) — ver §1.d. `MarkColdAsync` no cambia (no tenía gating por rubro/día).
-- `GoogleMapsService`: se eliminan `RubrosByDay`/`QueriesByRubro` estáticos. `RubrosDisponibles` pasa a ser `ClaveRubro` distintos entre las `CampanaOutboundIndustria` con al menos 1 `CampanaQuery` (consulta async — cambia de propiedad sincrónica a método, único ajuste de firma pública, revisar el único consumidor `BotController.Index`). `SearchByRubroAsync(rubro, maxResults)` resuelve queries buscando `CampanaOutboundIndustria` por `ClaveRubro` (entre campañas activas o no — la búsqueda manual de CU-11 no depende de que la campaña esté activa) en vez del diccionario estático; mismo mecanismo de rotación contra `GoogleMapsQueryUsada` (sin cambios, ya es DB). `SearchDailyAsync(DayOfWeek day, ct)`: nueva firma sin `targetTotal`; itera campañas activas de ese día, por cada `CampanaOutboundIndustria` busca con `maxResults = Ceiling(campana.LimiteDiario / cantidadIndustriasDeEsaCampana)` (mismo criterio de reparto que el código legacy).
-- `OutboundSchedulerService.RunPipelineAsync`: elimina `const int targetSends = 125`; llama `maps.SearchDailyAsync(dayOfWeek, ct)` sin el parámetro.
-- `SeedData.cs`: 
-  - Agrega 2 filas a `IndustriaCatalogo` ("Farmacias", "Estudios contables / jurídicos", ambas `CotizaAutomatico=false`) — ver §1.c.
-  - Nuevo `SeedCampanasOutboundAsync` (idempotente, mismo patrón `if (await db.CampanasOutbound.AnyAsync()) return;`): genera 1 `CampanaOutbound` por cada uno de los ~13 rubros que hoy tiene entrada en `RunDayByType`/`RubrosByDay` (excluye `restaurant`/`eventos`, ya retirados del barrido — ver trazabilidad 2026-07-17), con `Dias` = el día que le corresponde hoy, `LimiteDiario = Ceiling(125 / cantidadDeRubrosDeEseDia)` (Martes: 3 rubros → 42 c/u; Miércoles: 5 → 25 c/u; Jueves: 5 → 25 c/u — mismo criterio de reparto que ya usa `GoogleMapsService.SearchDailyAsync` hoy), `TemplateWhatsApp = "olv_frio_v3"`, `Activa = true`, y una `CampanaOutboundIndustria` con el `ClaveRubro` correspondiente + `IndustriaCatalogoId` de la fila que mejor matchea (mapeo manual documentado en el propio código) + todas las `CampanaQuery` migradas 1:1 desde `QueriesByRubro[rubro]`.
-- `DependencyInjection.cs`: sin cambios (no hay servicios/paquetes nuevos).
-
-#### Web (`OlvidataCRM.Web`)
-
-- **Controller nuevo:** `CampanasController` (`[Authorize(Policy="RequireSuperUsuario")]`) — `Index`/`GetData` (DataTable server-side), `Create` (GET/POST), `Edit` (GET/POST), `TogglePausa` (POST), `Delete` (POST, soft-delete), más 2 endpoints AJAX para queries (`AgregarQuery`/`EliminarQuery`, POST, devuelven JSON `{success, message}`). Se optó por un controller propio (no anidar en `BotController`) — consistente con el patrón ya establecido del proyecto (`IndustriasController` separado de `BotController` pese a estar relacionados).
-- `BotController.Index`: agrega `CampanasResumen` al ViewModel (nombre + día corto de las campañas, para la card nueva de `Bot/Index`).
-- **ViewModels:** los 6 definidos en Diseño §2, sin cambios respecto a lo ya aprobado.
-- **Vistas:** `Views/Campanas/{Index,Create,Edit}.cshtml` + extensión de `Views/Bot/Index.cshtml` (card resumen), según wireframes de Diseño §1.
-- **Sidebar:** sin cambios (las pantallas de Campañas no llevan entrada propia, se accede desde `Bot/Index`, según Diseño).
-
-### 3. Modelo de permisos
-
-Sin cambios — único rol del sistema (`RequireSuperUsuario`), ya vigente desde el ajuste de roles del 2026-07-21. `CampanasController` usa la misma policy que `BotController`/`IndustriasController`.
-
-### 4. Migraciones EF requeridas
-
-**Sí.** Una migración (`AddCampanasOutbound`) agrega 3 tablas (`CampanasOutbound`, `CampanaOutboundIndustrias`, `CampanaQueries`) + 2 filas nuevas al seed de `IndustriaCatalogo` (aplicadas por `SeedData`, no por la migración en sí). No modifica ninguna tabla existente. Se aplica primero contra `olvidatacrm_dev`.
-
-### 5. Riesgos y supuestos
-
-- **Riesgo aceptado y heredado del Análisis:** sin tope global de límite diario (decisión #1) — ver `1-analista-funcional.md` §5.
-- **Riesgo de reconciliación catálogo↔rubro:** las 2 filas nuevas de `IndustriaCatalogo` ("Farmacias", "Estudios contables/jurídicos") son solo anclas de catálogo sin cotización automática — no resuelven el gap de pricing ya conocido (documentado desde la implementación original), solo permiten que esos 2 rubros tengan campaña de contacto frío igual que los demás.
-- **Riesgo de regresión en `RubrosDisponibles`:** pasa de propiedad sincrónica a consulta async — el único consumidor (`BotController.Index`, búsqueda manual CU-11) debe actualizarse a `await`; revisar que no haya otro caller antes de mergear (grep obligatorio en Implementación).
-- **Supuesto:** el reparto de `LimiteDiario` en el seed (125 ÷ rubros del día) es un valor de arranque razonable, no una decisión de negocio del cliente — queda 100% editable desde la pantalla de Campañas apenas esté disponible, no requiere aprobación previa.
-
-### 6. Gate de aprobación para pasar a Implementación
-
-**Cumplido — Presupuesto salteado a pedido explícito del cliente.** Arquitectura no agrega paquetes NuGet nuevos, no crea policies nuevas, reutiliza el patrón de controller/vista ya establecido en `IndustriasController`. Requiere 1 migración EF con 3 tablas nuevas + 2 filas de seed adicionales en `IndustriaCatalogo`, sin tocar tablas existentes. Pasa directo a Implementación.
+QA manual (sin automatización de navegador, preferencia ya establecida del estudio): validar cada historia de usuario contra la base de desarrollo — webhook simulado con curl/Postman (mensaje nuevo, respuesta de calificación, reintento con mismo `message_id`), verificación de datos persistidos en `Contacto`/`ContactoRespuesta`, prueba manual del scheduler fuera de horario (invocar el `IHostedService` sin esperar el cronograma real).
 
 ## Historial de ajustes
-- 2026-07-14: Arquitectura técnica cerrada. Definidas 4 entidades Domain (`Contacto`, `ContactoRespuesta`, `IndustriaCatalogo`, `GoogleMapsQueryUsada`) + 4 enums, 4 interfaces Application nuevas, mapa completo de reutilización de BotPublicitario (WhatsAppClient/GoogleMapsService portados sin cambio de lógica; BotFlowService/OutboundCampaignService migrados a BD; ExcelTrackerService/TemplateCreationService/CatalogService no se portan). 1 migración EF. Sin paquetes NuGet ni policies nuevas. Runbook de corte de producción definido como paso operativo.
-- 2026-07-21: Arquitectura técnica de "campañas de contacto frío configurables" cerrada. Resueltas 2 ambigüedades técnicas que el Diseño dejó abiertas: (a) `ClaveRubro`/queries cuelgan de `CampanaOutboundIndustria` (no de `IndustriaCatalogo`) porque varios rubros operativos comparten una misma fila de precio; (b) el campo `TemplateWhatsApp` de la campaña gobierna solo el primer contacto frío, Referido/follow-up mantienen su template fijo (preserva comportamiento legacy). 3 entidades nuevas + 1 enum, 1 migración EF, controller nuevo (`CampanasController`), 2 filas nuevas de `IndustriaCatalogo` para cubrir Farmacia/Estudio en el seed de migración. Presupuesto salteado a pedido explícito del cliente — pasa directo a Implementación.
-- 2026-07-24: Arquitectura exprés del ajuste de UI de Notificaciones. Impacto: **solo capa Presentación** (`Views/Notifications/Index.cshtml`) — cambio de un ícono de Font Awesome (`fas fa-trash` → `fas fa-xmark`) y de la interacción de confirmación (JS `confirm()` nativo → `Swal.fire(...)`, reemplazando `onsubmit` inline por un listener JS con `preventDefault()` + `form.submit()` condicionado a `isConfirmed`, mismo patrón ya usado en `Campanas/Index.cshtml`). Sin impacto en Negocio (`NotificationsController`/`NotificationService`/`INotificationService` no se tocan, `Delete`/`DeleteAllRead` ya existen y funcionan) ni en Datos (sin migración EF, sin cambio de esquema). Sin paquetes nuevos — SweetAlert2 ya está cargado globalmente en `_Layout.cshtml` (CDN) y usado en otras pantallas. Gate a Presupuesto: **salteado a pedido explícito del cliente** (mismo precedente que 2026-07-17 y 2026-07-21 — proyecto interno, sin parte externa a cotizar) — pasa directo a Implementación.
+- 2026-07-14: Arquitectura técnica cerrada (migración base de BotPublicitario). 4 entidades Domain + 4 enums, 4 interfaces Application, mapa completo de reutilización (WhatsAppClient/GoogleMapsService portados sin cambio de lógica; BotFlowService/OutboundCampaignService migrados a BD). 1 migración EF. Runbook de corte de producción definido y ejecutado.
+- 2026-07-21: Arquitectura de "campañas de contacto frío configurables" cerrada. Resueltas 2 ambigüedades: `ClaveRubro`/queries cuelgan de `CampanaOutboundIndustria` (no de `IndustriaCatalogo`, varios rubros comparten precio); `TemplateWhatsApp` de campaña gobierna solo el primer contacto frío (Referido/follow-up mantienen template fijo). 3 entidades + 1 enum, 1 migración EF, `CampanasController` nuevo, 2 filas de seed para Farmacia/Estudio.
+- 2026-07-24: Ajuste exprés de UI de Notificaciones — solo capa Presentación (ícono + `Swal.fire` en vez de `confirm()` nativo), sin migración ni paquetes nuevos.
+- 2026-08-14: Corrección de `EstadoEmbudo` (se retiran 6-8, nunca implementados) y `DiasSemana` (de 3 a 7 días reales). Corrección del modelo de permisos: las policies `RequireVendedor`/`RequireAdministracion` no existen, todo el sistema usa `RequireSuperUsuario` desde el 2026-07-21. Arquitectura retroactiva de Chats/scheduler multi-zona/multimedia: 3 campos nuevos en Domain, `IWhatsAppClient` extendida, 3 hosted services nuevos, `ChatsController` nuevo, 5 migraciones EF + `RemoveAuditLog` (ya aplicada el 2026-07-28).
+- 2026-08-14: Arquitectura de "Gestión comercial y herramientas de canal/venta" cerrada. 5 entidades Domain (`Cliente`, `Upsell`, `TemplateWhatsApp`, `CampanaExperimento`, `SugerenciaSeguimiento`) + 1 enum + 1 campo en `ContactoRespuesta`, 5 controllers nuevos/extendidos, migración `AddGestionComercial`. Split A/B sembrado por contacto, NRR con "datos insuficientes" explícito.
+- 2026-08-16: Reestructuración documental — este archivo tenía 4 secciones fechadas acumuladas (Arquitectura base 2026-07-14, Campañas 2026-07-21, Notificaciones 2026-07-24, Chats retroactiva + Gestión comercial 2026-08-14) con correcciones en notas al pie sobre contenido ya obsoleto. Consolidado en una única sección "Definiciones vigentes" (Domain/Application/Infrastructure/Web/Permisos/Migraciones/Riesgos, editada in-place de ahora en más) + este historial cronológico de una línea por cambio. Ningún dato funcional se perdió en la consolidación (verificado contra las 4 secciones originales: entidades, enums, servicios, hosted services, controllers, migraciones y riesgos técnicos).
+- 2026-08-16: Mejora del barrido de Google Maps + detección de campaña "Completa". Paginación real en `SearchAsync` (hasta 3 páginas/60 resultados por query, antes solo la primera). Tracking de rendimiento por industria (`CampanaOutboundIndustria.RachaSinResultadosNuevos`/`SinResultadosNuevos`, umbral 5 corridas seguidas sin prospectos nuevos) y marca automática de campaña `Completa` (`CampanaOutbound.Completa`/`FechaCompletada`) cuando todas sus industrias se agotan, con notificación in-app a `SuperUsuario` — sin tocar `Activa`, el backlog ya encontrado sigue enviándose. Acción nueva `CampanasController.ReabrirBusqueda`. Migración `AddCampanaBusquedaCompleta` (4 columnas aditivas).

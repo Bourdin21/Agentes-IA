@@ -1,9 +1,43 @@
 # Memoria - Presupuestador
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-07-30 (v6 — estructura final de pago: USD 1.500/3 pagos o USD 1.800/12 pagos; mantenimiento PREMIUM año 1 gratis)
+## Ultima actualizacion: 2026-08-17 (v7 — Presupuesto real de Etapa 3, migracion de catalogo retomada con datos reales)
 
 ## Definiciones vigentes
+
+### Etapa 3 — Presupuesto real (2026-08-17), reemplaza la referencia provisional
+
+**Contexto:** la referencia histórica (v2/v3 de este documento, ver Historial) era una hipótesis de trabajo: ~17.000 filas migradas desde un archivo Excel de formato desconocido, con 25% de riesgo declarado por esa incertidumbre — nunca se cotizó en firme. Con el backup real de SQL Server analizado (`1-analista-funcional.md`, `2-disenador-funcional.md` flujo 10, `3-arquitecto-mvc.md`), el volumen real es **121.691 artículos activos (7x el supuesto)** pero el riesgo de "formato desconocido" queda resuelto — el esquema, las reglas de deduplicación y el origen de ventas para ABC ya están definidos con datos reales, no quedan por descubrir. El alcance también creció respecto de la hipótesis original: ya no es "solo migrar filas", incluye clasificación ABC automática por ventas y extensión de `Producto`/`Cliente` con los gaps confirmados.
+
+**WBS (Working Breakdown Structure) por ítem:**
+
+| # | Ítem | M (h) | Base de reutilización |
+|---|---|---:|---|
+| 1 | Extracción/limpieza batch (dedup nombre 2 niveles, dedup `articuloProveedor` por última importación conciliada, exclusiones, ABC inicial por Pareto) | 8 | Sin precedente exacto — reglas de negocio específicas de este dataset, 100% desarrollo nuevo |
+| 2 | `CodigoProveedorProducto` (entidad + config EF) | 2 | Patrón de catálogo simple ya resuelto en Entrega 1 (Marca/Modelo/Categoria) — 2h reuse |
+| 3 | `ICatalogoMigracionService` (import preview→confirmar, idempotente) | 3 | Mismo contrato que `IListaPreciosProveedorImportService` de Entrega 2 — 3h reuse |
+| 4 | `IClasificacionAbcAutomaticaService` (cálculo Pareto sobre `ItemVenta` + UI de sugerencia) | 5 | Sin precedente exacto — desarrollo nuevo |
+| 5 | Extensión `Producto`/`Cliente` (6 campos: Bonificacion, ClasificacionABCSugerida, Domicilio, Localidad, Email, Notas) + migración EF | 3 | Modificación sobre módulo existente — desarrollo nuevo pero de bajo riesgo (campos simples) |
+| 6 | Reporte de excepciones (pantalla informativa, sin persistencia propia) | 2 | Sin precedente exacto — desarrollo nuevo |
+| 7 | Carga real de datos a producción (ejecución del batch, validación contra el reporte de excepciones, iteración con Joaquín) | 4 | Sin precedente exacto — operación puntual de este proyecto |
+| | **Subtotal** | **27** | |
+
+**Cálculo de reutilización (R):** horas ancladas en reuse directo = ítems 2+3 = 5h. Horas de desarrollo nuevo = 22h. **R = 5/27 = 18,5% → Tier 3 (R < 40%): 0% de descuento** — coherente con que esta es una ampliación sobre un sistema ya entregado (`27-presupuesto-parametros.instructions.md`: "Merge sobre sistema propio ya entregado... se cotiza siempre a precio de lista, sin descuento"), no un Build inicial de cliente nuevo.
+
+**Riesgo declarado (cualitativo, no aplicado como % ciego sobre la fórmula):** clasificado como riesgo **Alto** por tratarse de migración de datos legado con inconsistencias reales medidas (ver Análisis: 49% del historial de importaciones de proveedor sin conciliar, 3.612 grupos de duplicados que requieren regla heurística). El riesgo ya está incorporado en el M de cada ítem (especialmente el ítem 1, estimado en el techo realista de su banda) en vez de aplicarse como un multiplicador adicional sobre el total — evita doble contingencia.
+
+**Cálculo económico (fórmula vigente, `27-presupuesto-parametros.instructions.md`):**
+
+| Concepto | USD |
+|---|---:|
+| Subtotal (lista, 27h × $16,80) | 453,60 |
+| Tokens IA (25% del subtotal de lista) | 113,40 |
+| Descuento Tier 3 (0%) | 0,00 |
+| **Precio final Etapa 3** | **≈ 567,00** |
+
+**Comparación con la referencia histórica (v2/v3, nunca cotizada en firme):** el número sube frente al rango provisional anterior (USD 315-394) pese a que se resolvió el riesgo de formato desconocido, porque (a) el volumen real es 7x el supuesto original y (b) el alcance funcional creció (ABC automática + extensión de Producto/Cliente + reporte de excepciones no estaban en la hipótesis original de "solo migrar filas"). No es una subida de criterio de precio, es un presupuesto real sobre un alcance mejor definido y más amplio que la hipótesis de trabajo anterior.
+
+**Este número queda pendiente de aprobación de Joaquín antes de pasar a Implementación de Etapa 3** — mismo gate que Entregas 1 y 2 ("No iniciar Implementación sin Presupuesto aprobado por el cliente", `00-operativa-global.instructions.md`).
 
 ### WBS funcional vigente
 
@@ -149,6 +183,7 @@ Se simplifica a un único plan: **PREMIUM** desde el arranque (coherente con que
 Pendiente — proyecto en etapa de presupuesto, aún no iniciado.
 
 ## Historial de ajustes
+- 2026-08-17 (v7): Presupuesto real de Etapa 3 (migración de catálogo) — reemplaza la referencia provisional de v2/v3 (USD 315-394, nunca cotizada en firme). WBS de 7 ítems, 27h, R=18,5% → Tier 3 (0% descuento) — coherente con ser una ampliación sobre sistema ya entregado, no un Build inicial. Precio final ≈ **USD 567** (453,60 lista + 113,40 Tokens IA). Sube frente a la referencia anterior pese a resolverse el riesgo de formato desconocido, porque el volumen real (121.691 activos) es 7x el supuesto y el alcance creció (ABC automática + extensión Producto/Cliente + reporte de excepciones). Pendiente de aprobación de Joaquín antes de Implementación — mismo gate que Entregas 1/2.
 - 2026-07-30: Presupuesto interno v1 — WBS de 16 módulos (126h totales), R=73% → Tier 1, precio real de desarrollo ≈ USD 2.011.
 - 2026-07-30: Aplicado 15% de descuento por referido sobre el costo real → USD 1.709.
 - 2026-07-30: Analizado el consumo estimado de USD 200 en tokens IA contra el precio final — cubierto con margen por la línea de Tokens IA existente.

@@ -1,7 +1,113 @@
 # Memoria - Analista funcional
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-07-30 (v2 — preguntas abiertas respondidas por el cliente)
+## Ultima actualizacion: 2026-08-17 (v3 — arranque de Analisis de Etapa 3: Migracion de catalogo, segundo relevamiento con acceso real a la base de datos del sistema actual)
+
+## Etapa 3 — Migración de catálogo (arranque de Análisis, 2026-08-17)
+
+### Contexto y método
+Joaquín trajo el segundo relevamiento prometido en el cierre de Presupuesto (ver `4-presupuestador.md` y `trazabilidad.md` 2026-07-30): en vez de un archivo Excel de formato desconocido, trajo (a) el **backup completo de SQL Server** del sistema de gestión que usa La Platense hoy (`Migracion/LaPlatense_backup_2026_08_14_140001_1971951.bak`, 17,35 GB) y (b) dos listas de precios de proveedor de ejemplo. El análisis se hizo restaurando el backup real (no una muestra) en una instancia local de SQL Server 2022 Developer — hubo que instalarla porque las instancias Express ya presentes en la máquina tienen un límite de 10 GB por base y esta base pesa 17 GB — y consultando el esquema y los datos reales.
+
+### Tamaño real del catálogo (corrige un supuesto anterior)
+`Articulo`: **142.227 filas totales, 121.691 con `Activo=1`**. Esto es **~7 veces más** que el "~17.000 productos" estimado en el análisis original (v1/v2, antes de tener acceso a datos reales) y usado como referencia en `4-presupuestador.md`/`3-arquitecto-mvc.md` para la migración pospuesta. No cambia el presupuesto ya aprobado de Entregas 1/2 (no incluían migración), pero es el primer dato duro para cotizar la Etapa 3 y hay que dejarlo explícito antes de estimarla — cotizar sobre "17.000" sería un error de base.
+
+### Las dos listas de proveedor confirman la hipótesis de Joaquín (código de proveedor no es un identificador único global)
+- `CopiaListaa (6).10386.xlsx` (D'Accord/genérico): 6.459 artículos, columnas `Codigo|Producto|REF|Costo|Sugerido`, código numérico secuencial simple.
+- `CopiaSibonListaPrecios (1)10387.XLS` (Sibon): 5.834 artículos, columnas `Código|Descripción|Costo|...`, código alfanumérico con guion (`0099-51`).
+- **No hay ninguna columna compartida entre ambos archivos** — cada proveedor tiene su propio esquema de código, sin relación entre sí. Confirma que el modelo correcto es una entidad de mapeo `CodigoProveedorProducto` (`ProductoId + ProveedorId + CodigoDelProveedor`), no un campo único de código externo en `Producto`.
+- El sistema actual del cliente **ya resuelve esto exactamente así**: la tabla `Codigo` (157.564 filas: `CodigoKey, Codigo, ProductoKey, ArticuloKey, IdentificaVariante, Tipo, ProveedorKey, Proveedor`) es un mapeo de códigos múltiples por artículo, incluyendo código de proveedor vía `ProveedorKey`+`Tipo`. Confirma el diseño propuesto — no es una idea nueva, es replicar un patrón que el cliente ya usa y entiende.
+
+### El "barrido" que pidió Joaquín es un problema real y medible, no preventivo
+La tabla `articuloProveedor` (58.866.462 filas) es el **log histórico completo de cada import de lista de proveedor** hecho alguna vez en el sistema, no una tabla de mapeo limpia:
+- **10.013 importaciones distintas (`IngresoKey`) sobre solo 54 proveedores** — algunos proveedores fueron re-importados centenares de veces (actualizaciones de precio semanales/mensuales durante años, ver `IngresoArchivo` con importaciones casi diarias hasta la fecha actual).
+- **28.932.519 filas (49% del total) no tienen `ArticuloKey` asociado** — casi la mitad de todo lo importado históricamente nunca se conciliació contra un artículo real. Confirma que hace falta una regla de deduplicación/limpieza explícita antes de migrar, no es un riesgo teórico.
+- **Regla de importación propuesta para Etapa 3**: para construir el `CodigoProveedorProducto` limpio, tomar por cada `(ProveedorKey, CodigoProv)` únicamente la fila del **`IngresoKey` más reciente** con `Procesado=1` y `ArticuloKey IS NOT NULL` — descartar el resto del historial (queda en el backup, no hace falta migrarlo).
+- El sistema actual **ya tiene** un motor de importación configurable por proveedor (`PCArchivo`/`PCArchivoCampo`/`PCTipoDato`/`PCFormatoArchivo`): un perfil por proveedor con delimitador, línea del primer artículo, mapeo columna→campo y hasta una función de transformación por campo. Confirma la hipótesis ya documentada en `2-disenador-funcional.md` ("el mapeo de columnas puede necesitar configuración por proveedor") — es un patrón a replicar conceptualmente en `IListaPreciosProveedorImportService`, no una sorpresa.
+
+### Datos sucios/obsoletos encontrados (evidencia concreta del "barrido" pedido)
+- `Rubro` (219 filas) es jerárquico (`PadreRubroKey`) pero con datos inconsistentes: hay un rubro sin nombre (`RubroKey=1`, `Nombre=''`), y categorías con nombre de rubro "real" (ej. `pinturas`) anidadas bajo un padre que no es de primer nivel (`PadreRubroKey=189`) — la jerarquía no está limpia, necesita revisión antes de mapear a nuestra `Categoria`.
+- `ListaPrecios` tiene una lista llamada literalmente **"NO SE USA"** (activa) y **dos filas "LISTA PROVISORIA"** (una activa, una inactiva, mismo nombre) — ejemplo directo de basura acumulada a excluir del import.
+- `Articulo.VarianteKey`: **0 de 142.227 artículos lo usan** — el sistema tiene un subsistema de variantes de producto (`SistemaVariantesKey`/`VarianteKey`/`ProductoKey`) pero está completamente sin adoptar en la práctica. **No hace falta modelar variantes de producto para la migración ni para el sistema nuevo** — es superficie de esquema muerta.
+
+### Gaps funcionales reales detectados (existen en el sistema actual, no están cubiertos en nuestro diseño de Entrega 1/2 — a decidir con Joaquín si entran a alcance)
+1. **Multi-moneda por producto**: `Moneda` (5 filas: Pesos, Dólares, y 3 monedas "nombradas" que en realidad son tipos de cambio específicos por proveedor — ej. "Dolar lusqtoff" con su propia `EquivalenciaPesos`, no una divisa real) — **2.070 artículos** (de 142.227) están precificados en una moneda distinta de Pesos. Es real pero chico en proporción (~1,5%). Nuestro `Producto` actual no tiene campo de moneda.
+2. **Precio de oferta con vigencia**: `Articulo.PrecioOferta`/`EnOferta`/`DuracionOferta`/`DuracionOfertaHasta` — un mecanismo de precio promocional temporal por producto. No existe en nuestro `Producto`.
+3. **Bonificación compuesta**: `Articulo.Bonificacion` como texto libre tipo `"33+5"` (bonificaciones encadenadas, ver también la foto del sistema actual que Joaquín mandó: `Bonificaciones 33+5 → 36,35%`) — no es un único `%` sino una cadena de descuentos sucesivos. Nuestro modelo solo tiene un `PorcentajeDescuento` simple.
+4. **Listas de precios múltiples por forma de pago/tarjeta** (`ListaPrecios`, 11 filas activas: "AHORA 12 VISA/MASTER/AMEX" +32%, "AHORA 3" +11%, "AHORA 6" +20%, "4 CUOTAS NARANJA VISA" +25%, "CONTADO-DEBITO-CREDITO EN 1 PAGO" +5%) — esto es **más rico que lo que implementamos en Entrega 2** (`RecargoCuotasService` hoy es un diccionario simple `cantidadCuotas→%` en `appsettings.json`). El sistema real tiene planes de cuotas con nombre específico por programa bancario (Ahora 12/3/6, Naranja), no solo por cantidad de cuotas — **y además** una tabla separada `PlanCuotas` (cuotas 2-12 a 3%/cuota flat) que parece ser el mecanismo genérico simple. Conviven ambos. **Pregunta abierta para Joaquín**: ¿cuál de los dos mecanismos quiere conservar — planes con nombre por tarjeta/programa (más fiel a lo real) o el simple por cantidad de cuotas que ya implementamos?
+5. **Límite de crédito por cuenta corriente**: `Cuenta.MaximoCredito`/`MaximoNoCobrado` — tope de saldo antes de bloquear/advertir. No está en nuestro `MovimientoCCCliente`/`MovimientoCCProveedor` de Entrega 2.
+6. **Cliente — campos ausentes en nuestro modelo actual**: domicilio, localidad, email, notas, lista de precios asignada por cliente (`Cliente.ListaPreciosKey` — un cliente puede tener asignada una de las 11 listas de precios, ej. mayorista), `PorcentajeDescuento` propio del cliente, vendedor asignado + comisión (`VendedorKey`/`PorcentajeVendedor`), tipo/número de documento.
+7. **Categoría (Rubro) con recargo/bonificación propios y jerarquía real** (padre/hijo) — nuestra `Categoria` de Entrega 1 es plana y sin reglas de precio asociadas.
+8. **Existen dos tablas de clientes y dos de ventas en paralelo** (`Cliente`/`Cuenta` vs `tblClientes`; `Operacion`/`OperacionVenta` vs `tblVentas`/`tblDetalleVentas`) — **no asumir que las `tbl*` son legacy muerto**: `tblVentas` tiene registros hasta 2026-08-14 (hoy), en paralelo con `Operacion` (que arranca en 2002). Pregunta abierta para Joaquín: para qué se usa cada circuito hoy, antes de decidir de cuál migrar.
+
+### Cobertura ya construida sin gaps detectados
+`Producto.unidadVenta` (enum) es más simple que `Articulo.UnidadKey`/`UnidadStockKey` + `CantidadUnidad`/`CantidadUnidadStock` del sistema actual, pero cubre el mismo caso de uso (conversión compra↔venta) — solo 7 `Unidad` distintas en los datos reales (Metro, Unidad, Litros, Kilogramos, Pares, Escalones, "24 Unida"), manejable con el enum ya definido más un ajuste si aparece alguna unidad no contemplada. `Rubro`/`Marca`/`Proveedor` ya tienen equivalente 1:1 en nuestro diseño (`Categoria`/`Marca`/`Proveedor`).
+
+### Decisiones de Joaquín sobre los gaps (2026-08-17, cierran el Análisis de Etapa 3)
+
+1. **Recargo por forma de pago/tarjeta**: se conserva el modelo real del sistema actual — **planes con nombre por programa** (AHORA 12, AHORA 3, AHORA 6, 4 Cuotas Naranja, etc., cada uno con su % propio administrable), no el simple "cantidad de cuotas → %" que se implementó en Entrega 2 como `RecargoCuotasSettings` (appsettings). **Pendiente para Diseño de Etapa 3**: modelar una entidad `PlanDePago`/`ListaDeRecargo` (nombre, % recargo, activo) reemplazando o extendiendo `RecargoCuotasService` de Entrega 2 — es una ampliación sobre módulo ya entregado, no alcance nuevo desde cero.
+2. **Gaps a incluir en el alcance de Etapa 3**:
+   - ✅ **Bonificación compuesta** (tipo `"33+5"`, descuentos encadenados) — entra al alcance.
+   - ✅ **Campos de Cliente faltantes** (domicilio, localidad, email, notas, vendedor asignado, lista de precios propia) — entra al alcance.
+   - ⏸️ **Precio de oferta con vigencia** — **NO entra ahora**, Joaquín pidió dejarlo documentado para una implementación futura (no es parte de Etapa 3). Ver `3-arquitecto-mvc.md` cuando se diseñe, para no perder el registro.
+   - ⏸️ **Multi-moneda por producto** — confirmado NO entra a Etapa 3. Queda documentado para una fase futura, mismo criterio que el precio de oferta con vigencia.
+   - ⏸️ **Límite de crédito en cuenta corriente** (clientes y proveedores) — confirmado NO entra a Etapa 3. Queda documentado para una fase futura.
+3. **Doble circuito Cliente/Venta — RESUELTO (corrige la primera respuesta de Joaquín).** Primera ronda (2026-08-17 ~12:45): Joaquín dijo que `tblClientes`/`tblVentas`/`tblDetalleVentas` era el circuito activo. Al analizar los datos para la clasificación ABC se encontró que `tblDetalleVentas.Codigo` está vacío en el 100% de sus filas (no vincula ninguna línea de venta a ningún artículo) — ante esa evidencia, Joaquín corrigió: **el circuito correcto es `VentaItem`/`Operacion`/`OperacionVenta`**, no `tblVentas`/`tblDetalleVentas`. Queda como fuente de verdad para: (a) la clasificación ABC automática (ya calculada sobre esta fuente, ver sección siguiente), y (b) la migración de catálogo de clientes e historial de ventas/CC de Etapa 3 — debe salir de `Cliente`/`Cuenta`/`Operacion`/`OperacionVenta`/`VentaItem`, no de `tblClientes`/`tblVentas`. La discrepancia de volumen (`OperacionVenta` 74.317 filas 2002-2026 vs `tblVentas` 4.279 filas 2022-2026) queda sin explicación puntual pero ya no bloquea nada — se usa la fuente confirmada.
+
+### Barrido de duplicados y productos inútiles (2026-08-17, pedido explícito de Joaquín)
+
+Análisis cuantitativo real sobre los 121.691 artículos activos (142.227 totales) de `Articulo`, ejecutado contra la base restaurada.
+
+**Nombres duplicados — 5.794 grupos, 13.353 filas excedentes.** Desglose por qué tan automatizable es cada caso:
+- **1.014 grupos (17.700 filas aprox.) con todos los miembros inactivos** → descartables automáticamente sin revisión, ya están marcados `Activo=0`.
+- **1.167 grupos con exactamente 1 miembro activo** → auto-resoluble: se conserva el activo, se descartan los inactivos del grupo.
+- **3.612 grupos (el 62% de los duplicados) con MÁS DE UN miembro activo compartiendo el mismo nombre** → **no son auto-resolubles por nombre solo** — requieren revisión humana o un criterio adicional (comparar Rubro/Marca/Proveedor/última fecha de modificación para elegir cuál conservar). Es el núcleo real del "barrido" que pidió Joaquín — no es un detalle menor, es la mayoría del trabajo de deduplicación.
+- **Caso aparte, mayor prioridad**: 3.204 artículos tienen **nombre vacío**, y de esos **3.203 están marcados `Activo=1`** — no los filtra la regla simple "excluir inactivos". Regla propuesta: excluir siempre por nombre vacío, sin importar el flag `Activo`.
+
+**Otros duplicados/inconsistencias de identificador:**
+- `Articulo.Codigo` (código propio) duplicado entre artículos distintos: solo 20 grupos / 21 filas — volumen bajo, revisión manual viable.
+- Código de barras (tabla `Codigo`) compartido por más de un `ArticuloKey`: **16.258 códigos** (de 157.564) — ~10% de los códigos de barras son ambiguos. Regla propuesta: si el código está compartido, preferir el mapeo hacia el `Articulo` con `Activo=1`; si hay más de un activo con el mismo código de barras, es un problema real de datos a resolver manualmente antes de dar de alta el código único en el sistema nuevo (nuestro modelo asume código de barras único por producto, ver Entrega 1).
+
+**"Productos inútiles" — candidatos concretos a no importar:**
+| Criterio | Cantidad | Acción propuesta |
+|---|---:|---|
+| `Activo = 0` | 20.536 | No importar (default) |
+| Nombre vacío (con o sin `Activo=1`) | 3.204 | No importar siempre |
+| `PrecioVenta = 0` | 4.615 | Flag para revisión — no importar sin precio válido |
+| Sin `Rubro` válido (nulo o nombre vacío) | 37 | Asignar a categoría "Sin categoría" en vez de bloquear el import |
+| Activos sin ninguna venta registrada jamás (`VentaItem`) | 107.390 de 121.691 (88%) | **No excluir** — es candidato natural a clasificación ABC "C" (bajo/nulo movimiento), no basura. Ver siguiente sección. |
+| Stock actual (`Stock.CantidadStock`) | 121.690 de 121.691 activos en 0 o negativo | Confirma (no solo anecdóticamente) que el stock del sistema actual **no es confiable** — no migrar como valor real, ya está resuelto por el plan de puesta a punto de stock inicial de Entrega 1 (arranque suave + ajuste manual). |
+
+### Clasificación ABC automática por ventas reales (pedido explícito de Joaquín, 2026-08-17)
+
+**Hallazgo crítico que cambia el plan**: el circuito que Joaquín confirmó como "el que usan hoy para registrar ventas" (`tblVentas`/`tblDetalleVentas`) tiene el campo de vínculo a producto (`tblDetalleVentas.Codigo`) **vacío en el 100% de las 10.463 filas** — no sirve para vincular ninguna venta a ningún artículo. El único circuito con vínculo confiable a producto (`ArticuloKey`, FK real, no texto) es `VentaItem`/`Operacion` — que sigue activo hasta la fecha del backup (`2026-08-14`, la misma fecha máxima que `tblVentas`), en paralelo. Para calcular rotación real **no hay otra fuente usable que `VentaItem`**, más allá de cuál de los dos circuitos considere Joaquín "el principal" operativamente.
+
+**Simulación real (Pareto 80/95/100 por cantidad vendida, vía `VentaItem`):**
+- Histórico completo (2002-2026): **675 artículos "A"**, **3.206 "B"**, **11.198 "C"** con venta registrada — total 15.079 artículos con al menos 1 venta alguna vez (solo 14.300 de los 121.691 activos, ~12% del catálogo activo).
+- Últimos 12 meses (ventana más realista para rotación actual, no todo el histórico desde 2002): solo **1.536 artículos con venta**, 21.772 unidades vendidas en total.
+
+**Recomendación concreta para la clasificación automática:**
+1. Calcular la clasificación ABC sobre una **ventana móvil reciente** (ej. últimos 12 meses), no el histórico completo desde 2002 — evita que un producto que vendió mucho hace 10 años y ya no se repone quede marcado "A" para siempre.
+2. Los productos **sin ninguna venta en la ventana** (la gran mayoría, dado que solo ~1.536 de 121.691 tuvieron venta en el último año) caen en "C" por defecto — es el mismo criterio ya acordado en el plan de puesta a punto de stock inicial (Entrega 1): la mayoría del catálogo arranca sin verificar.
+3. **Nuance a confirmar con Joaquín**: la decisión previa (R10/analisis v1) fue "la clasificación ABC la hace el cliente por su cuenta, el sistema solo permite configurarla". Automatizarla por ventas cambia esa regla — propongo que el cálculo automático sea un **valor sugerido/default editable**, no un valor que se le imponga al cliente sin poder cambiarlo — mantiene la flexibilidad ya acordada y agrega el automatismo pedido ahora, sin contradecir la decisión anterior.
+4. Para la migración (Etapa 3): usar la venta de los últimos 12 meses de `VentaItem` como clasificación ABC **inicial** de arranque, en vez de arrancar todo el catálogo sin clasificar.
+5. Nota de datos: aparecen algunas cantidades vendidas netas negativas (devoluciones que superan las ventas del período en casos puntuales) — a resolver con un piso en 0 al calcular, no bloquea el enfoque general.
+6. **Confirmado (2026-08-17): `VentaItem`/`Operacion` es el circuito correcto** — no `tblVentas`/`tblDetalleVentas` (ver corrección en la sección "Doble circuito Cliente/Venta" arriba). El cálculo y la simulación de esta sección ya estaban hechos sobre la fuente correcta.
+
+### Regla de deduplicación de nombres — decisión final (2026-08-17)
+
+Para los 3.612 grupos de nombre duplicado con más de un artículo `Activo=1` (los que no se resuelven solos), Joaquín eligió **regla automática sin pantalla de revisión**: conservar el artículo del grupo con la **venta más reciente** en `VentaItem`/`Operacion` (el mismo circuito ya confirmado como fuente de verdad).
+
+**Verificación cuantitativa de esta regla (importante, cambia qué tan determinante es cada criterio):** de los 3.612 grupos, solo **486 (13%) tienen al menos una venta registrada en algún miembro** — ahí la regla "venta más reciente" decide sola. En **3.544 grupos (87%, la inmensa mayoría) ningún miembro del grupo vendió nunca** — la regla principal no alcanza a desambiguar y cae directo al criterio de respaldo. Por eso el criterio de respaldo no es un detalle menor: es el que realmente decide en la mayoría de los casos. Se fija como respaldo la `FechaModificacionPrecio` más reciente entre los miembros del grupo (la señal disponible más cercana a "cuál de los duplicados se sigue manteniendo activamente") — **confirmado por Joaquín (2026-08-17)**, ya con el peso real conocido (decide el 87% de los 3.612 casos, no un detalle menor).
+
+**Regla de deduplicación de nombres — versión final:** por cada grupo de nombre duplicado con más de un `Articulo.Activo=1`, conservar el que tenga: (1) venta más reciente en `VentaItem`/`Operacion` si algún miembro tiene alguna venta registrada; (2) si no, `FechaModificacionPrecio` más reciente entre los miembros del grupo. El resto del grupo no se migra.
+
+## Análisis de Etapa 3: CERRADO — lista para Diseño
+
+### Próximos pasos de esta etapa (Análisis → Diseño, no iniciar Implementación todavía)
+1. Cerrar con Joaquín las preguntas abiertas de arriba (gaps 1-8) — cuáles entran a alcance de Etapa 3 y cuáles quedan explícitamente excluidos.
+2. Confirmar el volumen real (121.691 activos) como base de la nueva estimación de Etapa 3 — el precio provisional anterior (USD 315-394, basado en ~17.000) queda obsoleto y debe recalcularse en `4-presupuestador.md` una vez cerrado el Diseño/Arquitectura de esta etapa.
+3. Diseñar la regla de deduplicación de `articuloProveedor` (última importación procesada y matcheada por proveedor+código) como parte de la etapa de Diseño.
+4. La base restaurada (`LaPlatense_MigracionAnalisis`, instancia local `.\MSSQLSERVER01`, ~17GB en `C:\SQLRestore\`) queda disponible para consultas de seguimiento durante Diseño/Arquitectura — no es la base de producción, es solo para este análisis.
 
 ## Definiciones vigentes
 
