@@ -165,7 +165,7 @@ Precios calculados con formula vigente (M x $16.80). Referencia a tasa USD 35/h 
 - Incluir tabla: Area | USD (las horas son internas — no se exponen al cliente)
 - Incluir seccion Que esta incluido y Que NO esta incluido
 - Dividir todo presupuesto en dos etapas: Etapa 1 (MVP — el minimo que permite al cliente operar el negocio) y Etapa 2 (resto del alcance). Cada etapa con su tabla Area | USD y subtotal; el total del proyecto es la suma de ambas.
-- El cargo de Tokens IA (25% del total presupuestado, Etapa 1 + Etapa 2) debe mostrarse como ITEM INDIVIDUAL en el documento de presupuesto cliente (linea separada, visible, en la seccion "Total del proyecto") y tambien en la memoria interna 4-presupuestador.md. No prorratear en los modulos.
+- El cargo de Tokens IA (25% del total presupuestado, Etapa 1 + Etapa 2) se calcula sobre el subtotal de lista y se **distribuye dentro del precio de cada modulo** (factor constante x1.25 sobre el precio de lista de cada item/area funcional, ver "Cargo por uso de tokens IA" abajo) — NUNCA se muestra como linea separada en el documento de presupuesto cliente (regla invertida 2026-08-20). El desglose completo (precio de lista, Tokens IA, precio ya distribuido) queda documentado en la memoria interna 4-presupuestador.md, que si expone el detalle interno.
 - Condiciones estandar: 50% al inicio / 50% a la entrega de cada etapa
 - No incluir clausula de validez de la oferta (regla vigente Junio 2026; reemplaza la "validez 30 dias" usada hasta KOI)
 
@@ -193,12 +193,15 @@ Formula vigente:
 - No aplicar contingencia adicional sobre la formula: el 20% ya la absorbe.
 - Excepcion: riesgo extremo documentado (integracion sin precedente, migracion de datos) puede sumarse justificado.
 
-Cargo por uso de tokens IA (vigente Julio 2026, porcentaje actualizado 2026-07-24):
+Cargo por uso de tokens IA (vigente Julio 2026, porcentaje actualizado 2026-07-24, forma de exposicion cambiada 2026-08-20):
 - Todo presupuesto de proyecto suma un cargo por uso de tokens IA equivalente al **25% del total presupuestado** (Subtotal Etapa 1 + Subtotal Etapa 2, sin incluir mantenimiento anual). Formula: Tokens IA = (Subtotal Etapa 1 + Subtotal Etapa 2) x 0.25.
-- Se calcula una unica vez sobre el total del proyecto (no por modulo, no por etapa por separado).
-- Va EXPLICITO en el presupuesto al cliente: se muestra como linea separada "Tokens IA" en la seccion "Total del proyecto", y no se mezcla con mantenimiento anual. No prorratear en los modulos. El mismo valor debe aparecer tambien en la memoria interna 4-presupuestador.md.
+- Se calcula una unica vez sobre el total del proyecto (no por modulo, no por etapa por separado) — el CALCULO sigue siendo a nivel proyecto, lo que cambia es como se EXPONE (ver punto siguiente).
+- **Distribuido dentro del precio de cada modulo — NUNCA se muestra como linea separada al cliente** (regla invertida 2026-08-20, reemplaza la regla anterior de linea explicita). Como el cargo es siempre 25% del subtotal de lista, el factor de distribucion es CONSTANTE: `Precio_modulo_mostrado_al_cliente = Precio_modulo_lista x 1.25`, aplicado a cada item/area funcional del documento cliente. La suma de los precios de modulo ya distribuidos da el mismo total que antes (Subtotal_lista + Tokens_IA) — no cambia el total del proyecto, cambia como se ve desglosado.
+- Esta distribucion es independiente del descuento de expansion agresiva (seccion de abajo): el descuento sigue calculandose sobre Subtotal_lista SIN tokens IA y sigue mostrandose como su propia linea/nota cuando aplica ("Descuento por eficiencia de desarrollo") — solo Tokens IA se pliega dentro de los modulos, no el descuento.
+- El calculo completo (Subtotal_lista, Tokens_IA, factor 1.25, precio de lista de cada modulo Y precio ya distribuido que ve el cliente) debe quedar documentado en la memoria interna `4-presupuestador.md` — el cliente ve solo el precio final por modulo, el desglose interno (cuanto es desarrollo puro vs. cuanto es la porcion de Tokens IA) sigue siendo dato de trazabilidad del estudio, no se oculta internamente, solo no se expone al cliente.
 - No aplica a iteraciones evolutivas menores a 4 h facturables, salvo indicacion contraria.
-- Regla anterior (vigente 2026-07-03 a 2026-07-24, ya no aplica): 10% del total presupuestado.
+- Regla anterior (vigente hasta 2026-08-20, ya no aplica): linea explicita y separada "Tokens IA" en la seccion "Total del proyecto", sin prorratear en los modulos.
+- Regla anterior a esa (vigente 2026-07-03 a 2026-07-24, ya no aplica): 10% del total presupuestado.
 - Regla anterior a esa (vigente hasta Junio 2026, ya no aplica): cargo fijo de USD 100 por proyecto.
 
 ## Costo interno de IA por consumo de motores de pensamiento (solo estudio — vigente desde 2026-08-15)

@@ -22,6 +22,14 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - La documentacion requerida es de alcance para el cliente.
 - El cierre de calibracion estimado vs real es obligatorio para mejorar la asertividad del presupuesto.
 
+# Memoria acumulativa de errores cross-proyecto (obligatoria, cualquier modo de trabajo)
+- Antes de implementar cualquier cambio de codigo — sin importar si el trabajo entra por el flujo formal de subagentes (orquestador -> implementador -> QA) o por una sesion de chat directa sobre un proyecto ya en produccion — consultar `.github/instructions/32-estandares-qa-implementador.instructions.md`. Ese archivo es la memoria incremental acumulativa de errores ya encontrados y corregidos en cualquier proyecto del estudio: evita repetir el mismo bug en un proyecto distinto.
+- Despues de encontrar y corregir un bug funcional (propio o reportado por el cliente), evaluar si la causa raiz es generalizable a otros proyectos del baseline (no especifica de una sola entidad/pantalla de un solo proyecto):
+  - Si es reproducible por pasos concretos (UI/API/datos) y generalizable: agregar un item nuevo a `docs/qa/regresiones-manuales.yml` (ver `30-qa-regresiones.instructions.md` para el formato) y una seccion nueva en `32-estandares-qa-implementador.instructions.md` resumiendo la regla preventiva.
+  - Si es una regla preventiva generalizable pero sin una reproduccion UI/API formal (ej. un patron de diseño de datos, una desincronizacion de configuracion): agregar igual la seccion a `32-estandares-qa-implementador.instructions.md`, marcando explicitamente en "Origen" que no tiene item YAML asociado (mismo criterio ya usado en la regla PAT-003 de ese archivo).
+  - Si es especifico de un solo proyecto (no reutilizable en otro): alcanza con documentarlo en `trazabilidad.md` y `definiciones/5-implementador.md`/`6-qa.md` de ese proyecto — no corresponde al catalogo cross-proyecto.
+- Esta regla no depende de que la sesion haya invocado al subagente `agentes-ia-implementador`/`agentes-ia-qa` — cualquier agente (incluida una sesion de Claude Code trabajando directo sobre el repo de un proyecto) tiene la misma obligacion de leer antes y escribir despues.
+
 # Trazabilidad documental obligatoria en /docs
 - Toda referencia a rutas /docs corresponde a la ruta absoluta C:/Sistemas/Agentes-IA/docs. Siempre usar esa ruta completa al leer o escribir archivos de documentacion.
 - Este repositorio (Agentes-IA) centraliza la memoria de trabajo de todos los proyectos.

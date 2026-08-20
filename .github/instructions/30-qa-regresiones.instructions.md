@@ -10,6 +10,8 @@ applyTo: "**"
 
 Este catalogo es **autoritario** para regresiones funcionales reproducidas manualmente. Cualquier bug funcional corregido debe quedar registrado alli antes del merge.
 
+**Alcance (2026-08-20):** esta obligacion no depende del modo de trabajo. Aplica igual si el fix salio del flujo formal de subagentes (orquestador -> implementador -> QA) o de una sesion de chat directa sobre un proyecto ya en produccion (ej. Claude Code respondiendo pedidos del cliente sobre un repo existente, sin pasar por `agentes-ia-implementador`/`agentes-ia-qa`). El criterio es el bug y su generalizacion, no quien lo corrigio.
+
 ## Obligaciones del agente Implementador
 
 Cuando arregles un bug funcional reproducido manualmente:
