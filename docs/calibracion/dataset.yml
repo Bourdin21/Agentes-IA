@@ -15,9 +15,46 @@
 # dataset estructurado quede desactualizado respecto de la prosa.
 
 version: 1
-ultima_actualizacion: 2026-08-15
+ultima_actualizacion: 2026-08-19
 tasa_vigente_usd_hora: 35
 formula_vigente: "Costo_modulo = M / 2.5 x 1.20 x tasa_vigente_usd_hora = M x 16.80"
+
+# Descuento de expansion agresiva — solo Build inicial cliente nuevo (o rewrite).
+# factor_tier = MAX(tier por reutilizacion, tier por volumen) — nunca se suman.
+# Ver seccion "Descuento de expansion agresiva por reutilizacion cross-proyecto"
+# en 27-presupuesto-parametros.instructions.md para el detalle y el gatillo
+# (tablero de ciclos economicos, checkpoint octubre 2027).
+descuento_expansion_agresiva:
+  por_reutilizacion:
+    - tier: 1
+      nombre: "Expansion Agresiva"
+      condicion: "R >= 70%"
+      descuento_pct: 30
+    - tier: 2
+      nombre: "Expansion Moderada"
+      condicion: "40% <= R < 70%"
+      descuento_pct: 15
+    - tier: 3
+      nombre: "Estandar"
+      condicion: "R < 40%"
+      descuento_pct: 0
+  por_volumen:
+    - tier: V0
+      nombre: "Estandar"
+      condicion: "Subtotal_lista < USD 600"
+      descuento_pct: 0
+    - tier: V1
+      nombre: "Volumen"
+      condicion: "USD 600 <= Subtotal_lista < 1200"
+      descuento_pct: 5
+    - tier: V2
+      nombre: "Volumen alto"
+      condicion: "USD 1200 <= Subtotal_lista < 2000"
+      descuento_pct: 10
+    - tier: V3
+      nombre: "Volumen mayor"
+      condicion: "Subtotal_lista >= USD 2000"
+      descuento_pct: 15
 factor_eficiencia_ia: 2.5
 contingencia_temporal_pct: 20
 

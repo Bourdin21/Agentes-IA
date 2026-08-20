@@ -273,7 +273,7 @@ patrones:
       la referencia de implementacion es el checklist "10a" en
       26-checklists.instructions.md, no un archivo especifico.
 
-  - id: PAT-009
+  - id: PAT-012
     nombre: "Importacion de archivo con preview -> confirmar (staging + reporte de excepciones)"
     categoria: integracion
     descripcion: >
@@ -329,7 +329,7 @@ patrones:
       hace seguro) o mover el proceso a un hosted service.
       CAVEAT 2026-08-17: en la-platense el cliente decidio que la migracion de catalogo real es
       un caso de uso UNICO (una sola vez, con acceso directo al backup del cliente), y pidio
-      resolverla con un script de consola (tools/MigracionCatalogo, ver PAT-010 y
+      resolverla con un script de consola (tools/MigracionCatalogo, ver PAT-013 y
       5-implementador.md) en vez de esta pantalla web — los 3 archivos de
       ICatalogoMigracionService/CatalogoMigracionService/MigracionCatalogoController fueron
       commiteados y luego borrados en la misma etapa (commits 71daf36 y 42cae2a). El patron
@@ -337,7 +337,7 @@ patrones:
       importacion de listas de precios de proveedor) — para la-platense especificamente, la
       referencia viva de ese caso ya no existe en el working tree, solo en el historial de git.
 
-  - id: PAT-010
+  - id: PAT-013
     nombre: "Stock arranca en cero + verificacion por conteo, priorizada por rotacion ABC"
     categoria: dominio
     descripcion: >
@@ -386,3 +386,139 @@ patrones:
       volumen de conteo lo justifica en un proyecto futuro, la mejora natural es agregar un
       indicador de "% verificado por categoria/oleada" sobre la misma pantalla de Stock — no
       construirlo de entrada, esperar a que se pida.
+
+  - id: PAT-014
+    nombre: "Restablecer contraseña por email (olvide mi contraseña)"
+    categoria: infraestructura
+    descripcion: >
+      Flujo estandar sobre ASP.NET Core Identity: link "Olvidaste tu contraseña?" en Login ->
+      ForgotPassword (solo email) -> GeneratePasswordResetTokenAsync + email con link
+      (userId+token) -> ResetPassword -> ResetPasswordAsync. La respuesta de ForgotPassword es
+      SIEMPRE la misma exista o no el email (no delata cuentas registradas via enumeracion), y
+      tiene su propia politica de rate limiting ("password-reset", igual a la de "login") para
+      que no sea vector de spam de emails ni de fuerza bruta de token.
+    cuando_usar: >
+      Cualquier proyecto BlankProject con Identity + login por email/password (practicamente
+      todos) que necesite que el usuario pueda recuperar el acceso sin intervencion manual del
+      administrador.
+    proyecto_origen: la-platense
+    proyectos_que_lo_usan:
+      - blankproject (portado al baseline el mismo dia — todo proyecto nuevo lo trae de entrada)
+    archivos_referencia:
+      - proyecto: blankproject
+        path: "BlankProject.Web/Controllers/AccountController.cs (acciones ForgotPassword/ResetPassword)"
+        motivo: "Implementacion completa y ya portada al baseline — cualquier proyecto nuevo la hereda sin copiar nada"
+        pendiente_verificar: false
+      - proyecto: blankproject
+        path: "BlankProject.Web/Models/PasswordResetViewModels.cs"
+        motivo: "ForgotPasswordViewModel + ResetPasswordViewModel"
+        pendiente_verificar: false
+      - proyecto: blankproject
+        path: "BlankProject.Web/Views/Account/ForgotPassword.cshtml, ForgotPasswordConfirmacion.cshtml, ResetPassword.cshtml"
+        motivo: "3 vistas nuevas, mismo estilo ov-login-card que Login.cshtml"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      No agrega ninguna dependencia nueva: reutiliza IEmailService/EmailService (MailKit, ya
+      presente en el baseline) y AddDefaultTokenProviders() de Identity (ya registrado, lifespan
+      default de 24hs — si un proyecto necesita otro valor, Configure<DataProtectionTokenProviderOptions>).
+      El texto de marca en el email ("BlankProject") es placeholder de plantilla, igual que el
+      resto de los emails del baseline — renombrar junto con todo lo demas al clonar el proyecto.
+      Probado end-to-end contra una base real (no solo por inspeccion de codigo) en la-platense:
+      solicitud, render del formulario con el token real del link, reset exitoso, login con la
+      contraseña nueva, y reuso del mismo token ya consumido correctamente rechazado (Identity
+      invalida el token al cambiar el SecurityStamp del usuario).
+
+  - id: PAT-015
+    nombre: "Baja (individual o en lote) en listado DataTables sin perder la pagina"
+    categoria: ui
+    descripcion: >
+      La accion "Eliminar" de un listado DataTables server-side debe resolverse por AJAX, nunca
+      con un `<form>.submit()`/`RedirectToAction` — un submit real recarga la pagina completa y
+      el DataTable siempre vuelve a la pagina 1, sin importar en que pagina estaba el usuario. El
+      endpoint de baja devuelve JSON (`{ success, message }`) y el JS refresca la grilla con
+      `tabla.ajax.reload(null, false)` — el segundo argumento `false` es el que mantiene la
+      pagina actual (con `tabla.ajax.reload()` a secas, o sin el argumento, tambien vuelve a la
+      pagina 1 aunque ya no haya recarga completa de browser). Selección múltiple + baja en lote:
+      checkbox por fila + "seleccionar todos" acotado a la pagina visible, con un unico endpoint
+      que aplique la baja de todos los ids en una sola operacion masiva (`ExecuteUpdateAsync`
+      sobre `Where(ids.Contains(...))`), no un loop de N llamadas individuales al service.
+    cuando_usar: >
+      Cualquier listado DataTables server-side (baseline BlankProject, ver PAT-008) que tenga
+      accion de baja — individual y/o en lote. Es la continuacion natural de PAT-008: ese patron
+      cubre listar/filtrar, este cubre la accion de eliminar sobre ese mismo listado.
+    proyecto_origen: la-platense (bug real reportado por el cliente en produccion, Entrega 1)
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Web/Controllers/ProductosController.cs (acciones Delete y EliminarLote)"
+        motivo: "Delete devuelve JSON en vez de RedirectToAction; EliminarLote recibe una lista de ids"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/ProductoService.cs (EliminarLoteAsync)"
+        motivo: "Baja en lote con un solo ExecuteUpdateAsync, no un loop de EliminarAsync individuales"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Web/Views/Productos/Index.cshtml"
+        motivo: "JS de referencia: SweetAlert2 + $.post/$.ajax + tabla.ajax.reload(null, false); checkboxes de seleccion con 'seleccionar todos' acotado a la pagina visible"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-008
+    notas: >
+      Normativo desde Agosto 2026 — ver seccion "Bajas (individuales o en lote) dentro de un
+      listado DataTables: siempre AJAX, nunca form-submit" en
+      `25-frontend-design-system.instructions.md`, y el item 10c + smoke-check 5 en
+      `26-checklists.instructions.md`. Aplicar desde el arranque de cualquier listado nuevo con
+      baja, no esperar a que un cliente lo reporte como bug (como paso en la-platense).
+
+  - id: PAT-016
+    nombre: "Busqueda global multi-formato (texto/importe/fecha) + filtros persistidos en sesion"
+    categoria: ui
+    descripcion: >
+      Extension de PAT-008 sobre la busqueda global propia del DataTable (el input "Search", no
+      un filtro de columna puntual): tiene que matchear contra CUALQUIER columna visible,
+      incluidas las de importe/moneda y las de fecha, no solo texto. Importes: probar el texto
+      como candidato decimal en formato es-AR ("837.441,39") y en invariante ("837441.39") —
+      decidir cual separador es el decimal segun cual aparece ultimo — comparando con
+      `>= valor-0.005 && < valor+0.005` (no `==` exacto, por redondeo), mas una pasada de
+      substring numerico (para que "500" encuentre "$ 1.500,00"). Fechas: `DateTime.
+      TryParseExact` contra los formatos usados en pantalla (`dd/MM/yyyy` y variantes sin cero),
+      comparando Year/Month/Day por separado (nunca el DateTime completo, falla por la hora).
+      Patron de composicion: como EF no resuelve bien un unico OR gigante mezclando texto +
+      numero + fecha sobre columnas de tipos distintos, cada tipo de dato se resuelve por
+      separado contra una lista de ids candidatos (`extraIds`) y se combina al final con
+      `WHERE textoEnColumnaTexto OR Id IN (extraIds)`.
+      Ademas: los filtros usados en cada busqueda se guardan en `Session` (una key por filtro,
+      prefijada con el nombre de la entidad) y se reponen como valor inicial la proxima vez que
+      se entra a la pantalla — y el boton "Limpiar filtros" (ya obligatorio por PAT-008) tiene
+      que borrar tambien esos valores de `Session`, no solo los controles visibles.
+    cuando_usar: >
+      Cualquier listado DataTables server-side (ver PAT-008) que tenga columnas de importe y/o
+      fecha — la busqueda global tiene que poder encontrar filas por esas columnas igual que por
+      texto. La persistencia en sesion aplica a cualquier listado con filtros, con o sin columnas
+      numericas/fecha.
+    proyecto_origen: delicias-naturales (busqueda multi-formato); mismo proyecto (persistencia de filtros en Session)
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: delicias-naturales
+        path: "Helper/BusquedaHelper.cs (ParsearImportes)"
+        motivo: "Parseo de importes es-AR/invariante a partir de texto libre, sin depender de la cultura del hilo"
+        pendiente_verificar: false
+      - proyecto: delicias-naturales
+        path: "Controllers/VentasController.cs (ListarVentas, bloque `if (!string.IsNullOrEmpty(searchValue))`)"
+        motivo: "Implementacion completa de referencia: numero exacto, importe (decimal y substring), fecha (TryParseExact), enum por texto, combinados via extraIds"
+        pendiente_verificar: false
+      - proyecto: delicias-naturales
+        path: "Controllers/ProductosController.cs (Index, lineas ~30-34 y ~390-391)"
+        motivo: "Guardar filtros en Session en cada carga del listado y reponerlos la proxima vez"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-008
+    notas: >
+      Normativo desde Agosto 2026, mismo lugar que PAT-008/PAT-015 en
+      `25-frontend-design-system.instructions.md` (seccion "Listados: DataTables + filtros por
+      columna") y el item 10a + smoke-check 2 en `26-checklists.instructions.md`. Gap real
+      confirmado en la-platense al momento de catalogar esto: `ProductoService.ListarAsync` solo
+      usa el "Search" del DataTable como fallback de un filtro de texto sobre Nombre/Codigo, no
+      busca por PrecioVenta ni por ninguna fecha — pendiente de aplicar este patron ahi cuando se
+      retome ese listado.

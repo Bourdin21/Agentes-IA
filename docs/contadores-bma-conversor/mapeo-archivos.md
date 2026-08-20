@@ -101,14 +101,20 @@ Complementa Lugar de Pago, CC y Obra Social que no están en el Informe.
 
 Formato: tabla larga (tall), una fila por concepto por empleado. Header en fila 1 (se saltea con `$i = 1`).
 
-### Columnas relevantes (0-indexed)
+### Columnas relevantes — resueltas por nombre de encabezado (fila 1), no por índice fijo
 
-| Index | Dato | Destino STR |
-|-------|------|-------------|
-| 4 | Nro. de Legajo | clave de lookup |
-| 10 | Lugar de Pago | col 3 (solo primera ocurrencia) |
-| 19 | Código Obra Social | col 8 (solo primera ocurrencia) |
-| 30 | Centro de Costos | col 5 → `int(CC)` (solo primera ocurrencia) |
+**Bug 2026-08-20**: el export de Grilla es configurable por empresa en Bejerman Web — el layout de columnas de STR (Legajo=4, Lugar de Pago=10, OS=19, CC=30) no es el mismo que el de otras empresas (ej. San Bruno: Legajo=6, Lugar de Pago=11, CC=23, sin columna de Obra Social). Con índices fijos, el legajo de San Bruno caía en la columna "Liquidación" (no numérica) y el lookup no matcheaba con ningún empleado → Lugar de Pago/CC/OS vacíos para todos. Fix: `findColByHeader()` busca la columna por texto del header (case/acento-insensitive, todas las palabras clave deben aparecer) en vez de índice fijo:
+
+| Dato | Needles de búsqueda | Destino STR |
+|------|---------------------|-------------|
+| Nro. de Legajo | `['legajo']` | clave de lookup |
+| Lugar de Pago | `['lugar', 'pago']` | col 3 (solo primera ocurrencia) |
+| Centro de Costos | `['centro', 'costo']` | col 5 → `int(CC)` (solo primera ocurrencia) |
+| Obra Social | `['obra', 'social']` | col 8 (solo primera ocurrencia) |
+
+Si una columna no se encuentra en el header, ese campo queda `null` para todos los empleados (no rompe el resto del enriquecimiento). Si la columna de Legajo no se encuentra, se omite el enriquecimiento de Grilla por completo.
+
+> **Nota**: algunas empresas (ej. San Bruno) no incluyen ninguna columna de Obra Social en su export de Grilla — en ese caso la columna OS queda vacía legítimamente (no es un bug; el dato no existe en el archivo de origen). Si el cliente confirma que "Sindicato" debe usarse como proxy de Obra Social para esa empresa, habría que agregar un mapeo explícito — no asumido automáticamente.
 
 Solo enriquece empleados ya detectados en el Informe (`isset($employees[$legajo])`).
 
