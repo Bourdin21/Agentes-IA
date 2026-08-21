@@ -1447,6 +1447,21 @@ regresiones:
       - "Venta con factura vigente sin NC -> sin cambio de comportamiento."
     pruebas_minimas:
       - "Recorrido factura -> NC -> refacturacion, mirando el indicador en los 4 puntos."
+    fix_aplicado:
+      fecha: "2026-08-21"
+      por: "Joaquin (directo, no delegado — el cliente pregunto por el caso real de eliminar una venta con Factura+NC y detecto el bloqueo en vivo)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/VentaService.cs
+          motivo: "TieneComprobanteAsociadoAsync (guard de Cancelar/Editar) y v.TieneComprobante (listado) ahora exigen TipoComprobante Factura A/B Y que no exista una NC Emitida con ComprobanteAsociadoId apuntando a esa factura."
+        - path: MariHogar.Infrastructure/Services/DashboardService.cs
+          motivo: "Facturada: mismo criterio."
+        - path: MariHogar.Infrastructure/Services/CajaService.cs
+          motivo: "ventaIdsFacturadas: mismo criterio."
+        - path: MariHogar.Infrastructure/Services/ProyeccionFinancieraService.cs
+          motivo: "ventaIdsFacturadosHistoricos: mismo criterio."
+      build: "dotnet build MariHogar.Web/MariHogar.Web.csproj -> Compilacion correcta, 0 Errores."
+      nota: "Tambien resuelve el limite conocido de TieneComprobanteAsociadoAsync documentado en el motivo original de este item — una Venta con Factura ya anulada por NC ahora SI se puede cancelar."
 
   # ── Entradas especificas del proyecto ShowroomGriffin (BlankProject .NET 10 + EF Core + MySQL) ──
 

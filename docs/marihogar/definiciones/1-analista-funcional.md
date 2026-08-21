@@ -657,6 +657,22 @@ Pedido explícito del cliente (21/08/2026), en la misma entrega que el cierre de
 
 **Impacto en capas**: Application (`IPagoOrdenCompraService`), Infrastructure (`PagoOrdenCompraService.cs`), Web (`OrdenesCompraController.cs`, `OrdenesCompra/Details.cshtml`). Sin migración EF.
 
+## CR-56 — Venta con Factura anulada por Nota de Crédito ya no bloquea Cancelar (MH-013)
+
+Pregunta directa del cliente (21/08/2026): "¿qué condiciones tiene el usuario para poder eliminar la venta? Si se generó una factura de una venta, una nota de crédito de esa factura, y se quiere eliminar la venta, ¿cuál es el proceso correcto?".
+
+**Hallazgo al responder**: el guard de `VentaService.CancelarAsync`/`EditarAsync` (`TieneComprobanteAsociadoAsync`) contaba CUALQUIER `ComprobanteAfip.Estado=Emitido` asociado a la Venta — sin distinguir una Factura vigente de una Factura ya anulada por una Nota de Crédito, ni excluir a la propia NC (que tampoco debería bloquear, no es una obligación fiscal pendiente). Resultado real: una Venta con Factura + NC de esa factura (exactamente el caso "se corrigió una factura mal cargada") quedaba **bloqueada para cancelar**, contradiciendo el propio sentido de CR-55 (poder corregir y seguir operando la venta). Esto era el límite conocido ya documentado como riesgo abierto en el cierre de CR-55/MH-013 (QA lo había catalogado como "minor" al no ser bloqueante para ese release, pero la pregunta del cliente confirmó que sí importa en la práctica).
+
+**Fix**: el criterio de "tiene comprobante que bloquea" pasa a exigir: `TipoComprobante` sea Factura A/B (no Nota de Crédito) **y** que no exista una Nota de Crédito `Emitido` con `ComprobanteAsociadoId` apuntando a esa factura. Aplicado de forma consistente en los 5 lugares donde se repetía el criterio viejo: `VentaService.TieneComprobanteAsociadoAsync` (guard de Cancelar/Editar), `VentaService` listado (`TieneComprobante`), `DashboardService`, `CajaService`, `ProyeccionFinancieraService` — cierra también MH-013 (catalogado en `docs/qa/regresiones-manuales.yml`).
+
+**Condiciones vigentes para cancelar una Venta (documentado, no solo implícito)**:
+1. No tiene ninguna Entrega asociada (en ningún estado).
+2. No tiene ninguna Factura `Emitido` vigente (una Factura ya anulada por una NC `Emitido`, o un intento en `Estado=Error`, no bloquean).
+
+**Proceso correcto para el escenario del cliente** (Factura + NC de esa factura, se quiere cancelar la Venta): ya no hace falta ningún paso adicional — una vez que la NC quedó `Emitido`, la Venta se puede cancelar directo desde "Cancelar venta", igual que cualquier venta sin facturar.
+
+**Impacto en capas**: Infrastructure (5 archivos, ver arriba). Sin migración EF.
+
 ## CR-55 — Nota de Crédito para anular una Factura AFIP emitida por error
 
 Pedido explícito del cliente vía `/agentes-ia-orquestador` (21/08/2026): "el usuario hizo la factura mal, por lo tanto tiene que generar una nota de crédito de la factura emitida para poder anularla, por definición de AFIP".
@@ -793,6 +809,7 @@ Pedido explícito del cliente, en paralelo al deploy de CR-44 (19/08/2026): "se 
 **Impacto en capas**: Application (`OrdenCompraInput.Fecha` nuevo, `IOrdenCompraService.RecibirAsync` con parámetro opcional nuevo), Infrastructure (`OrdenCompraService.CreateAsync`/`UpdateAsync`/`RecibirAsync`, helper privado `CalcularFecha` compartido), Web (`OrdenCompraFormViewModel.Fecha`, `OrdenesCompraController.MapInput`/`Edit` GET/`Recibir`, `OrdenesCompra/Create.cshtml` — input de fecha junto al selector de Proveedor, `OrdenesCompra/Details.cshtml` — SweetAlert de fecha en "Marcar recibida"). **Sin migración EF** (ambas columnas ya existían en el esquema desde el sprint original, solo se dejó de hardcodear `DateTime.UtcNow`).
 
 ## Historial de ajustes
+- 2026-08-21 — CR-56: ver sección completa "CR-56 — Venta con Factura anulada por Nota de Crédito ya no bloquea Cancelar (MH-013)" más arriba. El cliente preguntó por el proceso correcto para eliminar una venta con Factura+NC y encontramos que hoy bloqueaba — corregido en 5 archivos (mismo criterio: Factura vigente sin NC asociada). Cierra MH-013. Sin migración EF.
 - 2026-08-21 — CR-55 (Discovery + Análisis): ver sección completa "CR-55 — Nota de Crédito para anular una Factura AFIP emitida por error" más arriba. Pedido explícito del cliente vía orquestador. 3 decisiones confirmadas: NC siempre total (no parcial), reabre `CantidadFacturada` para refacturar, mismo acceso que Facturar (Administrador + Vendedor). Pendiente: Diseño, Arquitectura y Presupuesto (gate cliente) antes de implementar.
 - 2026-08-20 — CR-52: ver sección completa "CR-52 — Bug crítico: AFIP no podía emitir ningún comprobante real" más arriba. Resumen: `AfipService` resolvía el certificado .p12 con una ruta relativa dependiente del directorio de trabajo del proceso — corregido para resolver siempre contra `IWebHostEnvironment.ContentRootPath`. Comprobante #304 queda reintentable sin corrección de datos. Sin migración EF.
 - 2026-08-19 — CR-51: ver sección completa "CR-51" en "Modelo de precios" más arriba. Resumen: renombre "Precio de lista" → "Precio transferencia" en todo el proyecto (Producto, Ventas), y eliminación del autocompletado/sugerencia "+21%" que CR-48 había agregado — el campo se completa siempre a mano. Sin migración EF.
