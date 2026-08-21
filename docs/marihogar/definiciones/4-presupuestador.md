@@ -364,7 +364,50 @@ Los 3 ítems son funcionalidad nueva (no corrección de datos ya migrados) — s
 
 **Estado: APROBADO por el cliente (2026-08-11) — habilitada la Implementación.**
 
+### CR-55 (Presupuesto) — Nota de Crédito AFIP
+
+**Paso 0 — Anclaje histórico**: referencia "Integración ARCA/AFIP (código + cert + homologación)" de `27-presupuesto-parametros.instructions.md`, rango 7–9h base (mediana ~8h) — esa referencia es para construir el circuito WSFEv1 COMPLETO desde cero (login WSAA, firma CMS, transporte SOAP a mano, parseo de respuesta, manejo de errores). marihogar ya tiene ese circuito construido y probado contra AFIP real hoy mismo (CAE 86349291101930) — no aplica la mediana completa, aplica la regla de granularidad obligatoria (iteración evolutiva reutilizando patrón ya resuelto en el mismo repo, mismo criterio que vinosefue 7.07x/labipac 6.84x).
+
+**Paso 1 — Clasificación**: 1 solo ítem funcional, tipo "Integración externa — nueva operación sobre integración ya construida" (categoría ad hoc, no tiene fila propia en la tabla de rangos — se ancla por descuento sobre la referencia de integración completa, no por la tabla de "Modificación sobre módulo existente" porque el driver dominante sigue siendo AFIP/SOAP, no un campo/regla simple).
+
+**Drivers de esfuerzo reales**:
+- Nuevo bloque `CbtesAsoc` en el XML del request (orden de campos ya verificado contra el WSDL real — reduce el riesgo de prueba-error, pero sigue siendo código nuevo).
+- Reversión transaccional de `VentaItem.CantidadFacturada` (lógica de negocio nueva, aunque acotada).
+- 2 columnas nuevas + 1 migración EF (sin backfill, bajo esfuerzo).
+- 1 acción de controller + 1 botón/SweetAlert2 (patrón ya usado 3 veces en el proyecto — Cancelar OC, Rechazar Cheque — bajo esfuerzo).
+- 1 branch nueva en el motor de PDF ya construido (CR-43) — bajo esfuerzo, cambia texto/código, no layout.
+- Reutilizado sin cambios: login WSAA, firma CMS/certificado, transporte SOAP, `PostSoapAsync`, patrón de reintento (`ReintentarAsync` genérico ya sirve sin tocar), manejo de errores AFIP.
+
+**M ajustado**: 4.0h (vs. mediana histórica 8h de construir la integración completa — ratio M/mediana 0.50, justificado por el ~85-90% de reutilización real del circuito ya construido y probado).
+
+**O/M/P**: O = 2.6h (M×0.65), P = 7.2h (M×1.80) — dentro del spread permitido.
+
+**PERT** = (O + 4M + P) / 6 = (2.6 + 16.0 + 7.2) / 6 = **4.30h**.
+
+**Riesgo**: Medio — primera vez que este sistema arma el bloque `CbtesAsoc` contra AFIP real (aunque el orden de campos ya se verificó contra el WSDL, sigue sin haber una prueba real contra el ambiente de producción de AFIP). Contingencia 15%.
+
+**Horas finales**: 4.30h × 1.15 = **4.95h ≈ 5.0h**.
+
+**Costo**: Horas facturables = 4.0/2.5 × 1.20 = 1.92h. Costo = 1.92h × USD 35/h = **USD 67**.
+
+**Tokens IA**: no aplica — regla vigente "no aplica a iteraciones evolutivas menores a 4h facturables" (este ítem son 1.92h facturables, muy por debajo del umbral).
+
+**Descuento de expansión agresiva/volumen**: no aplica — esos descuentos son exclusivos de Build inicial de cliente NUEVO o rewrite completo; esto es una ampliación de alcance sobre un sistema propio ya entregado y en producción (marihogar), se cotiza siempre a precio de lista (mismo criterio ya aplicado a CR-1 en adelante de este proyecto).
+
+**Ratio de calibración**: Horas base PERT (4.30h) / Mediana histórica base (8h) = 0.54 — dentro de zona de ajuste documentado (>30% de desvío, justificado arriba por reutilización real verificable en el propio repo, no una suposición).
+
+**Sanity check**: ítem único, acotado, consistente con otras iteraciones evolutivas de este mismo proyecto (ej. CR-44 "pagos de OC programables + notificación", de complejidad similar, no tiene registro de horas reales propio en este documento porque todo el CR-41→CR-54 de esta sesión se implementó directo sin presupuesto formal previo — este es el primer ítem de la sesión que pasa por el gate completo, a pedido explícito del cliente).
+
+**Precio final: USD 67** (single-item, sin Etapa 1/Etapa 2 — es una ampliación puntual sobre un sistema ya en producción, no un Build nuevo).
+
+**Riesgos**: primera prueba real de `CbtesAsoc` contra AFIP — recomendado probar con una Nota de Crédito de monto bajo antes de un caso real de corrección.
+**Supuestos**: el Punto de Venta 7 (ya habilitado tipo Web Services) cubre también Notas de Crédito sin alta adicional en AFIP.
+**Exclusiones**: Nota de Crédito parcial, Nota de Débito, anular una NC ya emitida — quedan fuera de este alcance (ver Análisis CR-55).
+**Dependencias del cliente**: ninguna — el Punto de Venta ya está habilitado, el certificado ya funciona.
+**Condiciones**: sin etapas, sin 50/50 (ítem puntual sobre sistema en producción, mismo criterio de facturación ya usado para el resto de los CR de esta sesión).
+
 ## Historial de ajustes
+- 2026-08-21 — CR-55 (Presupuesto): ver sección completa "CR-55 (Presupuesto) — Nota de Crédito AFIP" más arriba. Ítem único, PERT 4.30h, horas finales 4.95h (contingencia 15%, riesgo Medio), **USD 67**. Anclado en la referencia de integración AFIP completa (8h mediana) con descuento fuerte por reutilización real del circuito ya construido (ratio M/mediana 0.50). Sin Tokens IA (por debajo del umbral de 4h facturables). Sin descuento de expansión (no es Build inicial). **Pendiente aprobación del cliente (gate) antes de habilitar Implementación.**
 - 2026-07-28: Presupuesto Change Request #2 (CR-21/CR-22) — USD 168. Primer ítem del proyecto fuera del Change Request #1 ya cerrado en producción. Orden de implementación ya dada por el cliente en el pedido original (aprobación implícita del alcance, mismo criterio que adendas de bajo monto anteriores).
 - 2026-08-11: Presupuesto Change Request #6 (CR-32/CR-33/CR-34) — USD 269. Precio contado/tarjeta visible para ambos roles + recargo real del 21% aplicado por línea de pago (no por ítem fijo), edición completa de Venta ya creada (bloqueada si tiene comprobante AFIP asociado), acreditación diferida de pagos con tarjeta (ingreso en Caja recién al acreditar). **Estado: BORRADOR — pendiente aprobación del cliente (gate duro antes de Implementación).**
 - 2026-07-28: Adenda CR-14 a CR-18 (mejoras post-migración) + refinamiento de CR-13 — USD 91 adicionales. Nuevo total acumulado del Change Request #1: USD 729. CR-17 (unificación de Proveedor duplicado) y la normalización de mayúsculas sobre datos ya cargados se ejecutaron directamente contra `marihogar_dev` el mismo día. Sin gate de presupuesto nuevo — se implementa junto con el resto del lote (Sprint CR-F).

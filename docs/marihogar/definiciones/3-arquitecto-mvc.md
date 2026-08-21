@@ -396,7 +396,42 @@ El bloque `PagosVentaPorAcreditar` (ya agregado por CR-29, hoy filtra solo `Fech
 | CR-34.2: `AcreditarPagoAsync` posteando con `Fecha = FechaAcreditacionEfectiva` en el pasado (si el usuario la carga mal) podría alterar retroactivamente un período de Caja ya cerrado/reportado | Bajo | Mismo riesgo ya aceptado para cualquier fecha histórica cargada a mano en este proyecto (ej. `Fecha` de pago de CR-29) — sin mitigación adicional, es una acción manual del Administrador. |
 | CR-32.2: recargo fijo del 21% hardcodeado (mismo literal que `PrecioLista`) no permite un recargo distinto por promoción/entidad financiera | Bajo | Fuera de alcance de este pedido — el cliente pidió específicamente "se suma IVA" (21%), no un recargo configurable. Documentado como límite conocido si en el futuro se necesita variar. |
 
+### CR-55 (Arquitectura) — Nota de Crédito AFIP
+
+**Domain**:
+- `TipoComprobanteAfip` (enum) gana `NotaCreditoA = 3` y `NotaCreditoB = 8` — códigos reales AFIP (mismo criterio que el enum ya vigente: el valor ES el `CbteTipo`).
+- `ComprobanteAfip` gana `ComprobanteAsociadoId` (`int?`, self-FK a `ComprobantesAfip.Id`, sin cascada — la factura original nunca se borra por borrar la NC, ni viceversa) y `Motivo` (`string?`, max 500).
+
+**Application**:
+- `AfipComprobanteRequestDto` gana `CbteAsociado` (`CbteAsociadoDto? { int Tipo, int PuntoVenta, long Numero }`, null salvo Nota de Crédito).
+- Nuevo `GenerarNotaCreditoInput { int ComprobanteAfipId, string Motivo }`.
+- `IComprobanteAfipService` gana `Task<ServiceResult<int>> GenerarNotaCreditoAsync(GenerarNotaCreditoInput input)`.
+
+**Infrastructure**:
+- `AfipService.ArmarFecaeSolicitarEnvelope`: agrega el bloque `CbtesAsoc` dentro de `FECAEDetRequest` cuando `request.CbteAsociado != null` — **orden de campos verificado contra el WSDL real de AFIP** (`delicias-naturales/Web References/ws_factura_afip/Reference.cs`, proxy generado, orden de propiedades = orden de schema): va inmediatamente después de `MonCotiz` y antes de `Tributos`/`Iva`. Estructura: `<CbtesAsoc><CbteAsoc><Tipo>N</Tipo><PtoVta>N</PtoVta><Nro>N</Nro></CbteAsoc></CbtesAsoc>` (Cuit/CbteFch quedan opcionales, no se envían — no son obligatorios en WSFEv1 para este caso).
+- `ComprobanteAfipService.GenerarNotaCreditoAsync` (nuevo método, mismo esqueleto que `EmitirAsync`):
+  1. Carga la factura original (`Include(Items)`), valida `Estado == Emitido` y que no tenga ya una NC asociada (`_db.ComprobantesAfip.AnyAsync(c => c.ComprobanteAsociadoId == facturaId)`).
+  2. Crea un `ComprobanteAfip` nuevo replicando 1:1 `Items`/`ClienteNombre`/`ClienteCUIT`/`ClienteDNI`/`Total`/`PuntoVenta` de la original; `TipoComprobante` = `NotaCreditoA` si la original es `FacturaA`, `NotaCreditoB` si es `FacturaB`; `ComprobanteAsociadoId` = Id de la original; `Motivo` = el ingresado.
+  3. Llama a `IAfipService.EmitirAsync` (mismo método ya existente, ahora recibiendo `CbteAsociado` poblado con Tipo=`(int)facturaOriginal.TipoComprobante`, PuntoVenta=`facturaOriginal.PuntoVenta`, Numero=`facturaOriginal.NumeroComprobante!.Value`).
+  4. Si `Exito`: persiste CAE/Estado=Emitido de la NC **y**, en la misma transacción, decrementa `VentaItem.CantidadFacturada` de cada ítem de la Venta por la cantidad que cubría la factura original (nunca por debajo de 0 — guard defensivo aunque en este alcance nunca debería pasar, dado que la NC es siempre total).
+  5. Si falla: mismo patrón ya existente (`Estado=Error`, `DetalleError`, reintentable vía el mismo `ReintentarAsync` ya genérico — no hace falta un método de reintento separado, `ReintentarAsync` ya opera sobre cualquier `ComprobanteAfip` en Error sin importar el `TipoComprobante`).
+- `ComprobanteAfipService.GenerarPdfAsync`: agrega una rama para `TipoComprobante` Nota de Crédito — mismo layout de CR-43, cambia el título ("NOTA DE CRÉDITO") y el código de comprobante (003/008 en vez de 001/006).
+
+**Web**:
+- `ComprobantesAfipController` (o donde viva la acción "Facturar"/`Details`): nueva acción `GenerarNotaCredito(int comprobanteAfipId, string motivo)`, misma policy `RequireVentas` ya vigente en el controller (sin restricción nueva, confirmado con el cliente).
+- Vista: botón + SweetAlert2 (motivo obligatorio) + badge "Anulada" en la factura cuando tiene NC `Emitido` asociada — mismo patrón visual que `btn-swal-confirm`/`Cancelar` ya usado en `OrdenesCompra/Details.cshtml`.
+
+**Migración EF**: 1 nueva (`AddNotaCreditoAfip`) — 2 columnas nullable en `ComprobantesAfip` (`ComprobanteAsociadoId int NULL` + FK a sí misma, `Motivo varchar(500) NULL`), sin backfill (columnas nuevas, todo el histórico queda NULL = sin NC asociada, comportamiento correcto).
+
+**Riesgos técnicos**:
+| Riesgo | Severidad | Mitigación |
+|---|---|---|
+| Orden de campos XML incorrecto en `CbtesAsoc` → AFIP rechaza el request completo (no un error de negocio legible) | Medio | Verificado contra el WSDL real antes de implementar (ver arriba) — no es una suposición. Igual, probar con una NC real de bajo monto antes de confiar el flujo. |
+| Revertir `CantidadFacturada` mal (ej. doble resta si se reintenta) | Medio | La reversión ocurre en el mismo paso atómico que marcar la NC `Emitido` (transacción única) — no puede ejecutarse dos veces para la misma NC porque `Estado` ya pasó a `Emitido` (guard de `ReintentarAsync` exige `Estado==Error` para reintentar). |
+| Cliente confunde "Anular factura" con "Cancelar Venta" (son conceptos distintos: la NC anula el documento fiscal, la Venta en sí sigue existiendo y se puede refacturar) | Bajo | Cubierto en el texto del SweetAlert2 de confirmación — aclarar explícitamente que la Venta no se cancela, solo la factura. |
+
 ## Historial de ajustes
+- 2026-08-21 — CR-55 (Arquitectura): ver sección completa "CR-55 (Arquitectura) — Nota de Crédito AFIP" más arriba. `TipoComprobanteAfip` +2 valores (códigos reales AFIP), `ComprobanteAfip` +2 columnas (`ComprobanteAsociadoId`, `Motivo`). `AfipService` arma el bloque `CbtesAsoc` (orden verificado contra el WSDL real de AFIP). `ComprobanteAfipService.GenerarNotaCreditoAsync` nuevo, reutiliza `EmitirAsync`/`ReintentarAsync` ya existentes. 1 migración EF sin backfill. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.
 - 2026-08-11: Arquitectura v9 cerrada — CR-32 (`PagoVenta.MontoBase`, recargo 21% server-side, `MovimientoCCLocal` posteado por línea de pago en vez de por Total), CR-33 (`VentaService.EditarAsync` nuevo, bloqueado si hay CAE real), CR-34 (`PagoVenta.EstadoAcreditacion`/`FechaAcreditacionEfectiva`, `AcreditarPagoAsync` nuevo, ingreso diferido hasta acreditar). 1 migración EF combinada. Riesgos documentados, incluido el guard de Entrega asociada a revisar en `EditarAsync`. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.
 - 2026-07-30: Arquitectura v8 cerrada — CR-27 (Cuenta Corriente de Proveedores real: impuestos + pagos reales sobre las 239 OC históricas, reemplaza CR-19; Mercado Pago habilitado para Proveedores; Nota interna en OrdenCompra). 1 migración EF (`AddNotaInternaOrdenCompra`, columna nullable simple). Riesgos documentados. Sin gate de presupuesto nuevo para la corrección (mismo criterio que CR-23); Change Request #5 (USD 42) solo para las 2 capacidades nuevas.
 - 2026-07-28: Arquitectura v4 cerrada — CR-14 (saldo calculado), CR-15 (cheque emisión default), CR-16 (mayúsculas), CR-18 (ajuste de apertura). Sin migración EF en ningún ítem. Riesgos documentados. Sin gate de presupuesto nuevo.

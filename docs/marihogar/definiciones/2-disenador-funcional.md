@@ -526,7 +526,35 @@ Sobre análisis v13. Extiende `Ventas/Create.cshtml`/`Ventas/Details.cshtml` (si
   - CA: al registrar un pago con tarjeta, se pide la "fecha efectiva de acreditación" (sugerida, editable). El pago queda con badge "Pendiente hasta dd/mm/aaaa" en la tabla de Pagos de `Ventas/Details`. Botón "Marcar acreditado" (Administrador) para confirmarlo manualmente antes/en esa fecha — recién ahí el ingreso aparece en Caja, con la fecha de acreditación real (no la fecha del cobro).
   - CA: Proyección Financiera suma los pagos con tarjeta pendientes de acreditar al mismo bloque informativo ya creado por CR-29 ("pagos de venta por acreditar"), sin cambiar la fórmula de déficit ya establecida.
 
+### CR-55 (Diseño) — Nota de Crédito para anular una Factura AFIP emitida por error
+
+**Escaneo de reutilización (obligatorio antes de diseñar)**: revisados `docs/*/definiciones/{2-disenador-funcional,5-implementador}.md` de todos los proyectos del historial. Único hit real fue vinosefue (`RegistrarNotaCreditoProveedorViewModel`) — es un concepto homónimo pero NO relacionado (nota de crédito manual de Cuenta Corriente de Proveedor, sin AFIP/CAE/CbtesAsoc). Ningún proyecto del estudio implementó todavía una Nota de Crédito AFIP real (WSFEv1 + `CbtesAsoc`) — se diseña reutilizando el circuito ya construido dentro del propio marihogar (`AfipService`/`ComprobanteAfipService`), no hay código externo para portar. Verificado contra el WSDL real de AFIP (`C:\Sistemas\delicias-naturales\Web References\ws_factura_afip\Reference.cs`, proxy generado) el orden exacto de campos de `FECAEDetRequest`: `CbtesAsoc` va después de `MonCotiz` y antes de `Tributos`/`Iva` — dato técnico para Arquitectura.
+
+**Pantalla/acción**: en `ComprobantesAfip/Details` (o donde se muestre el comprobante Emitido), nuevo botón "Generar Nota de Crédito" — visible solo si `Estado=Emitido` y no tiene ya una NC asociada. Mismo patrón visual que "Cancelar orden de compra"/"Rechazar cheque": SweetAlert2 con `input: 'textarea'` pidiendo el motivo (obligatorio), sin necesidad de pantalla nueva completa.
+
+**ViewModel/Input**: `GenerarNotaCreditoInput { ComprobanteAfipId, Motivo }` (Motivo: requerido, max 500, mismo criterio que `ChequeRechazoInput.Motivo`). No requiere elegir ítems/montos (NC siempre total, replica 1:1 la factura original).
+
+**Flujo funcional**:
+1. Administrador o Vendedor (mismo acceso que Facturar) hace click en "Generar Nota de Crédito" sobre una factura `Emitido`.
+2. Confirma motivo (SweetAlert2).
+3. El sistema arma un nuevo `ComprobanteAfip` (TipoComprobante = NotaCreditoA/B según la factura original, mismos ítems/cantidades/precios/cliente, `ComprobanteAsociadoId` = Id de la factura original) y lo emite contra AFIP (mismo circuito que Facturar, con el bloque `CbtesAsoc` apuntando a la factura original).
+4. Si AFIP aprueba (CAE real): la NC queda `Estado=Emitido`, se revierte `VentaItem.CantidadFacturada` de cada ítem por la cantidad que cubría la factura original (vuelven a estar disponibles para facturar de nuevo), y la factura original se muestra visualmente "Anulada" (badge) al tener una NC `Emitido` asociada — sin campo booleano nuevo, se infiere de la relación.
+5. Si AFIP rechaza: la NC queda `Estado=Error`, reintentable (mismo patrón ya existente) — la factura original sigue vigente, `CantidadFacturada` no se toca todavía.
+
+**Historias de usuario**:
+- HU-7.6 (CR-55): Como Administrador o Vendedor, quiero generar una Nota de Crédito de una factura AFIP ya emitida por error, para anularla formalmente ante AFIP y poder volver a facturar la venta correctamente.
+  - CA: el botón "Generar Nota de Crédito" solo aparece sobre un comprobante `Estado=Emitido` sin NC ya asociada. Pide motivo obligatorio. Al emitirse con éxito, la factura original muestra un badge "Anulada" con el número/fecha de la NC, y los ítems de la Venta vuelven a estar disponibles en la pantalla de Facturar (columna "Cantidad pendiente" ya existente se actualiza sola, sin cambios de UI ahí).
+- HU-7.7 (CR-55): Como Administrador o Vendedor, si la emisión de la Nota de Crédito falla contra AFIP, quiero poder reintentarla, para no perder el motivo ya cargado ni tener que empezar de nuevo.
+  - CA: mismo patrón ya existente para Factura (`Estado=Error` + botón "Reintentar" + `DetalleError` visible). Mientras la NC esté en Error, la factura original NO se muestra como anulada.
+- HU-7.8 (CR-55): Como Administrador, quiero que el PDF de la Nota de Crédito tenga el mismo formato oficial que ya usa la Factura, para poder entregarlo al cliente como comprobante válido.
+  - CA: reutiliza `ComprobanteAfipService.GenerarPdfAsync` (ya rediseñado en CR-43), mostrando "NOTA DE CRÉDITO" y el código de comprobante (003/008) en vez de "FACTURA".
+
+**Impacto por capa**: ver detalle técnico completo en `3-arquitecto-mvc.md`, sección CR-55.
+
+**Riesgos de implementación**: primera vez que este sistema arma el bloque `CbtesAsoc` contra AFIP real — validar con una NC de bajo monto antes de confiar el flujo a una corrección real. El orden de campos XML es estricto (XSD de AFIP), ya verificado contra el WSDL real (ver escaneo de reutilización arriba).
+
 ## Historial de ajustes
+- 2026-08-21 — CR-55 (Diseño): ver sección completa "CR-55 (Diseño) — Nota de Crédito para anular una Factura AFIP emitida por error" más arriba. Botón "Generar Nota de Crédito" sobre factura Emitido (SweetAlert2 + motivo, mismo patrón que Cancelar OC/Rechazar cheque), reutiliza 100% el circuito AFIP ya construido. 3 historias de usuario nuevas (HU-7.6/7.7/7.8). Sin código externo reutilizable (escaneado, ningún otro proyecto tiene NC AFIP real) — se diseña sobre el propio circuito de marihogar. Pendiente Arquitectura y Presupuesto antes de habilitar implementación.
 - 2026-08-11: Diseño v9 cerrado — CR-32 (HU-5.21/5.22, precio contado/tarjeta visible + recargo real sobre el monto base cubierto por tarjeta), CR-33 (HU-5.23, edición completa de Venta bloqueada solo si ya tiene CAE real) y CR-34 (HU-5.24, acreditación diferida de tarjeta con fecha efectiva, ingreso en Caja recién al acreditar). Sobre análisis v13, 4 decisiones ya confirmadas con el cliente. Pendiente Arquitectura y Presupuesto antes de habilitar implementación.
 - 2026-07-28: Diseño v5 cerrado — CR-14 (saldo calculado en CC Local/Proveedores), CR-15 (fecha de emisión de cheque por defecto en OC), CR-16 (mayúsculas Proveedor/Producto). 4 historias de usuario nuevas (HU-11.4, HU-13.3, HU-12.9, HU-2.5). Sin wireframe nuevo.
 - 2026-07-27: Diseño v4 cerrado — CR-10 (Nº comprobante en OC), CR-11 (Subcategoría de Gasto), CR-12 (Nota interna de Venta), sobre análisis v5. 3 historias de usuario nuevas (HU-12.8, HU-18.4, HU-5.13). Alcance menor, sin wireframe nuevo. Pendiente: Arquitectura y Presupuesto antes de habilitar implementación.

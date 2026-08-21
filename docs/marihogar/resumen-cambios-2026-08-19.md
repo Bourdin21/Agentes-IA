@@ -20,8 +20,8 @@ Hoy trabajamos sobre varios pedidos puntuales que nos hiciste, todos ya probados
 - **Cheques entregados a proveedores:** corregimos que un cheque contara como pagado apenas se entregaba. Ahora recién cuenta como pagado cuando lo marcás **Acreditado** (cuando el banco lo cobra) — así el saldo pendiente de la compra refleja la realidad y no baja a $0 antes de tiempo. También corregimos los cheques que ya tenías cargados con este problema, para que tu Cuenta Corriente de proveedores quede al día.
 - **Proyección financiera:** ahora también contempla los pagos de compra que ya programaste con fecha futura, para una proyección más precisa de tu caja.
 - **Carga de productos:** los campos de % de descuento y % de recargo ahora son opcionales — no hace falta completarlos si no aplican.
-- **Etiquetas de precio en ventas:** renombramos "Negro" / "Con IVA" a **"Precio efectivo" / "Precio de lista"**, más claro y sin sugerir que un precio implica facturar y el otro no (toda venta se termina facturando igual).
-- **Precio de lista editable:** en la ficha del producto, el Precio de lista dejó de ser un valor fijo calculado (+21% del efectivo) — ahora lo podés escribir vos mismo. El sistema te sigue sugiriendo el +21% como punto de partida, pero la última palabra la tenés vos.
+- **Etiquetas de precio en ventas y productos:** los dos precios del producto ahora se llaman **"Precio efectivo" / "Precio transferencia"** en todas las pantallas (antes "Negro"/"Con IVA", después "Precio de lista").
+- **Precio transferencia editable a mano:** en la ficha del producto, dejó de ser un valor fijo calculado (+21% del efectivo) — lo escribís vos mismo, sin ninguna sugerencia automática.
 
 ## Qué gana tu negocio con esto
 

@@ -26,7 +26,7 @@
 
 version: 1
 proyecto: ShowroomGriffin
-ultima_actualizacion: 2026-08-17
+ultima_actualizacion: 2026-08-20
 
 regresiones:
 
@@ -1054,6 +1054,7 @@ regresiones:
         - path: MariHogar.Infrastructure/Services/PagoOrdenCompraService.cs
           motivo: "Agregado guard 'FechaEmisionCheque.Value.Date > DateTime.Today' antes de abrir la transaccion de registro de pago, simetrico a los guards ya existentes de vencimiento/emision-vs-vencimiento."
       build: "dotnet build MariHogar.slnx -> Compilacion correcta, 0 Errores (re-verificado por QA el 2026-07-27)."
+      superseded_por: "2026-08-19 — CR-50, pedido explicito del cliente: los cheques de compra ahora admiten fecha de emision futura (cheque diferido todavia no entregado, cargado por adelantado) ademas de fecha de vencimiento pasada (CR-49). El guard 'FechaEmisionCheque > DateTime.Today' agregado por este fix se removio a proposito, junto con el max=hoy del date picker (OrdenesCompra/Details.cshtml, .inp-cheque-emision) — la ausencia de la cota es correcta y esperada, consecuencia de una decision de producto posterior, no una regresion. Ver trazabilidad.md 2026-08-19 y 1-analista-funcional.md seccion CR-50."
       verificacion: "Verificado por QA via revision de codigo (el guard nuevo esta en la misma cadena de validaciones que los 2 guards preexistentes de fecha, mismo patron de retorno ServiceResult.CreateError). No reproducido en navegador (regla de proceso QA), pero el patron es identico al ya validado del guard de vencimiento (mismo metodo, misma forma)."
 
   - id: MH-004
@@ -1384,6 +1385,69 @@ regresiones:
       build: "dotnet build MariHogar.Infrastructure/MariHogar.Infrastructure.csproj -c Debug -> Compilacion correcta, 0 errores."
       verificacion: "Verificado por lectura de codigo (cambio de 1 linea de mapeo DTO). No reproducido en navegador (regla de proceso: no se levanta la app) — pendiente confirmacion visual del usuario facturando una venta real con lineas Con IVA."
 
+  - id: MH-012
+    modulo: "Facturacion AFIP — emision de comprobante (ComprobanteAfipService.EmitirAsync / ComprobantesAfipController.Create)"
+    titulo: "Ampliar TipoComprobanteAfip con NotaCreditoA/B (CR-55) dejo el camino 'Facturar' aceptando esos 2 valores nuevos: un POST manipulado emite una Nota de Credito huerfana (sin CbtesAsoc) que ademas INCREMENTA CantidadFacturada"
+    severidad: major
+    reproducido_en: "marihogar - master (working tree, CR-55 sin commitear, 21/08/2026). Hallazgo de QA por lectura de codigo; no reproducido contra AFIP (prohibido: certificado de PRODUCCION real cargado)."
+    pasos:
+      - "Autenticarse con cualquier usuario que tenga la policy RequireVentas (Administrador o Vendedor)."
+      - "Abrir la pantalla Facturar de una Venta con items pendientes (GET /ComprobantesAfip/Create?ventaId=N)."
+      - "Interceptar/replicar el POST a /ComprobantesAfip/Create cambiando el campo de formulario tipoComprobante de 'FacturaB' a 'NotaCreditoB' (el resto del payload igual)."
+    sintoma: "El servidor acepta el valor: se crea un ComprobanteAfip con TipoComprobante=NotaCreditoB y ComprobanteAsociadoId=NULL. Como el codigo deriva 'es Nota de Credito' de ComprobanteAsociadoId (no del TipoComprobante), el request a AFIP viaja como CbteTipo=8 SIN el bloque CbtesAsoc, y si AFIP aprueba, CantidadFacturada se INCREMENTA (comportamiento de factura) en vez de restarse. La NC huerfana ademas queda visible en el link publico de WhatsApp, porque el descarte de CR-55 en VentaService tambien filtra por ComprobanteAsociadoId."
+    expectativa: "EmitirAsync (camino 'Facturar') debe aceptar UNICAMENTE FacturaA/FacturaB y rechazar cualquier tipo de Nota de Credito con un error de negocio claro — una NC solo puede nacer de GenerarNotaCreditoAsync, que es el unico camino que setea ComprobanteAsociadoId y arma CbtesAsoc."
+    causa_raiz: "ComprobantesAfipController.Create hace Enum.TryParse<TipoComprobanteAfip>(Request.Form['tipoComprobante']) con fallback a FacturaB. Antes de CR-55 el enum tenia solo 2 valores, asi que el parse no podia producir nada invalido; al agregar NotaCreditoA=3/NotaCreditoB=8 el parse pasa a aceptar 4 valores y EmitirAsync nunca valido el tipo. Se suma que 'es NC' se decide en 2 lugares con 2 criterios distintos: EsNotaCredito(TipoComprobante) en el PDF/DTO, y ComprobanteAsociadoId.HasValue en IntentarEmitirYPersistirAsync/ReintentarAsync/VentaService — un comprobante con uno pero no el otro cae en un estado inconsistente."
+    capa: Infrastructure + Web
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/ComprobanteAfipService.cs
+        motivo: "EmitirAsync: guard temprano rechazando input.TipoComprobante que no sea FacturaA/FacturaB. Adicional recomendado: unificar el criterio 'es NC' (TipoComprobante NC o ComprobanteAsociadoId != null) en IntentarEmitirYPersistirAsync para que un dato inconsistente nunca sume CantidadFacturada."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /ComprobantesAfip/Create con tipoComprobante=NotaCreditoA o NotaCreditoB"
+      condicion_falla: "La respuesta no es un ServiceResult con Success=false y mensaje de tipo de comprobante invalido (es decir: el comprobante se llega a crear)."
+    criterio_aceptacion:
+      - "POST /ComprobantesAfip/Create con tipoComprobante=NotaCreditoA -> error de negocio, ningun ComprobanteAfip creado."
+      - "POST /ComprobantesAfip/Create con tipoComprobante=NotaCreditoB -> idem."
+      - "POST /ComprobantesAfip/Create con FacturaA/FacturaB -> sin cambio de comportamiento."
+    pruebas_minimas:
+      - "Facturar normal (FacturaB) desde la UI: sigue funcionando igual."
+      - "POST manipulado con NotaCreditoB: rechazado sin crear filas en ComprobantesAfip."
+
+  - id: MH-013
+    modulo: "Dashboard / Caja mensual / Proyeccion financiera / listado de Ventas — indicador 'Venta facturada'"
+    titulo: "Una Venta cuya unica Factura fue anulada por Nota de Credito (CR-55) sigue contando como 'Facturada' hasta que se refacture, porque la propia NC es un ComprobanteAfip con Estado=Emitido y el mismo VentaId"
+    severidad: minor
+    reproducido_en: "marihogar - master (working tree, CR-55 sin commitear, 21/08/2026). Hallazgo de QA por lectura de codigo."
+    pasos:
+      - "Facturar una Venta (queda Facturada en Dashboard/Caja)."
+      - "Generar la Nota de Credito de esa factura y esperar a que AFIP la apruebe (Estado=Emitido)."
+      - "Sin refacturar todavia, mirar Dashboard (ventas facturadas del periodo), Caja mensual (desglose Facturado/No facturado), Proyeccion financiera (% ingresos facturados) y la columna de factura del listado de Ventas."
+    sintoma: "La Venta sigue apareciendo como facturada, aunque su unico comprobante fiscal vigente fue anulado — el indicador cuenta la Nota de Credito como si fuera una factura."
+    expectativa: "El indicador 'venta facturada' debe contar solo Facturas Emitidas que NO esten anuladas por una Nota de Credito Emitida — durante la ventana entre anular y refacturar, la Venta debe figurar como NO facturada."
+    causa_raiz: "Los 4 calculos usan la misma forma: Any/Where(c.VentaId == v.Id && c.Estado == EstadoComprobanteAfip.Emitido), criterio escrito cuando el unico ComprobanteAfip posible era una Factura. CR-55 introduce un ComprobanteAfip Emitido que NO es una factura (la NC) y que ademas anula a otro. Sin doble conteo de montos (los calculos son sets/booleanos por VentaId), el impacto se limita a la ventana anulada-sin-refacturar."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/DashboardService.cs
+        motivo: "Facturada: excluir TipoComprobante NotaCreditoA/B y las facturas que tengan una NC Emitida apuntandolas."
+      - path: MariHogar.Infrastructure/Services/CajaService.cs
+        motivo: "ObtenerDesgloseFacturadoAsync (ventaIdsFacturadas): mismo criterio."
+      - path: MariHogar.Infrastructure/Services/ProyeccionFinancieraService.cs
+        motivo: "ventaIdsFacturadosHistoricos: mismo criterio."
+      - path: MariHogar.Infrastructure/Services/VentaService.cs
+        motivo: "TieneComprobante del listado de Ventas: mismo criterio. Evaluar tambien TieneComprobanteAsociadoAsync (guard de cancelacion/edicion) — hoy una NC Emitida sigue bloqueando cancelar la Venta, limite conocido ya documentado en 5-implementador.md CR-55."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "Consulta: venta con 1 Factura Emitida + 1 NC Emitida apuntandola y sin factura posterior -> revisar Dashboard.CantidadFacturadas / CajaService.ObtenerDesgloseFacturadoAsync."
+      condicion_falla: "La venta figura dentro del conjunto 'facturadas'."
+    criterio_aceptacion:
+      - "Venta anulada por NC y aun sin refacturar -> figura como NO facturada en Dashboard, Caja, Proyeccion y listado de Ventas."
+      - "Venta anulada por NC y ya refacturada -> vuelve a figurar como facturada (sin doble conteo)."
+      - "Venta con factura vigente sin NC -> sin cambio de comportamiento."
+    pruebas_minimas:
+      - "Recorrido factura -> NC -> refacturacion, mirando el indicador en los 4 puntos."
+
   # ── Entradas especificas del proyecto ShowroomGriffin (BlankProject .NET 10 + EF Core + MySQL) ──
 
   - id: SG-001
@@ -1458,3 +1522,77 @@ regresiones:
       - "Facturar esa misma venta -> recalcular -> ahora si debe reflejarse en la sugerencia."
       - "Regresion: el resumen del recalculo (A/B/C y productos con venta) sigue devolviendo numeros coherentes con el total del catalogo."
       - "Regresion: 'Aceptar sugerencia' en la ficha de producto sigue copiando la sugerencia al campo manual."
+
+  # ── Entradas específicas del proyecto ELEVEN LA PLATA ─────────────────────
+
+  - id: ELV-001
+    modulo: "Autorizacion global / Controllers del nucleo operativo (Alquileres, Contratos, Clientes, Maquinas, Incidencias, Pedidos, Articulos, Marcas, Modelos, Proveedores, Estanterias, Subcategorias)"
+    titulo: "13 controllers sin [Authorize] y sin FallbackPolicy: un usuario NO autenticado lee y ESCRIBE datos del negocio"
+    severidad: blocker
+    reproducido_en: "dev (commit 3a86787 + fix H1 sin commitear) — reproducido 2026-08-20 contra clon local eleven_qa"
+    pasos:
+      - "Levantar la app y NO iniciar sesion (sin cookie de Identity)."
+      - "GET /Alquileres -> responde 200 y renderiza la grilla completa."
+      - "POST /Alquileres/GetDataTable con body {\"draw\":1,\"start\":0,\"length\":3} -> devuelve JSON con los 459 alquileres (cliente, ubicacion, contacto, contadores)."
+      - "GET /Alquileres/Edit/{id} -> 200 con el formulario poblado y un __RequestVerificationToken valido."
+      - "POST /Alquileres/Edit con ese token y los campos del form -> 302 al Index y el registro QUEDA MODIFICADO en base."
+      - "Contraste: GET /Cuentas (controller que SI tiene [Authorize]) -> 302 al login."
+    sintoma: "Cualquiera con acceso de red al sitio lista, abre y modifica alquileres, contratos, clientes y maquinas sin autenticarse. El registro modificado queda con UpdatedByUserId = NULL (sin atribucion en el audit trail)."
+    expectativa: "Todo controller del nucleo operativo exige usuario autenticado; el anonimo recibe 302 al login (o 403). Solo Home (landing) y Account/Login quedan anonimos."
+    causa_raiz: "Ningun [Authorize] a nivel clase en esos 13 controllers y AddAuthorization() en Program.cs define policies con nombre (RequireSuperUsuario / RequireAdministracion) pero NO define options.FallbackPolicy. Sin fallback, ASP.NET Core deja la accion abierta por defecto. La app se ve segura porque el sidebar no muestra los links al anonimo, pero las rutas responden igual si se las pide directo."
+    capa: Web
+    archivos_fix:
+      - path: Eleven.Web/Program.cs
+        motivo: "En AddAuthorization: definir options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build(); (cierra por defecto TODO lo no marcado)."
+      - path: Eleven.Web/Controllers/HomeController.cs
+        motivo: "[AllowAnonymous] en la landing publica para que el fallback no la rompa."
+      - path: Eleven.Web/Controllers/AccountController.cs
+        motivo: "Verificar que Login/AccessDenied conserven [AllowAnonymous] bajo el fallback."
+      - path: "Eleven.Web/Controllers/*.cs (los 13 sin guard)"
+        motivo: "Ademas del fallback, declarar el [Authorize(Policy=...)] que corresponda por rol — REQUIERE DECISION FUNCIONAL previa de que rol accede a que modulo (Administrador vs Tecnico)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /Alquileres y POST /Alquileres/GetDataTable sin cookie de sesion"
+      condicion_falla: "Cualquier ruta del nucleo operativo devuelve 200 (en vez de 302/403) a un request sin autenticar, o un POST anonimo persiste cambios en base."
+    criterio_aceptacion:
+      - "Anonimo: GET /Alquileres, /Contratos, /Clientes, /Maquinas -> 302 al login."
+      - "Anonimo: POST /Alquileres/GetDataTable -> 302/401, nunca JSON con datos."
+      - "Anonimo: POST /Alquileres/Edit -> no persiste ningun cambio."
+      - "Autenticado con rol valido: todas esas rutas siguen respondiendo 200 (sin regresion)."
+      - "Home (landing) y Account/Login siguen accesibles sin sesion."
+    pruebas_minimas:
+      - "Barrido anonimo de las rutas Index de los 13 controllers -> ninguna debe dar 200."
+      - "Barrido autenticado como Administrador -> las mismas rutas deben dar 200."
+      - "Barrido autenticado como Tecnico -> verificar contra la matriz de roles acordada."
+      - "Regresion: login, logout y landing anonima siguen funcionando."
+
+  - id: ELV-002
+    modulo: "Alquileres / Editar (AlquilerService.UpdateAsync)"
+    titulo: "UpdateAsync no valida FechaDevolucion >= Fecha, validacion que CreateAsync SI tiene (misma asimetria Create/Update que el bug H1 de contadores)"
+    severidad: major
+    reproducido_en: "dev + fix H1 sin commitear — reproducido 2026-08-20 contra clon local eleven_qa (alquiler 116)"
+    pasos:
+      - "Abrir un alquiler existente en Alquileres -> Editar."
+      - "Poner una Fecha de devolucion ANTERIOR a la fecha de inicio del alquiler (ej. inicio 2022-06-09, devolucion 2019-06-09)."
+      - "Guardar."
+    sintoma: "El alquiler guarda sin error y queda con FechaDevolucion anterior a Fecha (periodo negativo). El alta (Create) rechaza exactamente el mismo dato con 'La fecha de devolucion no puede ser menor a la fecha de inicio del alquiler.'"
+    expectativa: "Update aplica la misma guarda que Create y rechaza el guardado con el mismo mensaje."
+    causa_raiz: "CreateAsync arranca con 'if (dto.FechaDevolucion.HasValue && dto.FechaDevolucion < dto.Fecha) return ...CreateError(...)'. UpdateAsync no replica esa guarda. Es el mismo patron de fondo que el bug H1: validaciones que viven solo en el camino de alta y no se reaplican en el de edicion. FinalizarAlquilerAsync si valida el caso equivalente ('La fecha de devolucion no puede ser anterior a la fecha de inicio.'), lo que confirma que la regla de negocio es la esperada."
+    capa: Infrastructure
+    archivos_fix:
+      - path: Eleven.Infrastructure/Services/AlquilerService.cs
+        motivo: "En UpdateAsync, antes de sobreescribir campos: replicar la guarda de CreateAsync (if (dto.FechaDevolucion.HasValue && dto.FechaDevolucion < dto.Fecha) return ServiceResult.CreateError(...)) con el mismo texto de mensaje."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "Comparar las guardas de entrada de CreateAsync vs UpdateAsync en cualquier *Service con ambos caminos."
+      condicion_falla: "Existe una validacion de invariante al inicio de CreateAsync que no tiene equivalente en UpdateAsync del mismo servicio."
+    criterio_aceptacion:
+      - "Editar un alquiler con FechaDevolucion < Fecha -> rechaza con el mismo mensaje que Create."
+      - "Editar un alquiler con FechaDevolucion >= Fecha o nula -> sigue guardando normal (sin regresion)."
+    pruebas_minimas:
+      - "Edit con fecha de devolucion invertida -> debe fallar."
+      - "Edit con fecha de devolucion valida -> debe guardar."
+      - "Edit sin tocar fechas -> debe guardar."
+      - "Regresion: Finalizar alquiler sigue validando igual que antes."

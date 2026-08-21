@@ -29,6 +29,7 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
   - Si es una regla preventiva generalizable pero sin una reproduccion UI/API formal (ej. un patron de diseño de datos, una desincronizacion de configuracion): agregar igual la seccion a `32-estandares-qa-implementador.instructions.md`, marcando explicitamente en "Origen" que no tiene item YAML asociado (mismo criterio ya usado en la regla PAT-003 de ese archivo).
   - Si es especifico de un solo proyecto (no reutilizable en otro): alcanza con documentarlo en `trazabilidad.md` y `definiciones/5-implementador.md`/`6-qa.md` de ese proyecto — no corresponde al catalogo cross-proyecto.
 - Esta regla no depende de que la sesion haya invocado al subagente `agentes-ia-implementador`/`agentes-ia-qa` — cualquier agente (incluida una sesion de Claude Code trabajando directo sobre el repo de un proyecto) tiene la misma obligacion de leer antes y escribir despues.
+- Si el proyecto integra (o va a integrar) facturacion electronica AFIP/ARCA, leer ademas `.github/instructions/34-integracion-afip-arca.instructions.md` ANTES de tocar codigo — circuito completo (WSAA, certificado, WSFEv1, Notas de Credito) depurado en vivo contra AFIP produccion real, evita repetir gotchas ya resueltos (carga de certificado, alta de Punto de Venta, orden de campos XML).
 
 # Trazabilidad documental obligatoria en /docs
 - Toda referencia a rutas /docs corresponde a la ruta absoluta C:/Sistemas/Agentes-IA/docs. Siempre usar esa ruta completa al leer o escribir archivos de documentacion.

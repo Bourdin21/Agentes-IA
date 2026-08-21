@@ -25,7 +25,7 @@
 # en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
 
 version: 1
-ultima_actualizacion: 2026-08-17
+ultima_actualizacion: 2026-08-21
 
 patrones:
 
@@ -522,3 +522,34 @@ patrones:
       usa el "Search" del DataTable como fallback de un filtro de texto sobre Nombre/Codigo, no
       busca por PrecioVenta ni por ninguna fecha — pendiente de aplicar este patron ahi cuando se
       retome ese listado.
+
+  - id: PAT-017
+    nombre: "Portal de autogestion para usuario final (no-staff) con scoping forzado por identidad"
+    categoria: dominio
+    descripcion: >
+      Rol de Identity dedicado para el usuario final del negocio (paciente, cliente, inquilino,
+      etc. segun el dominio — no un empleado del cliente), con controllers/services SEPARADOS de
+      los de staff que siempre resuelven el id de la entidad de negocio (PacienteId, ClienteId...)
+      desde `User.Identity` en el server, nunca desde un parametro de la request/URL. Acceso
+      normalmente de solo lectura sobre un subconjunto acotado de datos propios (ej. "mis turnos",
+      "mi historia", "mis pedidos").
+    cuando_usar: >
+      Cualquier sistema BlankProject donde el usuario final del negocio (no el staff del cliente)
+      necesite ver su propia informacion sin pasar por un empleado — turnos, pedidos, facturas,
+      historial clinico, estado de cuenta.
+    proyecto_origen: cma-centro-medico (a confirmar cuando se implemente — todavia en etapa de propuesta, sin cierre real)
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: cma-centro-medico
+        path: "IPortalPacienteService (contrato: ObtenerMisTurnosAsync(pacienteId), ObtenerMiHistoriaAsync(pacienteId), pacienteId siempre resuelto desde el usuario autenticado)"
+        motivo: "Contrato de referencia del patron, definido en la etapa de diseno/arquitectura"
+        pendiente_verificar: true
+    dependencias: []
+    notas: >
+      Riesgo tecnico central que este patron mitiga: IDOR (un usuario final viendo datos de otro
+      cambiando un id en la URL). La regla no negociable es que el id de la entidad de negocio
+      NUNCA se acepta como parametro externo en el service/controller del portal — se resuelve
+      siempre server-side a partir de la sesion. Sin precedente de codigo en el estudio hasta que
+      cma-centro-medico (u otro proyecto que lo necesite primero) cierre implementacion — este
+      registro existe para que el proximo proyecto con esta necesidad (ej. audifonos-bariloche si
+      retoma su Etapa 2/portal excluido) no lo diseñe desde cero.

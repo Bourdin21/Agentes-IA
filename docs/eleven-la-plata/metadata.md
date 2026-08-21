@@ -2,7 +2,7 @@
 
 - nombre: eleven-la-plata
 - fecha_inicio: 2025-07-01
-- estado: cerrado
+- estado: activo
 - owner: OlvidataSoft
 - descripcion: Gestion Integral Eleven La Plata. 27 modulos funcionales. Clean Architecture .NET 10 + MySQL.
 - ruta_repositorio: C:\Sistemas\elevenlaplata
