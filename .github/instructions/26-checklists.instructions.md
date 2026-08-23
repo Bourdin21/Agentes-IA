@@ -16,6 +16,7 @@ applyTo: "**/*.{cs,csproj,cshtml}"
 10. Crear Views segun design system, con criterio de diseñador grafico senior (jerarquia visual, agrupacion logica de campos, ver `25-frontend-design-system.instructions.md`).
 10a. Si la entidad tiene listado: renderizar con DataTables server-side, agregar un filtro por cada columna visible de la grilla, hacer que la búsqueda global matchee contra CUALQUIER columna (incluidos importes y fechas, no solo texto — ver `Helper/BusquedaHelper.ParsearImportes` y `VentasController.ListarVentas` de delicias-naturales), persistir los filtros usados en `Session` tras cada búsqueda y reponerlos al volver a la pantalla, y agregar un botón "Limpiar filtros" que borre tanto los controles visibles como los valores guardados en `Session` (ver `25-frontend-design-system.instructions.md` — regla obligatoria, no opcional).
 10b. Si la entidad se edita y tiene alguna relacion configurable por combo (Select2 simple o multiple), la vista de Editar debe inicializar el combo con los valores ya asignados a la entidad, nunca vacio (ver `32-estandares-qa-implementador.instructions.md`).
+10b-bis. TODA propiedad de negocio de la entidad debe tener su campo correspondiente en los formularios de Crear y Editar (poder cargarse y modificarse por el usuario) — unica excepcion las propiedades de auditoria/sistema (`Id`, `CreatedAt`, `UpdatedAt`, `DeletedAt`, `RowVersion`). Ninguna propiedad de negocio queda fija en su valor por default u oculta del formulario salvo excepcion documentada explicitamente en `2-disenador-funcional.md` (ver `32-estandares-qa-implementador.instructions.md`).
 10c. Si el listado tiene accion de baja: el endpoint devuelve JSON (nunca `RedirectToAction`), la baja se dispara por AJAX (nunca `<form>.submit()`), y el refresco de la grilla usa `tabla.ajax.reload(null, false)` — el `false` es obligatorio, mantiene la pagina actual del DataTable (ver `25-frontend-design-system.instructions.md` — regla obligatoria, no opcional).
 11. Agregar link en sidebar de Shared/_Layout.cshtml.
 12. Generar migracion EF.
@@ -25,6 +26,7 @@ applyTo: "**/*.{cs,csproj,cshtml}"
 1. `Index` carga sin error 500, el DataTable renderiza filas reales.
 2. Cada columna visible tiene su filtro y al menos uno filtra correctamente. La búsqueda global del DataTable encuentra una fila por un importe visible (ej. tipear "500" encuentra "$ 1.500,00") y por una fecha visible en formato `dd/MM/yyyy` (regla 10a). Tras buscar, navegar a otra pantalla y volver: los filtros siguen aplicados (persistencia en `Session`). "Limpiar filtros" vacía los controles y, al volver a entrar, la pantalla ya no repone el filtro limpiado.
 3. `Create` con campos requeridos completos guarda y confirma; con un campo requerido vacio, bloquea con mensaje (no guarda).
+3b. Contrastar los campos de `Create` y `Edit` contra las propiedades de negocio de la entidad (regla 10b-bis arriba): ninguna queda ausente en algun de los dos formularios salvo que sea de auditoria/sistema o este documentada como solo lectura por regla de negocio. Editar un campo en `Edit` y guardar debe persistir el nuevo valor.
 4. `Edit` de un registro con relacion por combo: el combo llega pre-poblado con los valores ya asignados a la entidad (regla 10b arriba) — nunca vacio.
 5. Baja logica: el registro desaparece del listado activo tras eliminarlo (verificar que sigue existiendo en BD si aplica, no chequeo visual solamente), **y el DataTable permanece en la pagina donde estaba** (parado en pagina 2+, eliminar un registro y confirmar que no vuelve a pagina 1 — regla 10c arriba).
 6. Link de sidebar: visible/accesible solo para los roles esperados; un usuario sin ese rol recibe 403 al intentar la ruta directa.
@@ -84,8 +86,10 @@ applyTo: "**/*.{cs,csproj,cshtml}"
 3. Mantener compatibilidad con datos existentes (migracion EF si aplica).
 4. Actualizar ViewModel y validaciones de la pantalla afectada.
 5. Probar regresion del flujo previo ademas del cambio nuevo.
+6. Si el cambio modifica el modelo de datos (entidad nueva, campo nuevo, relacion nueva sobre un campo que ya existia): `grep` todos los sitios que ya leen/buscan/muestran el campo/entidad que se esta extendiendo y actualizarlos en la misma ronda de trabajo — no solo el punto de entrada que motivo el pedido (regla obligatoria, ver `32-estandares-qa-implementador.instructions.md` LP-002). Cualquier sitio que quede deliberadamente afuera se deja escrito como pendiente explicito en `trazabilidad.md`, nunca un olvido silencioso.
 
 ## Smoke-check automatizado (QA, ver `33-verificacion-automatizada-qa.instructions.md`)
 1. El flujo previo (comportamiento anterior al cambio) sigue funcionando exactamente igual para los casos NO afectados por la modificacion — regresion real, no solo el caso nuevo.
 2. Si hubo migracion EF: los datos existentes previos a la migracion siguen siendo consistentes/visibles despues de aplicarla, no solo los registros nuevos.
 3. Probar el caso que la nueva regla debia cubrir Y un caso limite que la regla anterior ya cubria, contra el ViewModel/validaciones actualizados.
+4. Si el cambio modifico el modelo de datos (regla 6 arriba): probar la busqueda/filtro global de CADA listado existente que ya buscaba por el campo extendido, con un valor que solo existe en el dato nuevo (ej. un codigo alterno) — si no aparece, ese listado no fue actualizado (LP-002).

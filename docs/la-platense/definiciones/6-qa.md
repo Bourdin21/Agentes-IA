@@ -1,7 +1,391 @@
 # Memoria - QA
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-08-17 (v2 — QA de Etapa 3: migración de catálogo, rama `migracion-catalogo`)
+## Ultima actualizacion: 2026-08-21 (v3 — primer ciclo de QA de Entrega 2 completa, rama `entrega-2`)
+
+---
+
+# Entrega 2 — Ventas / CC Clientes / AFIP / Caja / Gastos / Entregas / Dashboard (QA, 2026-08-21)
+
+Primera corrida real de QA sobre Entrega 2 (cierra el defecto informativo D4 de Etapa 3). Rama `entrega-2`,
+ya reconciliada con producción. Base: `laplatense_dev` con las 5 migraciones aplicadas y el catálogo real
+migrado (112.485 productos, 2.990 clientes, 8.276 códigos de barras alternos).
+
+## Alcance funcional validado
+
+Ventas (workflow Borrador→Facturada, carrito editable, escaneo de código de barras propio y alterno),
+Cuenta corriente de clientes, Facturación AFIP (solo el camino de error controlado), Caja (movimientos,
+cierre diario y mensual), Gastos (alta, R7, anulación con contramovimiento), Entregas a domicilio (máquina
+de estados completa, R9), Dashboard Corte 1, y la matriz de permisos de los 3 roles.
+
+## Verificación automatizada por navegador
+
+El servidor MCP `playwright` de `.mcp.json` **no estaba conectado en esta sesión** (se declara explícitamente,
+según `33-verificacion-automatizada-qa.instructions.md`). No se cayó al procedimiento manual: los binarios de
+Chromium de Playwright ya estaban en la caché local, así que se automatizó igual conduciendo un navegador real
+vía `playwright-core` desde Node contra la app levantada en `https://localhost:7200`. **Todos los casos de esta
+memoria se ejecutaron contra el sistema real**, ninguno se dio por válido por lectura de código.
+
+Prerequisito de entorno resuelto durante el ciclo: la contraseña del `SuperUsuario` de `laplatense_dev` había
+sido rotada en la prueba del flujo de reset de contraseña del 2026-08-18, así que no había forma de entrar. Se
+creó un usuario `qa.super@test.local` (rol SuperUsuario) **sin tocar el usuario existente**, más `vendedor.qa@`
+y `repartidor.qa@` desde la propia pantalla de Usuarios.
+
+## Build
+
+`dotnet build FerreteriaLaPlatense.slnx` → **0 errores** (verificado 4 veces: inicial y después de cada
+auto-fix). Advertencias: solo las preexistentes NU1902 de MailKit/MimeKit.
+
+## Cobertura por historia de usuario
+
+| Historia / criterio | Resultado | Evidencia |
+|---|---|---|
+| PF2 — editar precio/cantidad/IVA/descuento antes de facturar, sin anular ni recrear | **FAIL → PASS tras auto-fix** | Era D5 (blocker). Post-fix: cant 3→10, precio 1,27→2,50, IVA 21→10,5 recalcula a total $ 40,98 en el servidor |
+| PF3 — cobro con tarjeta en 3/6 cuotas mostrando el recargo antes de confirmar | PASS | UI muestra `+10% ($ 10,00)` antes de confirmar; el server recalcula y lo suma al Total |
+| PF7 — cierre de caja diario y mensual como reportes separados | **FAIL → PASS tras auto-fix** | Era D6 (blocker, HTTP 500 en ambos listados). Post-fix: cierre diario $ 1.751,25 / $ 91.500,50 y cierre mensual en su histórico |
+| PF11 — el repartidor ve el listado completo de entregas | PASS | `/Entregas/Listar` con usuario Repartidor devuelve todas, sin filtro por usuario |
+| PF13 — vender con stock sin verificar / negativo no bloquea | PASS | Ítems agregados con `Stock=0` y aviso "stock sin verificar", nunca bloqueo |
+| PF15 — escanear código de barras agrega el producto al carrito | PASS | Código propio (`00000000523925`→ producto 11683) y **alterno** (`7793300423428`→ producto 44969) |
+| R7 — gasto clasificado en caja chica **o** mensual, no ambos | PASS | 2 gastos con `TipoImpacto` excluyente, cada uno con su Egreso en Caja |
+| R9 — repartidor ve todas las entregas | PASS | ver PF11 |
+| Venta con pago a cuenta corriente | PARCIAL | La guarda de cobertura y la validación "CC exige cliente" PASS; el asiento en el ledger **no se pudo verificar** (depende de facturar, bloqueado por AFIP) |
+| Facturación AFIP end-to-end | **BLOCKED** | Sin CUIT ni certificado del cliente. Sí se validó el camino de error controlado |
+| Dashboard Corte 1 | **FAIL → PASS tras auto-fix** | Era D7. Nivel 1, nivel 3 y la card "próximamente" de nivel 2 renderizan bien |
+
+## Matriz de casos ejecutados
+
+**Permisos — 37/37 PASS.** Matriz completa de `/Dashboard`, `/Ventas`, `/Ventas/Nueva`, `/Clientes`,
+`/Clientes/Create`, `/Caja`, `/Caja/Cierres`, `/Caja/Mensual`, `/Caja/MovimientoManual`, `/Gastos`,
+`/Gastos/Create`, `/Entregas`, `/Entregas/Create` contra los 3 roles. Sin ningún acceso indebido ni 500 en
+lugar de 403. El sidebar coincide **exactamente** con la autorización real de cada rol (cierra en caliente el
+patrón REG-010/KOI-003/KOI-005/CRM-002):
+
+- SuperUsuario: Dashboard, Ventas, Clientes, Productos, Stock, Marcas, Modelos, Categorías, Caja, Gastos, Entregas, Usuarios, Sistema, Notificaciones
+- Vendedor: sin Caja/Gastos/Usuarios/Sistema
+- Repartidor: solo Dashboard, Entregas, Notificaciones
+
+**Ventas — 18 casos.** Lookup por código propio / alterno / inexistente / texto libre; alta de borrador por
+escaneo; recálculo servidor; pago mixto efectivo + 3 cuotas; bloqueo por pagos insuficientes; bloqueo de venta
+sin ítems; pago CC sin cliente rechazado; AFIP con error explícito sin descontar stock; cancelar borrador vía
+botón real + SweetAlert2 (desaparece del listado y da 404); Facturada no editable; POST manipulado sobre una
+Facturada rechazado server-side; refacturar una Facturada rechazado.
+
+**Caja / Gastos — 14 casos.** Alta de gasto caja chica y mensual; Egreso automático en Caja; anulación con
+contramovimiento de Ingreso fechado hoy; gasto anulado sigue visible; anular dos veces rechazado; movimiento
+manual con origen "Ajuste"; cierre diario con totales correctos; gasto en día cerrado bloqueado; cierre
+mensual con histórico.
+
+**Entregas — 12 casos.** Alta desde venta Facturada con markup 20% (base 1.000 → final 1.200; base 500 → 600);
+segunda entrega para la misma venta rechazada; combo de repartidores; R9; ciclo Pendiente → EnCamino →
+Entregada; EnCamino → NoEntregada con motivo obligatorio → Reagendar → Pendiente; reagendar con fecha pasada
+rechazado; transición inválida Entregada → EnCamino rechazada server-side.
+
+**Listados DataTable server-side — 7 listados × varios ordenamientos.** `/Ventas/Listar`, `/Clientes/Listar`
+(2.992 filas), `/Entregas/Listar`, `/Caja/Listar`, `/Caja/CierresListar`, `/Caja/MensualListar`,
+`/Gastos/Listar`. Los 2 de Caja daban 500 (ver D6); el resto PASS, con ordenamiento real por cada columna
+(cierra en caliente CRM-003).
+
+## Cobertura de la máquina de estados
+
+**Venta** (`Borrador → Facturada → Anulada`):
+
+| Transición | Resultado |
+|---|---|
+| (alta) → Borrador | PASS |
+| Borrador → Borrador (editar/re-guardar) | **FAIL → PASS tras auto-fix D5** |
+| Borrador → cancelado (soft delete) | PASS — 404 y fuera del listado |
+| Borrador → Facturada | **BLOCKED** por AFIP (se verificó que ante fallo queda en Borrador, sin descontar stock ni generar movimientos) |
+| Borrador → Facturada sin ítems | PASS — rechazada |
+| Borrador → Facturada con pagos insuficientes y sin CC | PASS — rechazada |
+| Facturada → editar (POST manipulado) | PASS — rechazada |
+| Facturada → Facturada (refacturar) | PASS — rechazada |
+| Facturada → Anulada | N/A — es Entrega 3, no implementada |
+
+**Entrega** (`Pendiente / EnCamino / Entregada / NoEntregada`): las 4 transiciones válidas PASS, las inválidas
+rechazadas server-side, y **los botones de cada estado coinciden exactamente con las transiciones reales**
+(Pendiente → solo "Iniciar recorrido"; EnCamino → "Marcar entregada" + "No entregada"; NoEntregada →
+"Reagendar"; Entregada → ninguna). Cumple el patrón de `32-estandares-qa-implementador`.
+
+## Cobertura del catálogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
+
+48 ids. Resumen por resultado:
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| REG-001 | no | N/A | No hay `RowVersion` en las entidades de Entrega 2 |
+| REG-002 | no | N/A | Sin variantes de producto (confirmado en Análisis) |
+| REG-003, REG-005, REG-007 | sí | PASS | Select2 AJAX de producto y de cliente devuelven resultados con texto correcto |
+| REG-004 | sí | PASS | Máquina de estados de Entrega y de Venta con botones derivados del estado real |
+| REG-006 | sí | PASS | `CreditoCuotas` muestra el selector de cuotas y el % de recargo |
+| REG-008 | sí | PASS | Escribir en Cantidad/Monto no pierde el foco (handlers `input`/`change` sin re-render de fila) |
+| REG-009 | no | N/A | No hay cascada categoría→subgrupo en Entrega 2 |
+| REG-010, KOI-003, KOI-005, KOI-006 | sí | PASS | Sidebar vs autorización real verificado en los 3 roles, sin links a controllers inexistentes |
+| KOI-001 | sí | PASS | "Cancelar borrador" y "Anular gasto" con SweetAlert2 fuera del form ejecutan realmente |
+| KOI-002, KOI-004 | no | N/A | Sin export Excel ni cierre de período de inversores en esta entrega |
+| DN-001, DN-002 | sí | PASS | Listados con `Include` + orden dinámico + `Skip/Take` sin 500 |
+| GAN-001 | sí | PASS | Guarda "al menos un ítem" se dispara de verdad (mensaje explícito, no efecto colateral) |
+| GAN-002 | no | N/A | Sin backfill en las migraciones de esta entrega |
+| GAN-003 | sí | PASS | Filas dinámicas de ítems/pagos se agregan por template JS en string, no por `<partial>` |
+| GAN-004 | no | N/A | Sin `<datalist>` |
+| VSF-001, VSF-002 | sí | PASS | Borrador tiene salida por cancelación; ninguna entidad queda sin transición de escape |
+| CRM-001 | no | N/A | Sin audit trail por `SaveChanges` en el alcance |
+| CRM-002 | sí | PASS | Ningún control de escritura visible para un rol sin la policy correspondiente |
+| CRM-003 | sí | PASS | Ordenamiento por encabezado real en los 7 listados |
+| CRM-004, CRM-005, CRM-006 | no | N/A | Sin bot ni scraping |
+| **MH-001** | **sí** | **FAIL → corregido** | **Reaparición en 5 call sites — ver D6** |
+| MH-002 | sí | PASS | Enums serializados como string (`"Ingreso"`, `"CajaChica"`, `"Borrador"`) |
+| MH-003 | sí | PASS | `Gasto.Fecha` futura rechazada server-side; `Reagendar` con fecha pasada rechazado server-side |
+| MH-004 | sí | PASS (con matiz) | La anulación de un gasto genera un Ingreso fechado hoy, por diseño explícito — mismo desglose que MH-004 describe, acá es deliberado y documentado |
+| MH-005, MH-006 | no | N/A | Sin remito ni link público en esta entrega |
+| MH-007 | no | N/A | Sin ajuste de apertura de CC |
+| MH-008 | sí | PASS | Mensajes de medio de pago consistentes con el enum vigente |
+| MH-009 | sí | **FAIL parcial** | Misma familia de huso horario — ver D7 |
+| MH-010 | no | N/A | No se usa `maskMoney`; los importes son `<input type="number">` nativos |
+| MH-011, MH-012, MH-013 | no | N/A | Notas de crédito y refacturación son Entrega 3 |
+| SG-001 | sí | **FAIL → corregido** | Inputs numéricos vacíos posteados contra tipos de valor no nullables — ver D5 |
+| LP-001 | sí | PASS | El recálculo ABC sigue filtrando `Estado == Facturada` tras el merge (no se perdió el fix de Etapa 3) |
+| LP-002 | sí | PASS | El código de barras alterno resuelve en el buscador de Venta, no solo en Catálogo |
+| **LP-003** | **sí** | **nuevo** | **Creado en este ciclo — ver D5** |
+| ELV-001 | sí | PASS | Los 6 controllers de Entrega 2 tienen `[Authorize]` con policy explícita |
+| ELV-002 | sí | PASS | `ClienteService.EditarAsync` reaplica la misma validación de unicidad que `CrearAsync` |
+
+## Defectos detectados
+
+### D5 — `blocker` — Un borrador de venta reabierto queda inutilizable (CORREGIDO, auto-fix)
+
+- **Pasos:** Ventas → Nueva → agregar 2 ítems por escaneo → "Guardar borrador" → reabrir `/Ventas/Editar/{id}`.
+- **Síntoma:** las filas muestran el producto correcto pero **todos** los inputs numéricos (Cantidad, Precio
+  unit., % IVA, Descuento, Recargo) llegan **vacíos**, y los totales de pantalla muestran `$ 0,00` aunque la
+  venta está bien guardada (`Total = 17,97` en la base). Si el vendedor vuelve a apretar "Guardar borrador",
+  el Service rechaza con "La cantidad de 'BOLSAS DE CONSORCIO LA PLATENSE' debe ser mayor a 0." El borrador
+  queda **imposible de editar y de re-guardar**: solo se puede cancelar o facturar con los valores originales.
+- **Causa raíz:** el `value` de un `<input type="number">` tiene que ser un *valid floating-point number*
+  (punto decimal siempre). Con la cultura fija `es-AR` de `Program.cs`, Razor renderizaba
+  `value="@it.Cantidad"` como `value="3,000"` y `value="@it.PrecioUnitario"` como `value="1,27"` — el
+  navegador descarta el value por inválido y deja el input vacío, sin ningún error visible. Es la contraparte
+  de **salida** del problema que el proyecto ya tenía resuelto solo del lado de **entrada** con
+  `InvariantDecimalModelBinderProvider`.
+- **Impacto:** rompía PF2, el criterio de aceptación central y de mayor riesgo de toda la Entrega 2.
+- **Por qué no lo detectó nadie antes:** la pantalla funciona perfecto al **crear** (las filas que agrega el JS
+  vienen de un JSON, que serializa con punto) y solo se rompe al **reabrir**.
+- **Fix:** helper `Func<decimal,string> num = v => v.ToString(CultureInfo.InvariantCulture)` en
+  `Views/Ventas/Editar.cshtml`, aplicado a los 6 `value` de inputs numéricos. Los textos de solo lectura
+  (subtotales, totales) siguen en es-AR, como corresponde.
+- **Catalogado como `LP-003`** (nuevo) + sección preventiva nueva en `32-estandares-qa-implementador`.
+
+### D6 — `blocker` — 4 endpoints caídos con HTTP 500 por el patrón MH-001 (CORREGIDO, auto-fix)
+
+- **Pasos:** entrar a Caja → Cierres, o Caja → Mensual, o abrir el combo de repartidores de Entregas, o
+  Stock → Historial de ajustes.
+- **Síntoma:** `HTTP 500` — `InvalidOperationException: Expression '@usuarioIds' in the SQL tree does not have
+  a type mapping assigned`.
+- **Causa raíz:** `_context.Users.Where(u => usuarioIds.Contains(u.Id))` con `usuarioIds` como colección local
+  de `string`. Es exactamente `MH-001`, ya catalogado y ya corregido dos veces (marihogar Sprint 1, La Platense
+  Etapa 3). **Tercera aparición.**
+- **Hallazgo que amplía el item del catálogo:** el error se dispara **también con la colección vacía** — se
+  comprobó con 0 filas en `CierresCajaDiarios` y el endpoint devolvió 500 igual. O sea que estos listados
+  estaban rotos desde el día 1, al 100% de las cargas, sin necesidad de que existiera ningún dato.
+- **Alcance real — 5 call sites, uno de ellos en producción:**
+  - `CajaMovimientoService.ListarCierresDiariosAsync` → 500 siempre (rompe PF7)
+  - `CajaMovimientoService.ListarCierresMensualesAsync` → 500 siempre (rompe PF7)
+  - `EntregaService.ListarRepartidoresAsync` → 500 siempre (el combo de repartidores no cargaba nunca)
+  - `AjusteStockService.HistorialAsync` → 500 siempre — **esto es código de Entrega 1, ya desplegado a
+    producción: la pantalla de historial de ajustes de stock estaba caída en producción sin que nadie lo
+    hubiera reportado**
+  - `EntregaService.ListarAsync` → latente: lo salvaba un `if (ids.Count == 0)`, iba a reventar con la primera
+    entrega con repartidor asignado
+- **Fix:** patrón canónico del catálogo en los 5 puntos — materializar `AspNetUsers` con `ToListAsync()` y
+  filtrar en memoria con un `HashSet<string>`. Es seguro acá porque la tabla de usuarios es el personal del
+  negocio (unidades, no miles).
+- **Barrido posterior:** `grep` de `.Contains(` sobre Services y Controllers — todos los casos restantes son
+  colecciones de `int` (seguras según la nota del propio item) o filtros en memoria.
+
+### D7 — `major` — El Dashboard mostraba las ventas del día equivocado (CORREGIDO, auto-fix)
+
+Es la confirmación del punto que Etapa 3 había dejado anotado en D4 como "observación colateral". **Es un bug
+real, y se reprodujo.**
+
+- **Pasos:** con dos ventas Facturadas, una del 21/08 22:00 ART y otra del 20/08 22:00 ART, abrir `/Dashboard`.
+- **Síntoma:** "Ventas de hoy" mostraba **1 venta, $ 121,00** — que es la de **ayer**. La venta real de hoy
+  ($ 40,98) **no aparecía**.
+- **Causa raíz:** `DashboardService` armaba la ventana con `DateTime.Today` (día calendario del **servidor**)
+  y la comparaba contra `Venta.Fecha`, que se guarda en UTC (`DateTime.UtcNow`). La ventana efectiva quedaba
+  en ART `[21:00 de ayer, 21:00 de hoy)`: toda venta posterior a las 21:00 se contaba al día siguiente, y las
+  de ayer a esa hora se contaban como de hoy. Afectaba "Ventas de hoy" y "Top productos del mes".
+- **Agravante en producción:** el hosting real (SmarterASP/site4now) **no está en huso argentino** — el XML-doc
+  de `ArgentinaTime` documenta offset `-07:00`. Ahí además cambia el día calendario de referencia, no solo el
+  corte horario.
+- **Fix:** usar `ArgentinaTime.HoyRangoUtc()` — helper que **ya existía en este mismo repo**, escrito
+  precisamente para esta clase de bug — y convertir los bordes del mes a UTC para "Top productos". Es el mismo
+  criterio que `ClasificacionAbcAutomaticaService` ya aplicaba bien y que se usó de referencia.
+- **Verificación post-fix:** "Ventas de hoy" pasa a mostrar **1 venta, $ 40,98** (la correcta) y deja de
+  contar la de ayer.
+- **No se tocó** `ObtenerGastosMesPorCategoriaAsync`: `Gasto.Fecha` es una fecha calendario pura (`dto.Fecha.Date`,
+  cargada por el usuario), así que compararla contra `DateTime.Today` es correcto. Cambiarlo habría **introducido**
+  un bug.
+
+### D8 — `major` — "Confirmar y facturar" no guarda el borrador: factura datos viejos en silencio (NO corregido)
+
+- **Pasos:** abrir un borrador guardado, cambiar la cantidad de un ítem en la grilla (sin apretar "Guardar
+  borrador") y apretar "Confirmar y facturar" → confirmar en el SweetAlert2.
+- **Síntoma medido:** la pantalla mostraba **$ 76,84** (cantidad 50) y el sistema facturó sobre **$ 1,54**
+  (cantidad 1). La edición en curso se descarta sin ningún aviso.
+- **Causa raíz:** `submitAccion()` en `Views/Ventas/Editar.cshtml` arma un form nuevo con **solo el token
+  antiforgery** y postea a `ConfirmarYFacturar/{id}`; nunca envía el estado del formulario ni dispara un
+  guardado previo. El server factura lo último persistido.
+- **Por qué importa:** hoy es inocuo porque AFIP no está configurado y la emisión siempre falla. **En cuanto
+  se cargue el certificado real, esto emite un comprobante fiscal con un importe distinto al que el vendedor
+  tenía en pantalla** — y un comprobante fiscal emitido no se corrige, se anula con nota de crédito (que es
+  Entrega 3, todavía no implementada).
+- **Por qué NO se auto-corrigió:** hay más de una solución razonable (guardar y después facturar en un solo
+  paso; bloquear "Confirmar" mientras el formulario esté sucio; pedir confirmación explícita) y la elección
+  cambia el flujo de trabajo del vendedor sobre el camino fiscal. Es una decisión de diseño, no la réplica de
+  un fix ya validado. **Escalado al Implementador.**
+- **Recomendación:** que "Confirmar y facturar" ejecute primero el `GuardarBorrador` con el estado actual del
+  form y solo continúe si el guardado fue exitoso.
+
+### D9 — `major` — `CajaMovimiento.Fecha` mezcla dos semánticas y la guarda de "caja cerrada" mira otro día (NO corregido)
+
+- **Evidencia (revisión de código, confirmada contra el comportamiento real):**
+  - `VentaWorkflowService` escribe el movimiento de una venta con `Fecha = DateTime.UtcNow` → un **instante UTC**.
+  - `GastoService` y `RegistrarMovimientoManualAsync` escriben `Fecha = dto.Fecha.Date` → una **fecha calendario**
+    a medianoche.
+  - `CajaController` cierra y resume el día con `DateTime.Today` (local), pero `VentaWorkflowService` (línea 334)
+    y `GastoService.AnularAsync` consultan la guarda con `DateTime.UtcNow.Date`.
+- **Consecuencias:** (a) una venta de las 22:00 ART cae en la caja del día siguiente, mientras un gasto cargado
+  esa misma noche cae en el día correcto — el arqueo diario mezcla días; (b) entre las 21:00 y las 00:00 ART
+  (7 horas por día en el servidor de producción, que está en huso Pacífico) `DateTime.UtcNow.Date` y
+  `DateTime.Today` son **días distintos**, así que después de cerrar la caja el sistema **no bloquea** una
+  venta nueva, que es justamente lo que la guarda existe para impedir.
+- **Por qué NO se auto-corrigió:** alinearlo exige definir cuál es el **día de negocio** (¿a qué día pertenece
+  una venta de las 22:00? ¿el cierre corta a medianoche o al cierre del local?). Es una regla de negocio que
+  tiene que confirmar el cliente, no algo que QA pueda inferir. **Escalado al Implementador + pregunta abierta
+  para Joaquín.**
+
+### D10 — `minor` — Los 4 campos de Cliente de Etapa 3 no existen en el ABM (NO corregido)
+
+- `Cliente` tiene `Domicilio`, `Localidad`, `Email` y `Notas` en la entidad y en la base, y la migración los
+  cargó con datos reales: **2.739 clientes con domicilio, 1.082 con localidad, 100 con email**. Pero
+  `ClienteFormViewModel` y las vistas Create/Edit de Entrega 2 solo exponen Nombre / CUIT-DNI / Teléfono /
+  Condición de IVA. Los datos migrados son **invisibles e ineditables** desde la aplicación.
+- **No hay pérdida de datos:** `ClienteService.EditarAsync` asigna solo los 4 campos mapeados, así que editar
+  un cliente migrado **preserva** los otros 4. Verificado por lectura del Service.
+- Es un gap de alcance entre Etapa 3 (agregó los campos) y Entrega 2 (dueña de la pantalla), no una regresión
+  del merge: la rama de producción no tiene pantalla de Clientes. Se reporta sin corregir porque agregar campos
+  a un ABM es alcance funcional, no un fix.
+- **Nota operativa:** `Entregas/Create` pide la dirección a mano teniendo el domicilio del cliente ya migrado
+  en la base — precargarlo sería una mejora obvia.
+
+### D11 — `minor` — Los decimales renderizados en es-AR sobre inputs no numéricos se parsean ×100 (NO corregido)
+
+- **Evidencia:** en `Entregas/Create` el hidden `VentaTotal` de una venta de $ 40,98 se renderiza como
+  `value="40,98"`. `InvariantDecimalModelBinder` intenta `decimal.TryParse(value, NumberStyles.Any,
+  InvariantCulture, ...)` **primero**, donde la coma es separador de **miles**: `"40,98"` entra como **4098**.
+- **Impacto hoy: ninguno.** `VentaTotal` es solo informativo y no se persiste. Se reporta porque es el hermano
+  silencioso de D5 (mismo render culture-dependiente, falla opuesta) y porque cualquier campo decimal futuro
+  que se renderice así y sí se persista va a corromperse ×100 sin ningún error.
+- Documentado dentro de `LP-003` (`nota_generalizacion`) y en la sección preventiva de
+  `32-estandares-qa-implementador`.
+
+### D12 — `minor` — El Repartidor aterriza en "Acceso denegado" en cada login (NO corregido)
+
+- Al iniciar sesión, `AccountController` redirige a `Stock/Index`, pantalla a la que el rol `Repartidor` no
+  tiene acceso: el resultado observado es `.../Account/AccessDenied?ReturnUrl=%2FStock`. Es el **único** rol
+  cuya pantalla principal (Entregas) no es la del redirect.
+- **Recomendación:** redirigir según rol (Repartidor → `Entregas/Index`) o mandar a `Dashboard`, accesible para
+  todos. No se corrige por cuenta propia porque el redirect a Stock fue un pedido explícito de Joaquín
+  (2026-08-10) y cambiarlo es una decisión suya.
+
+### D13 — `informativo` — Redondeo bancario en el IVA por línea
+
+- `Math.Round(x, 2)` sin `MidpointRounding` usa redondeo bancario (*to even*). Con IVA 10,5% sobre $ 25,00 el
+  sistema calcula $ 2,62; el redondeo comercial habitual (*away from zero*) daría $ 2,63.
+- Es consistente en todo el cálculo (incluido el `ImporteTotal` que se manda a AFIP), así que no genera
+  descuadres internos. Se deja anotado porque la convención de facturación en Argentina suele ser
+  *away from zero* y es una decisión del cliente, no de QA.
+
+## Auto-fixes aplicados por QA
+
+| id catálogo | defecto | archivos tocados | resultado post-parche |
+|---|---|---|---|
+| `LP-003` (nuevo) | D5 — borrador reabierto inutilizable | `FerreteriaLaPlatense.Web/Views/Ventas/Editar.cshtml` (helper `num` + 6 `value`) | build 0 errores; verificado por navegador: inputs poblados, total $ 17,97, re-guardado OK, PF2 recalcula bien |
+| `MH-001` (3ª aparición) | D6 — 500 por `IN` de colección local de string | `CajaMovimientoService.cs` (×2), `EntregaService.cs` (×2), `AjusteStockService.cs` | build 0 errores; los 5 endpoints pasan de 500 a 200 con datos correctos |
+| `MH-009` / familia huso horario | D7 — Dashboard con el día equivocado | `DashboardService.cs` (`ArgentinaTime.HoyRangoUtc()` + bordes del mes en UTC) | build 0 errores; "Ventas de hoy" pasa de $ 121,00 (ayer) a $ 40,98 (hoy) |
+
+Ninguno introduce lógica de negocio nueva: D5 y D6 replican soluciones ya validadas del catálogo, y D7 usa un
+helper que ya existía en este mismo repositorio y que otro servicio del proyecto ya usaba correctamente.
+
+## Estado de la base de desarrollo tras el ciclo
+
+`laplatense_dev` quedó con datos de prueba de QA que conviene conocer antes de la próxima corrida:
+
+- Usuarios nuevos: `qa.super@test.local`, `vendedor.qa@test.local`, `repartidor.qa@test.local`.
+- **2 ventas forzadas a `Facturada` por SQL directo, con CAE inventado** (`71234567890123`/`...124`). Fue la
+  única forma de habilitar Entregas y Dashboard, porque `ConfirmarYFacturar` exige un CAE real de AFIP. **No
+  son ventas facturadas de verdad y no generaron movimientos de Caja** — hay que borrarlas antes de cualquier
+  prueba de Caja que dependa del ingreso automático por venta.
+- 2 gastos, 1 movimiento manual, el cierre diario del 21/08 y el cierre mensual de 08/2026, 2 entregas, 3
+  clientes de prueba y algunos borradores de venta.
+
+## Riesgos de liberación
+
+1. **AFIP sigue sin poder probarse de punta a punta** (sin CUIT ni certificado del cliente). Es el riesgo
+   principal y no se movió: todo lo que ocurre *después* de un CAE exitoso — descuento de stock real, asiento
+   en la cuenta corriente del cliente, ingreso automático en Caja — **nunca se ejecutó**. Lo único validado es
+   que ante el fallo no se toca nada y la venta queda en Borrador reintentable.
+2. **D8 es una bomba de tiempo atada a ese mismo hito.** Hoy no hace daño porque AFIP falla siempre; el día que
+   se configure el certificado, la primera venta que se facture sin guardar sale con el importe equivocado.
+   **Corregir D8 antes de cargar el certificado, no después.**
+3. **D9 (día de negocio de la caja) necesita una definición del cliente**, no una decisión técnica. Mientras no
+   se cierre, el arqueo diario puede mezclar días y la guarda de caja cerrada tiene un agujero de varias horas.
+4. **El hosting de producción no está en huso argentino.** D7 se corrigió en el Dashboard, pero conviene un
+   barrido de `DateTime.Today`/`DateTime.Now` en el resto del sistema antes de desplegar, con el mismo criterio.
+5. **D6 dejó al descubierto que hay código de Entrega 1 caído en producción** (`Stock/HistorialListar`). Ya está
+   corregido en esta rama, pero **el fix vive en `entrega-2`**: producción sigue rota hasta que se despliegue.
+   Conviene evaluar llevar ese fix puntual a la rama de producción sin esperar a toda la Entrega 2.
+6. La cuenta corriente de clientes quedó validada solo en sus guardas de entrada; el ledger real depende de
+   facturar.
+7. Las asunciones de negocio que el Implementador dejó abiertas **siguen sin confirmar** con el cliente:
+   Descuento/Recargo de `ItemVenta` como monto y no porcentaje, mecánica del recargo de cuotas, markup de
+   Entrega sobre el costo base (no sobre el valor del producto), cierre de caja bloqueando ventas del día, y
+   acceso del Vendedor a Caja/Gastos. Ninguna es verificable por QA: son decisiones del cliente.
+
+## Estado go/no-go
+
+**GO CONDICIONADO para merge de `entrega-2`. NO-GO para producción.**
+
+Fundamento: los tres bloqueantes/mayores encontrados por ejecución real están corregidos y verificados, el
+build está limpio, los permisos y las dos máquinas de estados son sólidos, y el resto del alcance (Caja,
+Gastos, Entregas, Dashboard) funciona de punta a punta. Pero **la Entrega 2 se había declarado "funcionalmente
+terminada" con dos blockers que rompían su propio criterio de aceptación central (PF2) y dejaban 4 endpoints
+en 500** — incluido uno ya desplegado a producción. Eso confirma, por segunda etapa consecutiva, el costo de
+cerrar sin ejecutar la aplicación.
+
+Condiciones para el GO a producción:
+
+1. Corregir **D8** antes de configurar el certificado AFIP (bloqueante para producción).
+2. Cerrar **D9** con Joaquín (definición del día de negocio de la caja).
+3. Prueba end-to-end de AFIP en homologación, con el circuito completo posterior al CAE.
+4. Confirmar con el cliente las asunciones del punto 7 de riesgos.
+5. Evaluar adelantar a producción el fix de `AjusteStockService` (D6), que arregla una pantalla hoy caída.
+
+## Checklist de salida para merge
+
+- [x] `dotnet build FerreteriaLaPlatense.slnx` → 0 errores (4 veces: inicial + tras cada auto-fix).
+- [x] Verificación automatizada por navegador real ejecutada sobre la app levantada contra `laplatense_dev`.
+- [x] Matriz de permisos de los 3 roles (37 casos) y sidebar vs autorización real.
+- [x] Máquina de estados de Venta y de Entrega, transiciones válidas e inválidas, incluidas por POST manipulado.
+- [x] 7 listados DataTable server-side sin 500, con ordenamiento real por columna.
+- [x] Catálogo cross-proyecto ejecutado (48 ids) y cobertura reportada.
+- [x] 3 defectos corregidos con auto-fix y verificados post-parche (D5, D6, D7).
+- [x] `LP-003` creado; `MH-001` ampliado con la nota de la 3ª aparición.
+- [x] 2 secciones preventivas nuevas en `32-estandares-qa-implementador.instructions.md` (MH-001 y LP-003).
+- [x] D4 de Etapa 3 cerrado (Entrega 2 ya pasó por el gate de QA).
+- [ ] **D8 pendiente — bloqueante antes de configurar AFIP.**
+- [ ] **D9 pendiente — requiere definición de Joaquín.**
+- [ ] D10, D11, D12, D13 pendientes (no bloqueantes).
+- [ ] Limpiar los datos de prueba de `laplatense_dev`, en especial las 2 ventas con CAE inventado.
+- [ ] AFIP end-to-end en homologación (sigue bloqueado por el certificado del cliente).
 
 ---
 
@@ -141,16 +525,22 @@ en esta etapa se agrupan al final.
 - **Acción:** documentado acá y en Riesgos. Conviene avisarlo en la pantalla o recalcular al final del import;
   queda como mejora menor para el Implementador, no bloquea.
 
-### D4 — `informativo` — Entrega 2 nunca pasó por el gate de QA
+### D4 — `informativo` — Entrega 2 nunca pasó por el gate de QA — **CERRADO 2026-08-21**
 
 - La memoria de QA solo tenía el ciclo de Entrega 1 (2026-08-10). Ventas/AFIP/Caja/Gastos/Entregas/Dashboard
-  se cerraron el 2026-08-11 y **no hay registro de QA**. No es un defecto de Etapa 3, pero sí un riesgo de
+  se cerraron el 2026-08-11 y **no había registro de QA**. No era un defecto de Etapa 3, pero sí un riesgo de
   liberación: esta etapa se apoya en `ItemVenta`/`Venta` (para el ABC) y en `Cliente` (para el import), que
-  nunca fueron validados funcionalmente.
-- **Observación colateral** (Entrega 2, fuera de alcance, no corregida): `DashboardService` usa
-  `DateTime.Today` para armar la ventana del mes contra `Venta.Fecha`, que está en UTC — es la misma clase de
-  bug de huso horario que el Implementador sí evitó en el ABC. Recomendado revisarlo en el QA pendiente de
-  Entrega 2.
+  nunca habían sido validados funcionalmente.
+- **CERRADO el 2026-08-21**: se ejecutó el primer ciclo completo de QA de Entrega 2 sobre la rama `entrega-2`
+  ya reconciliada, con la migración aplicada y el catálogo real cargado. Ver la sección
+  "Entrega 2 — ... (QA, 2026-08-21)" al principio de este archivo. Resultado: 3 defectos corregidos con
+  auto-fix (2 de ellos `blocker`), 6 reportados sin corregir, GO condicionado a merge y NO-GO a producción.
+- **Verificación cruzada para Etapa 3:** el ciclo confirmó que `LP-001` sigue vigente tras el merge — el
+  recálculo ABC mantiene el filtro `Estado == Facturada` que se le agregó en esta etapa.
+- **La observación colateral era un bug real y está corregida.** `DashboardService` usaba `DateTime.Today`
+  contra `Venta.Fecha` (UTC): se reprodujo con datos controlados y el Dashboard mostraba **la venta de ayer**
+  como "Ventas de hoy", omitiendo la de hoy. Quedó registrado como **D7** del ciclo de Entrega 2 y se corrigió
+  usando `ArgentinaTime.HoyRangoUtc()`, el mismo criterio que el ABC ya aplicaba bien.
 
 ## Auto-fixes aplicados por QA
 
@@ -226,7 +616,9 @@ Ninguno de los dos introduce lógica de negocio nueva: D1 replica el criterio de
    (dedup de nombre y de `articuloProveedor`) **no son validables** con lo implementado: dependen de la
    herramienta batch del ítem 1 del WBS, que hay que construir y que va a necesitar su propio ciclo de QA.
    Conviene no comunicar la Etapa 3 como "migración terminada": está el importador, no la extracción.
-6. **Entrega 2 sin QA** (D4). Esta etapa se apoya en `Venta`/`ItemVenta`/`Cliente`, nunca validados.
+6. ~~**Entrega 2 sin QA** (D4). Esta etapa se apoya en `Venta`/`ItemVenta`/`Cliente`, nunca validados.~~
+   **Resuelto 2026-08-21:** Entrega 2 pasó por QA. `Venta`/`ItemVenta`/`Cliente` quedaron validados
+   funcionalmente y se confirmó que el fix `LP-001` de esta etapa sigue vigente tras el merge.
 7. `Proveedor` mínimo: cuando se implemente Compras, hay que **ampliar** la entidad, no recrearla. Riesgo de
    coordinación, ya documentado en el XML-doc.
 8. `Bonificacion` es informativa y no participa de ningún cálculo de precio — si el cliente espera que "33+5"
@@ -262,7 +654,7 @@ y la herramienta del paso 1.
 - [ ] **Migración aplicada a la base de desarrollo** (pendiente, bloqueante para pruebas).
 - [ ] **Pruebas manuales 1-5 ejecutadas por Joaquín** (pendiente, bloqueante para producción).
 - [ ] Pendiente (no bloqueante): D3 — avisar o recalcular la sugerencia ABC tras un reimport.
-- [ ] Pendiente (no bloqueante): QA de Entrega 2, nunca ejecutado (D4).
+- [x] QA de Entrega 2 ejecutado (D4 cerrado el 2026-08-21) — ver la sección de Entrega 2 al principio.
 - [ ] Pendiente (no bloqueante): confirmar con Joaquín las 3 decisiones que tomó el Implementador (productos sin
       venta en `C` y no `null`; unidades no modeladas → `Unidad`; CC de clientes no se migra).
 
@@ -486,3 +878,18 @@ reproducidas. El defecto D3 (fuera de alcance) y D4 (informativo) no bloquean el
   defecto D3 (fuera de alcance, archivo preexistente) y D4 (informativo, no bloqueante). Recomendación:
   GO condicionado a aplicar la migración `EntregaUno_CatalogoStockUsuarios` antes de cualquier prueba en
   caliente del cliente.
+- 2026-08-21 (v3): primer ciclo de QA de **Entrega 2 completa** (Ventas/CC Clientes/AFIP/Caja/Gastos/Entregas/
+  Dashboard) sobre la rama `entrega-2` reconciliada, contra `laplatense_dev` con el catálogo real migrado.
+  Cierra el defecto D4 de Etapa 3. Primer ciclo del proyecto con **verificación automatizada por navegador
+  real** (Playwright vía `playwright-core`, porque el MCP `playwright` no estaba conectado en la sesión):
+  ~90 casos ejecutados contra la app corriendo, ninguno validado solo por lectura de código. 3 defectos
+  corregidos con auto-fix — D5 `blocker` (borrador de venta inutilizable al reabrirlo, por render de decimales
+  en cultura es-AR dentro de `<input type="number">`, catalogado como `LP-003` nuevo), D6 `blocker` (4
+  endpoints en HTTP 500 por la 3ª aparición de `MH-001`, incluido `Stock/HistorialListar` que **está caído en
+  producción**), y D7 `major` (el Dashboard mostraba las ventas del día equivocado — confirma y corrige la
+  observación colateral que D4 había dejado anotada). 6 defectos reportados sin corregir por ser decisiones de
+  diseño o de negocio: D8 (`Confirmar y facturar` factura datos viejos — bloqueante antes de configurar AFIP),
+  D9 (`CajaMovimiento.Fecha` mezcla instante UTC y fecha calendario; la guarda de caja cerrada mira otro día),
+  D10, D11, D12, D13. Agregadas 2 secciones preventivas a
+  `32-estandares-qa-implementador.instructions.md` (MH-001 y LP-003). Recomendación: **GO condicionado a merge,
+  NO-GO a producción**.

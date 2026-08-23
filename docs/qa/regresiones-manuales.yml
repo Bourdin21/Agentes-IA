@@ -26,7 +26,7 @@
 
 version: 1
 proyecto: ShowroomGriffin
-ultima_actualizacion: 2026-08-20
+ultima_actualizacion: 2026-08-21
 
 regresiones:
 
@@ -977,6 +977,7 @@ regresiones:
       build: "dotnet build MariHogar.slnx -> Compilacion correcta, 0 Errores (re-verificado por QA el 2026-07-24)."
       verificacion: "Verificado por QA via revision de codigo (MariHogar.Infrastructure/Services/StockService.cs lineas 49-57): el fix esta presente y sigue el mismo patron ya usado en UsersController.GetData. Grep de '.Contains(' sobre todos los Services/Controllers nuevos del sprint (CategoriaService/MarcaService/ProductoService/StockService/ProductosController) no encontro otra ocurrencia del patron riesgoso. Item no estaba catalogado todavia en este archivo pese a que el fix ya se habia aplicado — QA lo cataloga ahora para cumplir la obligacion de trazabilidad cross-proyecto (30-qa-regresiones.instructions.md)."
     nota_qa_laplatense_etapa3: "Reaparicion del patron en OTRO proyecto (La Platense, rama migracion-catalogo, Etapa 3 migracion de catalogo, detectada por QA el 2026-08-17 por revision de codigo pre-merge, ANTES de aplicar la migracion EF a ninguna base). CatalogoMigracionService tenia dos IN sobre coleccion local de STRING — justo el caso que este item marca como riesgoso — ambos en el camino de PERSISTIR (nunca en el de preview, que retorna antes): (1) ProcesarProductosAsync, 'codigos.Contains(p.Codigo)' con codigos como List<string> del lote; (2) ProcesarCodigosProveedorAsync, 'codigos.Contains(c.CodigoDelProveedor)', idem. El proyecto usa MySql.EntityFrameworkCore 10.0.1, exactamente el provider y version donde este item se reprodujo empiricamente en marihogar. Efecto esperado: el operador ve un preview limpio y el 'Confirmar la importacion' revienta con InvalidOperationException/500 sin importar nada — o sea, el bug se manifiesta recien en el paso mas caro y menos reversible del flujo. Fix aplicado por QA (auto-fix, derivado de este item): NO se uso el 'traer la tabla completa a memoria' del archivos_fix original, porque aca la tabla es Productos con 121.691 filas dentro de un loop de lotes de 500 (244 relecturas del catalogo completo). Se reemplazo por relectura del lote POR Id (coleccion local de int, segura segun nota_qa_sprint4), aprovechando que ambos metodos ya tenian en memoria el mapa codigo->Id / clave->Id de la proyeccion completa que hacen al arrancar: cero consultas extra y semantica identica (ambas proyecciones usan IgnoreQueryFilters, asi que el conjunto alcanzado por Id es el mismo que alcanzaba el IN por string, soft-deleted incluidos). Leccion para el catalogo: el fix canonico de MH-001 ('materializar y filtrar en memoria') solo es aceptable cuando la tabla es chica; en tablas de volumen hay que convertir el IN de string a un IN de Id, no traerse la tabla."
+    nota_qa_laplatense_entrega2: "SEGUNDA reaparicion en el MISMO proyecto (La Platense, rama entrega-2, QA de Entrega 2, 2026-08-21) — esta vez reproducida por EJECUCION real (HTTP 500 contra laplatense_dev), no por revision de codigo. Cinco call sites del patron, todos resolviendo nombres de usuario de Identity (coleccion local de string, exactamente el caso original de este item): CajaMovimientoService.ListarCierresDiariosAsync y .ListarCierresMensualesAsync, EntregaService.ListarAsync y .ListarRepartidoresAsync, y AjusteStockService.HistorialAsync. Hallazgo importante que AMPLIA este item: el error se dispara TAMBIEN con la coleccion local VACIA — se comprobo con 0 filas en CierresCajaDiarios y el endpoint igual devolvio 500. O sea que no hace falta que exista un dato para que reviente: los listados afectados estaban rotos desde el dia 1, al 100% de las cargas, y por eso el guard 'if (ids.Count == 0) return diccionarioVacio' que tenia EntregaService.ListarAsync era lo unico que lo mantenia en pie mientras no hubiera entregas con repartidor asignado. Consecuencia de alcance: AjusteStockService.HistorialAsync es codigo de ENTREGA 1, ya desplegado a produccion — la pantalla de historial de ajustes de stock estaba caida en produccion sin que nadie lo hubiera reportado. Fix aplicado por QA en los 5 puntos con el patron canonico de este item (materializar AspNetUsers con ToListAsync y filtrar en memoria con un HashSet<string>), que aca es seguro porque la tabla de usuarios es el personal del negocio (unidades, no miles). Leccion para el catalogo: al buscar este patron NO alcanza con probar los listados que tienen datos — hay que ejercitar todos los endpoints, incluso los vacios, porque el 500 es independiente del contenido de la coleccion."
     nota_qa_sprint4: "Refinamiento de alcance (marihogar, Sprint 4, 2026-07-24): QA encontro un nuevo caso del patron generico 'Where(coleccionLocal.Contains(...))' en CCProveedorService.ObtenerSaldosAsync ('_db.MovimientosCCProveedor.Where(m => ids.Contains(m.ProveedorId))' con ids como HashSet<int> local, consumido por ProveedorService.ListarAsync para la columna Saldo de Proveedores/Index) y lo reprodujo empiricamente contra marihogar_dev (MySQL real, provider MySql.EntityFrameworkCore 10.0.1 tal cual usa el proyecto, NO Pomelo) con un programa C# standalone que invoca el Service real. Resultado: el patron con HashSet<int>/List<int> (tipo primitivo con type mapping trivial) NO reproduce el error -- la consulta se traduce y ejecuta correctamente. Se reprodujo en el mismo experimento, como control, el patron ORIGINAL exacto de este item (HashSet<string> contra _db.Users.Contains) y ESE SI lanza la misma InvalidOperationException ('Expression @usuarioIds ... no type mapping assigned'). Conclusion: el riesgo real de MH-001 es especifico de colecciones locales de tipo string (probablemente por ambiguedad de charset/collation al parametrizar el arreglo), no de int/otros primitivos con mapping directo. CCProveedorService.ObtenerSaldosAsync se confirma seguro (PASS), sin necesidad de auto-fix. Se deja esta nota para que futuros ciclos de QA no traten como bloqueante cada '.Contains()' sobre coleccion local de tipo primitivo (int/long/etc.), y sigan poniendo el foco de grep en colecciones de string (ids de Identity, codigos, etc.)."
 
   - id: MH-002
@@ -1611,3 +1612,46 @@ regresiones:
       - "Edit con fecha de devolucion valida -> debe guardar."
       - "Edit sin tocar fechas -> debe guardar."
       - "Regresion: Finalizar alquiler sigue validando igual que antes."
+
+  - id: LP-003
+    modulo: "Ventas / Editar borrador (grilla de Items y Pagos con <input type=\"number\"> y valores decimales de Razor)"
+    titulo: "Reabrir un borrador guardado deja TODOS los inputs numericos vacios: Razor renderiza el decimal con la cultura es-AR ('3,000') y el navegador descarta el value por invalido en un <input type=\"number\">"
+    severidad: blocker
+    reproducido_en: "La Platense - rama entrega-2, QA de Entrega 2 (2026-08-21), reproducido por navegador real (Playwright) contra laplatense_dev con el catalogo real migrado"
+    pasos:
+      - "Configurar la app con cultura fija es-AR (UseRequestLocalization con es-AR, como hace Program.cs de La Platense)."
+      - "Ir a Ventas -> Nueva, agregar 1 o 2 items (por buscador o por escaneo de codigo de barras) y presionar 'Guardar borrador'."
+      - "Volver a abrir el mismo borrador (Ventas -> Editar/{id}, o el redirect que hace el propio guardado)."
+      - "Observar las columnas Cantidad / Precio unit. / % IVA / Descuento / Recargo de cada fila, y el bloque de Totales."
+    sintoma: "Las filas de items aparecen con el producto correcto pero TODOS los inputs numericos vacios; los totales de pantalla muestran $ 0,00 aunque la venta esta bien guardada en la base. Si el vendedor vuelve a presionar 'Guardar borrador' sin retipear todo, el guardado se rechaza con 'La cantidad de <producto> debe ser mayor a 0.' — el borrador queda inutilizable: no se puede editar ni volver a guardar, solo cancelar o facturar con los valores originales."
+    expectativa: "Al reabrir un borrador, cada input numerico llega poblado con el valor guardado y los totales de pantalla coinciden con los de la base. El borrador se puede editar y volver a guardar (criterio de aceptacion PF2: editar precio/cantidad/IVA/descuento antes de emitir AFIP, sin anular ni recrear)."
+    causa_raiz: "El atributo value de un <input type=\"number\"> tiene que ser un 'valid floating-point number' segun HTML: SIEMPRE punto decimal, independientemente de la cultura del usuario. Con cultura es-AR activa, Razor renderiza @it.Cantidad como '3,000' y @it.PrecioUnitario como '1,27'; el navegador considera invalido ese value y deja el input vacio (no muestra error, simplemente lo descarta). Es la contraparte de SALIDA del problema que el proyecto ya habia resuelto solo del lado de la ENTRADA con InvariantDecimalModelBinderProvider (Program.cs): ambas mitades del round-trip tienen que usar cultura invariante. Solo afecta a los value escritos a mano en Razor (value=\"@modelo.Campo\"); las filas que agrega el JS a partir de un JSON no fallan, porque System.Text.Json ya serializa los numeros con punto."
+    capa: Web
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Web/Views/Ventas/Editar.cshtml
+        motivo: "Declarar un helper local 'Func<decimal,string> num = v => v.ToString(CultureInfo.InvariantCulture)' en el bloque @{} de la vista y usarlo en los 6 value de inputs numericos (Items[i].Cantidad/PrecioUnitario/PorcentajeIVA/Descuento/Recargo y Pagos[i].Monto). No tocar los textos de solo lectura (subtotales, totales), que SI deben seguir formateados en es-AR."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /Ventas/Editar/{id} de un borrador con al menos 1 item ya guardado; inspeccionar el HTML crudo de los <input type=\"number\">"
+      condicion_falla: "Algun value de un <input type=\"number\"> contiene una coma (ej. value=\"3,000\"), o el input queda vacio en el navegador pese a que la entidad tiene el valor cargado en la base."
+    criterio_aceptacion:
+      - "El HTML crudo de /Ventas/Editar/{id} renderiza los value con punto decimal ('3.000', '1.27'), nunca con coma."
+      - "Al reabrir un borrador, los inputs llegan poblados y los totales de pantalla coinciden con los persistidos."
+      - "Re-guardar un borrador reabierto sin modificar nada guarda correctamente y no cambia los importes (idempotente)."
+      - "Editar cantidad/precio/IVA de un item guardado y guardar recalcula los totales en el servidor (PF2)."
+    pruebas_minimas:
+      - "Alta de borrador con 2 items -> guardar -> reabrir: inputs poblados, totales != 0."
+      - "Reabrir y guardar sin tocar nada -> 'guardado correctamente', importes iguales."
+      - "Reabrir, cambiar cantidad y precio, guardar -> totales recalculados por el servidor."
+      - "Regresion: agregar un item nuevo por escaneo sobre un borrador reabierto sigue funcionando (filas por JS)."
+    nota_generalizacion: "Aplica a CUALQUIER proyecto del baseline que fije una cultura con coma decimal (es-AR/es-ES/pt-BR) y escriba a mano value=\"@modelo.Campo\" sobre un <input type=\"number\">. Ojo con el hermano de este bug: si el decimal se renderiza en es-AR sobre un input que NO es type=number (ej. un hidden), el value 'sobrevive' y se postea tal cual — y ahi InvariantDecimalModelBinder lo parsea con NumberStyles.Any en InvariantCulture PRIMERO, donde la coma es separador de miles: '40,98' entra como 4098, no como 40.98. Es decir: el mismo render culture-dependiente produce input vacio en type=number y corrupcion silenciosa x100 en el resto. La regla segura es una sola: todo decimal que va a volver al servidor se renderiza en cultura invariante."
+    fix_aplicado:
+      fecha: "2026-08-21"
+      por: "QA (auto-fix durante el ciclo de QA de Entrega 2 de La Platense)"
+      resultado: "aplicado"
+      archivos:
+        - path: FerreteriaLaPlatense.Web/Views/Ventas/Editar.cshtml
+          motivo: "helper 'num' con InvariantCulture aplicado a los 6 value de inputs numericos."
+      build: "dotnet build FerreteriaLaPlatense.slnx -> Compilacion correcta, 0 Errores."
+      verificacion: "Verificado por navegador real contra laplatense_dev: el HTML crudo pasa de value=\"3,000\" a value=\"3.000\"; el borrador reabierto llega con los 5 inputs poblados y total $ 17,97 (antes $ 0,00); re-guardar sin tocar nada responde 'guardado correctamente'; editar cantidad 3->10, precio 1,27->2,50 e IVA 21->10,5 y guardar recalcula a subtotal $ 36,04 / IVA $ 4,94 / total $ 40,98 en el servidor."

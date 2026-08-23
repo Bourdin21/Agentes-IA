@@ -39,6 +39,30 @@
 
 **Este número queda pendiente de aprobación de Joaquín antes de pasar a Implementación de Etapa 3** — mismo gate que Entregas 1 y 2 ("No iniciar Implementación sin Presupuesto aprobado por el cliente", `00-operativa-global.instructions.md`).
 
+### Código de barras múltiple por producto — Presupuesto (2026-08-21)
+
+**Contexto:** hallazgo real post-migración (ver `1-analista-funcional.md` §10) — 4.371 de 23.197 artículos con código de barras tienen más de uno real (variantes de fábrica agrupadas bajo un mismo producto interno), y el modelo actual los descarta a todos por "ambiguos". Es una **corrección/ampliación puntual sobre un módulo ya entregado** (Código de barras, Etapa 1 módulo 11) — mismo criterio de clasificación que el resto del trabajo de esta sesión sobre Producto (recargo/oferta, baja en lote, restablecer contraseña): "Merge sobre sistema propio ya entregado", sin descuento de expansión aplicable (`27-presupuesto-parametros.instructions.md`).
+
+| # | Ítem | M (h) | Base de reutilización |
+|---|---|---:|---|
+| 1 | Entidad `CodigoBarrasProducto` (Domain + EF config) | 1 | Patrón idéntico a `CodigoProveedorProducto` (Etapa 3) — reuse directo |
+| 2 | Migración EF (tabla nueva, aditiva) | 0,5 | — |
+| 3 | Extensión `ICodigoBarrasLookupService` (buscar en `Producto.CodigoBarras` OR `CodigoBarrasProducto`) | 1 | Servicio ya existente, solo amplía la condición del `WHERE` |
+| 4 | Extensión del script `tools/MigracionCatalogo` (backfill de los códigos alternos perdidos para los 4.371 artículos) | 1,5 | Reutiliza la lógica de resolución de ganador y lectura `Tipo='B'` ya construida — solo cambia el destino de escritura |
+| 5 | Ficha de Producto: sección de solo lectura "Otros códigos de barras válidos" | 0,5 | — |
+| | **Subtotal** | **4,5** | |
+
+**Cálculo económico:**
+
+| Concepto | USD |
+|---|---:|
+| Subtotal (lista, 4,5h × $16,80) | 75,60 |
+| Tokens IA | 0,00 (no aplica — 2,16h facturables, bajo el umbral de 4h de `27-presupuesto-parametros.instructions.md`) |
+| Descuento por Tier | 0,00 (no aplica — merge sobre sistema ya entregado) |
+| **Precio de lista** | **≈ 76** |
+
+**Nota de criterio (para que Joaquín decida, no una recomendación cerrada):** este hallazgo salió de la misma investigación que ya se venía haciendo por el reclamo original del cliente sobre el código de barras mal migrado (mismo módulo, mismo día) — es defendible tratarlo como continuación de esa corrección ya en curso (sin cargo adicional), en vez de un ítem nuevo a cobrar. Ambos caminos son razonables; queda a criterio comercial de Joaquín, no es una decisión técnica.
+
 ### WBS funcional vigente
 
 **Etapa 1 (MVP operable — lo mínimo para reemplazar el manejo manual del día a día)**
@@ -183,6 +207,7 @@ Se simplifica a un único plan: **PREMIUM** desde el arranque (coherente con que
 Pendiente — proyecto en etapa de presupuesto, aún no iniciado.
 
 ## Historial de ajustes
+- 2026-08-21: agregado presupuesto de "Código de barras múltiple por producto" — hallazgo real (4.371 artículos con más de un código de barras real, descartados hoy como ambiguos). WBS de 5 ítems, 4,5h, sin Tokens IA (bajo umbral de 4h facturables) ni descuento de Tier (merge sobre sistema ya entregado). Precio de lista ≈ **USD 76**. Pendiente de aprobación de Joaquín antes de Implementación.
 - 2026-08-17 (v7): Presupuesto real de Etapa 3 (migración de catálogo) — reemplaza la referencia provisional de v2/v3 (USD 315-394, nunca cotizada en firme). WBS de 7 ítems, 27h, R=18,5% → Tier 3 (0% descuento) — coherente con ser una ampliación sobre sistema ya entregado, no un Build inicial. Precio final ≈ **USD 567** (453,60 lista + 113,40 Tokens IA). Sube frente a la referencia anterior pese a resolverse el riesgo de formato desconocido, porque el volumen real (121.691 activos) es 7x el supuesto y el alcance creció (ABC automática + extensión Producto/Cliente + reporte de excepciones). Pendiente de aprobación de Joaquín antes de Implementación — mismo gate que Entregas 1/2.
 - 2026-07-30: Presupuesto interno v1 — WBS de 16 módulos (126h totales), R=73% → Tier 1, precio real de desarrollo ≈ USD 2.011.
 - 2026-07-30: Aplicado 15% de descuento por referido sobre el costo real → USD 1.709.

@@ -154,7 +154,14 @@ Base: `1-analista-funcional.md` sección "Etapa 3 — Migración de catálogo" (
 - ~~`ICatalogoMigracionService`~~ — **retirado 2026-08-17**: la carga del catálogo histórico va por script directo a la base, no por un Service de la app (ver flujo 10, paso 2, corrección de Joaquín).
 - `IClasificacionAbcAutomaticaService` (Etapa 3): recalcula por lote la clasificación ABC sugerida de todos los productos sobre una ventana móvil de ventas (12 meses configurable), usando Pareto 80/95 por cantidad vendida en `ItemVenta` — nunca escribe el campo manual `ClasificacionABC` directo, solo `ClasificacionABCSugerida`. Se mantiene — es una funcionalidad permanente del sistema (recalculable en cualquier momento), no exclusiva de la migración.
 
+### Código de barras múltiple por producto (2026-08-21, ver `1-analista-funcional.md` §10)
+
+- El buscador de código de barras (Catálogo hoy, Venta en el futuro) tiene que resolver un producto escaneando **cualquiera** de sus códigos válidos: el propio (impresora interna del cliente, siempre 1) o cualquiera de sus códigos de fábrica alternos (0 a N, uno por variante real).
+- La ficha de Producto muestra, además del campo actual "Código de barras" (sin cambios), una sección de solo lectura "Otros códigos de barras válidos" cuando el producto tiene alguno — lista simple, sin ABM en esta ronda (igual criterio que `CodigoProveedorProducto`, cargado hoy solo por script/migración, sin pantalla de gestión propia).
+- Regla de validación: un código de barras (propio o alterno) no puede repetirse en dos productos distintos — mismo criterio de unicidad que ya aplica hoy.
+
 ## Historial de ajustes
+- 2026-08-21: agregado el flujo de código de barras múltiple — buscador debe resolver por cualquier código válido (propio o alterno de variante), ficha de producto muestra los alternos en solo lectura. Ver `1-analista-funcional.md` §10 para el hallazgo real que lo origina.
 - 2026-07-30: Diseño v1 — flujos de venta editable, conversión de unidades, importación de listas de proveedor y cuenta corriente de empleados definidos como los cuatro flujos no triviales del sistema.
 - 2026-07-30 (v2): agregados 2 flujos nuevos tras respuestas del cliente — anulación de venta facturada + devolución de mercadería (con NC AFIP), y migración de catálogo (Etapa 3, 17.000 productos, mapeo configurable por lote). Dashboard rediseñado como pantalla de 3 niveles jerárquicos (día / salud financiera / tendencias), marcado como prioridad de diseño explícita del cliente — se recomienda sesión de diseño dedicada antes de cerrar el detalle final.
 - 2026-07-30 (v3): agregado el flujo de puesta a punto de stock inicial (clasificación ABC + conteo focalizado + arranque suave con stock negativo permitido + ajuste manual auditado) — responde al problema real del cliente de no tener stock confiable hoy por la rotación de artículos.

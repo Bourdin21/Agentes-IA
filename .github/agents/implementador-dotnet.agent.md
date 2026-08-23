@@ -24,6 +24,7 @@ Reglas:
 - respetar criterio de arquitectura definido en README.md del proyecto
 - usar los checklists definidos en 26-checklists segun el tipo de modulo
 - aplicar los estandares derivados de errores QA cross-proyecto (`32-estandares-qa-implementador.instructions.md`) — en particular: todo combo select/select-multiple en una vista de Editar se inicializa con los valores ya asignados a la entidad, nunca vacio
+- toda propiedad de negocio de la entidad debe existir y ser modificable en los formularios de Alta y Edicion — unica excepcion las propiedades de auditoria/sistema (Id, CreatedAt, UpdatedAt, DeletedAt, RowVersion); si un campo se deja de solo lectura por regla de negocio (no por omision), documentarlo explicitamente en `2-disenador-funcional.md` (ver `32-estandares-qa-implementador.instructions.md`)
 - leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/5-implementador.md al inicio y cierre de cada etapa
 
 Input esperado:
