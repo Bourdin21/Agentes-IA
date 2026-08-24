@@ -553,3 +553,53 @@ patrones:
       cma-centro-medico (u otro proyecto que lo necesite primero) cierre implementacion — este
       registro existe para que el proximo proyecto con esta necesidad (ej. audifonos-bariloche si
       retoma su Etapa 2/portal excluido) no lo diseñe desde cero.
+
+  - id: PAT-018
+    nombre: "Reconstruir un dato faltante despejandolo de los totales historicos ya calculados"
+    categoria: dominio
+    descripcion: >
+      Cuando una migracion agrega un campo por componente que no tiene backfill posible por formula
+      directa (queda en 0 para todos), pero el TOTAL derivado de ese campo ya existe y sobrevivio
+      intacto en el padre, cada padre con total > 0 mas su composicion conocida es una ECUACION cuyas
+      incognitas son los valores faltantes de sus componentes. Se resuelve por SUSTITUCION ITERATIVA
+      en memoria (sin librerias de algebra lineal ni minimos cuadrados: el volumen de un cliente unico
+      es chico y la logica tiene que ser explicable al usuario que va a decidir sobre el resultado).
+      Una sola regla de despeje, aplicada en pasadas sucesivas: si a una ecuacion le queda exactamente
+      UNA incognita, se despeja; el valor pasa a "conocidos" y puede destrabar otras ecuaciones; se
+      corta en la primera pasada que no produce nada nuevo. Semilla de conocidos = los valores que el
+      usuario ya cargo a mano. Cada sugerencia sale etiquetada con su confianza (Exacta / Estimada por
+      redondeo — que se PROPAGA por la cadena de sustituciones / Inconsistente cuando dos ecuaciones
+      dan valores distintos para el mismo componente, en cuyo caso se muestran ambos y no se elige) y
+      con su trazabilidad (de que padre salio y usando que valores). Las ecuaciones ya determinadas
+      (cero incognitas) no se descartan: sirven de CONTROL de consistencia y son las que destapan los
+      conflictos. Pieza no negociable: el resultado es una tabla de SOLO LECTURA — no se persiste nada,
+      no hay "aplicar todo"; el usuario revisa cada valor y lo carga a mano en el ABM que ya existe.
+    cuando_usar: >
+      Migraciones donde se agrega un dato por item que el cliente tendria que cargar 100% a mano, y
+      existe algun agregado historico (total, volumen, importe, peso, duracion) que se calculaba a
+      partir de ese dato y quedo persistido sin recalcular. OJO con la ventana de tiempo: el agregado
+      historico se pierde en cuanto algo lo recalcula, asi que la pantalla de sugerencias hay que
+      correrla ANTES de tocar los datos que disparan el recalculo. No usar si el agregado ya se
+      recalculo, si la composicion no esta registrada, o si el negocio tolera cargar todo a mano.
+    proyecto_origen: labipac (M25, extension del reporte de diagnostico M24 — sesion 5 bis, 2026-08-23)
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: labipac
+        path: "LabIPAC.Infrastructure/Services/PracticaService.cs (SugerirCantidadUnidadesAsync + RegistrarSugerencia + ConstruirDetalleSugerencia)"
+        motivo: "El solver completo: armado de ecuaciones, semilla, sustitucion iterativa, confianza Exacta/Estimada/Inconsistente y control de consistencia sobre ecuaciones determinadas"
+        pendiente_verificar: false
+      - proyecto: labipac
+        path: "LabIPAC.Web/Views/PreciosPorCentro/Diagnostico.cshtml"
+        motivo: "Presentacion: tabla DataTables de solo lectura con Sugerencia + Confianza + Origen + link al ABM, sin ninguna accion de guardado"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-013
+    notas: >
+      Es la variante "sugerencia derivada" de PAT-013 (la-platense): mismo criterio de fondo — el
+      sistema NUNCA inventa el dato faltante ni lo escribe en bulk, lo pone a la vista con su nivel de
+      confianza y el usuario decide. La diferencia es de donde sale el numero: en PAT-013 de un conteo
+      fisico, aca de resolver el sistema de ecuaciones que dejaron los datos historicos. Detalle que en
+      labipac hizo falta descubrir probandolo: con la regla literal "despejar solo si queda una
+      incognita", el SEGUNDO padre que habla del mismo componente ya no tiene incognitas y el conflicto
+      pasa desapercibido (la sugerencia sale "Exacta" con un solo origen, ocultando la contradiccion) —
+      de ahi el control de consistencia sobre ecuaciones determinadas descrito arriba.

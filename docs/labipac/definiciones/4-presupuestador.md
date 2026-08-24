@@ -3,6 +3,119 @@
 ## Proyecto: labipac
 ## Ultima actualizacion: 2026-07-23 — SESION 4: presupuesto de Produccion Mensual por Centro de Salud — PRESUPUESTO CERRADO, pendiente aprobacion cliente
 
+## SESION 5 (2026-08-23) — Presupuesto: Precio por Unidad Bioquimica y por Perfil segun Centro de Salud
+
+Input: `1-analista-funcional.md`, `2-disenador-funcional.md`, `3-arquitecto-mvc.md` sesion 6 (VERSION FINAL, tras 2 rondas de correccion del cliente sobre el diseño inicial) — todos cerrados.
+
+### PASO 0 — Anclaje historico
+Referencia primaria: la propia memoria de labipac. Esta es la **5ta ronda de mejoras evolutivas** sobre el mismo sistema (rondas previas: build inicial 2026-06-13, ampliacion FABA 2026-06-23, SESION 3 2026-07-08 ratio PERT-cont/real 6.84x, SESION 4 2026-07-23). Aplica con fuerza la regla de "segunda/tercera ronda sobre el mismo modulo" (27-presupuesto-parametros.instructions.md): usar el piso de "Modificacion sobre modulo existente" en los items que calcan un patron ya construido en rondas previas de este mismo proyecto (recalculo derivado Unidad×PrecioPorUnidad ya construido en SESION 3 para Perfil, ahora replicado para Practica; patron de "1 valor por fila" ya construido para `PrecioPorUnidad` global, ahora repetido por Centro de Salud). Los 2 items sin precedente exacto en el repo (recalculo en cascada RA-18, refactor de `GetPrecioVigenteAsync` RA-15) NO se floorean — son logica genuinamente nueva.
+Referencia secundaria: vinosefue sprint compras proveedor (ratio record 7.07x/2.86x) como techo de cuanto puede sobreestimar incluso con floor aplicado.
+
+### PASO 1-3 — Modulos funcionales identificados y drivers
+
+| Modulo | Tipo | Drivers |
+|---|---|---|
+| M19 `CantidadUnidades` en Practica (UnidadBioquimica) | Modificacion sobre modulo existente | +1 campo entero, +1 migracion EF (default 0, sin backfill confiable), `PrecioActual` pasa a calculado — calco literal del mismo cambio ya hecho para `Practica.Unidad`→`PrecioActual` en SESION 3 (2026-07-08), ahora aplicado a la otra entidad del mismo par |
+| M20 `Practica.Unidad` calculado por composicion (RN-33) + RN-02 reactivada + recalculo en cascada (DD-09) | Regla de negocio nueva sin precedente exacto | Suma `PracticaDetalle.Cantidad × UnidadBioquimica.CantidadUnidades`; reactiva composicion obligatoria (revierte relajacion de SESION 3); dispara recalculo de N Perfiles cuando cambia `CantidadUnidades` de una Practica ya usada como componente — logica de consulta inversa sin equivalente previo en el repo (RA-18); ajuste de vistas Create/Edit de Perfil (composicion vuelve a exigirse, `Unidad` pasa a solo lectura) |
+| M21 `PrecioPorUnidadCentroSalud` (1 valor por Centro de Salud) + pantalla WF-16 | Modificacion sobre modulo existente, calco de patron ya construido | Mismo shape que `PrecioPorUnidad` (fila unica, `ObtenerVigente`/`ActualizarValor`/`AumentarPorcentaje`, ya construido en SESION 3), repetido por Centro de Salud; pantalla nueva pero chica (listado de centros + 1 campo editable c/u, sin ABM completo) |
+| M22 `GetPrecioVigenteAsync` cambia de firma + `ProduccionMensualController` (Create obligatorio, GetPrecioItem, CargaMasiva) | Regla de negocio + refactor de multiples call-sites | Bisagra del feature (RA-15): cualquier caller desactualizado da un precio incorrecto sin error visible; toca `Create` (Centro obligatorio), `GetPrecioItem` AJAX, `CargaMasiva`, RN-25 |
+| M23 Alta rapida ajustada (`CrearPerfilRapido` exige composicion, `CrearPracticaRapido` pide `CantidadUnidades`) | Ajuste sobre modales ya existentes | Reutiliza el Select2 de composicion ya construido en el ABM completo de Perfil; cambia 2 campos de 2 ViewModels ya existentes, sin pantalla nueva |
+| M24 Reporte de diagnostico — Practicas sin `CantidadUnidades` / Perfiles sin composicion completa | Nuevo reporte simple, mitiga RA-17 | Reutiliza el patron DataTables ya presente en todos los listados del sistema; ayuda al cliente a completar datos antes del lanzamiento (RA-17, critico) |
+
+### PASO 4-5 — M ajustado, O y P
+
+| Modulo | Referencia / mediana base | Ratio M/mediana | O | M | P |
+|---|---|---|---|---|---|
+| M19 | "Agregar campo simple" (0.5h) + "Migracion EF" (0.5h), piso por ser calco literal de SESION 3 | 0.60 (vs. 1.0h suma de ambos pisos) | 0.3 | 0.6 | 1.0 |
+| M20 | "Agregar regla de negocio" (1-2h) — SIN floor (sin precedente de cascada en el repo) | 1.25 (por encima del techo del rango, justificado por RA-18) | 1.5 | 2.5 | 4.0 |
+| M21 | M10 ABM Centro de Salud (1.0h, SESION 4) — mas simple que un ABM completo pero con logica de aumento % ya construida a replicar | 1.00 | 0.6 | 1.0 | 1.6 |
+| M22 | M11 CentroSaludId en Produccion Mensual (2.2h, SESION 4) — mismo patron de "ampliar flujo existente con regla nueva", con mas call-sites tocados (GetPrecioItem+CargaMasiva+Create) | 1.14 | 1.5 | 2.5 | 4.0 |
+| M23 | Fraccion de M8 Carga masiva + alta rapida (SESION 3, 6.5h incluia 2 modales nuevos desde cero) — aca es solo ajuste de campos sobre modales ya existentes | — (ajuste, no construccion) | 0.4 | 0.7 | 1.2 |
+| M24 | "Nuevo reporte o exportacion" (1-2h), piso por reutilizar patron DataTables ya usado 6+ veces en el proyecto | 0.60 | 0.3 | 0.6 | 1.0 |
+
+**Justificacion M20 por encima del rango "regla de negocio" (unico item que escala hacia arriba en esta sesion):** el recalculo en cascada (detectar que Perfiles usan una Practica como componente y recalcularlos al cambiar su `CantidadUnidades`) no tiene equivalente en el codebase — el recalculo batch existente (`ActualizarPrecioPorUnidadAsync`) recorre TODAS las Practicas activas sin filtrar por relacion, es un patron distinto y mas simple. Ademas reactivar RN-02 obligatoria toca validaciones en 2 flujos (ABM completo + alta rapida).
+
+### PASO 6 — PERT y contingencia
+
+| Modulo | PERT = (O+4M+P)/6 | Riesgo | Cont. | Hs finales |
+|---|---:|---|---:|---:|
+| M19 | 0.617 | Bajo | 8% | 0.667 |
+| M20 | 2.583 | Alto | 25% | 3.229 |
+| M21 | 1.033 | Bajo | 8% | 1.116 |
+| M22 | 2.583 | Medio | 15% | 2.970 |
+| M23 | 0.733 | Bajo | 8% | 0.792 |
+| M24 | 0.617 | Bajo | 8% | 0.667 |
+| **TOTAL** | **8.166** | | | **9.441** |
+
+Riesgo M20 clasificado Alto (no Medio): reactiva una regla derogada que ya esta en produccion (afecta Perfiles reales existentes, RA-17 critico) + logica de cascada sin precedente. Riesgo M22 clasificado Medio: multiples modulos acoplados (ProduccionMensualController, GetPrecioItem, CargaMasiva) pero sin integracion externa ni estado critico nuevo.
+
+Sin doble contingencia (aplicada una unica vez por item, sobre PERT).
+
+### PASO 7 — Sanity check por item
+M19/M21/M24 con ratio ≤0.60 justificado por calco literal de patrones ya construidos en rondas previas de este mismo proyecto (regla "segunda/tercera ronda"). M20 es el unico item por ENCIMA de 1.15 — justificado explicitamente arriba (sin floor porque no hay reutilizacion real que lo sostenga, al contrario del resto). M22 (1.14) y M23 (sin mediana unica, ajuste puntual) dentro de rango razonable.
+
+### PASO 8 — Sanity check del total del proyecto
+6 modulos, 8.166h PERT (7.9h M base) — mayor que SESION 4 (3 modulos, 3.6h M, alcance chico de solo catalogo+FK) pero menor que SESION 3 (3 modulos, 11.5h M, incluia una pantalla nueva completa de carga masiva). Coherente: esta sesion toca 2 entidades existentes + 1 entidad nueva chica + 1 pantalla chica, sin construir ninguna pantalla grande desde cero — el driver de costo real es M20 (logica de cascada nueva) y M22 (refactor de bisagra), ambos sin floor. Sin correccion adicional.
+
+### PASO 9 — Cierre numerico
+Paso A (preliminar) = Paso B (final): sin ajuste adicional post sanity-check. M base total = 7.9h.
+
+### Resumen economico (formula vigente: Costo = M x $16.80)
+
+| Modulo | M (h) | USD lista |
+|---|---:|---:|
+| M19 CantidadUnidades en Practica | 0.6 | $10.08 |
+| M20 Unidad de Perfil por composicion + cascada | 2.5 | $42.00 |
+| M21 Precio de Unidad Bioquimica por Centro | 1.0 | $16.80 |
+| M22 GetPrecioVigenteAsync + Controller | 2.5 | $42.00 |
+| M23 Alta rapida ajustada | 0.7 | $11.76 |
+| M24 Reporte de diagnostico | 0.6 | $10.08 |
+| **Subtotal desarrollo (lista)** | **7.9** | **$132.72** |
+
+Horas facturables internas (M/2.5×1.20): 3.792h — **por debajo del piso de 4h**, por lo que **no aplica cargo de Tokens IA** (mismo caso que SESION 4, regla vigente: "No aplica a iteraciones evolutivas menores a 4 h facturables").
+
+| Concepto | USD |
+|---|---:|
+| Subtotal desarrollo | 132.72 |
+| Tokens IA | No aplica (bajo piso de 4h facturables) |
+| **TOTAL CLIENTE** | **132.72** |
+
+Sin descuento de expansion agresiva ni de volumen: ambos aplican solo a Build inicial de cliente nuevo, no a Merge sobre sistema propio ya entregado (regla vigente 27-presupuesto-parametros.instructions.md).
+
+### Division por etapas
+Alta interdependencia entre items (M20 depende de M19; M22 depende de M20+M21; M23 depende de M20+M21) — no hay un corte MVP natural sin dejar el feature a medio funcionar. Se propone **entrega en una sola etapa**, igual que las 2 rondas anteriores de este proyecto. Subtotal unico: **USD 132.72**.
+
+### Mantenimiento anual
+La tabla nueva `PreciosPorUnidadCentroSalud` sube el conteo de tablas (~16 segun ultimo registro de SESION 4, aun sin confirmar si ya cruzo a Plan PREMIUM) a ~17 — **refuerza la señal de que corresponde Plan PREMIUM (16-30 tablas, USD 500/año)** en vez de PRO (USD 400/año). Sigue pendiente de confirmar el conteo exacto de tablas vigente con el cliente antes de facturar el eventual upgrade — no se factura automaticamente sin esa confirmacion.
+
+### Riesgos y supuestos
+- **RA-17 (critico, heredado de Arquitectura):** Perfiles ya en produccion sin composicion completa (0 componentes, o componentes sin `CantidadUnidades`) quedarian con `Unidad`=0 tras el deploy. Mitigado parcialmente por M24 (reporte de diagnostico), pero la carga/correccion de esos Perfiles es tarea del cliente, no de esta implementacion — se recomienda ejecutar el relevamiento ANTES de aprobar este presupuesto, no despues.
+- **RA-13:** sin backfill confiable de `CantidadUnidades` en Practica — carga manual del cliente, cubierta dentro de la contingencia de M19 pero la carga de datos en si no esta presupuestada (es tarea del cliente).
+- **RA-15:** cambio de firma de `GetPrecioVigenteAsync` — riesgo de regresion silenciosa (precio incorrecto sin error visible), cubierto dentro de la contingencia Medio (15%) de M22; requiere foco especial en QA funcional al implementar (pruebas explicitas por cada caller).
+- Supuesto: no se pide backfill automatico de `CantidadUnidades` ni de la matriz de precios por centro — si el cliente pide una aproximacion automatica (ej. a partir del precio actual, aunque no hay formula confiable), es alcance adicional a evaluar por separado.
+- Supuesto: F-001 (`Precios/AumentoMasivo`) no requiere cambios (confirmado en Diseño) — si el cliente pide poder aumentar por Centro de Salud desde esa pantalla en vez de WF-16, es alcance adicional.
+
+### Pruebas minimas requeridas
+- M19: crear/editar una Practica con `CantidadUnidades`, verificar que `PrecioActual` (referencia) se calcula y ya no es editable.
+- M20: crear un Perfil sin componentes (debe rechazar, RN-02 reactivada); crear uno con 2+ componentes con `CantidadUnidades` cargada y verificar que `Unidad` = suma correcta; editar `CantidadUnidades` de una Practica usada en un Perfil existente y verificar que el Perfil recalcula automaticamente.
+- M21: cargar el "Precio de Unidad Bioquimica" de 2 Centros de Salud distintos, aplicar aumento % a uno y verificar que no afecta al otro.
+- M22: crear un periodo nuevo sin elegir centro (debe rechazar); cargar una Practica y un Perfil en un periodo con centro y verificar que el precio snapshot coincide con la formula (cantidad×valor del centro); intentar cargar un item sin `CantidadUnidades`/composicion completa y verificar el bloqueo con mensaje claro; editar un periodo historico sin centro (preexistente) y verificar que sigue usando el precio de referencia.
+- M23: crear un Perfil nuevo desde el alta rapida de Carga Masiva y verificar que exige al menos 1 componente; crear una Practica nueva desde el alta rapida y verificar que pide `CantidadUnidades`.
+- M24: verificar que el reporte lista correctamente las Practicas sin `CantidadUnidades` y los Perfiles con composicion incompleta, usando datos reales de la base.
+
+### Checklist de salida para merge
+- Migracion EF generada y aplicada a base de desarrollo (sin backfill de `CantidadUnidades`, columna con default 0).
+- Build OK sin warnings nuevos.
+- Verificacion manual de los 6 flujos (M19-M24) segun pruebas minimas, con foco especial en M20 (cascada) y M22 (bisagra de precio).
+- Relevamiento de Perfiles/Practicas afectados por RA-17 ejecutado y compartido con el cliente ANTES del deploy a produccion.
+- `docs/labipac/definiciones/5-implementador.md` y `6-qa.md` actualizados al cierre.
+
+### Condiciones comerciales
+50% al inicio / 50% a la entrega. Sin clausula de validez de oferta (regla vigente).
+
+### Estado
+**PRESUPUESTO CERRADO — GATE DE APROBACION FORMAL DEL CLIENTE SALTEADO POR INSTRUCCION EXPLICITA DEL USUARIO (2026-08-23, "saltear presupuesto").** El presupuesto queda documentado como referencia interna de alcance/esfuerzo, pero NO fue presentado ni aprobado formalmente por el cliente antes de pasar a Implementacion — desviacion consciente del gate duro estandar del estudio, registrada en `trazabilidad.md`. Riesgo residual: si el cliente despues objeta alcance o costo, no hay aprobacion previa por escrito que lo respalde. Recomendacion que sigue vigente independientemente del gate salteado: revisar RA-17 (Perfiles sin composicion completa) antes del deploy a produccion.
+
 ## SESION 4 (2026-07-23) — Presupuesto: Produccion Mensual por Centro de Salud
 
 Input: `1-analista-funcional.md` sesion 5, `2-disenador-funcional.md` sesion 3, `3-arquitecto-mvc.md` sesion 3 — todos cerrados.

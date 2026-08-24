@@ -1655,3 +1655,56 @@ regresiones:
           motivo: "helper 'num' con InvariantCulture aplicado a los 6 value de inputs numericos."
       build: "dotnet build FerreteriaLaPlatense.slnx -> Compilacion correcta, 0 Errores."
       verificacion: "Verificado por navegador real contra laplatense_dev: el HTML crudo pasa de value=\"3,000\" a value=\"3.000\"; el borrador reabierto llega con los 5 inputs poblados y total $ 17,97 (antes $ 0,00); re-guardar sin tocar nada responde 'guardado correctamente'; editar cantidad 3->10, precio 1,27->2,50 e IVA 21->10,5 y guardar recalcula a subtotal $ 36,04 / IVA $ 4,94 / total $ 40,98 en el servidor."
+
+  - id: LIP-001
+    modulo: "ABMs de catalogo y Produccion Mensual / Create-Edit (Practicas, UnidadesBioquimicas, CentrosSalud, ProduccionMensual)"
+    titulo: "Los errores de regla de negocio devueltos por el Service (ServiceResult.CreateError -> ModelState.AddModelError(string.Empty, ...)) no se muestran en ninguna parte: la vista vuelve a renderizarse sin ningun bloque de errores, con lo que el rechazo es invisible para el usuario"
+    severidad: major
+    reproducido_en: "labipac - main (working tree, sesion 6 M19-M25 sin commitear), labipac_dev, 2026-08-23"
+    pasos:
+      - "Autenticarse como Administrador/SuperUsuario."
+      - "Caso A (RN-24, duplicado de periodo): ir a /ProduccionMensual/Create y crear un periodo con un Mes+Anio+Centro de Salud que YA existe. Guardar."
+      - "Caso B (RN-25 rama 2, centro invalido): POST a /ProduccionMensual/Create con CentroSaludId de un centro inexistente o inactivo."
+      - "Caso C (nombre duplicado): ir a /UnidadesBioquimicas/Create (o /Practicas/Create, o /CentrosSalud/Create) y guardar con un Nombre que ya existe."
+    sintoma: "La pagina responde HTTP 200, vuelve al formulario con los datos tipeados y NO muestra ningun mensaje. No hay alert, no hay validation-summary, no hay texto en rojo. El usuario no tiene forma de saber por que no se guardo, y tipicamente reintenta el mismo alta varias veces. La regla SI se aplica correctamente en el servidor (verificado por query: no se persiste ninguna fila), el defecto es exclusivamente de feedback."
+    expectativa: "Cuando un Service rechaza la operacion con ServiceResult.CreateError, el mensaje ('Ya existe un periodo para Julio 2026 con el Centro de Salud X.', 'Ya existe una unidad bioquimica con ese nombre.', 'El centro de salud seleccionado no existe o esta inactivo.') debe quedar visible en el formulario re-renderizado, igual que ya ocurre en ProduccionMensual/CargaMasiva.cshtml."
+    causa_raiz: "Los Controllers hacen ModelState.AddModelError(string.Empty, result.Message) y devuelven View(model), que es el patron correcto. El problema esta en las vistas: ninguna de las 7 vistas Create/Edit de estos modulos incluye <div asp-validation-summary=\"ModelOnly\"> ni un bloque manual que recorra ViewData.ModelState. Los errores con clave string.Empty (los de Service) no tienen ningun <span asp-validation-for> que los adopte — a diferencia de los errores de DataAnnotation, que si se renderizan porque estan asociados a un campo concreto. Por eso el sintoma se enmascara: las validaciones de formato SI se ven y las de negocio NO. La misma solucion ya esta implementada y validada dentro del proyecto en ProduccionMensual/CargaMasiva.cshtml (bloque @if (!ViewData.ModelState.IsValid) con alert-danger)."
+    capa: Web
+    archivos_fix:
+      - path: LabIPAC.Web/Views/ProduccionMensual/Create.cshtml
+        motivo: "Agregar el bloque de errores de ModelState (RN-24 duplicado de periodo, RN-25 centro invalido)."
+      - path: LabIPAC.Web/Views/Practicas/Create.cshtml
+        motivo: "Agregar el bloque de errores de ModelState (nombre duplicado, RN-02 desde Service)."
+      - path: LabIPAC.Web/Views/Practicas/Edit.cshtml
+        motivo: "Idem Create."
+      - path: LabIPAC.Web/Views/UnidadesBioquimicas/Create.cshtml
+        motivo: "Agregar el bloque de errores de ModelState (nombre duplicado, RN-26 desde Service)."
+      - path: LabIPAC.Web/Views/UnidadesBioquimicas/Edit.cshtml
+        motivo: "Idem Create."
+      - path: LabIPAC.Web/Views/CentrosSalud/Create.cshtml
+        motivo: "Agregar el bloque de errores de ModelState (nombre duplicado)."
+      - path: LabIPAC.Web/Views/CentrosSalud/Edit.cshtml
+        motivo: "Idem Create."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /ProduccionMensual/Create con un Mes+Anio+CentroSaludId ya existente (o POST /UnidadesBioquimicas/Create con un Nombre ya existente)"
+      condicion_falla: "La respuesta 200 NO contiene el texto del mensaje del Service ('Ya existe...') en ningun lado del HTML, pese a que la fila no se creo en la base."
+    criterio_aceptacion:
+      - "POST de un alta rechazada por regla de Service devuelve 200 y el HTML contiene el mensaje exacto del ServiceResult."
+      - "La regla sigue bloqueando el alta (no se persiste nada): el fix es solo de presentacion, no cambia ninguna decision de negocio."
+      - "Las validaciones de DataAnnotation por campo siguen mostrandose donde ya se mostraban (no se duplican ni se pierden)."
+    pruebas_minimas:
+      - "Crear un periodo duplicado (mismo Mes+Anio+Centro) -> bloqueado Y con mensaje visible."
+      - "Crear una Practica/Perfil/Centro con nombre repetido -> bloqueado Y con mensaje visible."
+      - "Alta valida en los 4 ABMs sigue funcionando sin regresion."
+    nota_generalizacion: "Patron generalizable a cualquier proyecto del baseline: si un Controller usa ModelState.AddModelError(string.Empty, ...) para propagar un ServiceResult, la vista TIENE que tener asp-validation-summary=\"ModelOnly\" (o un bloque equivalente). Sin eso el rechazo es silencioso y solo se nota que 'el boton no hace nada'. Conviene chequearlo de forma estatica: por cada Controller con AddModelError(string.Empty), verificar que todas las vistas que devuelve tengan el bloque."
+    fix_aplicado:
+      fecha: "2026-08-23"
+      por: "QA (auto-fix durante el ciclo de QA de la sesion 6 de labipac, M19-M25)"
+      resultado: "aplicado"
+      archivos:
+        - path: "LabIPAC.Web/Views/{ProduccionMensual,Practicas,UnidadesBioquimicas,CentrosSalud}/{Create,Edit}.cshtml (7 vistas)"
+          motivo: "Se agrego <div asp-validation-summary=\"ModelOnly\" class=\"text-danger mb-3\"> como primer hijo del <form>, replicando el patron ya validado dentro del mismo proyecto en Views/Users/Create.cshtml y Views/Account/Login.cshtml. Cero logica de negocio nueva: solo se hace visible un ModelState que ya se poblaba correctamente."
+      build: "dotnet build LabIPAC.slnx -> Compilacion correcta, 0 Errores, 9 Advertencias (todas preexistentes: NU1902 MailKit/MimeKit y CS0114 HomeController.StatusCode). Sin warnings nuevos."
+      verificacion: "Verificado con la app corriendo y login real contra labipac_dev. Los 5 rechazos de Service ahora renderizan su mensaje: RN-24 periodo duplicado ('Ya existe un periodo para Julio 2026 con el Centro de Salud hvjhbjhb.'), RN-25 centro invalido ('El centro de salud seleccionado no existe o esta inactivo.'), y nombre duplicado en los 3 ABMs ('Ya existe una unidad bioquimica / una practica / un centro de salud con ese nombre.'). No-regresion confirmada: las 4 altas validas siguen devolviendo 302 y persistiendo; el error de DataAnnotation de campo ('El Centro de Salud es obligatorio.') sigue apareciendo una sola vez en su <span asp-validation-for> y NO se duplica en el summary (ModelOnly excluye correctamente los errores con clave de campo)."

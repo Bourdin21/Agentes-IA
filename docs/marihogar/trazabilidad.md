@@ -1137,3 +1137,10 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Motivo: Pregunta directa del cliente sobre un caso real de uso, que reveló un gap ya catalogado por QA.
 - Impacto en capas: Infrastructure (5 archivos). Sin migración EF.
 - Riesgos/supuestos: Sin smoke test (regla de proceso vigente). Sin backup previo (regla del cliente). Deploy verificado 200 OK. `docs/qa/regresiones-manuales.yml` actualizado (MH-013 con `fix_aplicado`).
+
+### 2026-08-21 — orquestador (CR-57: método de pago Tarjeta de Débito en Ventas y Compras, deployado)
+- Etapa: Implementación directa, pedido explícito del cliente ("agregar método de pago débito en las ventas y en las compras"). 2 `AskUserQuestion` resueltas antes de implementar: (1) Débito cobra precio "Efectivo", no "Transferencia" — rompe la regla vigente desde CR-40 de que solo Efectivo tiene ese precio; (2) Débito se acredita al instante, no el circuito de acreditación diferida de Tarjeta de Crédito (CR-34).
+- Cambio: `MetodoPago.TarjetaDebito=8` agregado al enum compartido, habilitado en Ventas (`VentaService`/`PagoVentaService`) y Compras (`PagoOrdenCompraService`) — a diferencia de Tarjeta de Crédito/Banco Carrefour, exclusivos de Ventas. Al no agregarlo a `metodosRequierenConIva` ni a ningún chequeo `== TarjetaCredito` (cuotas, acreditación diferida), automáticamente se comporta como Efectivo/Transferencia (pago simple, precio efectivo, sin lógica nueva). No se tocó `Entregas/Details.cshtml` (ya ofrece un subconjunto reducido, fuera del alcance pedido).
+- Motivo: Pedido explícito del cliente.
+- Impacto en capas: Domain (enum), Infrastructure (3 servicios), Web (4 vistas). Sin migración EF.
+- Riesgos/supuestos: Sin smoke test (regla de proceso vigente). Sin backup previo (regla del cliente). Deploy verificado 200 OK.
