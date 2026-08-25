@@ -27,6 +27,17 @@ Discovery → Análisis → Diseño → Arquitectura → Presupuesto → Impleme
 
 **Regla de oro:** no iniciar etapa hasta que la anterior haya cerrado su archivo de definición.
 
+### Stacks alternativos al MVC
+
+El rol #5 (implementador) tiene una variante por stack — la secuencia 1-4 y 7 (análisis/diseño/arquitectura/presupuesto/documentación) es genérica y sirve igual; lo que cambia es quién codifica:
+
+| Stack | Reemplaza a | Archivo |
+|---|---|---|
+| ASP.NET Core MVC + EF Core + MySQL (default) | — | `.github/agents/implementador-dotnet.agent.md` |
+| Sitio institucional estático (Astro + Tailwind, sin backend de negocio) | implementador-dotnet | `.github/agents/implementador-astro-front.agent.md` |
+
+Precedente: `diercas-front` (ver `docs/diercas/`), primer proyecto del estudio en este stack alternativo.
+
 ## Cursor
 
 Ver `.cursor/README.md` para workspaces, skills (`/agentes-ia-*`) y rules.
@@ -38,7 +49,7 @@ Abrir siempre un `.code-workspace` en `C:/Sistemas/` que incluya este repo + el 
 Ver `.claude/README.md`. Entrada por rol:
 
 - Slash commands (modo Ask, conversación actual): `/agentes-ia-orquestador`, `/agentes-ia-analista-funcional`, `/agentes-ia-disenador-funcional`, `/agentes-ia-arquitecto-mvc`, `/agentes-ia-presupuestador`, `/agentes-ia-documentador`.
-- Subagents (modo Agent, contexto aislado): `agentes-ia-implementador` y `agentes-ia-qa` — los invoca el orquestador o se piden explícitamente.
+- Subagents (modo Agent, contexto aislado): `agentes-ia-implementador` (MVC), `agentes-ia-implementador-astro-front` (sitios estáticos Astro) y `agentes-ia-qa` — los invoca el orquestador o se piden explícitamente.
 
 Cada comando/subagent lee su `.github/agents/*.agent.md` (fuente de verdad) y carga sus instrucciones modulares al activarse. Equivalen a `@rol` de Copilot / `/agentes-ia-*` de Cursor.
 
@@ -49,7 +60,8 @@ Para adoptar el rol de un agente específico, indicar explícitamente al inicio 
 - `@disenador-funcional` — propuesta funcional de flujo y datos
 - `@arquitecto-mvc` — diseño técnico por componentes y capas
 - `@presupuesto-mvc` — estimación PERT, calibración y precio al cliente
-- `@implementador-dotnet` — implementación segura en Agent mode
+- `@implementador-dotnet` — implementación segura en Agent mode (ASP.NET Core MVC)
+- `@implementador-astro-front` — implementación de sitios institucionales estáticos en Agent mode (Astro, sin backend de negocio)
 - `@qa-mvc` — pruebas funcionales en Agent mode
 - `@documentador` — resumen de sprint para el cliente
 

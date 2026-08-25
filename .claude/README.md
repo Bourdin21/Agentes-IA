@@ -13,7 +13,8 @@ Fuente de verdad de cada rol: `.github/agents/*.agent.md` (no se duplica logica 
 | `/agentes-ia-arquitecto-mvc` | Arquitectura tecnica | slash command | Ask |
 | `/agentes-ia-presupuestador` | Presupuesto PERT | slash command | Ask |
 | `/agentes-ia-documentador` | Resumen para cliente | slash command | Ask |
-| subagent `agentes-ia-implementador` | Implementacion | subagent | Agent |
+| subagent `agentes-ia-implementador` | Implementacion (ASP.NET Core MVC) | subagent | Agent |
+| subagent `agentes-ia-implementador-astro-front` | Implementacion (sitios institucionales Astro) | subagent | Agent |
 | subagent `agentes-ia-qa` | Pruebas funcionales | subagent | Agent |
 
 - **Slash commands** (`.claude/commands/`): corren en la conversacion actual. Los invocas con `/` + tus indicaciones, igual que `@rol` en Copilot. Mantienen el ida y vuelta interactivo.
@@ -33,6 +34,12 @@ Implementacion (subagent, tras aprobar presupuesto):
 
 ```
 Usa el subagent agentes-ia-implementador para implementar la feature aprobada en ShowroomGriffin.
+```
+
+Sitio institucional estatico (Astro), sin backend de negocio — stack alternativo al MVC:
+
+```
+Usa el subagent agentes-ia-implementador-astro-front para construir el sitio institucional de <cliente>, siguiendo el patron de diercas-front.
 ```
 
 ## Reglas siempre activas

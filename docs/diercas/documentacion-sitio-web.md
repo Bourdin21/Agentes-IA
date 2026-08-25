@@ -35,9 +35,9 @@ Cuando un visitante completa y envía el formulario de `/contacto`:
 
 ## 4. Hosting y dominio
 
-- El sitio está publicado y funcionando en **DonWeb/Ferozo**.
-- Se hizo además una prueba en paralelo en Hostinger para comparar rendimiento entre ambos — el detalle completo está en `comparativa-hosting-donweb-vs-hostinger.md`. En resumen: DonWeb entrega las páginas ~3 veces más rápido.
-- **Pendiente del lado del cliente**: el dominio `diercas.com.ar` todavía apunta al sitio anterior. Para que el sitio nuevo quede visible en `https://diercas.com.ar` hace falta delegar el DNS del dominio hacia DonWeb — este paso lo tiene que autorizar/ejecutar quien administra el registro del dominio. Una vez delegado, DonWeb emite el certificado SSL (candado/https) automáticamente.
+- **Decisión final (2026-08-25): el hosting es Hostinger, administrado directamente por Diercas** — no se usa DonWeb en este proyecto. Se había probado DonWeb en paralelo para comparar rendimiento (detalle en `comparativa-hosting-donweb-vs-hostinger.md`, DonWeb resultaba ~3x más rápido en esas pruebas), pero la decisión de negocio del cliente fue quedarse con Hostinger.
+- El formulario de contacto ya envía desde una casilla propia de Diercas (`no-reply@diercas.com.ar`, vía el SMTP de Hostinger) — ya no depende de ninguna credencial de Olvidata.
+- **Pendiente del lado del cliente**: el dominio `diercas.com.ar` todavía apunta al sitio anterior (WordPress). Para que el sitio nuevo quede visible en `https://diercas.com.ar` hace falta delegar el DNS del dominio hacia el hosting de Hostinger — este paso lo tiene que ejecutar Diercas desde su propio panel de Hostinger (hPanel), ya no es una tarea de Olvidata. Una vez delegado, Hostinger emite el certificado SSL (candado/https) automáticamente.
 
 ## 5. Actualización de contenido
 
@@ -51,7 +51,7 @@ Como el sitio es estático, actualizar contenido (textos, agregar un cliente nue
 Estos puntos no bloquean el sitio actual, pero están anotados para una próxima etapa:
 
 - **Logos reales de clientes** que todavía no se recibieron (se muestran con el nombre en texto mientras tanto).
-- **QR de Data Fiscal** (ARCA/AFIP) — se agrega en la sección de Certificaciones de `/nosotros` en cuanto el cliente lo genere.
+- ~~QR de Data Fiscal (ARCA/AFIP)~~ — recibido y ya publicado en la sección de Certificaciones de `/nosotros`.
 - **Delegación de DNS** de `diercas.com.ar` hacia DonWeb (ver punto 4).
 - **Página "Trabajos realizados"** — contenido todavía no definido por el cliente.
 - Bloques de **Ciberseguridad** y **Audio y Video** en `/servicios`, si se confirma sumarlos.

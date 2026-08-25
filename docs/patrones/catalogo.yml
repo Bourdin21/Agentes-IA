@@ -498,7 +498,8 @@ patrones:
       texto. La persistencia en sesion aplica a cualquier listado con filtros, con o sin columnas
       numericas/fecha.
     proyecto_origen: delicias-naturales (busqueda multi-formato); mismo proyecto (persistencia de filtros en Session)
-    proyectos_que_lo_usan: []
+    proyectos_que_lo_usan:
+      - la-platense
     archivos_referencia:
       - proyecto: delicias-naturales
         path: "Helper/BusquedaHelper.cs (ParsearImportes)"
@@ -517,11 +518,23 @@ patrones:
     notas: >
       Normativo desde Agosto 2026, mismo lugar que PAT-008/PAT-015 en
       `25-frontend-design-system.instructions.md` (seccion "Listados: DataTables + filtros por
-      columna") y el item 10a + smoke-check 2 en `26-checklists.instructions.md`. Gap real
-      confirmado en la-platense al momento de catalogar esto: `ProductoService.ListarAsync` solo
-      usa el "Search" del DataTable como fallback de un filtro de texto sobre Nombre/Codigo, no
-      busca por PrecioVenta ni por ninguna fecha — pendiente de aplicar este patron ahi cuando se
-      retome ese listado.
+      columna") y el item 10a + smoke-check 2 en `26-checklists.instructions.md`.
+      Aplicado en la-platense el 2026-08-24 a los 6 listados server-side (Ventas, Clientes,
+      Productos, Caja, Gastos, Entregas) — ver la seccion "PAT-016" en
+      `docs/la-platense/definiciones/5-implementador.md`. De esa aplicacion salieron 3 aprendizajes
+      que conviene tener a mano al portarlo de nuevo:
+      (1) La pasada de substring numerico es la unica del patron que NO se resuelve en SQL, porque
+      ni `MySql.EntityFrameworkCore` ni EF6 traducen `decimal.ToString()` — hay que materializar
+      los pares (Id, importe). Sobre tablas grandes eso es un problema real: en la-platense el
+      catalogo tiene ~121.691 productos activos y sin tope cada pulsacion de tecla los traia
+      todos. Solucion: `Take(tope + 1)` en una sola consulta (sin COUNT aparte) y, si se pasa del
+      tope, omitir SOLO esa pasada — la coincidencia por valor exacto y las columnas de texto
+      siguen aplicando. Sobre >5.000 filas un "contiene estos digitos" no le sirve al usuario.
+      (2) Sobre tablas grandes hay que acotar tambien las sub-queries de valor exacto: tipear "0"
+      matcheaba el Stock de todo el catalogo y armaba un `Id IN (...)` de cien mil elementos.
+      (3) `TryParseExact` conviene con `InvariantCulture` (el separador del formato es el literal
+      '/'), y la deteccion de "esto es un importe" debe descartar el texto que tenga letras, para
+      que "Martillo 500" no arrastre todos los importes que contengan 500.
 
   - id: PAT-017
     nombre: "Portal de autogestion para usuario final (no-staff) con scoping forzado por identidad"

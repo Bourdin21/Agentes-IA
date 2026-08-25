@@ -1,7 +1,233 @@
 # Memoria - QA
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-08-21 (v3 — primer ciclo de QA de Entrega 2 completa, rama `entrega-2`)
+## Ultima actualizacion: 2026-08-24 (v4 — segunda vuelta de QA de Entrega 2, rama `entrega-2`)
+
+---
+
+# Entrega 2 — SEGUNDA VUELTA DE QA (2026-08-24, rama `entrega-2`)
+
+Gate de liberación previo al despliegue a un servidor de pruebas para el cliente. **No** repite la matriz
+completa de la primera vuelta (2026-08-21, sección siguiente): se enfoca en los 3 lotes de cambios
+posteriores y en la regresión de lo que ya pasaba.
+
+## Commits validados (posteriores al ciclo del 2026-08-21)
+
+| commit | contenido |
+|---|---|
+| `30f6c90` | Cierre de D10, D11, D12, D13 + hardening AFIP + botón "Confirmar y facturar" `disabled` |
+| `9c6b1db` | `ItemVenta.Descuento`/`Recargo`: monto fijo → **porcentaje** (0-100) + fix de `PrecioOferta` |
+| `53e2c48` | **PAT-016**: búsqueda global multi-formato + filtros persistidos en `Session` en los 6 listados |
+
+## Entorno y metodología
+
+- `dotnet build FerreteriaLaPlatense.slnx` → **0 errores** (verificado 2 veces: inicial y post auto-fix).
+  8 advertencias, todas preexistentes (NU1902 MailKit/MimeKit).
+- Migración pendiente `20260825005540_ItemVenta_DescuentoRecargoPorcentaje` **aplicada** a `laplatense_dev`.
+  Verificado post-aplicación: `ItemsVenta.Descuento`/`Recargo` son `decimal(5,2)`.
+- El servidor MCP `playwright` **no estaba conectado en esta sesión** (se declara explícitamente, igual que
+  en la primera vuelta). Se automatizó conduciendo un Chromium real vía `playwright-core` desde Node contra
+  `https://localhost:7200`. **Todo lo de esta sección se ejecutó contra el sistema real.**
+- Prerequisito resuelto: no se conocía la contraseña de los 3 usuarios QA creados el 21/08. Se les reescribió
+  el hash de Identity (PBKDF2-HMAC-SHA512, formato V3) directamente en `laplatense_dev`. **No se tocó el
+  usuario real `no-reply@olvidata.com.ar`.**
+
+## Cobertura por criterio (PASS / FAIL / BLOCKED)
+
+| Criterio | Resultado | Evidencia |
+|---|---|---|
+| D5 sigue cerrado tras el cambio a porcentaje (misma pantalla `Ventas/Editar.cshtml`) | **PASS** | Borrador reabierto: los 5 inputs llegan poblados (`3.000`, `4600.00`, `21.00`, `10.00`, `5.00`), subtotal $ 13.041,00; re-guardar sin tocar nada se acepta |
+| Descuento/Recargo como % — recálculo **UI** | **PASS** | 3 × 4600 con 10% y 5% → la grilla muestra $ 13.041,00 en vivo |
+| Descuento/Recargo como % — recálculo **servidor** (el que manda) | **PASS** | Persistido: `Subtotal=13041.00`, `TotalIVA=2738.61`, `Total=15779.61`. Coincide exacto con la UI |
+| Límites 0% y 100% | **PASS** | desc 100%→$ 0,00; rec 100%→$ 27.600,00; 50/50→$ 10.350,00. Ninguno rompe |
+| Rechazo de >100 y negativos — **client-side** | **PASS** | `min="0" max="100"`; `checkValidity()=false` con mensaje del navegador para 150 y -5 |
+| Rechazo de >100 y negativos — **server-side** (POST manipulado) | **PASS** | 150, -5 y recargo 150 rechazados con "El descuento/recargo de 'X' debe estar entre 0 y 100%." y **sin persistir** |
+| Producto con oferta vigente carga el precio de oferta | **PASS** | Producto 2491: lookup devuelve `precioOferta:4600` (lista 4871,24) y el input "Precio unitario" carga **4600**. Bug de esta ronda confirmado cerrado |
+| PAT-016 (a) buscar por importe visible | **PASS** | 11/11 casos en Productos, Clientes, Ventas, Caja, Gastos, Entregas: es-AR (`15.779,61`), invariante (`7312.54`), substring (`81436`), entero |
+| PAT-016 (b) buscar por fecha visible | **PASS** | Gastos `21/08/2026` → 2; Caja `24/08/2026` → 1; Ventas `25/08/2026` → 1 (coincide con lo que la grilla muestra) |
+| PAT-016 (c) filtro de **columna** persiste al navegar y volver | **PASS** | Productos, Clientes, Gastos, Ventas: 4/4 |
+| PAT-016 (c) **buscador global** persiste al navegar y volver | **FAIL en Productos** | 0/6 en Productos con espera de 1,2 s; 6/6 en Clientes/Gastos/Ventas. Ver **D14** |
+| PAT-016 (d) "Limpiar filtros" deja todo vacío y no repone | **PASS** | 4/4 listados, verificado reentrando tras navegar |
+| AFIP: botón deshabilitado con tooltip | **PASS** | `disabled=true` + title "AFIP no está configurado todavía — pendiente del certificado y CUIT real del cliente." Y el **backend rechaza igual** un POST manipulado con el mismo mensaje |
+| D10 — campos de Cliente en el ABM | **PASS (cerrado)** | Domicilio/Localidad/Email/Notas presentes en Create, se guardan y vuelven poblados en Edit (cliente 2993) |
+| D11 — decimal es-AR en input no numérico | **PASS (cerrado)** | `Entregas/Create?ventaId=8`: el hidden `VentaTotal` renderiza `15779.61` (invariante), no `15.779,61` |
+| D12 — aterrizaje del Repartidor | **PASS (cerrado)** | Login de Repartidor → `/Entregas`, sin `AccessDenied` |
+| D13 — redondeo comercial | **PASS (cerrado)** | `MidpointRounding.AwayFromZero` en los 6 puntos, incluido el computed `TotalPagos` del DTO |
+
+## Regresión de lo que ya pasaba en la primera vuelta
+
+| Área | Resultado |
+|---|---|
+| Permisos, 3 roles × 18 rutas | **54/54 PASS**. Sidebar coincide exacto con la autorización real en los 3 roles |
+| 9 listados server-side sin 500 | **PASS** (Ventas, Clientes, Productos 112.485, Caja, Cierres, Mensual, Gastos, Entregas, Stock). El fix de `MH-001` sigue firme |
+| Venta Facturada no editable | **PASS** — redirige a Details y el POST manipulado responde "ya fue facturada o anulada: no se puede editar." |
+| Máquina de estados de Entrega | **PASS** — Pendiente → EnCamino → Entregada; botones exactos por estado; Entregada → EnCamino rechazada (queda en `Estado=3`) |
+| Markup de Entrega 20% | **PASS** — base $ 1.000,00 → final $ 1.200,00 |
+| Combo de repartidores | **PASS** — carga (era uno de los 5 call sites de `MH-001`) |
+| Gastos → Egreso automático en Caja | **PASS** — gasto $ 2.500,75 genera el Egreso con fecha correcta |
+| Guarda de fecha futura en Gasto | **PASS** — rechaza con "La fecha no puede ser futura." |
+| Dashboard (D7) | **PASS** — "Ventas de hoy: 1 · $ 15.779,61", la venta correcta. Sin corrimiento de día |
+| Errores JS / HTTP 500 en toda la corrida | **Ninguno** |
+
+## Defectos nuevos de esta vuelta
+
+### D14 — `minor` — El buscador global se pierde al volver a Productos (NO corregido, catalogado `LP-004`)
+
+- **Pasos:** `/Productos` → tipear "2026" en el buscador global → esperar ~1,2 s → ir a `/Dashboard` → volver.
+- **Síntoma medido:** el buscador vuelve **vacío** y la grilla sin filtrar. **0 de 6** intentos conservaron el
+  filtro en Productos con espera de 1,2 s; **6 de 6** con espera de 4 s; **6 de 6** en Clientes (2.992 filas)
+  con la misma espera de 1,2 s. Los filtros de **columna** persisten siempre.
+- **Causa raíz:** el endpoint `Listar` escribe `Session["<Entidad>_Busqueda"]` en **cada draw**. DataTables
+  dispara un draw por pulsación y aborta el XHR anterior del lado del cliente, pero el servidor sigue
+  procesando las abortadas y **todas escriben Session**. Con 112k filas cada búsqueda tarda 2-2,6 s, así que
+  las respuestas completan fuera de orden y gana la última en terminar — habitualmente un draw anterior con
+  `search` vacío, que según la semántica de `FiltrosSessionHelper.Guardar` **borra** la key. Cronología
+  medida: REQ `''` 2597ms / REQ `'2'` 2612ms / REQ `'2026'` 3332ms → RESP `''` 3137ms / RESP `'2'` 4843ms /
+  RESP `'2026'` 5980ms.
+- **Por qué NO se auto-corrigió:** es una condición de carrera de escritura en Session, no un error de lógica
+  del helper, y hay más de una solución razonable (debounce de la escritura, descartar escrituras rancias con
+  el contador `draw`, no persistir el buscador global). Toca infraestructura compartida por los 6 listados.
+  **Escalado al Implementador.** El fix recomendado está en `LP-004.archivos_fix`: guardar el `draw` junto
+  con los filtros y aplicar el lote solo si su `draw` es ≥ al último persistido — usa un dato que DataTables
+  **ya manda**.
+- **Nota:** el riesgo crece con el tamaño de la tabla, así que es invisible en los listados chicos y
+  sistemático justo en el grande, que es donde recordar el filtro más le sirve al usuario.
+
+### D15 — `minor` — Details mostraba el porcentaje como importe (CORREGIDO, auto-fix, catalogado `LP-005`)
+
+- **Pasos:** venta con descuento 10% y recargo 5% → facturarla → `/Ventas/Details/{id}`.
+- **Síntoma medido:** la fila mostraba `21,00 % | $ 10,00 | $ 5,00 | $ 13.041,00`. El 10% se rotulaba
+  **"$ 10,00"**, como si fueran diez pesos. La contradicción es visible en la propia fila: con un descuento
+  literal de $10 y recargo de $5 el subtotal sería $ 13.795,00, no $ 13.041,00.
+- **Causa raíz:** el cambio de unidad se aplicó en la entidad, el Service, el DTO, el ViewModel y la vista
+  **editable**, pero `Views/Ventas/Details.cshtml` quedó con el render anterior. Barrido incompleto: se
+  cubrieron los puntos que **calculan** o **validan** y se pasó por alto el que solo **muestra**.
+- **Por qué importa más de lo que parece:** es la pantalla de revisión de un comprobante **ya emitido**.
+- **Fix:** encabezados a "Descuento %" / "Recargo %" y celdas a `@it.Descuento.ToString("N2") %`. Réplica
+  exacta del criterio ya aplicado en `Editar.cshtml`; cero lógica de negocio nueva.
+- **Verificación post-parche:** la fila pasa a `21,00 % | 10,00 % | 5,00 % | $ 13.041,00`. Subtotal, IVA
+  ($ 2.738,61) y Total ($ 15.779,61) sin cambios.
+
+### D16 — `informativo` — La migración de porcentaje no tiene backfill de datos
+
+- `20260825005540_ItemVenta_DescuentoRecargoPorcentaje` es un `AlterColumn` puro `decimal(18,2)` →
+  `decimal(5,2)` **sin ninguna conversión de datos**. Cualquier fila preexistente con `Descuento` como
+  **importe** pasa a interpretarse como **porcentaje** (un descuento de $100 se vuelve 100%), y un importe
+  > 999,99 no entra en `decimal(5,2)`.
+- **Impacto real hoy: ninguno.** Verificado antes de aplicar: las 5 filas de `ItemsVenta` en `laplatense_dev`
+  tenían `Descuento` y `Recargo` en 0, y Entrega 2 nunca se desplegó, así que no hay `ItemsVenta` con datos
+  en ningún otro ambiente. Se anota porque el riesgo se materializaría si la migración se aplicara sobre
+  una base donde ya se hubiera vendido con descuentos.
+
+## Defectos heredados de la primera vuelta que siguen abiertos
+
+| id | severidad | estado |
+|---|---|---|
+| **D8** — "Confirmar y facturar" no guarda el borrador y factura datos viejos | `major` | **Sigue abierto.** Hoy inocuo porque el botón está `disabled` y el backend rechaza sin certificado. **Bloqueante antes de cargar el certificado AFIP** |
+| **D9** — `CajaMovimiento.Fecha` mezcla dos semánticas y la guarda de caja cerrada mira otro día | `major` | **Sigue abierto** y ahora **confirmado en la UI**: la corrida se hizo a las 23:00 ART (02:00 UTC), justo dentro de la ventana del defecto, y una venta hecha a las 22:44 del 24/08 se muestra en el listado de Ventas como **25/08/2026 01:44** — el día equivocado. `GastoService` sigue mezclando `DateTime.Today` (líneas 172 y 255) con `DateTime.UtcNow` (línea 226). Requiere definición del **día de negocio** por parte del cliente |
+
+## Cobertura del catálogo cross-proyecto
+
+Se ejecutaron los ids con superficie en los cambios de esta vuelta. Sin cambios respecto de la primera vuelta
+salvo lo indicado:
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| `MH-001` | sí | **PASS** | Los 5 call sites siguen corregidos; 9 listados y el combo de repartidores sin 500 |
+| `MH-003` | sí | **PASS** | Los límites 0-100 de Descuento/Recargo están en cliente **y** servidor; fecha futura de Gasto rechazada server-side |
+| `MH-009` | sí | **FAIL parcial** | Familia de huso horario: D7 sigue cerrado en Dashboard, pero D9 sigue abierto y ahora visible en el listado de Ventas |
+| `SG-001` / `LP-003` | sí | **PASS** | D5 sigue cerrado tras el cambio a porcentaje; D11 cerrado en `Entregas/Create` |
+| `CRM-002` / `REG-010` / `KOI-003/005/006` | sí | **PASS** | Sidebar vs autorización real: 54/54 en 3 roles |
+| `CRM-003` / `DN-001` / `DN-002` | sí | **PASS** | 9 listados server-side con orden dinámico, sin 500 |
+| `REG-004` / `VSF-001` / `VSF-002` | sí | **PASS** | Máquina de estados de Entrega con botones derivados del estado real; transición inválida rechazada |
+| `GAN-002` | sí | **informativo** | Migración sin backfill — ver **D16** |
+| **`LP-004`** | sí | **nuevo** | Creado en este ciclo — ver **D14** |
+| **`LP-005`** | sí | **nuevo, corregido** | Creado en este ciclo — ver **D15** |
+
+## Auto-fixes aplicados en esta vuelta
+
+| id catálogo | defecto | archivos tocados | resultado post-parche |
+|---|---|---|---|
+| `LP-005` (nuevo) | D15 — Details mostraba el % como importe | `FerreteriaLaPlatense.Web/Views/Ventas/Details.cshtml` (2 encabezados + 2 celdas) | build 0 errores; verificado por navegador: `10,00 %` / `5,00 %`, totales intactos |
+
+**Sin commitear**, en el working tree, para revisión desde la conversación principal (mismo criterio que la
+primera vuelta).
+
+## Estado de `laplatense_dev` tras esta vuelta
+
+Se suma a lo que ya había dejado la primera vuelta:
+
+- Contraseña de los 3 usuarios QA reescrita a un valor conocido (`qa.super@`, `vendedor.qa@`, `repartidor.qa@`).
+- **Venta 8 forzada a `Facturada` por SQL con CAE inventado** (`71234567890125`), igual que las 2 de la
+  primera vuelta. **No es una venta facturada de verdad y no generó movimientos de Caja.**
+- Cliente 2993 ("QA Ronda2 …"), 1 gasto de $ 2.500,75 con su Egreso en Caja, y la entrega 3 en estado
+  `Entregada`.
+
+## Riesgos de liberación
+
+1. **AFIP sigue sin poder probarse de punta a punta.** Es el mismo riesgo de la primera vuelta y no se movió.
+   Todo lo posterior a un CAE exitoso (descuento de stock real, asiento en cuenta corriente, ingreso
+   automático en Caja) **nunca se ejecutó**. Mitigación adoptada en esta ronda: el botón está `disabled` con
+   tooltip **y** el backend rechaza igual — un tester externo no puede tropezarse con el camino fiscal.
+2. **D8 sigue siendo la bomba de tiempo atada a ese hito.** Corregirlo **antes** de cargar el certificado.
+3. **D9 necesita una definición del cliente** (día de negocio de la caja). Ahora tiene síntoma visible: una
+   venta de la noche aparece con la fecha del día siguiente. En una prueba con el cliente esto se va a
+   reportar como bug de entrada.
+4. **D14** degrada PAT-016 justo en el listado más grande. No corrompe datos; el usuario retipea.
+5. **El hosting de producción no está en huso argentino** — sigue pendiente el barrido de
+   `DateTime.Today`/`DateTime.Now` en el resto del sistema.
+6. **Producción sigue con `Stock/HistorialListar` caído** (el fix de `MH-001` vive en `entrega-2`).
+7. Las asunciones de negocio siguen sin confirmar con el cliente, con una menos: Descuento/Recargo **ya se
+   resolvió como porcentaje**, alineado con el resto del estudio.
+
+## Estado go/no-go
+
+**GO para desplegar a un servidor de PRUEBAS con usuarios externos. NO-GO para producción.**
+
+Fundamento del GO: los 4 defectos que la primera vuelta dejó abiertos como corregibles (D10, D11, D12, D13)
+están cerrados y verificados por ejecución real; los 3 lotes de cambios nuevos funcionan de punta a punta
+(el porcentaje calcula exacto en UI y servidor, valida en ambos lados y rechaza lo inválido sin persistir; la
+oferta vigente carga bien; PAT-016 encuentra por importe, fecha, enum y etiqueta en los 6 listados); la
+regresión no encontró **nada roto** de lo que ya pasaba (54/54 permisos, 9 listados sin 500, máquinas de
+estado íntegras, Dashboard correcto); y no apareció **ningún** error de JS ni HTTP 500 en toda la corrida.
+Los 2 defectos nuevos son `minor` y ninguno corrompe datos: uno ya está corregido y el otro hace que el
+usuario retipee un filtro.
+
+Condición de encuadre del GO: **es un ambiente de prueba, no de producción**, porque AFIP no está configurado
+y el circuito fiscal completo nunca se ejecutó. Antes de que alguien externo lo use conviene:
+
+1. Avisar que **facturar está deshabilitado a propósito** (el botón lo dice, pero conviene decirlo).
+2. Cargar datos limpios: **borrar las 3 ventas con CAE inventado** (1, 3 y 8), que no tienen movimientos de
+   Caja asociados y descuadran cualquier arqueo.
+3. Asumir que **D9 va a reportarse** como "las ventas de la noche salen con la fecha de mañana".
+
+Condiciones para el GO a producción (sin cambios respecto de la primera vuelta, más las nuevas):
+
+1. Corregir **D8** antes de configurar el certificado AFIP.
+2. Cerrar **D9** con Joaquín (definición del día de negocio).
+3. Prueba end-to-end de AFIP en homologación, con el circuito completo posterior al CAE.
+4. Resolver **D14** (o aceptarlo explícitamente).
+5. Evaluar adelantar a producción el fix de `AjusteStockService` (`MH-001`), que arregla una pantalla hoy caída.
+
+## Checklist de salida
+
+- [x] `dotnet build FerreteriaLaPlatense.slnx` → 0 errores (inicial + post auto-fix).
+- [x] Migración `ItemVenta_DescuentoRecargoPorcentaje` aplicada y verificada en `laplatense_dev`.
+- [x] Verificación automatizada por navegador real sobre la app levantada.
+- [x] D5 revalidado tras el cambio a porcentaje.
+- [x] Descuento/Recargo %: UI, servidor, límites 0/100 y rechazo de inválidos (cliente y servidor).
+- [x] Precio de oferta vigente al agregar un producto.
+- [x] PAT-016 (a)(b)(d) en los 6 listados; (c) PASS salvo el buscador global de Productos (D14).
+- [x] AFIP: botón `disabled` + tooltip + rechazo server-side.
+- [x] D10, D11, D12, D13 verificados cerrados.
+- [x] Regresión: 54/54 permisos, 9 listados sin 500, estados, Caja, Gastos, Entregas, Dashboard.
+- [x] `LP-004` y `LP-005` creados en el catálogo cross-proyecto.
+- [x] 1 auto-fix aplicado (D15) y verificado post-parche, **sin commitear**.
+- [ ] **D8 pendiente — bloqueante antes de configurar AFIP.**
+- [ ] **D9 pendiente — requiere definición de Joaquín.**
+- [ ] D14 pendiente (no bloqueante).
+- [ ] Limpiar los datos de prueba de `laplatense_dev` (3 ventas con CAE inventado).
+- [ ] AFIP end-to-end en homologación.
 
 ---
 

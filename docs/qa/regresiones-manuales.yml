@@ -1708,3 +1708,78 @@ regresiones:
           motivo: "Se agrego <div asp-validation-summary=\"ModelOnly\" class=\"text-danger mb-3\"> como primer hijo del <form>, replicando el patron ya validado dentro del mismo proyecto en Views/Users/Create.cshtml y Views/Account/Login.cshtml. Cero logica de negocio nueva: solo se hace visible un ModelState que ya se poblaba correctamente."
       build: "dotnet build LabIPAC.slnx -> Compilacion correcta, 0 Errores, 9 Advertencias (todas preexistentes: NU1902 MailKit/MimeKit y CS0114 HomeController.StatusCode). Sin warnings nuevos."
       verificacion: "Verificado con la app corriendo y login real contra labipac_dev. Los 5 rechazos de Service ahora renderizan su mensaje: RN-24 periodo duplicado ('Ya existe un periodo para Julio 2026 con el Centro de Salud hvjhbjhb.'), RN-25 centro invalido ('El centro de salud seleccionado no existe o esta inactivo.'), y nombre duplicado en los 3 ABMs ('Ya existe una unidad bioquimica / una practica / un centro de salud con ese nombre.'). No-regresion confirmada: las 4 altas validas siguen devolviendo 302 y persistiendo; el error de DataAnnotation de campo ('El Centro de Salud es obligatorio.') sigue apareciendo una sola vez en su <span asp-validation-for> y NO se duplica en el summary (ModelOnly excluye correctamente los errores con clave de campo)."
+
+  - id: LP-004
+    modulo: "Listados DataTables server-side con filtros persistidos en Session (patron PAT-016 parte 2)"
+    titulo: "El buscador global se pierde al volver al listado: las respuestas concurrentes del endpoint Listar escriben Session fuera de orden y la ultima en completar (con search vacio) pisa a la del texto que el usuario dejo tipeado"
+    severidad: minor
+    reproducido_en: "La Platense - entrega-2 (commit 53e2c48), laplatense_dev con 112.485 productos, 2026-08-24"
+    pasos:
+      - "Autenticarse como SuperUsuario."
+      - "Ir a /Productos (listado grande: ~112k filas)."
+      - "Tipear un texto en el buscador global del DataTable (ej. '2026') a velocidad normal de tecleo."
+      - "Esperar a ver los resultados filtrados (~1 a 1,5 s) y navegar a otra pantalla (ej. /Dashboard)."
+      - "Volver a /Productos."
+    sintoma: "El buscador global vuelve VACIO y la grilla sin filtrar, pese a que PAT-016 debe reponer el filtro. Medido: 0 de 6 intentos conservaron el filtro en /Productos esperando 1,2 s antes de navegar; 6 de 6 lo conservaron esperando 4 s; 6 de 6 en /Clientes (2.992 filas) con la misma espera de 1,2 s. Los filtros de COLUMNA (que se mandan en un unico draw por evento 'change') si persisten siempre — el defecto afecta solo al buscador global, que dispara un draw por pulsacion."
+    expectativa: "Al volver al listado, el buscador global debe conservar el ultimo texto que el usuario dejo aplicado, igual que los filtros de columna, independientemente del tamano de la tabla y de cuan rapido se navegue."
+    causa_raiz: "El endpoint Listar persiste Session[\"<Entidad>_Busqueda\"] = Request.Form[\"search[value]\"] en CADA draw. DataTables dispara un draw por pulsacion y aborta el XHR anterior del lado del cliente, pero el servidor sigue procesando las requests abortadas y todas escriben Session. Como las respuestas no completan en el mismo orden en que se emitieron (en una tabla de 112k filas cada busqueda tarda 2 a 2,6 s), la ULTIMA en completar es la que queda en Session — y suele ser un draw anterior con search vacio (el de la carga inicial o el del filtro de columna), que segun la semantica de FiltrosSessionHelper.Guardar BORRA la key. Cronologia medida: REQ search='' a 2597ms, REQ search='2' a 2612ms, REQ search='2026' a 3332ms; RESP '' a 3137ms, RESP '2' a 4843ms, RESP '2026' a 5980ms. Si el usuario navega antes de los ~6 s, gana la respuesta equivocada. Es una condicion de carrera de escritura en Session, no un error de logica del helper."
+    capa: Web
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Web/Helpers/FiltrosSessionHelper.cs
+        motivo: "Descartar escrituras rancias usando el contador 'draw' que DataTables ya manda e incrementa en cada peticion: guardar el draw junto con los filtros y aplicar el lote solo si su draw es >= al ultimo persistido para esa entidad. No requiere datos nuevos del cliente."
+      - path: "FerreteriaLaPlatense.Web/Controllers/{Productos,Clientes,Ventas,Caja,Gastos,Entregas}Controller.cs"
+        motivo: "Pasar Request.Form[\"draw\"] al helper en los 6 metodos GuardarFiltros()."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "input del buscador global: .dataTables_filter input, en /Productos"
+      condicion_falla: "Tras tipear un texto, esperar 1,2 s, navegar a /Dashboard y volver a /Productos, el value del input esta vacio en vez de conservar el texto tipeado."
+    criterio_aceptacion:
+      - "Tipear en el buscador global, navegar a otra pantalla y volver conserva el texto en el listado mas grande del sistema (Productos) sin depender del tiempo de espera."
+      - "Los filtros de columna siguen persistiendo como hasta ahora (no-regresion)."
+      - "'Limpiar filtros' sigue borrando todo, incluido el buscador global, y al reentrar no repone nada."
+    pruebas_minimas:
+      - "Productos: tipear en el buscador global, esperar 1 s, navegar y volver -> el texto sigue puesto (repetir 5 veces)."
+      - "Clientes/Gastos/Ventas/Caja/Entregas: misma prueba, sin regresion."
+      - "Limpiar filtros en los 6 listados -> todo vacio y nada repuesto al reentrar."
+    nota_generalizacion: "Patron generalizable a CUALQUIER proyecto que combine DataTables server-side con persistencia de filtros en Session (PAT-016 parte 2). El riesgo crece con el tamano de la tabla: es invisible en listados chicos (respuesta < 300 ms) y sistematico en los grandes, que son justamente donde recordar el filtro mas le sirve al usuario. Sintoma tipico de reporte del cliente: 'a veces se me borra el buscador cuando vuelvo'. Regla preventiva: nunca escribir estado de sesion desde un endpoint que el cliente dispara por pulsacion y aborta — o se debouncea la escritura, o se descartan las escrituras rancias con el contador 'draw'."
+    fix_aplicado: null
+
+  - id: LP-005
+    modulo: "Cualquier pantalla de solo lectura (Details / comprobante / reporte) de una entidad cuyo campo cambio de UNIDAD semantica (importe -> porcentaje, o viceversa)"
+    titulo: "Al cambiar Descuento/Recargo de monto fijo a porcentaje se actualizo la pantalla de edicion pero NO la de Details: la venta facturada muestra un 10% como '$ 10,00', contradiciendo su propio Subtotal"
+    severidad: minor
+    reproducido_en: "La Platense - entrega-2 (commit 9c6b1db), laplatense_dev, 2026-08-24"
+    pasos:
+      - "Autenticarse como SuperUsuario."
+      - "Crear una venta con un item (cantidad 3, precio 4600), descuento 10 y recargo 5, y guardar el borrador."
+      - "Facturar la venta (o forzarla a Facturada) y abrir /Ventas/Details/{id}."
+    sintoma: "La grilla de items muestra los encabezados 'Descuento' y 'Recargo' y las celdas '$ 10,00' y '$ 5,00', como si fueran importes en pesos, cuando en realidad son 10% y 5%. La contradiccion es visible en la propia fila: con un descuento literal de $10 y un recargo de $5 el subtotal seria $13.795,00, pero la fila muestra $13.041,00 (que es 3 x 4600 x 0,9 x 1,05, el calculo correcto por porcentaje). El calculo es correcto; lo que enga\u00f1a es la unidad mostrada."
+    expectativa: "Toda vista que renderice el campo debe mostrarlo en la unidad vigente ('10,00 %'), no en la anterior. La pantalla de revision de un comprobante ya emitido es justamente donde el dato mal rotulado hace mas dano."
+    causa_raiz: "El cambio de unidad se aplico en la entidad, el Service, el DTO, el ViewModel y la vista EDITABLE (Views/Ventas/Editar.cshtml: encabezados 'Descuento %', inputs con min=0 max=100), pero la vista de SOLO LECTURA (Views/Ventas/Details.cshtml) quedo con el render anterior '$ @it.Descuento.ToString(\"N2\")'. Es un barrido incompleto: se busco por los puntos que participan del calculo o de la validacion y se paso por alto el que solo muestra."
+    capa: Web
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Web/Views/Ventas/Details.cshtml
+        motivo: "Encabezados a 'Descuento %' / 'Recargo %' y celdas a '@it.Descuento.ToString(\"N2\") %' en vez de '$ ...'."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /Ventas/Details/{id} de una venta con Descuento distinto de 0, tabla de items"
+      condicion_falla: "La celda de Descuento empieza con '$' en vez de terminar en '%', o el encabezado dice 'Descuento' a secas mientras la columna guarda un porcentaje."
+    criterio_aceptacion:
+      - "Details muestra 'Descuento %' / 'Recargo %' y los valores con sufijo '%'."
+      - "El Subtotal de la fila no cambia (el fix es solo de presentacion)."
+      - "Editar sigue mostrando lo mismo que Details para la misma venta (unidades coherentes entre pantallas)."
+    pruebas_minimas:
+      - "Venta con descuento 10% y recargo 5% -> Details muestra '10,00 %' y '5,00 %' y subtotal $ 13.041,00."
+      - "Venta con descuento 0 y recargo 0 -> muestra '0,00 %' sin romper el layout."
+    nota_generalizacion: "Patron generalizable: cuando un campo cambia de UNIDAD (importe <-> porcentaje, unitario <-> total, neto <-> bruto), el barrido tiene que cubrir TODAS las superficies que lo renderizan, no solo las que lo calculan o validan — grep del nombre del campo sobre .cshtml y sobre los formatters de columnas de DataTables, no solo sobre .cs. Las vistas de solo lectura (Details, comprobante, remito, export a Excel/PDF, mail) son las que mas se olvidan y las que el usuario final mas mira. Sintoma delator y barato de chequear: el propio Subtotal/Total de la fila no cierra con los numeros mostrados a su izquierda."
+    fix_aplicado:
+      fecha: "2026-08-24"
+      por: "QA (auto-fix durante la 2a vuelta de QA de Entrega 2 de La Platense)"
+      resultado: "aplicado"
+      archivos:
+        - path: FerreteriaLaPlatense.Web/Views/Ventas/Details.cshtml
+          motivo: "Encabezados 'Descuento %' / 'Recargo %' y celdas con sufijo '%' en vez de prefijo '$'. Replica exacta del criterio ya aplicado en Editar.cshtml en el mismo commit del cambio de unidad; cero logica de negocio nueva."
+      build: "dotnet build FerreteriaLaPlatense.slnx -> Compilacion correcta, 0 Errores."
+      verificacion: "Verificado por navegador real contra laplatense_dev sobre la venta 8 (Facturada): la fila pasa de '21,00 % | $ 10,00 | $ 5,00 | $ 13.041,00' a '21,00 % | 10,00 % | 5,00 % | $ 13.041,00'. Subtotal, IVA ($ 2.738,61) y Total ($ 15.779,61) sin cambios."
