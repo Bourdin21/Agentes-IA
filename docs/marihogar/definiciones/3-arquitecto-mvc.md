@@ -430,7 +430,37 @@ El bloque `PagosVentaPorAcreditar` (ya agregado por CR-29, hoy filtra solo `Fech
 | Revertir `CantidadFacturada` mal (ej. doble resta si se reintenta) | Medio | La reversión ocurre en el mismo paso atómico que marcar la NC `Emitido` (transacción única) — no puede ejecutarse dos veces para la misma NC porque `Estado` ya pasó a `Emitido` (guard de `ReintentarAsync` exige `Estado==Error` para reintentar). |
 | Cliente confunde "Anular factura" con "Cancelar Venta" (son conceptos distintos: la NC anula el documento fiscal, la Venta en sí sigue existiendo y se puede refacturar) | Bajo | Cubierto en el texto del SweetAlert2 de confirmación — aclarar explícitamente que la Venta no se cancela, solo la factura. |
 
+### CR-59 (Arquitectura) — Pagos con tarjeta de crédito a liquidar
+
+**Domain**: sin cambios — `PagoVenta.Metodo`, `EstadoAcreditacion`, `FechaAcreditacionEfectiva` ya existen desde CR-32/34.
+
+**Application**:
+- Nuevos DTOs: `PagoTarjetaListItemDto { int Id, int VentaId, string? ClienteNombre, decimal Monto, int? CantidadCuotas, DateTime Fecha, DateTime? FechaAcreditacionEfectiva, string Estado, bool VenceProximo }`, `PagoTarjetaFiltro { EstadoAcreditacionPago? Estado, DateTime? AcreditacionDesde, DateTime? AcreditacionHasta }`, `PagosTarjetaPendientesDto { int Cantidad, decimal Monto }` (para la card de Dashboard).
+- `IVentaService` gana `Task<DataTableResponse<PagoTarjetaListItemDto>> ListarPagosTarjetaAsync(DataTableRequest request, PagoTarjetaFiltro filtro)`.
+- `IDashboardService` gana `Task<PagosTarjetaPendientesDto> ObtenerPagosTarjetaPendientesAsync()`.
+
+**Infrastructure**:
+- `VentaService.ListarPagosTarjetaAsync`: clon directo de `ChequeService.ListarAsync` — `_db.PagosVenta.Include(p => p.Venta).Where(p => p.Metodo == MetodoPago.TarjetaCredito)`, filtros por `EstadoAcreditacion`/`FechaAcreditacionEfectiva`, `VenceProximo` calculado igual que `ChequeListItemDto.VenceProximo` (`Estado == Pendiente && (FechaAcreditacionEfectiva - hoy) <= 7 días`).
+- `DashboardService.ObtenerPagosTarjetaPendientesAsync`: `_db.PagosVenta.Where(p => p.Metodo == TarjetaCredito && p.EstadoAcreditacion == Pendiente)` → `Count`/`Sum(Monto)`. Sin filtro de período (mismo criterio que `ObtenerChequesPorVencerAsync`, que tampoco recibe `desde`/`hasta`).
+- Ningún cambio en `AcreditarPagoAsync` — se llama tal cual desde la nueva acción del controller.
+
+**Web**:
+- `PagosTarjetaController` nuevo (`[Authorize(Policy = "RequireAdministracion")]`), clon 1:1 de `ChequesController` sin las acciones de Cheque específicas (`Rechazar` no aplica — `PagoVenta` no tiene ese estado): `Index()` (shell + combo N/A, no hay Proveedor), `GetData()` (POST, llama `ListarPagosTarjetaAsync`), `Acreditar(int pagoVentaId)` (POST, llama `_ventaService.AcreditarPagoAsync(pagoVentaId, VendedorId)`, redirige a su propio `Index` — no a `Ventas/Details`, a diferencia de la acción homónima que ya existe en `VentasController`, pensada para el caso "acreditar desde adentro de la venta").
+- `Views/PagosTarjeta/Index.cshtml`: clon de `Cheques/Index.cshtml` — mismo DataTable server-side, mismo SweetAlert2 de "Acreditar" (sin el de "Rechazar").
+- `_Layout.cshtml`: nuevo link de sidebar junto a "Cheques" (mismo ícono de referencia visual, `fa-credit-card` en vez de `fa-money-check-dollar` para diferenciarlo).
+- `DashboardController`: nueva acción `GetPagosTarjetaPendientes()` (`[HttpGet, Authorize(Policy = "RequireAdministracion")]`, mismo criterio de defensa en profundidad que `GetChequesPorVencer`/`GetBalanceCaja`).
+- `Dashboard/Admin.cshtml`: nueva card "Pagos con tarjeta por acreditar", mismo patrón AJAX independiente que el resto (`$.get` propio con `.done()`/`.fail()`).
+
+**Migración EF**: ninguna — todos los campos consumidos ya existen en el esquema.
+
+**Riesgos técnicos**:
+| Riesgo | Severidad | Mitigación |
+|---|---|---|
+| Duplicar la acción "Acreditar" en 2 controllers (`VentasController.AcreditarPago` ya existente + la nueva de `PagosTarjetaController`) podría divergir si alguna cambia sin la otra | Bajo | Ambas llaman al mismo `IVentaService.AcreditarPagoAsync` sin duplicar lógica — la única diferencia es el `RedirectToAction` de destino (Details de la Venta vs. Index del listado nuevo), no hay 2 implementaciones del negocio. |
+| Card de Dashboard sin filtro de período podría confundir si el usuario espera que respete el rango de fecha seleccionado arriba | Bajo | Mismo comportamiento ya establecido y aceptado por "Cheques por vencer" (tampoco respeta el filtro) — consistente con el resto de la pantalla, no es un caso nuevo. |
+
 ## Historial de ajustes
+- 2026-08-27 — CR-59 (Arquitectura): ver sección completa "CR-59 (Arquitectura) — Pagos con tarjeta de crédito a liquidar" más arriba. Controller + vista clon de Cheques, 1 método de listado nuevo (`ListarPagosTarjetaAsync`) + 1 método de Dashboard (`ObtenerPagosTarjetaPendientesAsync`), ambos de solo lectura. `AcreditarPagoAsync` reutilizado sin cambios. Sin migración EF. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.
 - 2026-08-21 — CR-55 (Arquitectura): ver sección completa "CR-55 (Arquitectura) — Nota de Crédito AFIP" más arriba. `TipoComprobanteAfip` +2 valores (códigos reales AFIP), `ComprobanteAfip` +2 columnas (`ComprobanteAsociadoId`, `Motivo`). `AfipService` arma el bloque `CbtesAsoc` (orden verificado contra el WSDL real de AFIP). `ComprobanteAfipService.GenerarNotaCreditoAsync` nuevo, reutiliza `EmitirAsync`/`ReintentarAsync` ya existentes. 1 migración EF sin backfill. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.
 - 2026-08-11: Arquitectura v9 cerrada — CR-32 (`PagoVenta.MontoBase`, recargo 21% server-side, `MovimientoCCLocal` posteado por línea de pago en vez de por Total), CR-33 (`VentaService.EditarAsync` nuevo, bloqueado si hay CAE real), CR-34 (`PagoVenta.EstadoAcreditacion`/`FechaAcreditacionEfectiva`, `AcreditarPagoAsync` nuevo, ingreso diferido hasta acreditar). 1 migración EF combinada. Riesgos documentados, incluido el guard de Entrega asociada a revisar en `EditarAsync`. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.
 - 2026-07-30: Arquitectura v8 cerrada — CR-27 (Cuenta Corriente de Proveedores real: impuestos + pagos reales sobre las 239 OC históricas, reemplaza CR-19; Mercado Pago habilitado para Proveedores; Nota interna en OrdenCompra). 1 migración EF (`AddNotaInternaOrdenCompra`, columna nullable simple). Riesgos documentados. Sin gate de presupuesto nuevo para la corrección (mismo criterio que CR-23); Change Request #5 (USD 42) solo para las 2 capacidades nuevas.

@@ -364,6 +364,45 @@ Los 3 ítems son funcionalidad nueva (no corrección de datos ya migrados) — s
 
 **Estado: APROBADO por el cliente (2026-08-11) — habilitada la Implementación.**
 
+### CR-59 (Presupuesto) — Pagos con tarjeta de crédito a liquidar
+
+**Paso 0 — Anclaje histórico**: sin referencia dedicada en `27-presupuesto-parametros.instructions.md` para "listado clonado de un módulo ya existente" — se ancla directo contra la fila "ABM simple (sin relaciones, sin lógica)" (1–2h base) por ser el piso más cercano, ajustado hacia arriba por incluir DataTable server-side con filtros (no un ABM de campo único) y una card de Dashboard adicional.
+
+**Paso 1 — Clasificación**: 1 solo ítem funcional, tipo "Listado + acción sobre datos ya existentes, sin entidad ni migración nueva" — el driver dominante es clonar un patrón de UI ya construido y probado (`Cheques/Index.cshtml`), no lógica de negocio nueva.
+
+**Drivers de esfuerzo reales**:
+- 1 query de listado nueva (`ListarPagosTarjetaAsync`), clon directo de `ChequeService.ListarAsync` — bajo esfuerzo, mismo shape de filtros/columnas.
+- 1 controller + 1 vista, clon de `ChequesController`/`Cheques/Index.cshtml` — bajo esfuerzo, sin acción "Rechazar" (no aplica a `PagoVenta`).
+- 1 card de Dashboard (DTO + endpoint + fragmento AJAX) — mismo patrón ya usado 5 veces en este proyecto (Ventas del período, Stock crítico, Cheques por vencer, Balance de caja, Compras del período de CR-58) — bajo esfuerzo.
+- Reutilizado sin cambios: `AcreditarPagoAsync` (acción de negocio ya existente, cero líneas nuevas), toda la infraestructura de `EstadoAcreditacionPago`/`FechaAcreditacionEfectiva` (CR-32/34), el job de notificación (`PagoVentaAcreditacionHostedService`, ya corriendo).
+- Sin migración EF.
+
+**M ajustado**: 2.2h (listado+filtros ~1.0h, controller+acción reutilizada ~0.4h, card Dashboard ~0.5h, menú+ajustes ~0.3h).
+
+**O/M/P**: O = 1.43h (M×0.65), P = 3.96h (M×1.80) — mismo spread que CR-55.
+
+**PERT** = (O + 4M + P) / 6 = (1.43 + 8.80 + 3.96) / 6 = **2.37h**.
+
+**Riesgo**: Bajo — mayor reutilización que CR-55 (sin novedad AFIP/fiscal, sin migración, sin lógica de negocio nueva, patrón ya probado en producción 2 veces — Cheques y las cards de Dashboard). Contingencia 10%.
+
+**Horas finales**: 2.37h × 1.10 = **2.61h ≈ 2.6h**.
+
+**Costo**: Horas facturables = 2.2/2.5 × 1.20 = 1.056h. Costo = 1.056h × USD 35/h = **USD 37**.
+
+**Tokens IA**: no aplica — muy por debajo del umbral de 4h facturables (1.056h).
+
+**Descuento de expansión agresiva/volumen**: no aplica — mismo criterio que el resto de los CR de este proyecto (ampliación sobre sistema propio en producción, no Build inicial).
+
+**Ratio de calibración**: no aplica ratio contra mediana histórica — no hay fila dedicada en el dataset para esta categoría ("listado clonado de módulo existente"); se ancla directo sobre el piso de ABM simple más el ajuste por DataTable+card, sin descuento porcentual sobre una referencia mayor.
+
+**Precio final: USD 37** (single-item, sin etapas).
+
+**Riesgos**: ninguno técnico nuevo — es el ítem de menor riesgo del historial de CR de este proyecto.
+**Supuestos**: ninguno — todos los campos y la acción de negocio (`AcreditarPagoAsync`) ya existen y están en uso en producción.
+**Exclusiones**: no se agrega ninguna acción nueva de negocio (ej. anular un pago con tarjeta, editar el monto) — solo lectura + la acreditación que ya existía.
+**Dependencias del cliente**: ninguna.
+**Condiciones**: sin etapas, sin 50/50 (ítem puntual sobre sistema en producción, mismo criterio que el resto de los CR de esta sesión).
+
 ### CR-55 (Presupuesto) — Nota de Crédito AFIP
 
 **Paso 0 — Anclaje histórico**: referencia "Integración ARCA/AFIP (código + cert + homologación)" de `27-presupuesto-parametros.instructions.md`, rango 7–9h base (mediana ~8h) — esa referencia es para construir el circuito WSFEv1 COMPLETO desde cero (login WSAA, firma CMS, transporte SOAP a mano, parseo de respuesta, manejo de errores). marihogar ya tiene ese circuito construido y probado contra AFIP real hoy mismo (CAE 86349291101930) — no aplica la mediana completa, aplica la regla de granularidad obligatoria (iteración evolutiva reutilizando patrón ya resuelto en el mismo repo, mismo criterio que vinosefue 7.07x/labipac 6.84x).
@@ -407,6 +446,7 @@ Los 3 ítems son funcionalidad nueva (no corrección de datos ya migrados) — s
 **Condiciones**: sin etapas, sin 50/50 (ítem puntual sobre sistema en producción, mismo criterio de facturación ya usado para el resto de los CR de esta sesión).
 
 ## Historial de ajustes
+- 2026-08-27 — CR-59 (Presupuesto): ver sección completa "CR-59 (Presupuesto) — Pagos con tarjeta de crédito a liquidar" más arriba. Ítem único, PERT 2.37h, horas finales 2.6h (contingencia 10%, riesgo Bajo), **USD 37**. Ítem de menor riesgo/costo del historial de CR de este proyecto (mayor reutilización, sin migración, sin lógica de negocio nueva). Sin Tokens IA. Sin descuento de expansión. **Pendiente aprobación del cliente (gate) antes de habilitar Implementación.**
 - 2026-08-21 — CR-55 (Presupuesto): ver sección completa "CR-55 (Presupuesto) — Nota de Crédito AFIP" más arriba. Ítem único, PERT 4.30h, horas finales 4.95h (contingencia 15%, riesgo Medio), **USD 67**. Anclado en la referencia de integración AFIP completa (8h mediana) con descuento fuerte por reutilización real del circuito ya construido (ratio M/mediana 0.50). Sin Tokens IA (por debajo del umbral de 4h facturables). Sin descuento de expansión (no es Build inicial). **Pendiente aprobación del cliente (gate) antes de habilitar Implementación.**
 - 2026-07-28: Presupuesto Change Request #2 (CR-21/CR-22) — USD 168. Primer ítem del proyecto fuera del Change Request #1 ya cerrado en producción. Orden de implementación ya dada por el cliente en el pedido original (aprobación implícita del alcance, mismo criterio que adendas de bajo monto anteriores).
 - 2026-08-11: Presupuesto Change Request #6 (CR-32/CR-33/CR-34) — USD 269. Precio contado/tarjeta visible para ambos roles + recargo real del 21% aplicado por línea de pago (no por ítem fijo), edición completa de Venta ya creada (bloqueada si tiene comprobante AFIP asociado), acreditación diferida de pagos con tarjeta (ingreso en Caja recién al acreditar). **Estado: BORRADOR — pendiente aprobación del cliente (gate duro antes de Implementación).**

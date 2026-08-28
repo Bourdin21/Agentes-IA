@@ -162,23 +162,40 @@ patrones:
       Login WSAA via CMS/PKCS7-signed LoginTicketRequest, consumo WSFEv1 hand-rolled con
       System.Xml.Linq + HttpClient (sin proxy generado por WSDL). Campos clave: Concepto,
       DocTipo/DocNro, CbteFch, ImpNeto/ImpIVA/ImpTotal, CondicionIVAReceptorId, array Iva;
-      respuesta CAE/CAEFchVto/Resultado/Obs/Errors.
+      respuesta CAE/CAEFchVto/Resultado/Obs/Errors. Incluye Notas de Credito/Debito con
+      `CbtesAsoc` (marihogar CR-55).
     cuando_usar: >
-      Cualquier proyecto que necesite emitir facturas electronicas AFIP/ARCA (fuera del
-      alcance estandar salvo excepcion documentada — ver exclusiones fijas en
-      27-presupuesto-parametros.instructions.md).
-    proyecto_origen: "pendiente confirmar (posiblemente marihogar o koi — verificar antes de reutilizar)"
-    proyectos_que_lo_usan: []
+      Cualquier proyecto que necesite emitir facturas electronicas AFIP/ARCA — dejo de ser
+      exclusion fija en la practica desde que marihogar lo tiene funcionando en produccion
+      real (confirmado con CAE real, 2026-08-21); segun el proyecto puede cotizarse como
+      alcance adicional (ver `27-presupuesto-parametros.instructions.md`), ya no como
+      "fuera de alcance" sin mas.
+    proyecto_origen: >
+      Dos referencias, segun el stack (ver `34-integracion-afip-arca.instructions.md`):
+      delicias-naturales (.NET Framework 4.7.2, proxy SOAP generado — fuente de verdad del
+      CONTRATO XML, no portar el codigo literal) y marihogar (.NET 10, envelope SOAP armado
+      a mano con System.Xml.Linq — ESTA es la version a portar/adaptar para cualquier
+      proyecto .NET 5+, confirmada en produccion real con CAE real 2026-08-21).
+    proyectos_que_lo_usan:
+      - delicias-naturales (version .NET Framework, anterior)
     archivos_referencia:
-      - proyecto: "pendiente confirmar"
-        path: "AfipService.cs / AfipTokenCache (nombre y ruta exacta a confirmar)"
-        motivo: "Servicio de integracion WSAA/WSFEv1"
-        pendiente_verificar: true
+      - proyecto: marihogar
+        path: "MariHogar.Infrastructure/Services/AfipService.cs, AfipTokenCache.cs"
+        motivo: "Servicio de integracion WSAA/WSFEv1 en .NET 10, con login cacheado 24h, firma CMS/PKCS7, FECAESolicitar, y Notas de Credito (CbtesAsoc) — referencia a portar para proyectos nuevos"
+        pendiente_verificar: false
+      - proyecto: delicias-naturales
+        path: "Helper/FacturacionAfipService.cs, Models/Afip/LoginTicket.cs"
+        motivo: "Version .NET Framework 4.7.2 con proxy SOAP generado (Reference.cs) — util solo como fuente de verdad del contrato XML (orden/nombres de campos), no como codigo a portar (incompatible con .NET 10)"
+        pendiente_verificar: false
     dependencias: []
     notas: >
-      Discutido como referencia para Luciano Inmobiliaria (2026-08-14) sin confirmar
-      todavia el proyecto de origen exacto — el proximo agente que lo use DEBE confirmar
-      la ruta real antes de copiar codigo, no asumir esta entrada como verificada.
+      Ver `34-integracion-afip-arca.instructions.md` para el circuito completo depurado en
+      vivo (gotchas de certificado .p12 con X509KeyStorageFlags.MachineKeySet, Punto de
+      Venta tipo "Web Services" vs "Factura en Linea", orden exacto de campos XML). Esfuerzo
+      de referencia reutilizando este patron ya documentado (no descubriendo los gotchas de
+      cero): M ~5h, por debajo del rango generico "Integracion ARCA/AFIP (7-9h)" de
+      `27-presupuesto-parametros.instructions.md` porque ese rango asume construir sin este
+      documento — actualizar el rango generico cuando haya 2+ cierres reales reutilizandolo.
 
   - id: PAT-007
     nombre: "Sitio institucional Astro + Tailwind + formulario de contacto PHP"

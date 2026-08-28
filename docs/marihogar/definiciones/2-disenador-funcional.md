@@ -553,7 +553,32 @@ Sobre análisis v13. Extiende `Ventas/Create.cshtml`/`Ventas/Details.cshtml` (si
 
 **Riesgos de implementación**: primera vez que este sistema arma el bloque `CbtesAsoc` contra AFIP real — validar con una NC de bajo monto antes de confiar el flujo a una corrección real. El orden de campos XML es estricto (XSD de AFIP), ya verificado contra el WSDL real (ver escaneo de reutilización arriba).
 
+### CR-59 (Diseño) — Pagos con tarjeta de crédito a liquidar
+
+**Escaneo de reutilización (obligatorio antes de diseñar)**: revisados `docs/*/definiciones/{2-disenador-funcional,5-implementador}.md` de todos los proyectos del historial. Sin hits externos relevantes — el patrón a reutilizar es 100% interno a marihogar: `Cheques/Index.cshtml` + `ChequeService.ListarAsync` + `ChequesController` (M14, ya en producción) son un clon casi exacto de lo que necesita este CR, solo cambia la entidad de origen (`PagoVenta` en vez de `Cheque`) y el criterio de negocio (`Metodo=TarjetaCredito` en vez de "todos"). No hay código externo para portar.
+
+**Pregunta de diseño resuelta** (el cliente la planteó como pregunta abierta, no como pedido cerrado): ¿pantalla nueva o card de Dashboard? Se descarta "solo Dashboard" — el Dashboard tiene una regla fija ya establecida (HU-9.1): cada card es un KPI que carga solo vía AJAX, nunca una tabla con acciones (mismo motivo por el que "Cheques por vencer" es una card chica que linkea a `Cheques/Index`, no una tabla embebida). Se diseñan **las dos cosas**: pantalla nueva (el listado real, con la acción de liquidar) + card de acceso en el Dashboard.
+
+**Pantalla/acción**: `PagosTarjeta/Index.cshtml` (Administrador-only — `AcreditarPagoAsync` ya es Administrador-only desde CR-34.2, mismo criterio que Cheques). Filtros: Estado (Pendiente/Acreditado — sin Rechazado, `PagoVenta` no tiene ese estado, a diferencia de Cheque) y rango de fecha de acreditación. Columnas: Venta (link a `Ventas/Details`), Cliente (`Venta.ClienteNombre`, texto libre — no hay entidad Cliente separada en este sistema, así que no hay combo de filtro por cliente, a diferencia del combo de Proveedor que sí tiene Cheques), Cuotas, Monto, Fecha de pago, Fecha de acreditación efectiva, Estado. Resaltado de fila "vence próximo" (≤7 días) igual que Cheques. Botón "Acreditar" (solo si Pendiente) — mismo SweetAlert2 de confirmación que Cheques, apunta a una acción nueva del controller que reutiliza `IVentaService.AcreditarPagoAsync` sin tocarlo.
+
+**ViewModel/DTO**: `PagoTarjetaListItemDto { Id, VentaId, ClienteNombre, Monto, CantidadCuotas, Fecha, FechaAcreditacionEfectiva, Estado, VenceProximo }`, `PagoTarjetaFiltro { Estado?, AcreditacionDesde?, AcreditacionHasta? }` — mismo shape que `ChequeListItemDto`/`ChequeFiltro`.
+
+**Card de Dashboard**: "Pagos con tarjeta por acreditar" (Administrador-only), mismo patrón AJAX independiente que "Cheques por vencer" — cantidad + monto de `PagoVenta` con `Metodo=TarjetaCredito` y `EstadoAcreditacion=Pendiente`, sin filtro de período (es una obligación pendiente, no un dato del período seleccionado — mismo criterio que "Cheques por vencer", que tampoco depende del filtro de fecha del Dashboard). Link a `PagosTarjeta/Index`.
+
+**Historias de usuario**:
+- HU-9.3 (CR-59): Como Administrador, quiero ver en un único listado todos los pagos con tarjeta de crédito pendientes de acreditar, para poder gestionar su liquidación sin tener que revisar venta por venta.
+  - CA: pantalla `PagosTarjeta/Index` con filtro por Estado y rango de fecha de acreditación, ordenada por fecha de acreditación ascendente por defecto (mismo criterio que Cheques). Fila resaltada si la fecha de acreditación está a 7 días o menos.
+- HU-9.4 (CR-59): Como Administrador, quiero poder marcar un pago con tarjeta como acreditado directamente desde ese listado, para no tener que entrar a la venta individual.
+  - CA: botón "Acreditar" visible solo si el pago está Pendiente, con confirmación (SweetAlert2). Reutiliza la validación y el posteo de `AcreditarPagoAsync` sin duplicar lógica.
+- HU-9.5 (CR-59): Como Administrador, quiero ver de un vistazo en el Dashboard cuántos pagos con tarjeta están pendientes de acreditar, para saber si hay que revisar el listado completo.
+  - CA: card "Pagos con tarjeta por acreditar" con cantidad + monto total Pendiente, link directo al listado.
+
+**Impacto por capa**: ver detalle técnico completo en `3-arquitecto-mvc.md`, sección CR-59.
+
+**Riesgos de implementación**: ninguno funcional nuevo — es superficie de lectura (1 query nueva) + 1 acción ya existente y ya probada en producción (`AcreditarPagoAsync`, en uso desde CR-34).
+
 ## Historial de ajustes
+- 2026-08-27 — CR-59 (Diseño): ver sección completa "CR-59 (Diseño) — Pagos con tarjeta de crédito a liquidar" más arriba. Pantalla nueva `PagosTarjeta/Index.cshtml` (clon de `Cheques/Index.cshtml`) + card de acceso en Dashboard. Reutiliza `AcreditarPagoAsync` sin tocarlo. 3 historias de usuario nuevas (HU-9.3/9.4/9.5). Pendiente Arquitectura y Presupuesto antes de habilitar implementación.
 - 2026-08-21 — CR-55 (Diseño): ver sección completa "CR-55 (Diseño) — Nota de Crédito para anular una Factura AFIP emitida por error" más arriba. Botón "Generar Nota de Crédito" sobre factura Emitido (SweetAlert2 + motivo, mismo patrón que Cancelar OC/Rechazar cheque), reutiliza 100% el circuito AFIP ya construido. 3 historias de usuario nuevas (HU-7.6/7.7/7.8). Sin código externo reutilizable (escaneado, ningún otro proyecto tiene NC AFIP real) — se diseña sobre el propio circuito de marihogar. Pendiente Arquitectura y Presupuesto antes de habilitar implementación.
 - 2026-08-11: Diseño v9 cerrado — CR-32 (HU-5.21/5.22, precio contado/tarjeta visible + recargo real sobre el monto base cubierto por tarjeta), CR-33 (HU-5.23, edición completa de Venta bloqueada solo si ya tiene CAE real) y CR-34 (HU-5.24, acreditación diferida de tarjeta con fecha efectiva, ingreso en Caja recién al acreditar). Sobre análisis v13, 4 decisiones ya confirmadas con el cliente. Pendiente Arquitectura y Presupuesto antes de habilitar implementación.
 - 2026-07-28: Diseño v5 cerrado — CR-14 (saldo calculado en CC Local/Proveedores), CR-15 (fecha de emisión de cheque por defecto en OC), CR-16 (mayúsculas Proveedor/Producto). 4 historias de usuario nuevas (HU-11.4, HU-13.3, HU-12.9, HU-2.5). Sin wireframe nuevo.

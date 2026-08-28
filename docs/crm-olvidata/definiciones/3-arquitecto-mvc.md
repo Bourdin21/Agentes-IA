@@ -1,7 +1,7 @@
 # Memoria - Arquitecto MVC
 
 ## Proyecto: crm-olvidata — migración de BotPublicitario + evolución continua
-## Última actualización: 2026-08-16
+## Última actualización: 2026-08-27
 
 ## Definiciones vigentes
 
@@ -274,6 +274,39 @@ Secciones de configuración (`appsettings.json`): `Olvidata_WhatsApp`, `Olvidata
 - **Campo `Pais` de campaña es inferido por texto** (`Region`/`ZonaHoraria`), no un campo estructurado — suficiente para 8 países bien diferenciados en el texto; si la cantidad crece mucho valdría un campo `Pais` real en `CampanaOutbound`.
 - **Gap de pricing conocido**: "Farmacias" y "Estudios contables/jurídicos" no tienen `PrecioBaseUsd`/cotización automática — quedan siempre `DerivadoManual`, comportamiento heredado y aceptado, no una regresión.
 
+### 7.1 Arquitectura del sprint "corrección de bugs/gaps de auditoría + 3 mejoras" (2026-08-27)
+
+**Hallazgo principal: 0 migraciones EF nuevas.** Los 17 items (7 bugs + 7 gaps + 3 mejoras) son correcciones de lógica/queries/exposición de campos que **ya existen** en el esquema — `Contacto.ReferidoPor`/`MotivoReferido`/`PresupuestoCotizadoUsd` y `Cliente.PrimerAnioGratis` ya son columnas reales (sembradas en migraciones previas), solo faltaba exponerlas en ViewModels/Views. Ninguna migración pendiente para este sprint.
+
+Mapa por capa:
+
+| Item | Domain | Application | Infrastructure | Web |
+|---|---|---|---|---|
+| B1 (truncado) | — | helper `Truncar` (o mover a Application si no existe ya) | `OutboundCampaignService` (8 call sites + catch) | — |
+| B2 (rebalanceo por día) | — | — | `OutboundCampaignService.RebalancearMatrizAsync` | — |
+| B3 (polling no pisa lectura) | — | — | `MensajesProgramadosSchedulerService` | `ChatsController.HiloParcial` + JS de `Chats/Detail.cshtml` |
+| B4 (etiquetas de evento) | — | — | — | `ChatsController.EtiquetasDeEvento` |
+| B5 (bloquear rename) | — | — | — | `TemplatesController.Edit` |
+| B6 (fórmula única) | — | nuevo método compartido | `OutboundCampaignService` (fuente) | `ContactosController`, `CampanasController` (consumidores) |
+| B7 (canal Referido) | — | ViewModels | — | `ContactosController` Create/Edit + vistas |
+| G1 (templates dinámicos) | — | — | `OutboundCampaignService.BuildComponents` | — |
+| G2 (shuffle + `UltimaCorridaUtc` en manual) | — | — | `OutboundCampaignService`/`OutboundSchedulerService` | `BotController.EjecutarAhora` |
+| G3 (`PrimerAnioGratis` en alta) | — | `ConvertirClienteViewModel` | — | `ClientesController.ConvertirDesdeContacto` + vista |
+| G4 (`PresupuestoCotizadoUsd` editable) | — | ViewModels | — | `ContactosController` Create/Edit + vistas |
+| G5 (AJAX → JSON) | — | — | — | `ChatsController` (2 acciones) + JS de `Chats/Index.cshtml` |
+| G6 (`ExecuteUpdateAsync`) | — | — | — | `ChatsController.MarcarTodosLeidos` |
+| G7 (aviso + conteo huérfanos) | — | — | — | `IndustriasController.Delete`, `CampanasController.EliminarIndustria` |
+| M-A (constante compartida) | — | nuevo `MensajeriaHelpers` | 3 archivos consumen | `ChatsController` consume |
+| M-B (reclasificación asistida) | — | — | — | mismo alcance que G7 + modal nuevo |
+| M-C (`/Bot/Salud`) | — | — | nuevo método de diagnóstico (o en `OutboundCampaignService`) | `BotController` (o controller nuevo) + vista nueva |
+
+**Riesgos técnicos identificados:**
+- **B3**: cambia el contrato de `HiloParcial` (necesita saber cuál fue el último mensaje ya renderizado en el cliente para decidir si hay novedad real) — requiere mandar un parámetro nuevo desde el JS (`últimoIdRenderizado`). Retrocompatible: si no llega el parámetro, se puede mantener el comportamiento actual como fallback, pero el objetivo es que el JS de `Chats/Detail.cshtml` siempre lo mande.
+- **G1**: alcance reducido a propósito (ver Diseño) — templates de catálogo con botones QUICK_REPLY siguen sin poder darse de alta por UI en este sprint. Aceptado como deuda declarada, no bug nuevo.
+- **G6**: `ExecuteUpdateAsync` requiere EF Core 7+; este proyecto corre EF Core sobre .NET 10, sin incompatibilidad.
+- **M-C**: es la única pieza genuinamente nueva (no fix) — página de solo lectura, sin riesgo de escritura; el cálculo de "contactos huérfanos por rubro" reutiliza la misma query que ya usa el `Delete` de industrias (G7), no se reinventa.
+- Ninguno de los 17 items toca `AppDbContext.SaveChanges` (auditoría automática) ni el esquema de Identity/roles — impacto de seguridad nulo.
+
 ### 8. Estrategia de pruebas
 
 QA manual (sin automatización de navegador, preferencia ya establecida del estudio): validar cada historia de usuario contra la base de desarrollo — webhook simulado con curl/Postman (mensaje nuevo, respuesta de calificación, reintento con mismo `message_id`), verificación de datos persistidos en `Contacto`/`ContactoRespuesta`, prueba manual del scheduler fuera de horario (invocar el `IHostedService` sin esperar el cronograma real).
@@ -284,5 +317,6 @@ QA manual (sin automatización de navegador, preferencia ya establecida del estu
 - 2026-07-24: Ajuste exprés de UI de Notificaciones — solo capa Presentación (ícono + `Swal.fire` en vez de `confirm()` nativo), sin migración ni paquetes nuevos.
 - 2026-08-14: Corrección de `EstadoEmbudo` (se retiran 6-8, nunca implementados) y `DiasSemana` (de 3 a 7 días reales). Corrección del modelo de permisos: las policies `RequireVendedor`/`RequireAdministracion` no existen, todo el sistema usa `RequireSuperUsuario` desde el 2026-07-21. Arquitectura retroactiva de Chats/scheduler multi-zona/multimedia: 3 campos nuevos en Domain, `IWhatsAppClient` extendida, 3 hosted services nuevos, `ChatsController` nuevo, 5 migraciones EF + `RemoveAuditLog` (ya aplicada el 2026-07-28).
 - 2026-08-14: Arquitectura de "Gestión comercial y herramientas de canal/venta" cerrada. 5 entidades Domain (`Cliente`, `Upsell`, `TemplateWhatsApp`, `CampanaExperimento`, `SugerenciaSeguimiento`) + 1 enum + 1 campo en `ContactoRespuesta`, 5 controllers nuevos/extendidos, migración `AddGestionComercial`. Split A/B sembrado por contacto, NRR con "datos insuficientes" explícito.
+- 2026-08-27: Arquitectura del sprint "corrección de bugs/gaps de auditoría + 3 mejoras" cerrada. **0 migraciones EF nuevas** — todos los campos necesarios (`ReferidoPor`/`MotivoReferido`/`PresupuestoCotizadoUsd` de `Contacto`, `PrimerAnioGratis` de `Cliente`) ya existían en el esquema, solo faltaba exponerlos. 17 items mapeados por capa, ningún cambio toca Domain ni Identity/permisos.
 - 2026-08-16: Reestructuración documental — este archivo tenía 4 secciones fechadas acumuladas (Arquitectura base 2026-07-14, Campañas 2026-07-21, Notificaciones 2026-07-24, Chats retroactiva + Gestión comercial 2026-08-14) con correcciones en notas al pie sobre contenido ya obsoleto. Consolidado en una única sección "Definiciones vigentes" (Domain/Application/Infrastructure/Web/Permisos/Migraciones/Riesgos, editada in-place de ahora en más) + este historial cronológico de una línea por cambio. Ningún dato funcional se perdió en la consolidación (verificado contra las 4 secciones originales: entidades, enums, servicios, hosted services, controllers, migraciones y riesgos técnicos).
 - 2026-08-16: Mejora del barrido de Google Maps + detección de campaña "Completa". Paginación real en `SearchAsync` (hasta 3 páginas/60 resultados por query, antes solo la primera). Tracking de rendimiento por industria (`CampanaOutboundIndustria.RachaSinResultadosNuevos`/`SinResultadosNuevos`, umbral 5 corridas seguidas sin prospectos nuevos) y marca automática de campaña `Completa` (`CampanaOutbound.Completa`/`FechaCompletada`) cuando todas sus industrias se agotan, con notificación in-app a `SuperUsuario` — sin tocar `Activa`, el backlog ya encontrado sigue enviándose. Acción nueva `CampanasController.ReabrirBusqueda`. Migración `AddCampanaBusquedaCompleta` (4 columnas aditivas).

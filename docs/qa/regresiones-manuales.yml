@@ -26,7 +26,7 @@
 
 version: 1
 proyecto: ShowroomGriffin
-ultima_actualizacion: 2026-08-21
+ultima_actualizacion: 2026-08-28
 
 regresiones:
 
@@ -1783,3 +1783,154 @@ regresiones:
           motivo: "Encabezados 'Descuento %' / 'Recargo %' y celdas con sufijo '%' en vez de prefijo '$'. Replica exacta del criterio ya aplicado en Editar.cshtml en el mismo commit del cambio de unidad; cero logica de negocio nueva."
       build: "dotnet build FerreteriaLaPlatense.slnx -> Compilacion correcta, 0 Errores."
       verificacion: "Verificado por navegador real contra laplatense_dev sobre la venta 8 (Facturada): la fila pasa de '21,00 % | $ 10,00 | $ 5,00 | $ 13.041,00' a '21,00 % | 10,00 % | 5,00 % | $ 13.041,00'. Subtotal, IVA ($ 2.738,61) y Total ($ 15.779,61) sin cambios."
+
+  - id: MH-014
+    modulo: "Pagos con tarjeta / Index (PagosTarjeta/Index.cshtml, columna 'Fecha de pago' — CR-59)"
+    titulo: "La columna 'Fecha de pago' del listado nuevo aplica moment.utc() sobre PagoVenta.Fecha, que es un INSTANTE REAL en UTC y no una fecha calendario pura: para pagos registrados entre las 21:00 y las 23:59 de Argentina el listado muestra un dia mas que Ventas/Details y Ventas/Index para el mismo pago"
+    severidad: minor
+    reproducido_en: "marihogar - master (working tree), CR-59 (2026-08-27). Hallado por QA por revision de codigo comparada contra la regla ya establecida en MH-009 y contra las 2 superficies que ya renderizan el mismo campo (Views/Ventas/Details.cshtml linea 81, Views/Ventas/Index.cshtml linea 147). No verificado en navegador (MCP de Playwright no expuesto en la sesion)."
+    pasos:
+      - "Confirmar una Venta con un pago con Tarjeta de credito entre las 21:00 y las 23:59 hora Argentina (o forzar en marihogar_dev un PagosVenta.Fecha con hora UTC >= 03:00 del dia siguiente al dia argentino real, ej. '2026-08-28 01:30:00' para un pago del 27/08 a las 22:30 AR)."
+      - "Como Administrador, abrir /PagosTarjeta/Index y mirar la columna 'Fecha de pago' de ese pago."
+      - "Abrir /Ventas/Details/{ventaId} de la misma venta y mirar la fecha del mismo pago en la card de Formas de pago."
+    sintoma: "PagosTarjeta/Index muestra 28/08/2026 mientras Ventas/Details muestra '27/08/2026 22:30' y Ventas/Index muestra '27/08/2026 22:30' para exactamente el mismo PagoVenta. El Administrador ve dos fechas distintas del mismo cobro segun la pantalla por la que entre."
+    expectativa: "Un campo que representa un INSTANTE REAL (PagoVenta.Fecha, poblado con DateTime.UtcNow o con HorarioArgentino.ConvertirAUtc(...), con componente de hora verdadero) debe convertirse a hora Argentina antes de mostrarse, igual que Ventas/Index (moment(d).format('DD/MM/YYYY HH:mm')) y Ventas/Details (HorarioArgentino.Convertir(p.Fecha)). moment.utc() esta reservado para las FECHAS CALENDARIO PURAS (las persistidas con .Date), que en esta misma pantalla son unicamente FechaAcreditacionEfectiva."
+    causa_raiz: "Al clonar Cheques/Index.cshtml se copio el patron moment.utc(d).format('DD/MM/YYYY') para las DOS columnas de fecha del listado nuevo. En Cheques ese patron es correcto porque su unica columna de fecha (fechaVencimiento) es una fecha calendario pura (Cheque.FechaVencimiento = linea.FechaVencimientoCheque.Value.Date) y fue justamente el fix de MH-009. En PagosTarjeta/Index hay dos columnas con semantica DISTINTA: fechaAcreditacionEfectiva SI es fecha pura (VentaService.ConfirmarAsync / PagoVentaService.RegistrarPagoAsync la persisten con .Value.Date) y moment.utc es correcto ahi, pero fecha (PagoVenta.Fecha) es un instante real en UTC (VentaService.cs lineas 330/334: HorarioArgentino.ConvertirAUtc(input.Fecha.Value.Date + horaArgentinaAhora.TimeOfDay) o DateTime.UtcNow). Aplicarle moment.utc anula la conversion -3h que el converter global (UnspecifiedAsUtcDateTimeConverter) esta justamente ahi para habilitar. Es el error espejo de MH-009: alla se aplicaba la conversion a un campo que no la necesitaba, aca se suprime en un campo que si la necesita."
+    capa: Web
+    archivos_fix:
+      - path: MariHogar.Web/Views/PagosTarjeta/Index.cshtml
+        motivo: "Columna 'fecha' (Fecha de pago): moment.utc(d).format('DD/MM/YYYY') -> moment(d).format('DD/MM/YYYY HH:mm'), mismo render exacto que la columna 'fecha' de Ventas/Index.cshtml. NO tocar la columna fechaAcreditacionEfectiva, que con moment.utc ya esta correcta (fecha calendario pura, criterio de MH-009)."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-08-27"
+      por: "Joaquin (directo, no delegado — cambio de una linea con fix ya propuesto textualmente por QA)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Web/Views/PagosTarjeta/Index.cshtml
+          motivo: "Columna 'fecha': moment.utc(d).format('DD/MM/YYYY') -> moment(d).format('DD/MM/YYYY HH:mm'). Columna fechaAcreditacionEfectiva sin tocar."
+      build: "dotnet build MariHogar.Web/MariHogar.Web.csproj -> 0 Errores."
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "POST /PagosTarjeta/GetData con al menos 1 pago cuyo PagosVenta.Fecha tenga hora UTC entre 00:00 y 02:59 (es decir, un pago hecho entre las 21:00 y las 23:59 hora Argentina del dia anterior) — comparar el dia mostrado en la columna 'Fecha de pago' contra el dia mostrado por /Ventas/Details/{ventaId} para el mismo pago."
+      condicion_falla: "El dia calendario de la columna 'Fecha de pago' de PagosTarjeta/Index difiere del dia mostrado para el mismo PagoVenta en Ventas/Details o Ventas/Index."
+    criterio_aceptacion:
+      - "Un pago con tarjeta registrado a las 22:30 AR del 27/08 se muestra como 27/08 en PagosTarjeta/Index, igual que en Ventas/Index y Ventas/Details."
+      - "La columna 'Fecha de acreditacion' sigue mostrando el mismo dia guardado sin corrimiento (no se toca: es fecha pura, MH-009 ya resuelto con moment.utc)."
+      - "Sin regresion en el resaltado de fila 'vence proximo' (venceProximo se calcula server-side sobre FechaAcreditacionEfectiva.Date vs DateTime.Today, no depende de la presentacion de ninguna de las dos columnas)."
+    pruebas_minimas:
+      - "Con un PagoVenta real de marihogar_dev con Metodo=TarjetaCredito y Fecha con hora UTC < 03:00: confirmar que PagosTarjeta/Index y Ventas/Details muestran el mismo dia."
+      - "Con un pago de horario diurno (ej. 14:00 AR = 17:00 UTC): confirmar que no cambia de dia con el fix (caso mayoritario, no debe haber regresion visible)."
+    nota_generalizacion: "Patron generalizable a cualquier proyecto con un converter global que fuerza Kind=Utc antes de serializar: al clonar una pantalla que ya tiene el fix de MH-009 aplicado (moment.utc), NO copiar ese moment.utc a las columnas de fecha nuevas sin clasificar antes cada campo en 'instante real' (persistido con DateTime.UtcNow / conversion desde hora local) vs 'fecha calendario pura' (persistida con .Date / DateTime.Today). moment.utc solo corresponde al segundo grupo. Regla barata de chequeo: si el campo se muestra con HH:mm en alguna otra pantalla del sistema, es un instante real y va moment(d), no moment.utc(d)."
+
+  - id: MH-015
+    modulo: "Pagos con tarjeta / Index (PagosTarjeta/Index.cshtml, columna 'Cuotas' — CR-59)"
+    titulo: "La columna 'Cuotas' se renderiza ordenable (default de DataTables) pero 'cantidadCuotas' no esta en el switch de SortColumn de VentaService.ListarPagosTarjetaAsync: al clickear el encabezado la flecha cambia y el listado se reordena por fecha de acreditacion, no por cuotas"
+    severidad: trivial
+    reproducido_en: "marihogar - master (working tree), CR-59 (2026-08-27). Hallado por QA por revision de codigo (mismo mecanismo ya catalogado como CRM-003 en olvidata-crm). No verificado en navegador (MCP de Playwright no expuesto en la sesion)."
+    pasos:
+      - "Como Administrador, abrir /PagosTarjeta/Index con al menos 3 pagos con distinta CantidadCuotas y distinta FechaAcreditacionEfectiva."
+      - "Clickear el encabezado 'Cuotas'."
+    sintoma: "La flecha de orden aparece sobre 'Cuotas' pero las filas se reordenan por Fecha de acreditacion (rama default del switch). Clickear de nuevo invierte ese orden por fecha, nunca por cuotas."
+    expectativa: "O la columna ordena de verdad por CantidadCuotas, o no se ofrece como ordenable (orderable: false) para no prometer una interaccion que el servidor no implementa. Mismo criterio que el implementador ya aplico deliberadamente en esta misma pantalla con 'searching: false' (el service no implementa SearchValue, asi que se oculto el buscador en vez de dejarlo inerte)."
+    causa_raiz: "VentaService.ListarPagosTarjetaAsync mapea 'ventaId'/'clienteNombre'/'monto'/'fecha'/'estado' en el switch de request.SortColumn; 'cantidadCuotas' no esta mapeado ('fechaAcreditacionEfectiva' tambien cae en la rama default, pero ahi es a proposito y esta bien). Del lado de la vista, DataTables marca ordenable toda columna salvo las que declaran orderable:false — la columna de Cuotas no lo declara. Patron heredado de Cheques/Index (donde 'proveedorNombre' y 'cuota' tienen exactamente el mismo problema), no introducido por CR-59, pero replicado en superficie nueva."
+    capa: Web
+    archivos_fix:
+      - path: MariHogar.Web/Views/PagosTarjeta/Index.cshtml
+        motivo: "Columna Cuotas: agregar orderable: false. Opcion alternativa (mas trabajo, mismo resultado funcional): agregar la rama 'cantidadCuotas' al switch de VentaService.ListarPagosTarjetaAsync. Elegir una sola; no aplicar las dos."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-08-27"
+      por: "Joaquin (directo, no delegado — cambio de una linea)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Web/Views/PagosTarjeta/Index.cshtml
+          motivo: "Columna 'cantidadCuotas': agregado orderable: false."
+      build: "dotnet build MariHogar.Web/MariHogar.Web.csproj -> 0 Errores."
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /PagosTarjeta/Index -> click en el <th>Cuotas</th> del DataTable #tablaPagosTarjeta"
+      condicion_falla: "El encabezado Cuotas tiene la clase sorting/sorting_asc de DataTables (es clickeable) y al clickearlo el orden de la columna Cuotas no queda monotono."
+    criterio_aceptacion:
+      - "El encabezado 'Cuotas' no ofrece orden (sin flecha, sin cursor de click) o, si lo ofrece, reordena realmente por cantidad de cuotas."
+      - "Sin regresion en el orden por defecto (Fecha de acreditacion ascendente) ni en las columnas que si ordenan bien (Venta, Cliente, Monto, Fecha de pago, Estado)."
+    pruebas_minimas:
+      - "Click en cada encabezado ordenable y confirmar que el orden resultante corresponde a esa columna (o que el encabezado no es clickeable)."
+    nota_generalizacion: "Mismo mecanismo que CRM-003 (olvidata-crm). Regla preventiva al clonar un DataTable server-side: la lista de columnas de la vista y el switch de SortColumn del service tienen que cubrir exactamente el mismo conjunto — toda columna que no este en el switch va con orderable:false, salvo la que corresponde deliberadamente a la rama default."
+
+  - id: CRM-015
+    modulo: "Matriz de modulos MVP/FULL — generador del borrador de propuesta (Application/Services/PropuestaMvpFullService.cs, helper Minuscula)"
+    titulo: "Los modulos cuyo nombre EMPIEZA con una sigla salen deformados en el mensaje que se copia al WhatsApp del cliente: 'ABM Cuadrilla' -> 'aBM Cuadrilla', 'SEO basico y deploy' -> 'sEO basico y deploy', 'CRM de WhatsApp' -> 'cRM de WhatsApp'"
+    severidad: major
+    reproducido_en: "olvidata-crm - master (working tree sin commitear), feature matriz de modulos MVP/FULL (2026-08-28). Reproducido por QA ejecutando POST /Modulos/GenerarMensaje contra olvidatacrm_dev."
+    pasos:
+      - "Como SuperUsuario, entrar a /Modulos/Presupuesto y elegir 'Utilities / gestion de reclamos y cuadrillas'."
+      - "Dejar los imprescindibles pre-tildados y apretar 'Generar mensaje'."
+      - "Leer el texto generado en el textarea."
+    sintoma: "El mensaje listo para copiar/pegar al cliente dice 'aBM Cuadrilla, aBM Materiales, aBM Reclamo, aBM Tipo de servicio'. En Landing page sale 'sEO basico y deploy'; en Alquiler de maquinaria, 'cRM de WhatsApp (bandeja de conversaciones)'. Es el texto que Joaquin manda tal cual por WhatsApp despues de una demo."
+    expectativa: "Una sigla al inicio del nombre se mantiene intacta ('ABM Cuadrilla', 'SEO basico y deploy', 'CRM de WhatsApp'), igual que ya se mantienen las siglas del medio del nombre (AFIP/ARCA, QR, IA, WhatsApp). Solo se baja la inicial cuando es una palabra normal capitalizada por vivir en una grilla ('Stock e inventario' -> 'stock e inventario')."
+    causa_raiz: "PropuestaMvpFullService.Minuscula() baja SIEMPRE la primera letra con char.ToLower(nombre[0]) para que el nombre entre en una frase corrida. El comentario del propio metodo declara la intencion de no romper siglas, pero solo contempla las que estan en el medio del nombre (por eso no usa ToLower() completo); el caso de la sigla en la PRIMERA palabra no esta contemplado y produce el capitalizado mixto 'aBM'. Afecta a 9 de los 84 modulos del seed, todos ellos imprescindibles en su rubro (o sea: caen dentro de los 4 items que el mensaje lista explicitamente), en 4 de los 9 rubros con matriz."
+    capa: Application
+    archivos_fix:
+      - path: OlvidataCRM.Application/Services/PropuestaMvpFullService.cs
+        motivo: "Minuscula(): no bajar la inicial cuando los 2 primeros caracteres son mayusculas (sigla al inicio). Deja intacto el resto del comportamiento."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-08-28"
+      por: "QA (auto-fix, sin logica de negocio nueva — restaura la intencion ya declarada en el comentario del propio metodo)"
+      resultado: "aplicado"
+      archivos:
+        - path: OlvidataCRM.Application/Services/PropuestaMvpFullService.cs
+          motivo: "Guard de sigla inicial en Minuscula()."
+      build: "dotnet build -c Release --no-incremental -> 0 Errores / 13 Advertencias (mismo baseline)."
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /Modulos/GenerarMensaje con industriaId=8 (Utilities) y los moduloIds imprescindibles del rubro"
+      condicion_falla: "El campo 'texto' de la respuesta contiene una minuscula seguida inmediatamente de 2+ mayusculas al inicio de un item enumerado (regex: (^|[ ,:])[a-z][A-Z]{2,})."
+    criterio_aceptacion:
+      - "El mensaje de Utilities lista 'ABM Cuadrilla', 'ABM Materiales', 'ABM Reclamo', 'ABM Tipo de servicio' con la sigla intacta."
+      - "El mensaje de Landing page lista 'SEO basico y deploy'; el de Alquiler de maquinaria, 'CRM de WhatsApp (bandeja de conversaciones)'."
+      - "Sin regresion en los nombres que SI deben bajar la inicial: Retail sigue diciendo 'catalogo con variantes de color y talle', 'stock e inventario'."
+      - "Las siglas del medio del nombre siguen intactas: 'facturacion electronica AFIP/ARCA', 'reserva con QR'."
+    pruebas_minimas:
+      - "Generar el mensaje de los 9 rubros con matriz y confirmar que ningun item enumerado presenta el patron minuscula+2 mayusculas."
+      - "Generar el mensaje de Retail y confirmar que los nombres normales siguen bajando la inicial dentro de la frase."
+    nota_generalizacion: "Patron generalizable a cualquier helper que 'des-capitaliza' un nombre de catalogo para meterlo en una frase corrida: bajar nombre[0] a ciegas rompe todo nombre que empiece con sigla. Regla barata: si los 2 primeros caracteres son mayusculas, es una sigla y se deja como esta. Aplica igual al camino inverso (capitalizar la inicial de un texto que empieza con sigla en minusculas)."
+
+  - id: CRM-016
+    modulo: "Bot conversacional — mapeo rubro dialogo -> industria de catalogo (Application/Helpers/RubroHelpers.cs, diccionario IndustriaACatalogoNombre)"
+    titulo: "Todo contacto del rubro 'comercio' que responde el bot recibe el checklist de modulos MVP de 'Alquiler de maquinaria' en vez del de 'Retail / comercio minorista', por una entrada mal apuntada en el diccionario de mapeo"
+    severidad: major
+    reproducido_en: "olvidata-crm - master (deploy 2026-08-28, mismo dia del feature de la matriz MVP/FULL). Reproducido por lectura de codigo (RubroHelpers.cs + BotFlowService.cs) y confirmado contra datos reales de produccion (MYSQL5044.site4now.net) consultando ModuloCatalogoIndustrias/ModulosCatalogo para IndustriaCatalogoId=2 (Retail) vs Id=4 (Alquiler de maquinaria)."
+    pasos:
+      - "Como contacto nuevo con ClaveRubro='comercio' (o cualquier prospecto de una campana outbound comercio-*), responder 'Hola' al bot de WhatsApp."
+      - "Contestar la pregunta de rubro/confirmacion hasta llegar a la Pregunta 1 (dolor/checklist de modulos)."
+      - "Leer los items del checklist que arma el bot."
+    sintoma: "El checklist muestra modulos de alquiler de equipos ('Reserva con QR', 'Devolucion con QR', 'Checklist de vencimientos', garantia con tarjeta) en vez de modulos de retail ('Stock e inventario', 'Catalogo con variantes de color y talle', 'Cuenta corriente de clientes'). El mismo bug afecta el campo 'Plan' del brief que se le manda al admin (ResolveIndustriaCatalogoAsync), que muestra el nombre de catalogo de Alquiler de maquinaria para un contacto de comercio."
+    expectativa: "Un contacto de rubroBase 'comercio' debe resolver a IndustriaCatalogo 'Retail / comercio minorista (indumentaria, calzado, decoracion)' (Id=2), tanto en el checklist de la Pregunta 1 como en el campo Plan del brief admin. El rubroBase 'maquinaria' (dialogo 'Alquiler de maquinaria') sigue resolviendo a Id=4 sin cambios — son 2 rubroBase con nombres de dialogo distintos, sin ambiguedad real entre ellos."
+    causa_raiz: "RubroHelpers.IndustriaACatalogoNombre['Comercio o alquiler de maquinaria'] apuntaba a 'Alquiler de maquinaria' (Id=4) en vez de 'Retail / comercio minorista...' (Id=2). Error de origen (probable confusion por el propio nombre de dialogo, que contiene literalmente la frase 'alquiler de maquinaria' como texto), heredado sin cambios cuando CRM-007 extrajo este diccionario a RubroHelpers.cs — CRM-007 corrigio el USO de ClaveRubro vs Nombre de catalogo en IndustriasController, pero nunca audito los VALORES del diccionario en si. Se detecto porque las 176 campanas outbound nuevas de la expansion nacional (2026-08-28) resolvieron independientemente comercio->Id=2 a partir de datos reales existentes, contradiciendo la guia (incorrecta) dada a los agentes implementadores, lo que disparo la revision manual de esta entrada."
+    capa: Application
+    archivos_fix:
+      - path: OlvidataCRM.Application/Helpers/RubroHelpers.cs
+        motivo: "IndustriaACatalogoNombre['Comercio o alquiler de maquinaria']: corregido de 'Alquiler de maquinaria' a 'Retail / comercio minorista (indumentaria, calzado, decoracion)'."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-08-28"
+      por: "Implementador (fix directo, 1 linea, sin agente delegado por ser correccion de dato puntual ya verificada contra produccion)"
+      resultado: "aplicado"
+      archivos:
+        - path: OlvidataCRM.Application/Helpers/RubroHelpers.cs
+          motivo: "Correccion del valor de mapeo comercio -> Retail."
+      build: "dotnet build -c Release -> 0 Errores / 13 Advertencias (mismo baseline)."
+      deploy: "dotnet publish + Web Deploy a olvidatasoft-002-site12, portal.olvidata.com.ar verificado 200 OK post-deploy."
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "Consulta directa: valor de RubroHelpers.IndustriaACatalogoNombre['Comercio o alquiler de maquinaria'] debe ser 'Retail / comercio minorista (indumentaria, calzado, decoracion)'."
+      condicion_falla: "El valor mapeado para la clave 'Comercio o alquiler de maquinaria' coincide con el nombre de catalogo de cualquier IndustriaCatalogo distinta a Retail (en particular, con 'Alquiler de maquinaria')."
+    criterio_aceptacion:
+      - "Un contacto de rubroBase 'comercio' ve en la Pregunta 1 modulos de retail (stock, variantes, cuenta corriente), no de alquiler de equipos."
+      - "El brief admin de un contacto de comercio muestra Plan = Retail / comercio minorista, no Alquiler de maquinaria."
+      - "Un contacto de rubroBase 'maquinaria' sigue viendo modulos de Alquiler de maquinaria sin cambios (no regresion)."
+    pruebas_minimas:
+      - "ModulosMvpDelRubroAsync('Comercio o alquiler de maquinaria') devuelve los modulos imprescindibles de Retail (Id=2), no los de Id=4."
+      - "ModulosMvpDelRubroAsync('Alquiler de maquinaria') sigue devolviendo los modulos de Id=4 sin cambios."
+    nota_generalizacion: "Segunda instancia del mismo patron raiz que CRM-007/CRM-010: un diccionario de mapeo entre vocabularios (ClaveRubro / nombre de dialogo del bot / nombre de IndustriaCatalogo) tenia un valor nunca verificado contra datos reales. Cuando se migra o refactoriza un diccionario de mapeo de este tipo (RubroHelpers.cs concentra 3 vocabularios distintos), conviene validar CADA valor contra la matriz real de datos (ModuloCatalogoIndustrias, campanas outbound existentes), no solo la mecanica de acceso (ClaveRubro vs Nombre)."
