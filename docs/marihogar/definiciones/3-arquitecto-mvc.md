@@ -459,7 +459,51 @@ El bloque `PagosVentaPorAcreditar` (ya agregado por CR-29, hoy filtra solo `Fech
 | Duplicar la acción "Acreditar" en 2 controllers (`VentasController.AcreditarPago` ya existente + la nueva de `PagosTarjetaController`) podría divergir si alguna cambia sin la otra | Bajo | Ambas llaman al mismo `IVentaService.AcreditarPagoAsync` sin duplicar lógica — la única diferencia es el `RedirectToAction` de destino (Details de la Venta vs. Index del listado nuevo), no hay 2 implementaciones del negocio. |
 | Card de Dashboard sin filtro de período podría confundir si el usuario espera que respete el rango de fecha seleccionado arriba | Bajo | Mismo comportamiento ya establecido y aceptado por "Cheques por vencer" (tampoco respeta el filtro) — consistente con el resto de la pantalla, no es un caso nuevo. |
 
+### CR-61 (Arquitectura) — Stock: listado de productos con edición inline reemplaza Ajuste manual
+
+**Domain**: sin cambios. `Producto.StockActual` sigue siendo columna real; `MovimientoStock` sigue siendo ledger inmutable, `Tipo=Ajuste` sigue exigiendo `Motivo` no vacío (invariante preservada — el motivo pasa a generarse server-side, no a eliminarse).
+
+**Application**:
+- `IStockService` pierde `AjustarAsync(AjusteStockInput)` y gana:
+  ```csharp
+  Task<ServiceResult<int>> ActualizarStockAsync(int productoId, int nuevoStock, string usuarioId);
+  ```
+  Devuelve el `StockActual` resultante (mismo valor que `nuevoStock` si tuvo éxito) — el JS lo usa para confirmar visualmente sin tener que re-consultar.
+- `AjusteStockInput`/`AjusteStockFormViewModel` se eliminan (sin más consumidores tras retirar `Ajuste.cshtml`).
+- `MovimientoStockFiltro`/`MovimientoStockListItemDto` sin cambios — siguen siendo el contrato de `Stock/Movimientos`.
+
+**Infrastructure** (`StockService.cs`):
+- `ActualizarStockAsync` (nuevo, reemplaza `AjustarAsync`):
+  1. Carga `Producto` por Id (404/error si no existe).
+  2. Guard defensivo `nuevoStock < 0` → error (el cliente ya lo previene con `min="0"`, pero nunca se confía solo en eso).
+  3. `delta = nuevoStock - producto.StockActual`. Si `delta == 0`: retorna éxito sin abrir transacción ni escribir `MovimientoStock` (evita ruido en el ledger por ediciones sin cambio real).
+  4. Si `delta != 0`: misma transacción que tenía `AjustarAsync` (`BeginTransactionAsync`) — `producto.StockActual = nuevoStock`, crea `MovimientoStock { Tipo = Ajuste, Cantidad = delta, Motivo = "Ajuste desde listado de Stock", UsuarioId = usuarioId, Fecha = DateTime.UtcNow }`, `SaveChangesAsync` + `CommitAsync`, catch con `RollbackAsync`.
+  5. **Sin la lógica de `ConfirmarNegativo`** de `AjustarAsync` — ya no aplica: al reemplazar (no sumar/restar), un `nuevoStock` negativo es simplemente inválido, no una decisión de negocio a confirmar. Simplificación real respecto del código viejo, no solo un recorte de alcance.
+- `ListarMovimientosAsync` sin cambios de lógica — se mantiene tal cual, solo cambia qué acción/vista la consume.
+
+**Web**:
+- `StockController.cs`:
+  - `Index()` — nueva implementación: arma el listado de productos (reutiliza `IProductoService.ListarAsync`/`ProductoFiltro` tal cual los usa `ProductosController.GetData`, sin duplicar la query). Sigue `[Authorize(Policy = "RequireAdministracion")]` a nivel de clase, sin cambios de permisos.
+  - `GetData()` — pasa a llamar `_productoService.ListarAsync` en vez de `_stockService.ListarMovimientosAsync`.
+  - `Movimientos()` (nuevo, GET) + `GetMovimientosData()` (renombre de la vieja `GetData()`) — contenido idéntico al `Index`/`GetData` viejos, solo renombrados.
+  - `ActualizarStock(int productoId, int nuevoStock)` (nuevo, POST, `[ValidateAntiForgeryToken]`) — llama `_stockService.ActualizarStockAsync`, devuelve `Json(result)` (no `RedirectToAction`, es un endpoint AJAX puro).
+  - `Ajuste(...)` (GET/POST) y `GetStockActual(...)` — **eliminados**.
+- `Views/Stock/Index.cshtml` — nueva, clon de `Productos/Index.cshtml` con la columna Stock reemplazada por el input editable + JS de guardado AJAX por celda (fetch/`$.post` con `RequestVerificationToken`, mismo patrón de token ya usado en cualquier POST AJAX del proyecto, ej. `Cheques/Index.cshtml`).
+- `Views/Stock/Movimientos.cshtml` — renombre exacto de la vieja `Index.cshtml`, sin cambios de contenido; su `ajax.url` pasa a apuntar a `Stock/GetMovimientosData`.
+- `Views/Stock/Ajuste.cshtml` — **eliminada**.
+- `ProductosController.cs`/`Productos/Index.cshtml` — el botón "Ajustar stock" cambia su `href` de `Stock/Ajuste?productoId=X` a `Stock/Index?nombre={nombreProducto}` (usa el filtro Nombre ya existente en el `ProductoFiltro` reutilizado).
+
+**Migración EF**: ninguna — no hay cambio de esquema en absoluto, `Producto`/`MovimientoStock` ya tienen todos los campos usados.
+
+**Riesgos técnicos**:
+| Riesgo | Severidad | Mitigación |
+|---|---|---|
+| Doble-submit: el usuario edita varias celdas rápido, dos requests AJAX concurrentes para el mismo producto pisan resultados | Bajo | Cada request lee `producto.StockActual` fresco de la base al momento de procesar (no confía en un valor cacheado del cliente) — el peor caso es que la segunda edición gane, comportamiento esperable en un campo "last write wins" mientras no haya bloqueo optimista explícito. `RowVersion` de `Producto` ya existe (concurrencia optimista general del proyecto) — si genera conflicto real en la práctica, ya hay mecanismo para detectarlo. |
+| Un `MovimientoStock` sin motivo tipeado por el usuario reduce trazabilidad real (todos van a decir lo mismo, "Ajuste desde listado de Stock") | Bajo | Decisión explícita del cliente, documentada en Análisis. El `UsuarioId` + `Fecha` + `Cantidad` (delta) siguen identificando exactamente quién/cuándo/cuánto — se pierde el "por qué" en texto libre, que es lo que el cliente decidió sacrificar por velocidad. |
+| Reemplazar `Stock/Index` cambia una URL que puede estar guardada en favoritos/accesos directos del cliente | Bajo | La URL sigue siendo la misma (`/Stock`) — cambia el contenido, no la ruta. Sin impacto real. |
+
 ## Historial de ajustes
+- 2026-08-27 — CR-61 (Arquitectura): ver sección completa "CR-61 (Arquitectura) — Stock: listado de productos con edición inline reemplaza Ajuste manual" más arriba. `IStockService.AjustarAsync` reemplazado por `ActualizarStockAsync` (reemplaza el stock, sin `ConfirmarNegativo` — simplificación real). `StockController` reestructurado: `Index`/`GetData` pasan a servir productos, `Movimientos`/`GetMovimientosData` nuevos para el ledger, `Ajuste`/`GetStockActual` eliminados. Sin migración EF. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.
 - 2026-08-27 — CR-59 (Arquitectura): ver sección completa "CR-59 (Arquitectura) — Pagos con tarjeta de crédito a liquidar" más arriba. Controller + vista clon de Cheques, 1 método de listado nuevo (`ListarPagosTarjetaAsync`) + 1 método de Dashboard (`ObtenerPagosTarjetaPendientesAsync`), ambos de solo lectura. `AcreditarPagoAsync` reutilizado sin cambios. Sin migración EF. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.
 - 2026-08-21 — CR-55 (Arquitectura): ver sección completa "CR-55 (Arquitectura) — Nota de Crédito AFIP" más arriba. `TipoComprobanteAfip` +2 valores (códigos reales AFIP), `ComprobanteAfip` +2 columnas (`ComprobanteAsociadoId`, `Motivo`). `AfipService` arma el bloque `CbtesAsoc` (orden verificado contra el WSDL real de AFIP). `ComprobanteAfipService.GenerarNotaCreditoAsync` nuevo, reutiliza `EmitirAsync`/`ReintentarAsync` ya existentes. 1 migración EF sin backfill. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.
 - 2026-08-11: Arquitectura v9 cerrada — CR-32 (`PagoVenta.MontoBase`, recargo 21% server-side, `MovimientoCCLocal` posteado por línea de pago en vez de por Total), CR-33 (`VentaService.EditarAsync` nuevo, bloqueado si hay CAE real), CR-34 (`PagoVenta.EstadoAcreditacion`/`FechaAcreditacionEfectiva`, `AcreditarPagoAsync` nuevo, ingreso diferido hasta acreditar). 1 migración EF combinada. Riesgos documentados, incluido el guard de Entrega asociada a revisar en `EditarAsync`. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.

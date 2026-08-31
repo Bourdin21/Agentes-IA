@@ -1857,6 +1857,80 @@ regresiones:
       - "Click en cada encabezado ordenable y confirmar que el orden resultante corresponde a esa columna (o que el encabezado no es clickeable)."
     nota_generalizacion: "Mismo mecanismo que CRM-003 (olvidata-crm). Regla preventiva al clonar un DataTable server-side: la lista de columnas de la vista y el switch de SortColumn del service tienen que cubrir exactamente el mismo conjunto — toda columna que no este en el switch va con orderable:false, salvo la que corresponde deliberadamente a la rama default."
 
+  - id: MH-016
+    modulo: "Stock / edicion inline (StockService.ActualizarStockAsync — CR-61) x Aumento masivo de precios (AumentoMasivoPrecioService)"
+    titulo: "Cada edicion inline de stock reasigna Producto.RowVersion (token de concurrencia optimista): una carga masiva de stock invalida en silencio la previsualizacion abierta de Aumento masivo de precios y aborta el lote entero; ademas ActualizarStockAsync no captura DbUpdateConcurrencyException y filtra el mensaje crudo de EF en ingles al toast del usuario"
+    severidad: minor
+    reproducido_en: "marihogar - master (working tree), CR-61 (2026-08-31). Hallado por QA por revision de codigo cruzada (AppDbContext.OnBeforeSaveChanges linea 622-626 + AumentoMasivoPrecioService.AplicarAsync lineas 83-91 + StockService.ActualizarStockAsync lineas 91-115). No verificado en navegador (MCP de Playwright no expuesto en la sesion). No es un defecto introducido por CR-61 en sentido estricto — AjustarAsync tenia el mismo comportamiento — pero CR-61 multiplica por uno o dos ordenes de magnitud la cantidad de writes sobre Producto (su proposito declarado es 'carga masiva de stock'), y ninguna de las 4 definiciones (1/2/3/5) menciona RowVersion ni Aumento masivo entre las invariantes a preservar."
+    pasos:
+      - "Como Administrador A, abrir /AumentoMasivoPrecios/Index, elegir alcance 'Todos' (o una Marca amplia) y apretar 'Previsualizar'. Dejar la previsualizacion en pantalla sin confirmar."
+      - "Como Administrador B (u otra pestana del mismo usuario), abrir /Stock y editar la celda Stock de CUALQUIER producto incluido en esa previsualizacion (basta una fila)."
+      - "Volver a la pestana de A y apretar 'Aplicar aumento'."
+      - "Variante del segundo sintoma: hacer que dos ediciones inline del MISMO producto se solapen (ventana de microsegundos entre el FirstOrDefaultAsync y el SaveChangesAsync de ActualizarStockAsync)."
+    sintoma: "(a) El aumento masivo se rechaza entero con 'El producto X fue modificado por otro usuario despues de la previsualizacion. Vuelva a previsualizar e intente nuevamente.', sin aplicar ni un solo producto — aunque lo unico que cambio fue el stock, un campo que el aumento de precios ni lee ni escribe. Durante una sesion de conteo fisico (decenas o cientos de celdas guardadas seguidas) la ventana en la que un aumento masivo puede confirmarse con exito se vuelve practicamente nula. (b) En la colision entre dos ediciones inline, el toast de SweetAlert2 muestra el texto crudo de EF Core en ingles ('Database operation expected to affect 1 row(s) but actually affected 0 row(s). Data may have been modified or deleted since entities were loaded...') porque el catch generico concatena ex.Message."
+    expectativa: "(a) Una edicion que solo toca StockActual no deberia invalidar una previsualizacion de precios: el token de concurrencia existe para proteger PrecioCompra/PrecioEfectivo (M16/CA-N19), no el stock. O bien el bump de RowVersion se acota a los cambios que tocan campos de precio, o bien AumentoMasivoPrecioService compara contra un token de precios propio en vez del RowVersion global de la fila. (b) ActualizarStockAsync deberia capturar DbUpdateConcurrencyException antes del catch generico y devolver un mensaje en castellano y accionable ('Otro usuario acaba de modificar el stock de este producto. Recargue el listado e intente nuevamente.'), igual que ya hace AumentoMasivoPrecioService.AplicarAsync. Nunca devolver ex.Message crudo a la UI."
+    causa_raiz: "AppDbContext.OnBeforeSaveChanges reasigna producto.RowVersion = Guid.NewGuid().ToByteArray() para TODA entidad Producto en estado Added o Modified, sin discriminar que propiedad cambio. ActualizarStockAsync asigna producto.StockActual sobre una entidad trackeada, con lo cual la fila queda Modified y su RowVersion se renueva en cada guardado de celda. AumentoMasivoPrecioService.AplicarAsync compara el RowVersion en Base64 que viajo a la previsualizacion contra el actual y aborta el lote completo al primer mismatch (rollback + early return, linea 86-91). Del lado del segundo sintoma: al ser RowVersion un IsConcurrencyToken, EF emite UPDATE ... WHERE Id=@id AND RowVersion=@original; si afecta 0 filas lanza DbUpdateConcurrencyException, que en ActualizarStockAsync solo la ve el catch (Exception ex) generico que hace 'Error al actualizar el stock: ' + ex.Message y ese string se pinta tal cual en el toast. Nota colateral: el riesgo que el Arquitecto declaro para CR-61 ('last write wins entre dos editores de stock') no describe lo que realmente pasa — el token de concurrencia impide el last-write-wins y el dato queda integro; lo que falta es el manejo prolijo de la excepcion."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/StockService.cs
+        motivo: "ActualizarStockAsync: agregar 'catch (DbUpdateConcurrencyException) { await tx.RollbackAsync(); return ServiceResult<int>.CreateError(\"Otro usuario acaba de modificar el stock de este producto. Recargue el listado e intente nuevamente.\"); }' ANTES del catch generico. Ademas, no devolver ex.Message crudo en el catch generico (loguearlo y devolver un texto fijo)."
+      - path: MariHogar.Infrastructure/Data/AppDbContext.cs
+        motivo: "OnBeforeSaveChanges: acotar el bump de Producto.RowVersion a los cambios que realmente tocan campos de precio (ej. condicionarlo a entry.Property(nameof(Producto.PrecioCompra)).IsModified || entry.Property(nameof(Producto.PrecioEfectivo)).IsModified || entry.Property(nameof(Producto.PrecioLista)).IsModified, mas el caso Added). ATENCION: este archivo es transversal — el cambio afecta a Ventas y Ordenes de compra, que tambien modifican Producto via RegistrarMovimientoAsync. Requiere decision del Arquitecto antes de tocarse; la opcion (a) es opcional y la (b) es la que cierra el defecto visible."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: codigo
+      selector_o_endpoint: "MariHogar.Infrastructure/Services/StockService.cs -> ActualizarStockAsync; MariHogar.Infrastructure/Data/AppDbContext.cs -> OnBeforeSaveChanges (bloque 'M16: RowVersion gestionado manualmente')."
+      condicion_falla: "ActualizarStockAsync tiene un unico catch (Exception ex) que concatena ex.Message, sin una rama previa para DbUpdateConcurrencyException. Y el bump de RowVersion en OnBeforeSaveChanges no discrimina que propiedad de Producto se modifico."
+    criterio_aceptacion:
+      - "Una colision de concurrencia en la edicion inline devuelve un mensaje en castellano, accionable, sin texto de excepcion ni nombres de tabla/columna."
+      - "Guardar una celda de Stock no rompe, por si sola, una previsualizacion de Aumento masivo de precios abierta sobre ese producto (o, si se decide no tocar AppDbContext, el comportamiento queda documentado como limitacion conocida y el mensaje del aumento masivo explica que puede haberse debido a una edicion de stock)."
+      - "Sin regresion en la concurrencia optimista real del Aumento masivo: dos aumentos masivos solapados se siguen bloqueando entre si."
+    pruebas_minimas:
+      - "Previsualizar un aumento masivo, editar una celda de Stock de un producto del lote en otra pestana, confirmar el aumento: debe aplicarse (o fallar con un mensaje que nombre la causa real)."
+      - "Dos aumentos masivos solapados sobre el mismo lote: el segundo se sigue rechazando."
+      - "Confirmar una Venta y una Orden de compra despues del fix de AppDbContext (si se aplica): RegistrarMovimientoAsync sigue posteando y no aparece ninguna DbUpdateConcurrencyException nueva."
+    nota_generalizacion: "Regla preventiva: cuando una entidad lleva un token de concurrencia optimista gestionado a mano en SaveChanges y ese token se renueva ante CUALQUIER Modified, todo feature nuevo que escriba esa entidad con alta frecuencia (edicion inline, carga masiva, importaciones) entra automaticamente en conflicto con todos los flujos preview->confirm que dependen del token. Verificar el impacto cruzado antes de aprobar Arquitectura, no solo la concurrencia dentro del propio feature. Ademas: ningun ServiceResult debe devolver ex.Message a la UI — patron ya presente en varios services de marihogar heredado del molde original."
+
+  - id: MH-017
+    modulo: "Stock / listado de productos con edicion inline (Views/Stock/Index.cshtml — CR-61)"
+    titulo: "El listado de Stock no muestra la columna Modelo (que si tiene Productos/Index) pero si ofrece el filtro por Modelo, y el link 'Ajustar stock' filtra por Nombre con match parcial: dos productos homonimos que solo se distinguen por Modelo se ven como dos filas identicas en la unica pantalla donde el stock se guarda al instante, sin confirmacion ni motivo"
+    severidad: minor
+    reproducido_en: "marihogar - master (working tree), CR-61 (2026-08-31). Hallado por QA por revision de codigo (Views/Stock/Index.cshtml columnas 62-67, ProductoService.ListarAsync linea 27-28 'p.Nombre.Contains(...)', AppDbContext linea 137 'HasIndex(e => e.Nombre)' NO unique). No verificado en navegador (MCP de Playwright no expuesto en la sesion). El implementador siguio al pie de la letra la lista de columnas del diseno; el gap es de 2-disenador-funcional.md, no de la implementacion."
+    pasos:
+      - "Cargar dos productos con el MISMO Nombre, misma Marca y misma Categoria, y distinto Modelo (Producto.Nombre no tiene indice unico, se permite)."
+      - "Como Administrador, ir a /Productos, apretar el boton 'Ajustar stock' (icono fa-boxes-stacked) de uno de los dos."
+      - "Mirar el listado de /Stock al que se cae."
+    sintoma: "El listado muestra DOS filas con Nombre, Marca y Categoria identicos y ninguna columna que las distinga (Modelo no esta entre las 5 columnas: Nombre / Marca / Categoria / Stock / Stock minimo). El diseno afirmaba que el link dejaria 'al producto como unica fila del listado filtrado', pero el filtro es Contains, no igualdad: tambien caen todos los productos cuyo nombre CONTIENE ese texto (ej. entrar por 'Heladera' trae tambien 'Heladera Whirlpool 300L'). Como cada celda de Stock se guarda al instante en el blur, sin dialogo de confirmacion y sin motivo, elegir la fila equivocada escribe un MovimientoStock real e irreversible (el ledger es inmutable: solo se corrige con un contramovimiento)."
+    expectativa: "El listado de Stock deberia permitir identificar sin ambiguedad la fila que se esta editando: agregar la columna Modelo (ya viene en ProductoListItemDto, cero costo de query) es la correccion minima. Complementariamente, el link 'Ajustar stock' podria navegar por Id en vez de por Nombre para garantizar una sola fila."
+    causa_raiz: "2-disenador-funcional.md (seccion CR-61) especifico las columnas 'Nombre, Marca, Categoria, Stock, Stock minimo' — omitio Modelo, que Productos/Index si muestra — y a la vez especifico los filtros 'Nombre/Marca/Categoria/Modelo', dejando un filtro sobre un campo que no se ve. En paralelo definio el link como Stock/Index?nombre={nombreProducto} asumiendo que el filtro por Nombre es exacto, cuando ProductoService.ListarAsync usa p.Nombre.Contains(filtro.Nombre) (parcial, y case/accent-insensitive por la collation de MySQL). El encoding de la URL SI esta bien resuelto en las dos superficies (encodeURIComponent en Productos/Index.cshtml, asp-route-nombre en Productos/Edit.cshtml), no es ahi el problema."
+    capa: Web
+    archivos_fix:
+      - path: MariHogar.Web/Views/Stock/Index.cshtml
+        motivo: "Agregar el <th>Modelo</th> y la entrada { data: 'modelo', render: function (d) { return d || '<span class=\"text-muted\">-</span>'; } } al array de columns, entre Marca y Categoria (mismo orden y mismo render que Productos/Index.cshtml). 'modelo' ya esta mapeado en el switch de SortColumn de ProductoService.ListarAsync, asi que puede quedar ordenable sin caer en el patron MH-015."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-08-31"
+      por: "Joaquin (directo, no delegado — cambio de 2 lineas con fix ya propuesto por QA)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Web/Views/Stock/Index.cshtml
+          motivo: "Columna Modelo agregada entre Nombre y Marca (no entre Marca y Categoria como sugeria QA — posicion distinta, mismo resultado: visible y distingue homonimos). render identico al de Productos/Index.cshtml."
+      build: "dotnet build MariHogar.Web/MariHogar.Web.csproj -> 0 Errores."
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /Stock -> encabezados del DataTable #tablaStock"
+      condicion_falla: "La tabla #tablaStock tiene 5 encabezados y ninguno dice 'Modelo', pese a que el panel de filtros de arriba ofrece un input #filtroModelo."
+    criterio_aceptacion:
+      - "El listado de Stock muestra Modelo, de modo que dos productos homonimos son distinguibles antes de editar su stock."
+      - "El filtro por Modelo sigue funcionando y ahora se corresponde con una columna visible."
+      - "Sin regresion en la edicion inline: la celda de Stock sigue siendo la unica editable y el badge 'Bajo minimo' sigue actualizandose en su td."
+    pruebas_minimas:
+      - "Abrir /Stock y confirmar 6 columnas (Nombre / Marca / Modelo / Categoria / Stock / Stock minimo)."
+      - "Filtrar por Modelo y verificar que las filas devueltas muestran ese modelo."
+      - "Entrar por el boton 'Ajustar stock' de un producto cuyo nombre sea prefijo de otro y confirmar que se distinguen las filas."
+    nota_generalizacion: "Regla preventiva: en una pantalla con escritura inmediata por fila (sin confirmacion), el listado tiene que contener todas las columnas necesarias para identificar univocamente la fila. Y todo filtro ofrecido en el panel debe tener su columna visible en la tabla — un filtro sobre un campo invisible siempre confunde. Ver tambien la regla inversa ya catalogada en MH-015 (columna ordenable sin soporte en el service)."
+
   - id: CRM-015
     modulo: "Matriz de modulos MVP/FULL — generador del borrador de propuesta (Application/Services/PropuestaMvpFullService.cs, helper Minuscula)"
     titulo: "Los modulos cuyo nombre EMPIEZA con una sigla salen deformados en el mensaje que se copia al WhatsApp del cliente: 'ABM Cuadrilla' -> 'aBM Cuadrilla', 'SEO basico y deploy' -> 'sEO basico y deploy', 'CRM de WhatsApp' -> 'cRM de WhatsApp'"

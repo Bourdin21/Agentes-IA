@@ -577,7 +577,36 @@ Sobre análisis v13. Extiende `Ventas/Create.cshtml`/`Ventas/Details.cshtml` (si
 
 **Riesgos de implementación**: ninguno funcional nuevo — es superficie de lectura (1 query nueva) + 1 acción ya existente y ya probada en producción (`AcreditarPagoAsync`, en uso desde CR-34).
 
+### CR-61 (Diseño) — Stock: listado de productos con edición inline reemplaza Ajuste manual
+
+**Escaneo de reutilización (obligatorio)**: revisados `docs/*/definiciones/{2-disenador-funcional,5-implementador}.md` de todos los proyectos del historial. Único hit real: ShowroomGriffin, `Stock/MatrizEditar.cshtml` — grilla de stock editable por celda (Marca→Modelo→Color×Talle), con la misma semántica de "reemplaza, no delta" y `min="0"` que elimina la necesidad de confirmar negativo. Se reutiliza esa idea de diseño, pero **no el código de guardado**: ShowroomGriffin guarda con un único `<form>` en lote (`Celdas[i].CantidadNueva`, un solo POST), mientras que acá el cliente eligió guardado por fila al instante (AJAX on-demand por celda) — mecanismo de transporte distinto, sin precedente directo, se diseña de cero.
+
+**Pantalla `Stock/Index.cshtml` (reemplaza el listado de movimientos)**: clon del patrón de `Productos/Index.cshtml` (mismo `ProductoService.ListarAsync`, mismos filtros Nombre/Marca/Categoría/Modelo — se excluyen los filtros de precio, no aplican acá). Columnas: Nombre, Marca, Categoría, **Stock** (columna editable: `<input type="number" min="0">` en vez de texto plano, con el mismo badge "Bajo mínimo" que ya tiene `Productos/Index` cuando `StockActual < StockMinimo`), Stock mínimo (solo lectura, contexto). Sin columna de Acciones — no hace falta navegar a otra pantalla para editar.
+
+**Interacción de edición** (HU-3.3, reemplaza HU-3.2 de Ajuste manual):
+1. El Administrador tipea un nuevo valor en la celda Stock de una fila y sale del campo (blur) o presiona Enter.
+2. El campo se deshabilita momentáneamente (feedback de "guardando") y dispara un POST AJAX a `Stock/ActualizarStock` con `productoId` + `nuevoStock`.
+3. Si el servidor confirma: el campo se re-habilita, breve destello verde de confirmación, y si `nuevoStock < StockMinimo` el badge "Bajo mínimo" de esa fila se actualiza sin recargar la tabla completa (ídem si deja de estar bajo mínimo).
+4. Si el servidor rechaza (ej. `nuevoStock < 0`, aunque el `min="0"` del input ya lo previene la mayoría de las veces — validación server-side de todos modos, nunca confiar solo en el cliente): el campo vuelve al valor anterior, borde rojo breve + mensaje de error (toast, no bloqueante).
+5. Sin motivo pedido — decisión explícita del cliente. El sistema genera internamente `Motivo = "Ajuste desde listado de Stock"` para el `MovimientoStock`, sin mostrarlo en ningún formulario.
+6. Si `nuevoStock` editado es igual al valor actual (usuario tocó el campo sin cambiarlo): no se postea nada, no se genera un `MovimientoStock` de cantidad 0 (ruido innecesario en el ledger).
+
+**Link "Ver historial de movimientos"**: en la cabecera de `Stock/Index.cshtml`, lleva a `Stock/Movimientos` — el listado de movimientos actual (`MovimientoStockListItemDto`, filtros Producto/Tipo/rango de fecha, sin cambios funcionales), solo renombrado de ruta. Deja de estar en el menú lateral como ítem propio — el menú sigue apuntando a `Stock/Index`, que ahora es la pantalla nueva.
+
+**Retiro de "Ajuste manual"**: `Stock/Ajuste` (GET/POST), `Stock/GetStockActual`, la vista `Ajuste.cshtml` y el ViewModel `AjusteStockFormViewModel` se eliminan del código — no quedan alcanzables ni por menú ni por URL directa. El botón "Ajustar stock" de `Productos/Index.cshtml` (ícono `fa-boxes-stacked`, hoy linkea a `Stock/Ajuste?productoId=X`) pasa a linkear a `Stock/Index?nombre={nombreProducto}` (reutiliza el filtro por Nombre ya existente, deja al producto como única fila del listado filtrado, foco natural en su celda de Stock).
+
+**Historias de usuario**:
+- HU-3.3 (CR-61): Como Administrador, quiero editar el stock de un producto directamente desde el listado, sin abrir un formulario aparte, para cargar el conteo físico de muchos productos rápido.
+  - CA: escribir un valor en la celda Stock y salir del campo guarda el nuevo stock al instante, sin pedir motivo. El valor escrito reemplaza el stock (no se suma ni resta).
+- HU-3.4 (CR-61): Como Administrador, quiero seguir viendo el historial completo de movimientos de stock (compras, ventas, ajustes), para poder auditar cómo llegó cada producto a su stock actual.
+  - CA: `Stock/Movimientos` mantiene exactamente las mismas columnas/filtros que tiene hoy `Stock/Index`, accesible con un link desde la pantalla nueva.
+
+**Impacto por capa**: ver detalle técnico completo en `3-arquitecto-mvc.md`, sección CR-61.
+
+**Riesgos de implementación**: primera vez que este proyecto implementa guardado AJAX por celda de un DataTable (no hay precedente exacto en el propio repo) — cuidar especialmente el caso de doble-submit (usuario edita y sale rápido de varias celdas seguidas) y la sincronización del badge "Bajo mínimo" sin recargar toda la tabla.
+
 ## Historial de ajustes
+- 2026-08-27 — CR-61 (Diseño): ver sección completa "CR-61 (Diseño) — Stock: listado de productos con edición inline reemplaza Ajuste manual" más arriba. `Stock/Index` pasa a ser un listado de productos (clon de `Productos/Index.cshtml`) con Stock editable inline (guardado AJAX por celda al instante, sin motivo pedido al usuario). Movimientos se muda a `Stock/Movimientos` (link secundario). Ajuste manual se retira del código. 2 historias de usuario nuevas (HU-3.3/3.4). Reutiliza la semántica "reemplaza, no delta" de ShowroomGriffin, pero el guardado por celda AJAX es diseño nuevo (sin precedente exacto). Pendiente Arquitectura y Presupuesto antes de habilitar implementación.
 - 2026-08-27 — CR-59 (Diseño): ver sección completa "CR-59 (Diseño) — Pagos con tarjeta de crédito a liquidar" más arriba. Pantalla nueva `PagosTarjeta/Index.cshtml` (clon de `Cheques/Index.cshtml`) + card de acceso en Dashboard. Reutiliza `AcreditarPagoAsync` sin tocarlo. 3 historias de usuario nuevas (HU-9.3/9.4/9.5). Pendiente Arquitectura y Presupuesto antes de habilitar implementación.
 - 2026-08-21 — CR-55 (Diseño): ver sección completa "CR-55 (Diseño) — Nota de Crédito para anular una Factura AFIP emitida por error" más arriba. Botón "Generar Nota de Crédito" sobre factura Emitido (SweetAlert2 + motivo, mismo patrón que Cancelar OC/Rechazar cheque), reutiliza 100% el circuito AFIP ya construido. 3 historias de usuario nuevas (HU-7.6/7.7/7.8). Sin código externo reutilizable (escaneado, ningún otro proyecto tiene NC AFIP real) — se diseña sobre el propio circuito de marihogar. Pendiente Arquitectura y Presupuesto antes de habilitar implementación.
 - 2026-08-11: Diseño v9 cerrado — CR-32 (HU-5.21/5.22, precio contado/tarjeta visible + recargo real sobre el monto base cubierto por tarjeta), CR-33 (HU-5.23, edición completa de Venta bloqueada solo si ya tiene CAE real) y CR-34 (HU-5.24, acreditación diferida de tarjeta con fecha efectiva, ingreso en Caja recién al acreditar). Sobre análisis v13, 4 decisiones ya confirmadas con el cliente. Pendiente Arquitectura y Presupuesto antes de habilitar implementación.

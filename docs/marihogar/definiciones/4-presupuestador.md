@@ -364,6 +364,47 @@ Los 3 ítems son funcionalidad nueva (no corrección de datos ya migrados) — s
 
 **Estado: APROBADO por el cliente (2026-08-11) — habilitada la Implementación.**
 
+### CR-61 (Presupuesto) — Stock: listado de productos con edición inline reemplaza Ajuste manual
+
+**Paso 0 — Anclaje histórico**: sin referencia dedicada en `27-presupuesto-parametros.instructions.md` para "grilla con edición inline por celda vía AJAX" — categoría ad hoc. Se ancla contra "Modificación sobre módulo existente" (rango medio de esa tabla) ajustado hacia arriba respecto de CR-59: acá el patrón de guardado (AJAX por celda al instante) **no tiene precedente exacto en ningún proyecto del estudio** (el hallado en ShowroomGriffin guarda en lote con un `<form>`, mecanismo de transporte distinto) — es UI nueva de verdad, no un clon.
+
+**Paso 1 — Clasificación**: 1 solo ítem funcional, tipo "Refactor de pantalla existente + patrón de UI nuevo (edición inline AJAX) + retiro de código" — el driver dominante es la interacción nueva (guardado por celda), no la query de listado (esa sí se reutiliza 100% de `ProductoService.ListarAsync`).
+
+**Drivers de esfuerzo reales**:
+- Listado nuevo (`Stock/Index.cshtml`): reutiliza `ProductoService.ListarAsync`/`ProductoFiltro` tal cual — bajo esfuerzo.
+- Columna Stock editable + JS de guardado AJAX por celda (blur/Enter, deshabilitar input, POST, feedback visual, actualización del badge "Bajo mínimo" sin recargar la tabla, manejo de error con reversión del valor) — esfuerzo medio, patrón de UI nuevo en este repo.
+- `IStockService.ActualizarStockAsync` nuevo — adapta la transacción/escritura de ledger ya existente en `AjustarAsync`, sin la rama `ConfirmarNegativo` (simplificación) — bajo esfuerzo.
+- Retiro de `Ajuste` (GET/POST), `GetStockActual`, `Ajuste.cshtml`, `AjusteStockInput`/`AjusteStockFormViewModel`, `AjustarAsync` — esfuerzo bajo-medio (hay que verificar y actualizar todas las referencias, no solo borrar).
+- `Movimientos()`/`GetMovimientosData()` — renombre de `Index()`/`GetData()` viejos, contenido sin cambios — bajo esfuerzo.
+- Actualizar el botón "Ajustar stock" de `Productos/Index.cshtml` — trivial.
+- Reutilizado sin cambios: `ProductoService.ListarAsync` completo, `MovimientoStock`/`Producto.StockActual` (invariantes, sin migración), `ListarMovimientosAsync`.
+
+**M ajustado**: 6.0h (listado+columna editable+JS AJAX ~3.0h, service nuevo ~0.8h, retiro de Ajuste ~1.0h, mover Movimientos ~0.7h, botón de Productos + verificación de alertas/badges no rotas ~0.5h).
+
+**O/M/P**: O = 3.9h (M×0.65), P = 10.8h (M×1.80) — mismo spread que CR-55/59.
+
+**PERT** = (O + 4M + P) / 6 = (3.9 + 24.0 + 10.8) / 6 = **6.45h**.
+
+**Riesgo**: Medio — primera vez que este proyecto implementa guardado AJAX por celda de un DataTable (sin precedente exacto ni en el propio repo ni en el resto del estudio), y toca una pantalla ya en producción con datos de stock reales (a diferencia de CR-59, que era 100% agregado nuevo sin tocar flujo existente). Contingencia 15%.
+
+**Horas finales**: 6.45h × 1.15 = **7.42h ≈ 7.4h**.
+
+**Costo**: Horas facturables = 6.0/2.5 × 1.20 = 2.88h. Costo = 2.88h × USD 35/h = **USD 101** (redondeado de $100.80).
+
+**Tokens IA**: no aplica — por debajo del umbral de 4h facturables (2.88h).
+
+**Descuento de expansión agresiva/volumen**: no aplica — mismo criterio que el resto de los CR de este proyecto (ampliación sobre sistema propio en producción, no Build inicial).
+
+**Ratio de calibración**: no aplica ratio contra mediana histórica — categoría ad hoc sin fila propia en el dataset, anclada por descomposición directa de drivers (ver arriba), no por descuento porcentual sobre una referencia mayor.
+
+**Precio final: USD 101** (single-item, sin etapas).
+
+**Riesgos**: patrón de guardado AJAX por celda sin precedente exacto en el estudio — vigilar especialmente el caso de doble-submit (edición rápida de varias celdas seguidas) durante la verificación manual antes de dar por cerrado el ítem.
+**Supuestos**: el cliente confirmó explícitamente no querer motivo por fila (ver Análisis) — si en el uso real extraña la trazabilidad del motivo libre, es una ampliación aparte, no un defecto de este alcance.
+**Exclusiones**: edición de otros campos del producto desde este listado (precio, marca, etc.) — solo Stock. Sin edición en lote/multi-selección. Sin exportar/importar planilla (eso sería un CR aparte de mayor alcance si se necesita en el futuro).
+**Dependencias del cliente**: ninguna.
+**Condiciones**: sin etapas, sin 50/50 (ítem puntual sobre sistema en producción, mismo criterio que el resto de los CR de esta sesión).
+
 ### CR-59 (Presupuesto) — Pagos con tarjeta de crédito a liquidar
 
 **Paso 0 — Anclaje histórico**: sin referencia dedicada en `27-presupuesto-parametros.instructions.md` para "listado clonado de un módulo ya existente" — se ancla directo contra la fila "ABM simple (sin relaciones, sin lógica)" (1–2h base) por ser el piso más cercano, ajustado hacia arriba por incluir DataTable server-side con filtros (no un ABM de campo único) y una card de Dashboard adicional.
@@ -446,6 +487,7 @@ Los 3 ítems son funcionalidad nueva (no corrección de datos ya migrados) — s
 **Condiciones**: sin etapas, sin 50/50 (ítem puntual sobre sistema en producción, mismo criterio de facturación ya usado para el resto de los CR de esta sesión).
 
 ## Historial de ajustes
+- 2026-08-27 — CR-61 (Presupuesto): ver sección completa "CR-61 (Presupuesto) — Stock: listado de productos con edición inline reemplaza Ajuste manual" más arriba. Ítem único, PERT 6.45h, horas finales 7.4h (contingencia 15%, riesgo Medio), **USD 101**. Riesgo Medio por ser un patrón de UI (guardado AJAX por celda) sin precedente exacto en el estudio, y por tocar una pantalla ya en producción. Sin Tokens IA. Sin descuento de expansión. **Pendiente aprobación del cliente (gate) antes de habilitar Implementación.**
 - 2026-08-27 — CR-59 (Presupuesto): ver sección completa "CR-59 (Presupuesto) — Pagos con tarjeta de crédito a liquidar" más arriba. Ítem único, PERT 2.37h, horas finales 2.6h (contingencia 10%, riesgo Bajo), **USD 37**. Ítem de menor riesgo/costo del historial de CR de este proyecto (mayor reutilización, sin migración, sin lógica de negocio nueva). Sin Tokens IA. Sin descuento de expansión. **Pendiente aprobación del cliente (gate) antes de habilitar Implementación.**
 - 2026-08-21 — CR-55 (Presupuesto): ver sección completa "CR-55 (Presupuesto) — Nota de Crédito AFIP" más arriba. Ítem único, PERT 4.30h, horas finales 4.95h (contingencia 15%, riesgo Medio), **USD 67**. Anclado en la referencia de integración AFIP completa (8h mediana) con descuento fuerte por reutilización real del circuito ya construido (ratio M/mediana 0.50). Sin Tokens IA (por debajo del umbral de 4h facturables). Sin descuento de expansión (no es Build inicial). **Pendiente aprobación del cliente (gate) antes de habilitar Implementación.**
 - 2026-07-28: Presupuesto Change Request #2 (CR-21/CR-22) — USD 168. Primer ítem del proyecto fuera del Change Request #1 ya cerrado en producción. Orden de implementación ya dada por el cliente en el pedido original (aprobación implícita del alcance, mismo criterio que adendas de bajo monto anteriores).
