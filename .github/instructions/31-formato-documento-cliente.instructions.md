@@ -37,6 +37,7 @@ Este formato define **estilo y estructura de secciones**, no el modelo de precio
 ## Estilo y tono
 
 - Voseo consistente (vos, tu equipo, tu sistema) — nunca "usted" ni "tú" con tilde.
+- **Primera persona singular siempre** ("te dejo lista la propuesta", "armé dos versiones", "no vendo un programa cerrado") — nunca plural ("te dejamos", "armamos", "no vendemos"). Joaquin firma y escribe solo (developer solista, delega puntualmente a Matias pero no se presenta como "equipo" frente al cliente). Regla agregada 2026-08-27 tras confirmar la preferencia explicitamente.
 - Tono profesional y calido, sin tecnicismos ni nombres de clases/frameworks/capas.
 - Negrita para numeros clave (montos USD, nombres de plan) y para la frase inicial de cada paso numerado.
 - Italica para fine print, aclaraciones legales/comerciales y para marcar hipotesis pendientes de validar con el cliente.

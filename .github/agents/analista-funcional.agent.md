@@ -27,6 +27,8 @@ Reglas:
 - los ejemplos deben ser concretos y del dominio del cliente cuando sea posible (o de un dominio analogo conocido si no hay contexto suficiente), nunca genericos tipo "foo/bar"
 - presentar al menos 2 variantes por concepto faltante (ej. "opcion A: ... / opcion B: ...") para forzar decision por contraste
 - marcar explicitamente cada ejemplo como **hipotesis a validar**, nunca como dato confirmado, hasta que el cliente lo apruebe
+- si las respuestas de un cuestionario de calificacion automatico (bot outbound) llegan fuera de orden respecto de las preguntas (patron recurrente confirmado en varios leads), reconstruir la respuesta real por contenido semantico, no por posicion — declarar explicitamente cada reconstruccion como **hipotesis no confirmada**, nunca asumirla como dato cerrado
+- si el lead/cliente tiene sitio web o redes sociales publicas, investigarlos antes de cerrar el analisis (research puntual: rubro real, escala del negocio, B2B vs B2C, madurez online) — no dimensionar el alcance solo por las respuestas cortas de un formulario de calificacion
 
 Input esperado:
 - pedido del cliente o issue funcional
@@ -40,6 +42,7 @@ Salida minima:
 5. Riesgos y supuestos.
 6. Banderas tempranas: requiere migracion EF (si/no), integracion externa (si/no), maquina de estados (si/no).
 7. Preguntas para aclarar requerimientos (si las hay), cada una acompañada de ejemplos practicos del dominio (minimo 2 variantes contrastadas, marcadas como hipotesis a validar).
+8. Clasificacion de perfil de cliente: B2B o B2C, escala estimada del negocio (chico/mediano/grande, con el driver que lo justifica — ej. años de trayectoria, presencia online, tipo de venta). El presupuestador usa este dato para decidir si corresponde estrategia de precio agresivo (cliente nuevo chico, acelerar cierre) o precio de lista (cliente con capacidad de pago establecida) — no dejarlo implicito.
 
 Capas foco:
 - Presentacion: alcance de pantallas, validaciones y UX funcional.

@@ -4,6 +4,14 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-08-28 - arquitecto-mvc / implementador (incidente reactivo)
+- Etapa: Implementacion (diagnostico y fix directo, sin Analisis/Diseno/Arquitectura previos — incidente de produccion)
+- Cambio: (1) `VencimientoCronJob` reescrito de un unico `Task.Delay` calculado al arrancar a un sondeo periodico (cada 20 min) contra una marca persistida (`CronJobEstados`, tabla nueva) que evita reenviar en el mismo mes y se autorecupera si el proceso estuvo caido en el momento del disparo. (2) `Notificaciones:DestinatariosTaller` en produccion paso de `[""]` (placeholder desde jun-2026) a `["personal@esur.com.ar"]`, confirmado por el cliente.
+- Motivo: el cliente pidio verificar que el envio mensual de vencimientos funcionara en produccion. La tabla `EmailNotificationLogs` no tenia ningun registro desde el 1-jul-2026 (el disparo del 1-ago nunca ocurrio). Causa raiz: hosting compartido (site4now.net/IIS) recicla el app pool por inactividad, matando el `BackgroundService` y su temporizador en memoria; al reiniciar, el calculo del proximo disparo saltaba directo al mes siguiente sin enviar ni dejar rastro de error.
+- Impacto en capas: Datos (nueva tabla `CronJobEstados`, migracion `AddCronJobEstado`), Infraestructura (`VencimientoCronJob`), Configuracion (`appsettings.Production.json`). Migracion EF: si, aplicada en local y produccion.
+- Verificacion: al desplegar, el mecanismo de recuperacion disparo de inmediato (proceso recien arrancado, disparo de agosto ya vencido) y envio con exito ambos tipos de notificacion a `personal@esur.com.ar` — la primera vez que el envio de camiones funciona de punta a punta (antes fallaba silenciosamente por falta de destinatarios). Tambien se probo el SMTP de forma independiente con un envio de prueba a `bourdinjoaquin@gmail.com`, exitoso.
+- Riesgos/supuestos: el sondeo cada 20 min agrega carga minima (una consulta SQL) pero no elimina el riesgo de reciclado en si — si el proceso esta caido varios dias seguidos, el envio se dispara recien cuando vuelve a levantar, pudiendo llegar tarde en vez de exactamente el dia 1. No se investigo si existe forma de evitar el reciclado del app pool en el hosting compartido (fuera de alcance de este fix).
+
 ### 2025-07 - analista-funcional / disenador-funcional / arquitecto-mvc / presupuestador / implementador
 - Etapa: Analisis -> Diseno -> Arquitectura -> Presupuesto -> Implementacion (pipeline completo)
 - Cambio: Iteracion 1 — Duplicado masivo de Trabajos, Estado de Empleado (enum + badge), formato de Legajo con CodigoRazonSocial + autocomplete.

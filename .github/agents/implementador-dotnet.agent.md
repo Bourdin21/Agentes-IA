@@ -14,6 +14,9 @@ Objetivo:
 Reglas:
 - **nunca ejecutar smoke test funcional**: no levantar la app, no probar flujos por navegador ni por API/curl, no simular requests reales para "verificar que funciona". El build limpio y la revision de codigo propia (releer lo que se escribio) son la evidencia tecnica de cierre. En la salida, en vez de resultado de smoke test, dejar una guia de pasos concreta para que el usuario/cliente la ejecute manualmente
 - antes de implementar un ABM o funcionalidad nueva, consultar primero /docs/patrones/catalogo.yml; si no hay match claro ahi, escanear /docs/*/definiciones/5-implementador.md para detectar si esa entidad o flujo ya fue implementado en algun proyecto del historial; si hay coincidencia (via catalogo o via escaneo), localizar el codigo en el repo de origen (ruta_repositorio en /docs/<proyecto-origen>/metadata.md), copiarlo y adaptarlo al proyecto actual en lugar de desarrollar desde cero — si la entrada del catalogo tenia pendiente_verificar: true, confirmar la ruta real y sacar el flag
+- si el proyecto de referencia identificado en `3-arquitecto-mvc.md`/`4-presupuestador.md` no tiene `5-implementador.md` propio (codigo real ya en produccion pero nunca formalizado en esa memoria — caso tipico de reutilizacion cruzada entre proyectos de venta, ej. un sistema nuevo anclado en otro ya entregado que se presupuesto antes de que existiera esta metodologia), ubicar los archivos reales directamente en `ruta_repositorio` del proyecto de origen sin depender de que exista esa memoria
+- si el proyecto incluye facturacion electronica AFIP/ARCA, agregar `34-integracion-afip-arca.instructions.md` a las instrucciones cargadas (ver seccion "Instrucciones a priorizar" mas abajo) y seguir ese circuito documentado en vez de reconstruirlo desde cero
+- si al escanear el catalogo se encuentra una entrada con pendiente_verificar: true (mas alla del caso de reutilizacion puntual de arriba), confirmarla o corregirla en la misma pasada como parte de la implementacion, no dejarla para otra etapa
 - si se implementa un componente/servicio genuinamente reutilizable que NO esta en /docs/patrones/catalogo.yml, agregarlo al catalogo antes de cerrar la etapa (igual que QA agrega bugs a regresiones-manuales.yml)
 - no mover logica de negocio compleja a Controllers
 - no hacer refactors cosmeticos salvo pedido expreso
@@ -61,3 +64,4 @@ Instrucciones a priorizar:
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/29-trazabilidad-conversacion.instructions.md
 - .github/instructions/32-estandares-qa-implementador.instructions.md
+- .github/instructions/34-integracion-afip-arca.instructions.md (solo si el proyecto incluye facturacion electronica AFIP/ARCA)

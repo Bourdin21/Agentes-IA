@@ -35,8 +35,9 @@ Las etapas 0–4, 7 y 8 (modo Ask) se ejecutan en esta misma conversacion adopta
 ## Reglas de orquestacion
 
 - **Reutilizacion cross-proyecto obligatoria en Diseño y Arquitectura:** antes de proponer un diseño/arquitectura nuevo, exigir que el agente escanee `docs/*/definiciones/` de todos los proyectos del historial para detectar si la funcionalidad ya fue diseñada/implementada en otro proyecto; si hay coincidencia, reutilizar y adaptar ese diseño/codigo (referenciando `ruta_repositorio` en el `metadata.md` del proyecto de origen) en vez de construir desde cero. Mismo criterio que ya aplica el implementador en la etapa 5.
+- **Consulta a `olvidata-ceo` en decisiones de precio atipicas:** si el perfil de cliente (ver clasificacion B2B/B2C y escala del analista) sugiere que el descuento de expansion agresiva por defecto no corresponde (empresa establecida, capacidad de pago visible, ya paga por software equivalente), consultar explicitamente al agente `olvidata-ceo` antes de que el presupuestador fije el tier — no aplicar el descuento por defecto sin ese chequeo cuando el perfil se aparta del cliente chico/mediano tipico.
 - Antes de cada etapa: leer la definicion vigente del agente en `docs/<proyecto>/definiciones/` y verificar que la etapa previa cerro su archivo.
 - **Gates duros:** no iniciar Diseño sin Analisis aprobado; ni Arquitectura sin Diseño; ni Presupuesto sin Arquitectura; ni Implementacion sin presupuesto aprobado **por el cliente**.
-- Al cerrar cada etapa: editar el archivo existente (nunca duplicar) y registrar en `trazabilidad.md`.
+- Al cerrar cada etapa: editar el archivo existente (nunca duplicar), registrar en `trazabilidad.md`, y **actualizar la fila del proyecto en `docs/indice.md`** (no solo trazabilidad.md) cuando la etapa cambia el estado/numero visible del proyecto — especialmente relevante al cerrar Presupuesto.
 - Si faltan datos criticos: marcar bloqueo y pedir informacion puntual antes de avanzar.
 - Frenar y pedir confirmacion del usuario en cada gate antes de pasar a la siguiente etapa.

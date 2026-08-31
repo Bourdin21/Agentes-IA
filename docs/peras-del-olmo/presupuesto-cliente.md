@@ -95,11 +95,13 @@ Olvidata Soft es una software factory — no vendemos un programa cerrado, segui
 
 ## Mantenimiento anual
 
-| Plan | Opción | USD/año |
-|---|---|---:|
-| PRO | MVP o Full (hasta 10 usuarios, sin cargo extra) | USD 400 |
+**El primer año va por mi cuenta.** Desde el segundo año:
 
-*Incluye hosting, actualizaciones de seguridad, soporte por WhatsApp y 1 ronda de ajuste al año. No cobramos usuario adicional hasta el usuario 11 — con tu equipo de 4 personas, no hay ningún cargo extra por usuarios. El plan es el mismo en las dos opciones.*
+| Plan | Opción | Año 1 | Desde el año 2 |
+|---|---|---|---:|
+| PRO (hasta 10 usuarios, sin cargo extra) | MVP o Full | Gratis | USD 400/año |
+
+*Incluye hosting, actualizaciones de seguridad, soporte por WhatsApp y 1 ronda de ajuste al año. No cobro usuario adicional hasta el usuario 11 — con tu equipo de 4 personas, no hay ningún cargo extra por usuarios. El plan es el mismo en las dos opciones.*
 
 ---
 

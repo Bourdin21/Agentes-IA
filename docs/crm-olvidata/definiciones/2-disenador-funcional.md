@@ -34,7 +34,9 @@ Ver `1-analista-funcional.md` — 4 bloques funcionales (captación/calificació
 
 **`Contactos/Pipeline`** (CU-29) — kanban por `EstadoEmbudo` (Pendiente/MensajeEnviado/Respondido/PresupuestoEnviado/DerivadoManual/Cerrado; Frío/Descartado en contador aparte), columna = conteo + top-N tarjetas (nombre/negocio/días en la etapa) — con backlog real >600 en `Pendiente`/`MensajeEnviado`, es una vista de pulso, no una grilla completa. Debajo, tabla de conversión etapa→etapa (cantidad y % que avanza, sin desglose de motivo — dato no capturado).
 
-**`Chats/Index`** (CU-16, HU navegación diaria principal según el cliente) — filtros por fecha/interacción (incluye "Ventana por vencer")/rubro/estado/búsqueda libre, persistidos en `Session`. Cada fila: nombre/negocio/rubro, badge de estado, ícono ✉️ de marcar-no-leído (fuera del área clicable, CU-17), último mensaje, fecha enviado/respondió, indicador de ventana ("Ventana cierra en Xh Ym", rojo si ≤3h). Polling cada 20s.
+**`Chats/Index`** (CU-16, HU navegación diaria principal según el cliente) — filtros por fecha/interacción (Todos/Se les envió/Respondieron alguna vez/Sin responder/Ventana por vencer/No leídos)/rubro/estado/búsqueda libre, persistidos en `Session`. Cada fila: nombre/negocio/rubro, badge de estado, ícono ✉️ de marcar-no-leído (fuera del área clicable, CU-17), último mensaje, fecha enviado/respondió, indicador de ventana ("Ventana cierra en Xh Ym", rojo si ≤3h). Polling cada 20s.
+
+Distinción deliberada, no redundante, entre 2 filtros que se prestan a confusión (revisión 2026-08-31): **Interacción → "Respondieron alguna vez"** filtra por `FechaRespuesta != null` (marca de tiempo cruda, nunca se limpia — responde "¿alguna vez contestó?", tasa histórica). **Estado → "Respondió"** filtra por `EstadoEmbudo == Respondido` (etapa ACTUAL del embudo, se pierde en cuanto el contacto avanza a PresupuestoEnviado/Cerrado/Frío/Descartado/DerivadoManual — responde "¿está hoy trabado en esa etapa sin avanzar?"). Ambos tienen uso real; la etiqueta del primero se ajustó a "alguna vez" para dejar la diferencia explícita en pantalla.
 
 **`Chats/Detail/{id}`** (CU-16/18/19/20/28) — navegación anterior/siguiente (click y flechas de teclado) dentro de la lista filtrada de origen; selector Cambiar estado (mismo que Contactos); hilo de mensajes con reproductor inline para audio/imagen/video y link de descarga para documentos (CU-19); textarea de respuesta con botón "Sugerir mensaje" (CU-28, prellena sin enviar) sujeto a ventana de 24hs; adjuntar presupuesto PDF (CU-20, pasa a `PresupuestoEnviado`). Abrir el chat marca como leído (limpia no-leído automático y manual). Polling cada 8s.
 
@@ -67,7 +69,7 @@ ContactoCreateVM     { Telefono [Required, regex \d{10,15}], NombreContacto [Req
 PipelineViewModel    { Columnas: List<PipelineColumnaVM> }; PipelineColumnaVM { Estado, Cantidad, Contactos (top-N) }
 ConversionEtapaViewModel { Filas: List<{ EstadoOrigen, EstadoDestino, Cantidad, Porcentaje }> }
 
-ChatFiltrosViewModel { Buscar, Fecha, FechaDesde, FechaHasta, Interaccion (incl. "porVencer"), Rubro, Estado }
+ChatFiltrosViewModel { Buscar, Fecha, FechaDesde, FechaHasta, Interaccion (todos/enviado/respondio/sinResponder/porVencer/noLeidos), Rubro, Estado }
 ChatListItemViewModel { Id, Telefono, NombreContacto, NombreNegocio, Rubro, UltimoMensaje, FechaUltimaActividad, FechaEnviado, FechaRespondio, EstadoEmbudoTexto/Clase, NoLeido, VentanaTexto, VentanaClase }
 ChatDetailViewModel  { datos del contacto, EstadoEmbudo, FaseConversacion, PresupuestoCotizadoUsd, Mensajes: List<ChatMensajeViewModel>, EstadosDisponibles, Filtros, PrevId/NextId, posición }
 ChatMensajeViewModel { Id, EsSaliente, EsEvento, EsDocumento, Etiqueta, Texto, Fecha, MediaKind (audio|image|video|file) }

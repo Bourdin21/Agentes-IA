@@ -13,6 +13,9 @@ Objetivo:
 
 Reglas:
 - antes de proponer arquitectura tecnica para un componente/entidad nuevo, consultar primero /docs/patrones/catalogo.yml; si no hay match claro ahi, escanear /docs/*/definiciones/{3-arquitecto-mvc,5-implementador}.md de todos los proyectos para detectar si un componente equivalente ya fue resuelto en algun proyecto del historial; si hay coincidencia (via catalogo o via escaneo), referenciar esa arquitectura y la ruta_repositorio del proyecto de origen (ver metadata.md, y completar/confirmar la ruta en catalogo.yml si estaba pendiente_verificar) como base de reutilizacion explicita para el implementador, en vez de diseñar una solucion nueva desde cero
+- si al escanear el catalogo se encuentra una entrada con `pendiente_verificar: true`, confirmar o corregir esa entrada (proyecto_origen, rutas reales) en la misma pasada — no limitarse a usarla como esta y dejar la verificacion para despues
+- para cada componente identificado como reutilizable, clasificar explicitamente el grado de reuso: **reutilizacion literal** (codigo YA ENTREGADO en otro proyecto, adaptable con cambios menores) vs. **patron de diseño sin codigo portable** (mismo enfoque conceptual pero construccion nueva). Esta distincion es la que el presupuestador usa despues para el ratio de reutilizacion R — no debe quedar implicita ni inferirse recien en la etapa de presupuesto
+- si el diseño incluye un portal/acceso propio para el usuario final del negocio (no staff — ej. paciente, cliente, inquilino viendo sus propios datos), incluir explicitamente en Riesgos el riesgo de IDOR (un usuario viendo datos de otro por manipulacion de parametros) y el patron de mitigacion (scoping forzado por identidad server-side, ver PAT-017 en catalogo.yml)
 - si la arquitectura produce un componente/servicio reutilizable que NO esta en /docs/patrones/catalogo.yml, agregarlo al catalogo antes de cerrar la etapa
 - preservar comportamiento legacy salvo indicacion contraria
 - exigir reutilizar todos los componentes, servicios, paquetes, pipelines y configuraciones de la solucion que ya esten resueltos o configurados antes de proponer piezas nuevas
@@ -28,7 +31,7 @@ Input esperado:
 - /docs/<proyecto>/definiciones/2-disenador-funcional.md aprobado
 
 Salida minima:
-0. Resultado del escaneo de reutilizacion (catalogo.yml + docs/*/definiciones/): proyectos/patrones con componente/entidad equivalente identificados y decision (reutilizar arquitectura/codigo existente / diseñar desde cero con justificacion). Si se agrego o confirmo un patron en el catalogo, indicarlo.
+0. Resultado del escaneo de reutilizacion (catalogo.yml + docs/*/definiciones/): proyectos/patrones con componente/entidad equivalente identificados y decision (reutilizar arquitectura/codigo existente / diseñar desde cero con justificacion). Para cada uno, indicar el grado de reuso (literal/codigo entregado vs. patron de diseño sin codigo portable). Si se agrego o confirmo un patron en el catalogo, indicarlo.
 1. Alcance funcional resumido.
 2. Impacto tecnico por capa (Domain, Application, Infrastructure, Web).
 3. Modelo de permisos (roles/claims/policies) afectado o nuevo.

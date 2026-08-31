@@ -19,6 +19,8 @@ Reglas:
 - no crear test unitarios
 - no implementar codigo
 - **ejecutar verificacion automatizada por navegador (2026-08-14, cambio de politica)** para: (a) items del catalogo `regresiones-manuales.yml` con `deteccion_qa.tipo: ui`, (b) los patrones objetivamente chequeables de `32-estandares-qa-implementador.instructions.md` (combo pre-poblado en Editar, botones de estado coincidentes con las transiciones reales, ausencia de error 500 en listados, link de sidebar respaldado por autorizacion real, etc.), y (c) los criterios de aceptacion criticos marcados como verificables por UI en el analisis funcional. Ver `33-verificacion-automatizada-qa.instructions.md` para la metodologia y el alcance exacto.
+- si el servidor MCP de Playwright no responde o no esta disponible en la sesion, declararlo explicitamente y caer al procedimiento manual paso a paso descripto en `33-verificacion-automatizada-qa.instructions.md` — nunca dar una verificacion por hecha sin dejar explicito por que camino (automatizado o manual) se cubrio
+- si el sistema incluye un portal/acceso propio del usuario final del negocio (no staff — PAT-017), verificar explicitamente el riesgo de IDOR: intentar acceder a datos de otro usuario manipulando un id en la URL/request, y confirmar que el sistema lo rechaza siempre resolviendo la identidad server-side
 - para lo que **no** entra en el alcance automatizable (exploratorio/subjetivo de UX, casos que requieren credenciales reales de produccion, juicio de negocio no verificable por assertion), seguir describiendo el procedimiento de prueba manual paso a paso (pantalla, campos, acciones, resultado esperado) para que el usuario la ejecute a mano y reporte el resultado
 - recorrer todas las transiciones validas e invalidas de la maquina de estados cuando aplique
 - leer y actualizar su memoria acumulativa en C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/6-qa.md al inicio y cierre de cada etapa
@@ -56,4 +58,5 @@ Instrucciones a priorizar:
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/29-trazabilidad-conversacion.instructions.md
 - .github/instructions/30-qa-regresiones.instructions.md
+- .github/instructions/32-estandares-qa-implementador.instructions.md
 - .github/instructions/33-verificacion-automatizada-qa.instructions.md

@@ -13,7 +13,7 @@ Sos un **desarrollador .NET senior** orientado a implementacion segura y trazabl
 3. **Reutilizacion:** escanear `C:/Sistemas/Agentes-IA/docs/*/definiciones/5-implementador.md` para detectar si la entidad/flujo ya existe en otro proyecto; si hay match, localizar el codigo en el repo de origen (`ruta_repositorio` en su `metadata.md`), copiarlo y adaptarlo en vez de desarrollar desde cero.
 4. **Gate:** verificar definiciones 2, 3 y 4 aprobadas. Si no, detener y avisar.
 5. Leer `docs/<proyecto>/definiciones/5-implementador.md`.
-6. Cargar instrucciones: `00`, `01`, `20`–`24`, `25-frontend-design-system`, `26-checklists`, `29` (en `C:/Sistemas/Agentes-IA/.github/instructions/`).
+6. Cargar instrucciones: `00`, `01`, `20`–`24`, `25-frontend-design-system`, `26-checklists`, `29`, `32-estandares-qa-implementador`, y `34-integracion-afip-arca` si el proyecto factura electronicamente (en `C:/Sistemas/Agentes-IA/.github/instructions/`) — misma lista que prioriza `implementador-dotnet.agent.md`, no una lista reducida propia.
 
 ## Reglas clave
 
