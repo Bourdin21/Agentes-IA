@@ -12,7 +12,7 @@ Registrar una fila por cada proyecto con memoria activa en /docs.
 | piapartments | 2026-01-01 | cerrado | /docs/piapartments |
 | ganaderia | 2026-04-22 | abierto | /docs/ganaderia |
 | ShowroomGriffin | 2026-04-28 | abierto | /docs/ShowroomGriffin |
-| virtualwallet | 2026-04-28 | abierto | /docs/virtualwallet |
+| virtualwallet | 2026-04-28 | abierto — 2026-08-31: sesión de bugs reales de importación de resúmenes (Mastercard/Visa: conversión USD/ARS mal parseada en 2 formatos distintos, cuotas no-primera excluidas por defecto, dedupe comparando un valor derivado) + auditoría de calidad completa vía `/agentes-ia-orquestador` contra el catálogo cross-proyecto (15 findings: 1 bloqueante real — `UsersController` 500 siempre por MH-001 —, decimales corrompidos x100 en inputs numéricos bajo cultura es-AR, gaps de "Pendientes" en Home, dedupe de importación bypasseable, ~290 líneas de código muerto divergente, entre otros) + Data Protection persistente (mismo fix que marihogar/eleven, evita logout de todos los usuarios en cada deploy). Todo implementado, deployado y verificado — sin migraciones EF | /docs/virtualwallet |
 | meta-ads | 2026-05-13 | activo | /docs/meta-ads |
 | labipac | 2026-06-12 | activo | /docs/labipac |
 | contadores-bma-conversor | 2026-06-24 | activo | /docs/contadores-bma-conversor |

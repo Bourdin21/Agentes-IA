@@ -421,6 +421,13 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Motivo: pedido explícito de Joaquín ("hacer una vuelta más de qa y si está ok deployar para pruebas en el servidor"), confirmado el deploy a producción real después de presentarle el matiz exacto de la recomendación de QA (riesgo contenido por el botón de facturar deshabilitado, D9 visible pero no corruptor de datos).
 - Riesgos/pendientes: **Facturación AFIP sigue bloqueada a propósito** (botón deshabilitado, sin certificado real) — D8 debe corregirse antes de habilitarla. D9 (fecha de Caja) queda como riesgo aceptado y conocido, a corregir antes de una prueba prolongada. El backup pre-deploy queda en carpeta temporal local, pendiente de borrar cuando Joaquín confirme que no lo necesita.
 
+### 2026-08-31 - orquestador (autocompletar pago + persistencia de sesión entre deploys)
+- Etapa: Implementación directa (mejoras puntuales sobre Entrega 2 ya en producción)
+- Cambio 1: al agregar un pago nuevo en `Ventas/Editar.cshtml`, el input de Monto se autocompleta con el saldo pendiente actual (Total - pagos ya cargados, incluido el recargo de cuotas) en vez de arrancar en 0 — pedido explícito de Joaquín. Sigue siendo editable. Deployado a producción.
+- Cambio 2: agregado `AddDataProtection().PersistKeysToFileSystem(...)` en `Program.cs` (mismo fix ya resuelto y documentado en marihogar) — sin esto, el Application Pool de este hosting compartido cae a un keyring efímero en memoria y invalida la cookie de Identity + los antiforgery token en cada deploy (y en cada reciclado de pool), cerrando la sesión de todos los usuarios activos. `DataProtection-Keys/` agregada a `.gitignore`, y el comando de Web Deploy actualizado para excluir esa carpeta del sync (`-skip:objectName=dirPath,absolutePath=DataProtection-Keys`) — sin esto, cada deploy futuro volvería a borrar el keyring y el fix no serviría de nada. Deployado a producción.
+- Motivo: pedidos directos de Joaquín tras el deploy de Entrega 2, encontrados usando el sistema en producción real.
+- Riesgos/pendientes: ninguno — ambos cambios son de bajo riesgo (sin migración EF), build 0 errores, sitio verificado `HTTP 200` después de cada deploy.
+
 ## Historial de ajustes de alcance
 - 2026-07-30: se descarta el módulo "Cheques 30/60/90 días" como módulo aparte (el cliente no opera con pagos diferidos propios) — se absorbe como campo de forma de pago en Proveedores + Compras.
 - 2026-07-30: mantenimiento acordado previo a este relevamiento (año 1 con Etapa 1 = PRO sin costo; desde Etapa 2 = PREMIUM USD 500/año) se mantiene sin cambios para este proyecto.

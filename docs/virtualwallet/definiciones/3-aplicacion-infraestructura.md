@@ -49,16 +49,62 @@ Orden cronologico:
 
 Para produccion, se generan scripts SQL idempotentes en `Data/Migrations/Scripts/*.sql`.
 
-### Servicios de Importacion (`Services/Importacion/*` y `Services/*`)
+### Servicios de Importacion (`Services/*`)
 
-Hay **dos copias** de `CategorizadorMovimientos`, `ProvinciaMastercardResumenParser`, `ProvinciaVisaResumenParser` y `ResumenTarjetaImporter`: una en `Services/` y otra en `Services/Importacion/`. La copia "canonica" es la de `Services/Importacion/` (es la registrada en DI). La copia plana es legado a evaluar para borrado.
+Los servicios de importacion viven **todos en `Services/`** (plano): `CategorizadorMovimientos`,
+`ProvinciaMastercardResumenParser`, `ProvinciaVisaResumenParser`, `ResumenTarjetaImporter`. La
+carpeta `Services/Importacion/` existio como resto de una migracion vieja con 4 archivos `.cs` de
+0 bytes y fue **eliminada** (2026-08-31); no hay copias duplicadas de estas clases.
 
-Flujo de importacion:
+Flujo de importacion (unico flujo vivo):
 1. **Parser** lee PDF y entrega lista de movimientos crudos + cuotas detectadas.
 2. **Categorizador** asigna categoria sugerida por reglas (mapas de palabras clave).
 3. **Importer.PreviewImportacionAsync**: arma DTO de preview sin persistir.
 4. Usuario revisa/edita en `Views/Importacion/Preview.cshtml`.
 5. **Importer.ConfirmarImportacionAsync**: persiste movimientos y reutiliza cuotas existentes (`CuotasReutilizadas`) o crea nuevas.
+
+> `ImportarResumenAsync` (un segundo camino PDF -> persistencia directa, sin preview) fue
+> **eliminado** del importer y de `IResumenTarjetaImporter` el 2026-08-31: no tenia ningun caller
+> en el repo y habia divergido del flujo real, lo que lo volvia una fuente de confusion.
+
+#### Clave de deduplicacion (idempotencia del import)
+
+La clave es **`UsuarioId + CuentaId + Fecha.Date + DescripcionOriginal`**.
+
+- **`Monto` NO forma parte de la clave.** En lineas en dolares el monto en pesos es un valor
+  *derivado* (`MontoUsd x cotizacion del momento del import`) que puede variar levemente entre
+  dos importaciones del mismo PDF; incluirlo hacia que el duplicado no se detectara.
+- `DescripcionOriginal` es la **linea cruda del PDF** (`DescripcionRaw`), que incluye el numero de
+  cupon y por lo tanto distingue dos consumos distintos del mismo comercio, el mismo dia, por el
+  mismo importe. Si el parser no la pobla, se cae a la descripcion limpia.
+- Caso especial — **fila sintetica de impuestos** (`IMPUESTO CREDITO MASTERCARD`): totaliza varias
+  lineas y no tiene cupon. Su `DescripcionRaw` se compone como
+  `IMPUESTO CREDITO MASTERCARD {fecha:yyyy-MM-dd} {totalPesos:F2} {totalDolares:F2}` para que un
+  resumen reemitido del mismo periodo **con impuestos corregidos** genere una clave distinta y el
+  importe nuevo entre, en vez de descartarse en silencio contra la fila vieja.
+- La deduplicacion se evalua **dos veces**: en `PreviewImportacionAsync` (para marcar
+  `EsDuplicado`/`Excluir`) y **de nuevo en `ConfirmarImportacionAsync` contra la base**. La
+  segunda es obligatoria: el flag `Excluir` viaja al navegador como campo oculto y lo controla el
+  cliente, asi que un doble click en Confirmar, un F5 o un reenvio del POST duplicaban el resumen
+  entero. Los items salteados se contabilizan en
+  `ResultadoImportacionResumen.MovimientosOmitidosPorDuplicado` (no son error, no abortan el lote).
+
+#### Cuotas N/M con N > 1
+
+Las cuotas cuyo numero de cuota es mayor a 1 **ya no se excluyen por defecto** del import. El
+caso real es empezar a usar la app con una compra en cuotas ya en curso: la primera importacion de
+esa cuota puede ser una 05/12, no una 01/12.
+
+Consecuencia: al crear una `Cuota` nueva desde el confirm, `FechaInicio` se **retrocede** N-1
+meses respecto de la fecha del movimiento:
+
+```
+FechaInicio = item.Fecha.AddMonths(-(item.NumeroCuota ?? 1) + 1)
+```
+
+Sin ese backdating, la fecha de fin calculada (`FechaInicio + CantidadCuotas - 1`) queda corrida
+varios meses y la cuota se muestra como activa/vigente mas tiempo del que corresponde en
+`DashboardController.ObtenerCuotasActivas` y `HomeController` (`CuotasVigentes`).
 
 ### Servicios transversales
 

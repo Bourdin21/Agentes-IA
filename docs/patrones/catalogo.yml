@@ -633,3 +633,36 @@ patrones:
       incognita", el SEGUNDO padre que habla del mismo componente ya no tiene incognitas y el conflicto
       pasa desapercibido (la sugerencia sale "Exacta" con un solo origen, ocultando la contradiccion) —
       de ahi el control de consistencia sobre ecuaciones determinadas descrito arriba.
+
+  - id: PAT-019
+    nombre: "Autocompletar el monto de un pago nuevo con el saldo pendiente"
+    categoria: ui
+    descripcion: >
+      En una pantalla que registra pagos parciales/multiples contra un comprobante con total
+      conocido (Venta, Orden de Compra), al agregar una fila de pago nueva el input de Monto
+      arranca en 0 por defecto — el caso mas comun es pagar TODO lo que falta en un solo medio, y
+      forzar al usuario a calcular a mano cuanto es "el resto" es friccion evitable. Se
+      autocompleta con max(Total - suma de pagos ya cargados, 0) — nunca negativo, si la venta ya
+      esta cubierta el valor por defecto es 0 en vez de un importe sin sentido. El input sigue
+      siendo 100% editable: el vendedor puede cambiarlo para partir el pago en varios medios (ej.
+      $ X en efectivo + el resto a cuenta corriente). El calculo vive del lado cliente (JS) sobre
+      el mismo total/pagos ya renderizados en pantalla — el servidor SIEMPRE recalcula el total
+      real al guardar, este valor es solo el punto de partida de la fila nueva.
+    cuando_usar: >
+      Cualquier pantalla de alta/edicion que registre N pagos (o cobros) contra un total conocido
+      de antemano, sea el pago completo en un solo medio o repartido en varios.
+    proyecto_origen: marihogar (Ventas/Create.cshtml — saldoPendienteVenta; OrdenesCompra/Details.cshtml — saldoPendienteOCRestante)
+    proyectos_que_lo_usan: [la-platense]
+    archivos_referencia:
+      - proyecto: marihogar
+        path: "MariHogar.Web/Views/Ventas/Create.cshtml (saldoPendienteVenta)"
+        motivo: "Version original: autocompletar el pago nuevo con Total - totalPagos(), mas los shortcuts 'Todo efectivo'/'Todo transferencia'"
+        pendiente_verificar: false
+      - proyecto: marihogar
+        path: "MariHogar.Web/Views/OrdenesCompra/Details.cshtml (saldoPendienteOCRestante)"
+        motivo: "Misma logica reaplicada contra o.SaldoPendiente del lado de Compras — confirma que el patron generaliza mas alla de Ventas"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Web/Views/Ventas/Editar.cshtml (saldoPendienteActual, agregarFilaPago)"
+        motivo: "Tercera instancia — pedido explicito del cliente sobre el sistema ya en produccion, mismo criterio sin variacion"
+        pendiente_verificar: false

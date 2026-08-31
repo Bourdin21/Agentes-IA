@@ -64,11 +64,34 @@ Eje del dominio. Ingreso o egreso de dinero.
 
 Plan de financiacion en cuotas (tipico de tarjeta).
 
-- `Descripcion`, `MontoTotal`, `CantidadCuotas`, `MontoCuota` (computed o persistido).
-- `FechaPrimerCuota`.
-- `CategoriaId`, `SubCategoriaId?`, `CuentaId`, `UsuarioId`.
+- `Descripcion`, `MontoTotal`, `CantidadCuotas`, `FechaInicio`, `UsuarioId`.
+- El monto por cuota **no se persiste**: se deriva como `MontoTotal / CantidadCuotas`.
+- Categoria/subcategoria/cuenta **no viven en `Cuota`**: se toman de los `Movimiento` generados
+  (la vista de edicion los muestra leyendo el primer movimiento asociado).
 - Genera N `Movimiento` con `Estado = Pendiente` y los marca `Realizado` mes a mes.
 - Solo puede asociarse a categorias de tipo **Egreso** (D-09).
+
+**Editabilidad (regla de negocio explicita, no omision de implementacion):**
+
+- `Descripcion` y `FechaInicio` **son editables** en `Cuotas/Edit`. Cambiar `FechaInicio` es
+  seguro: no altera la cantidad ni el monto de los movimientos mensuales ya generados; es la
+  metadata con la que se calcula la fecha de fin de la cuota ("activa" en
+  `DashboardController.ObtenerCuotasActivas`, "vigente" en `HomeController`).
+- `MontoTotal` y `CantidadCuotas` son de **solo lectura una vez creada la cuota**. Motivo: los N
+  movimientos mensuales se generan de una sola vez en el alta (`CuotasController.Create`), y
+  cambiar el total o la cantidad exigiria reconciliar/regenerar esos movimientos (altas, bajas y
+  reproporcion de importes, con parte de las cuotas posiblemente ya en `Realizado`). Esa
+  reconciliacion **no esta implementada a proposito**. Para corregir el monto o la cantidad, el
+  flujo soportado es eliminar la cuota (soft delete en cascada de sus movimientos) y volver a
+  cargarla. La vista de edicion muestra esta limitacion al usuario de forma explicita.
+- Esta es la **unica excepcion** admitida en el proyecto a la regla general de
+  `32-estandares-qa-implementador.instructions.md` ("toda propiedad de negocio debe ser editable
+  en Alta y Edicion salvo auditoria").
+
+**Redondeo de cuotas (PAT-003):** al generar los N movimientos, las primeras N-1 cuotas llevan
+`Math.Round(MontoTotal / CantidadCuotas, 2)` y la **ultima absorbe la diferencia de centavos**
+(`MontoTotal - montoCuota * (N-1)`), de modo que la suma de los movimientos cierre exactamente
+contra `MontoTotal`. Ej.: $100 en 3 cuotas -> 33,33 + 33,33 + 33,34.
 
 ### `AuditLog`
 
@@ -97,4 +120,10 @@ Aviso in-app para un usuario: `Title`, `Message`, `Level`, `IsRead`, `CreatedAt`
 2. **Tipo categoria <-> movimiento**: un movimiento `Egreso` solo puede usar categorias `Egreso`. Cuota idem (solo egreso).
 3. **EsPagoTarjeta**: solo aplica a egresos. Excluido del gasto del periodo y de la curva de subcategorias del dashboard. Sumado al saldo a favor en deuda de tarjeta.
 4. **Borrado fisico prohibido**: usar siempre soft delete. Antes de borrar, verificar dependencias (movimientos asociados a cuenta/categoria, etc.) y avisar (D-13).
-5. **Estado pendiente**: cuotas generan movimientos pendientes. El dashboard los marca distinto y los excluye/incluye segun el KPI.
+5. **Estado pendiente**: las cuotas generan movimientos `Pendiente`. **Ningun total de dashboard
+   incluye movimientos `Pendiente`**: tanto `Dashboard/ResumenGeneral` como la portada
+   (`Home/Index`) calculan ingresos, egresos, comparativo mes anterior, top categorias, deuda de
+   tarjeta, alertas y KPIs de proyeccion **solo sobre `Estado == Realizado`**. Los pendientes se
+   muestran aparte, como proyeccion informativa (cuotas futuras + ingresos por cobrar), en la
+   card "Pendientes" de `ResumenGeneral`. Criterio unico: para un mismo periodo, los numeros de
+   la portada y los de `ResumenGeneral` deben coincidir.
