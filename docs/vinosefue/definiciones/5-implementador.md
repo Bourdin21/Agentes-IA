@@ -10,6 +10,13 @@
 
 ## Features completadas (cronologia inversa)
 
+### 2026-08-31 (mismo dia, quinta tarea) — Deploy a produccion de las 4 tareas del dia (codigo + migracion)
+- Commit (`b352efd`) + push a GitLab de las 4 tareas del dia (30 archivos), previa confirmacion del cliente. Backup completo de prod (mysqldump, 35.5 MB, verificado) antes de tocar el schema. Solo 1 migracion pendiente (`AddUrlsListaPreciosProveedor`) — aplicada OK contra prod, verificado 0 pendientes.
+- Deploy de codigo: Web Deploy fallo primero con 401 (password DPAPI del `.pubxml.user` no desencriptaba desde este contexto de sesion); FTP compilo pero nunca disparo la transferencia (pipeline depende de toolset exclusivo de Visual Studio). Resuelto pidiendole al cliente la contrasena real de Web Deploy y pasandola explicita por `-p:Password=` — publicado OK (12 archivos actualizados).
+- Verificado post-deploy contra `www.vinoysefue.ar`: `/health` -> Healthy (incluye chequeo MySQL), `/Catalogo/Importar` -> 404 (confirma codigo nuevo corriendo, no cache vieja), `/Account/Login` -> 200.
+- Riesgo abierto: la credencial guardada de Web Deploy sigue sin funcionar de forma no interactiva en este entorno — un proximo deploy automatizado va a necesitar la password de nuevo, o hacerse desde Visual Studio como practica habitual del cliente.
+- Detalle completo en `trazabilidad.md`.
+
 ### 2026-08-31 (mismo dia, cuarta tarea) — "Aplicar cambios" ahora corre en background (no bloquea) + notificacion al terminar
 - Extendido el mismo mecanismo de cola in-memory + `IHostedService` que ya usaba el paso 1 (generar preview) para cubrir tambien el paso 2 (aplicar). `CatalogoImportQueue` paso de `Channel<int>` a `Channel<CatalogoImportJob>` (record con tipo `GenerarPreview`/`Aplicar`); `CatalogoImportBackgroundService` despacha por tipo con un helper comun de notificacion (evita duplicar la logica ya existente de buscar admins + `INotificationService`).
 - `AplicarImportacionAsync` (trabajo pesado, ~1700 operaciones EF en una transaccion) se partio: `IniciarAplicacionAsync` (rapido, Preview->Aplicando, responde al instante) lo llama el controller; el volcado real lo corre el worker, exige `Estado==Aplicando`. Nuevo estado `EstadoCatalogoImportacion.Aplicando=5` (aditivo, sin migracion — mismo int subyacente). Bug real corregido de paso: si el volcado fallaba a mitad de camino quedaba colgado en "Aplicando" para siempre (el rollback de la transaccion EF no revierte un `SaveChangesAsync` previo fuera de ella) — ahora cae a `ConErrores` con detalle.

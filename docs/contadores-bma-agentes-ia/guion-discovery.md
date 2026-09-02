@@ -18,7 +18,18 @@ Esto es lo que más condiciona el resto del proyecto — determina si algún dí
 
 ---
 
-## Bloque 2 — Catálogo real de tareas a automatizar (pregunta abierta 4)
+## Bloque 2 — SOS Contador y su relación con Bejerman Web (preguntas abiertas 6 y 7)
+
+Agregado 2026-08-31: el estudio también usa mucho SOS Contador, y el bot de consultas tiene que tener su documentación cargada además de la de Bejerman. Antes de diseñar el adaptador para SOS Contador (que, a diferencia de Bejerman, sí tiene API oficial para integraciones — ver research en `definiciones/1-analista-funcional.md`), hace falta confirmar cómo se usan ambos sistemas juntos:
+
+1. ¿Bejerman Web genera datos (ventas, compras, sueldos) que después se vuelven a cargar a mano en SOS Contador para liquidar/presentar impuestos? Ejemplo para contrastar: "cargamos las ventas del mes en Bejerman y las volvemos a tipear/importar en SOS para armar el IVA" (variante con traslado manual) vs. "los clientes que llevamos en Bejerman quedan ahí, los que llevamos en SOS quedan en SOS, no se mezclan" (variante sin traslado).
+2. ¿Usan el módulo de Sueldos de Bejerman, el de SOS Contador (Sueldos v2), o los dos para el mismo cliente? Si es "los dos", ahí hay una duplicación de carga que es candidata directa a automatizar.
+3. ¿Para qué usa el estudio específicamente SOS Contador hoy? (impositivo, contabilidad, gestión, sueldos, todo lo anterior) — para no asumir que se usa igual que se documenta en su sitio.
+4. Mismas preguntas de "Manuales / soporte" del Bloque 3 (dudas frecuentes, manual propio) pero para SOS Contador: ¿a quién le preguntan hoy cuando no saben hacer algo ahí?
+
+---
+
+## Bloque 3 — Catálogo real de tareas a automatizar (pregunta abierta 4)
 
 El catálogo que propusimos (conciliaciones, impuestos, balances, sueldos, manuales) es una **hipótesis a validar**, no un relevamiento confirmado. Para el relevamiento fino tarea por tarea, se complementa con `cuestionario-discovery-empleados.md` (uno por cada empleado que usa Bejerman día a día, no solo los referentes de esta reunión). En la reunión grupal alcanza con validar el panorama general por área, con estas variantes de alcance posible — que el estudio confirme, corrija o descarte por analogía:
 
@@ -40,33 +51,33 @@ El catálogo que propusimos (conciliaciones, impuestos, balances, sueldos, manua
 **Sueldos/RRHH**
 - Ya hay precedente directo: `contadores-bma-conversor` automatiza la conversión de la liquidación para SERVICIO TERAPIA RENAL S.A. Pregunta: ¿ese mismo proceso se repite para otros clientes del estudio con formatos de salida distintos? ¿hay otras tareas de sueldos además de esa conversión (ej. validar el cálculo, no solo convertir el formato)?
 
-**Manuales / soporte de uso de Bejerman Onvio**
-- Pregunta abierta simple: ¿hoy a quién le preguntan cuando no saben cómo hacer algo en Bejerman Web/Onvio? ¿Tienen algún manual propio (interno, no el de Thomson Reuters) con procedimientos del estudio?
+**Manuales / soporte de uso de Bejerman Onvio y SOS Contador**
+- Pregunta abierta simple: ¿hoy a quién le preguntan cuando no saben cómo hacer algo en Bejerman Web/Onvio o en SOS Contador? ¿Tienen algún manual propio (interno, no el oficial de cada proveedor) con procedimientos del estudio?
 
 **Otras tareas no contempladas** (pregunta abierta, sin variantes — para no anclar la respuesta): ¿hay alguna tarea repetitiva y que consuma mucho tiempo que no esté en esta lista?
 
 ---
 
-## Bloque 3 — Organización y alcance (pregunta abierta 5)
+## Bloque 4 — Organización y alcance (pregunta abierta 5)
 
-1. ¿Cuántas personas trabajan en el estudio y usan Bejerman Web/Onvio en su día a día?
+1. ¿Cuántas personas trabajan en el estudio y usan Bejerman Web/Onvio y/o SOS Contador en su día a día?
 2. ¿Hay roles diferenciados (ej. alguien solo hace sueldos, otro solo impuestos) o todos hacen un poco de todo?
-3. ¿Cuántos clientes/empresas atiende el estudio en total? (dimensiona el volumen real de cada tarea del Bloque 2)
+3. ¿Cuántos clientes/empresas atiende el estudio en total? (dimensiona el volumen real de cada tarea del Bloque 3)
 
 ---
 
-## Bloque 4 — Priorización del agente piloto (Fase 0 del plan de acción)
+## Bloque 5 — Priorización del agente piloto (Fase 0 del plan de acción)
 
-Con lo relevado en el Bloque 2, elegir en la reunión (no después) cuál es el mejor candidato a agente piloto, usando estos criterios:
+Con lo relevado en los Bloques 2 y 3, elegir en la reunión (no después) cuál es el mejor candidato a agente piloto, usando estos criterios:
 - Mayor volumen/repetitividad (más tiempo ahorrado por corrida)
 - Menor riesgo si falla (nada que afecte directamente una presentación legal/impositiva)
-- Depende de un archivo que el empleado ya exporta hoy (compatible 100% con Opción A, sin esperar ninguna autorización de Thomson Reuters)
+- Depende de un archivo que el empleado ya exporta hoy, o de la API oficial de SOS Contador (compatible con Opción A o con el adaptador de SOS, sin esperar ninguna autorización de Thomson Reuters)
 
-Candidatos hipotéticos a confirmar/descartar: conciliación bancaria, o el asistente de manuales/soporte (este último no depende de ningún dato del cliente, es el de menor riesgo absoluto).
+Candidatos hipotéticos a confirmar/descartar: conciliación bancaria, el asistente de manuales/soporte (no depende de ningún dato del cliente, es el de menor riesgo absoluto), o el traslado de datos Bejerman→SOS Contador si el Bloque 2 confirma que hoy se hace a mano.
 
 ---
 
-## Bloque 5 — Restricciones y expectativas
+## Bloque 6 — Restricciones y expectativas
 
 1. Presupuesto de referencia que el estudio tiene en mente para la Fase 0 (piloto) — para calibrar alcance antes de que el presupuestador arme el número formal.
 2. Timeline deseado: ¿hay alguna fecha (cierre de ejercicio, vencimiento impositivo) que convenga usar como objetivo del piloto?
@@ -77,7 +88,8 @@ Candidatos hipotéticos a confirmar/descartar: conciliación bancaria, o el asis
 ## Checklist de cierre — qué tiene que quedar resuelto para pasar a Diseño
 
 - [ ] Contacto en Thomson Reuters identificado y consulta sobre canal de integración autorizada enviada (o agendada con fecha)
-- [ ] Catálogo de tareas confirmado (Bloque 2), con volumen aproximado por tarea
+- [ ] Relación Bejerman Web ↔ SOS Contador confirmada (traslado de datos sí/no, uso de Sueldos duplicado sí/no)
+- [ ] Catálogo de tareas confirmado (Bloque 3), con volumen aproximado por tarea
 - [ ] Cantidad de empleados y clientes del estudio confirmada
 - [ ] Agente piloto de Fase 0 elegido
 - [ ] Presupuesto de referencia y timeline deseado relevados

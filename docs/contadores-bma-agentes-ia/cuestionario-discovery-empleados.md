@@ -1,8 +1,8 @@
 # Cuestionario de Discovery — por empleado (Contadores BMA)
 
-Para quien lo distribuye: enviar este cuestionario individualmente a cada empleado que usa Bejerman Web/Onvio en su trabajo diario — no solo a los referentes que ya participaron de la reunión de discovery grupal (`guion-discovery.md`). El relevamiento pierde precisión si solo lo completa quien no ejecuta la tarea día a día. Se puede pasar como formulario (Google Forms) o como documento para completar y devolver.
+Para quien lo distribuye: enviar este cuestionario individualmente a cada empleado que usa Bejerman Web/Onvio y/o SOS Contador en su trabajo diario — no solo a los referentes que ya participaron de la reunión de discovery grupal (`guion-discovery.md`). El relevamiento pierde precisión si solo lo completa quien no ejecuta la tarea día a día. Se puede pasar como formulario (Google Forms) o como documento para completar y devolver.
 
-Alcance del proyecto que este cuestionario ayuda a definir: Bejerman Web sigue siendo la herramienta principal — no se reemplaza ni se automatiza "por dentro". Lo que se busca es (1) un bot que responda dudas de uso de Bejerman/Onvio, (2) scripts para conversiones de archivos que hoy se hacen a mano, y (3) automatizar procesos que ya siguen siempre los mismos pasos.
+Alcance del proyecto que este cuestionario ayuda a definir: Bejerman Web y SOS Contador siguen siendo las herramientas principales — no se reemplazan ni se automatizan "por dentro". Lo que se busca es (1) un bot que responda dudas de uso de ambas, (2) scripts para conversiones de archivos que hoy se hacen a mano (incluido el traslado de datos entre una herramienta y otra, si lo hay), y (3) automatizar procesos que ya siguen siempre los mismos pasos.
 
 ---
 
@@ -20,13 +20,14 @@ Completá una fila por cada tarea que hacés de forma habitual (diaria, semanal,
 
 **Ejemplo ya completado, como guía:**
 
-| Tarea | Frecuencia | Tiempo aprox. por vez | ¿Usás Bejerman Web/Onvio? | ¿Descargás o exportás algún archivo para hacerla? |
+| Tarea | Frecuencia | Tiempo aprox. por vez | ¿Usás Bejerman Web/Onvio, SOS Contador, o ambos? | ¿Descargás/exportás algún archivo, o pasás datos de uno a otro? |
 |---|---|---|---|---|
-| Conciliar el banco de STR | Mensual | 2-3 horas | Sí, para ver los movimientos | Sí — exporto el resumen del banco en Excel y lo comparo a mano con Bejerman |
+| Conciliar el banco de STR | Mensual | 2-3 horas | Bejerman, para ver los movimientos | Sí — exporto el resumen del banco en Excel y lo comparo a mano con Bejerman |
+| Armar el IVA de un cliente | Mensual | 1 hora | Ambos | Cargo las ventas en Bejerman y las vuelvo a cargar a mano en SOS Contador para liquidar |
 
 **Tu lista:**
 
-| Tarea | Frecuencia | Tiempo aprox. por vez | ¿Usás Bejerman Web/Onvio? | ¿Descargás o exportás algún archivo para hacerla? |
+| Tarea | Frecuencia | Tiempo aprox. por vez | ¿Usás Bejerman Web/Onvio, SOS Contador, o ambos? | ¿Descargás/exportás algún archivo, o pasás datos de uno a otro? |
 |---|---|---|---|---|
 | | | | | |
 | | | | | |
@@ -54,21 +55,21 @@ Para cada una, describí los pasos como si se lo tuvieras que explicar a alguien
 
 ---
 
-## 4. Archivos que convertís o reformateás a mano
+## 4. Archivos que convertís o reformateás a mano (incluye traslado entre Bejerman y SOS Contador)
 
-¿Hay algún archivo que bajás de Bejerman Web/Onvio (o de otro lado) y tenés que transformar a mano antes de poder usarlo o entregarlo? Por ejemplo: cambiar el formato de columnas, unir varios archivos en uno, pasar de un formato a otro para un cliente puntual.
+¿Hay algún archivo que bajás de Bejerman Web/Onvio o de SOS Contador (o de otro lado) y tenés que transformar a mano antes de poder usarlo, entregarlo, o cargarlo en el otro sistema? Por ejemplo: cambiar el formato de columnas, unir varios archivos en uno, pasar de un formato a otro para un cliente puntual, o volver a tipear en SOS Contador algo que ya cargaste en Bejerman (o al revés).
 
-- ¿Qué archivo es (nombre/tipo)?
-- ¿En qué formato lo bajás?
-- ¿A qué formato lo tenés que convertir, y para qué/quién?
+- ¿Qué archivo o dato es?
+- ¿De dónde sale y a dónde tiene que llegar (qué sistema, qué formato)?
+- ¿Es un traslado entre Bejerman y SOS Contador, o algo independiente de ambos?
 
 ---
 
-## 5. Dudas frecuentes sobre Bejerman Web u Onvio
+## 5. Dudas frecuentes sobre Bejerman Web/Onvio y SOS Contador
 
-- ¿Qué preguntas te hacés seguido sobre cómo hacer algo en Bejerman Web u Onvio?
-- Hoy, cuando no sabés cómo hacer algo ahí, ¿a quién le preguntás o dónde lo buscás?
-- ¿Tenés algún instructivo o apunte propio del estudio (no el manual oficial de Thomson Reuters) que uses de referencia?
+- ¿Qué preguntas te hacés seguido sobre cómo hacer algo en Bejerman Web/Onvio? ¿Y en SOS Contador?
+- Hoy, cuando no sabés cómo hacer algo en cualquiera de las dos, ¿a quién le preguntás o dónde lo buscás?
+- ¿Tenés algún instructivo o apunte propio del estudio (no el manual oficial del proveedor) que uses de referencia, de cualquiera de las dos herramientas?
 
 ---
 

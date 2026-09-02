@@ -17,8 +17,8 @@ Mecanismo de "entrenamiento": cada empleado documenta paso a paso la tarea que q
 Arquitectura propuesta (research inicial, ver Google Doc en metadata.md): servidor central del estudio como orquestador (Claude Agent SDK) + agente liviano en la PC de cada empleado, que es quien interactúa con Bejerman Onvio.
 
 **Alcance refinado por el usuario (2026-08-31)** — acota la hipótesis inicial a algo más concreto: Bejerman Web sigue siendo la herramienta principal que usa el empleado, no se reemplaza ni se automatiza "por dentro". El sistema se construye alrededor de tres piezas:
-1. Un bot que responde las consultas/dudas de uso de Bejerman Web/Onvio (100% agente, ver mapa de la sección "Stack: agente vs. script determinístico").
-2. Scripts para las conversiones de archivos que hoy se hacen a mano (capa de adaptadores, script determinístico — mismo patrón que `contadores-bma-conversor`).
+1. Un bot que responde las consultas/dudas de uso de **Bejerman Web/Onvio y de SOS Contador** — segunda herramienta muy usada por el estudio, agregada por el usuario el 2026-08-31 (ver sección "SOS Contador" más abajo) — con la documentación de ambas cargada (100% agente, ver mapa de la sección "Stack: agente vs. script determinístico").
+2. Scripts para las conversiones de archivos que hoy se hacen a mano (capa de adaptadores, script determinístico — mismo patrón que `contadores-bma-conversor`), incluyendo el traslado de datos entre Bejerman Web y SOS Contador si el relevamiento confirma que hoy se hace a mano.
 3. Automatización de los procesos que el estudio ya tiene definidos y siguen siempre los mismos pasos.
 
 Esto es compatible 100% con la Opción A y con el plan de acción de 5 fases ya definido — no cambia la arquitectura en capas, la acota a un alcance más manejable para la Fase 0-1.
@@ -31,6 +31,44 @@ Esto es compatible 100% con la Opción A y con el plan de acción de 5 fases ya 
 - 2FA obligatorio en Onvio (Thomson Reuters Authenticator/Auth0 Guardian — push, TOTP, SMS o hardware key) + reCAPTCHA en login + timeout de sesión de 30 min de inactividad — fricciones técnicas adicionales para cualquier automatización de login, independientes del bloqueo contractual.
 - Camino que sigue abierto sin necesitar autorización: automatizar lo que pasa **después** de que el empleado exporta un archivo a mano desde Bejerman Web (acción humana, no acceso automatizado al sistema de Thomson Reuters) — es lo que ya hace `contadores-bma-conversor` en producción.
 
+## SOS Contador — research, complementariedad con Bejerman Web y puntos de dolor (agregado 2026-08-31)
+
+### Qué es y qué hace
+
+SOS Contador (`sos-contador.com`) es una suite contable-impositiva 100% en la nube, dirigida a estudios contables y profesionales independientes en Argentina. Módulos principales, por lo relevado en su base de ayuda pública:
+- **Impositivo/ARCA**: liquidación de IVA (F2002/F2051), Libro IVA Digital, Ingresos Brutos Convenio Multilateral (CM03 mensual, CM05 anual), SIFERE, proyección de Ganancias, ajuste por inflación contable e impositivo.
+- **Contabilidad**: generación automática de asientos y libro diario a partir de compras/ventas cargadas, estados contables, Sumas y Saldos, amortización de Bienes de Uso.
+- **Gestión**: ventas, compras, cuenta corriente, cheques, clientes, proveedores, stock, cobros/pagos.
+- **Sueldos v2**: liquidación de remuneraciones — módulo propio, superpuesto en función con el de Bejerman (ver pregunta abierta 7 más abajo).
+- **Monotributo**, **Agro**, multimoneda, importación automática diaria de comprobantes desde AFIP/ARCA ("Mis Comprobantes").
+- Integraciones ya existentes mencionadas por el proveedor: Mercado Libre, Mercado Pago, Tienda Nube, ARBA, LUA (no confirmado el alcance exacto de cada una).
+
+### Documentación disponible para cargar en el bot
+
+- Base de ayuda estructurada por módulo: `ayuda.sos-contador.com.ar` (organizada en menús — Inicio, Asistentes ARCA, Monotributo, Gestión, Contabilidad, Sueldos v2, Automatizaciones, Agro, Más funcionalidades — con secciones propias de Importar/Exportar datos y API).
+- Blog con tutoriales (`sos-contador.com/blog`) y canal de YouTube con +30 videos tutoriales.
+
+### Hallazgo clave — contraste directo con Bejerman/Onvio
+
+**A diferencia de Bejerman/Onvio (bloqueado contractualmente sin autorización previa de Thomson Reuters), SOS Contador publica y ofrece activamente una API para integraciones de terceros**: documentación técnica pública vía Postman (`documenter.getpostman.com/view/1566360/SWTD6vnC`), pensada explícitamente para que estudios contables integren SOS con sus propias plataformas — hay un precedente citado por el propio proveedor (software "Mi Estudio Digital" integrado vía esta API para manejo de cartera de clientes) y hasta un grupo de WhatsApp de desarrolladores que la usan. Esto **reabre la puerta a integración automatizada real (equivalente a Opción B) para la porción del flujo que pasa por SOS Contador**, aunque Bejerman siga limitado a Opción A. En la arquitectura en capas ya definida, esto se traduce en un adaptador adicional ("API SOS Contador") en paralelo al adaptador de archivos exportados de Bejerman — ambos alimentando el mismo modelo canónico, sin tocar reglas de negocio ni orquestación.
+
+*Nota de honestidad*: no se profundizó en el contenido técnico de la colección de Postman (alcance de endpoints, autenticación, límites) — es trabajo de la etapa de Arquitectura, no de Análisis. Tampoco se confirmó una referencia encontrada en el research sobre una posible suspensión de la integración AFIP/ARCA de SOS por una resolución "ARCA 74/2022" — es un dato de una sola fuente indirecta, no verificado, y no se lo debe dar por cierto sin confirmarlo directo con SOS Contador o con el estudio.
+
+### Hipótesis de complementariedad con Bejerman Web — a validar con el cliente
+
+**Variante A**: Bejerman Web es la herramienta de gestión/facturación/sueldos "puertas para adentro" de cada cliente que atiende el estudio (ya confirmado por `contadores-bma-conversor`: ahí se genera la liquidación de sueldos), y SOS Contador es la herramienta que el estudio usa específicamente para las presentaciones impositivas (IVA, IIBB, Ganancias) y los libros contables de esos mismos clientes — el flujo típico sería trasladar datos generados en Bejerman hacia SOS Contador para liquidar y presentar impuestos.
+
+**Variante B**: ambos sistemas se usan en paralelo para distintos clientes/carteras del estudio (algunos clientes en Bejerman, otros en SOS Contador), sin traslado de datos entre uno y otro — cada sistema es autocontenido para el cliente que le corresponde.
+
+La Variante A es la que generaría el mayor punto de dolor automatizable (carga manual repetida de los mismos datos en dos sistemas); la Variante B no tendría ese punto de dolor pero sí duplicaría el trabajo de construir el bot de consultas y los scripts para dos ecosistemas de documentación distintos sin sinergia entre ellos. Se agregó como pregunta abierta 6-7 (ver abajo) — debe confirmarse en la reunión de discovery o el cuestionario individual antes de diseñar el adaptador de SOS Contador.
+
+### Puntos de dolor identificados que Olvidata podría atacar
+
+1. **Traslado manual de datos entre Bejerman Web y SOS Contador** (si se confirma la Variante A) — automatizable con script de parseo del export de Bejerman + la API oficial de SOS Contador para la carga, sin depender de ninguna autorización especial (a diferencia de lo que pasaría del lado Bejerman).
+2. **Doble carga de sueldos** — ambos sistemas tienen módulo de liquidación de sueldos; si el estudio usa los dos para esto, hay una duplicación de trabajo evidente a resolver primero (definir cuál es la fuente de verdad).
+3. **Presentaciones impositivas repetitivas** (IVA, IIBB CM03/CM05) armadas hoy revisando datos de Bejerman y cargando a mano en SOS — automatizable vía la API de SOS Contador, en la capa de adaptadores.
+4. **Bot de consultas combinado**: la base de ayuda de SOS Contador está bien estructurada por módulo (a diferencia de la documentación de Bejerman/Onvio, más dispersa) — buen candidato a cargar primero en el bot de soporte, junto con los manuales de Bejerman ya contemplados.
+
 ## Preguntas abiertas — bloquean el cierre de Discovery/Análisis
 
 1. ~~¿Qué línea de Bejerman tiene instalada Contadores BMA?~~ **RESUELTA 2026-08-30**: Bejerman Web (cloud), no Premium/ERP on-premise.
@@ -38,6 +76,8 @@ Esto es compatible 100% con la Opción A y con el plan de acción de 5 fases ya 
 3. Confirmar el texto exacto de la cláusula de uso/automatización en el contrato argentino real firmado por Contadores BMA (no solo los "Onvio Full Terms" globales usados como proxy).
 4. Catálogo real de tareas a automatizar: relevar con el equipo del estudio (no solo con el owner) cuáles son las tareas manuales más repetitivas y de mayor volumen hoy, priorizando las que dependen de archivos que el empleado ya exporta (compatible con Opción A sin pedir autorización).
 5. Cantidad de empleados/puestos de trabajo reales que usarían el sistema.
+6. **¿Cómo se complementan Bejerman Web y SOS Contador en el flujo real del estudio?** Dos variantes a confirmar (ver sección "SOS Contador" arriba, marcadas como **hipótesis a validar**): (A) Bejerman genera los datos de gestión/sueldos y el estudio los traslada a mano hacia SOS Contador para liquidar y presentar impuestos — ej. "cargo las ventas del mes en Bejerman, después las vuelvo a tipear/importar en SOS para armar el IVA"; o (B) cada sistema es autocontenido para una cartera de clientes distinta, sin traslado de datos entre uno y otro — ej. "los clientes con Bejerman quedan en Bejerman, los que están en SOS quedan en SOS, no se mezclan". La respuesta define si corresponde construir el adaptador de traslado Bejerman→SOS como parte de la Fase 0-1.
+7. **¿El estudio usa el módulo de Sueldos de Bejerman, el de SOS Contador (Sueldos v2), o ambos para el mismo cliente?** Ej. variante 1: "todo sueldo se liquida en Bejerman, SOS Contador no se usa para esto" (sin duplicación); variante 2: "liquidamos en Bejerman y después cargamos de nuevo en SOS para que quede en la contabilidad" (duplicación de carga, candidato directo a automatizar).
 
 ## Opciones de integración (stack + infraestructura) — para llevar a la reunión de discovery
 
@@ -98,7 +138,8 @@ Pregunta del usuario: ¿hay un mejor stack que "un grupo de agentes" para este p
 | Tarea | Script determinístico | Agente | Nota |
 |---|---|---|---|
 | Conciliación bancaria | Parseo/normalización de archivos + matching automático por monto/fecha/número de operación | Resolver y explicar diferencias que no calzan solas; aprender patrones que el empleado corrige | El grueso del volumen se resuelve con reglas; el agente entra solo en la cola de excepciones |
-| Manuales / soporte Bejerman Onvio | — | 100% agente (manuales como contexto/RAG) | Es una tarea de lenguaje natural por definición |
+| Manuales / soporte Bejerman Onvio y SOS Contador | — | 100% agente (manuales + base de ayuda de ambas herramientas como contexto/RAG) | Es una tarea de lenguaje natural por definición |
+| Traslado de datos Bejerman → SOS Contador (si se confirma pregunta abierta 6) | Parseo del export de Bejerman + carga vía API oficial de SOS Contador | Resolver casos que no matchean automáticamente entre ambos sistemas | Único adaptador candidato a nivel "Opción B" desde el arranque, porque SOS sí tiene API autorizada — no depende de Thomson Reuters |
 | Carga de comprobantes/facturas | Extracción de campos si el formato es estructurado y estable | Extracción de entradas no estructuradas (PDF/foto variable) + clasificación de cuenta contable | Evaluar primero si conviene apoyarse en la IA que ya trae Bejerman antes de reconstruirlo |
 | Balances / papeles de trabajo | Totales, ratios, cruces período a período | Señalar inconsistencias que no siguen una regla fija; redactar la explicación para el contador | El cálculo nunca sale del agente, solo la narrativa |
 | Liquidación de impuestos (IVA, Ganancias) | El cálculo impositivo en sí | Armar el borrador explicativo, detectar datos faltantes, interpretar casos particulares | Máximo riesgo si se invierte el rol |

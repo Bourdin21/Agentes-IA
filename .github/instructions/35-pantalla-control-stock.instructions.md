@@ -39,6 +39,17 @@ Si el proyecto usa un manejador generico de concurrencia optimista (ej. un hook 
 - Recomendacion operativa minima mientras no se resuelva: avisar al cliente que evite correr el proceso batch en paralelo con una sesion de carga masiva sobre la misma entidad.
 - Si se decide resolverlo de raiz, evaluarlo como un item propio de Arquitectura (no como parte del CR de la pantalla de stock) — puede requerir que `RowVersion` se scoped por grupo de columnas, o que el proceso batch relea el estado justo antes de confirmar en vez de confiar en un `RowVersion` capturado en el momento de la previsualizacion.
 
+## Otras columnas editables inline en la misma pantalla: distinguir cantidad de inventario vs. umbral de alerta
+
+Es comun que el cliente pida extender la edicion inline a otras columnas del mismo listado (ej. el umbral de "stock minimo" que dispara la alerta de "bajo minimo"). Antes de implementarlo, clasificar el campo:
+
+- **Cantidad de inventario real** (lo que ya cubre este documento: stock actual) — pasa siempre por el servicio de stock/ledger (`IStockService` o equivalente), porque cualquier cambio ahi es un movimiento que hay que poder auditar.
+- **Umbral de alerta o atributo de configuracion del producto** (ej. `StockMinimo`) — **no es una cantidad de inventario, no genera movimiento de ledger**. Se edita a traves del servicio que ya es dueno de ese campo en el resto del sistema (tipicamente el servicio de catalogo/producto, el mismo que ya lo escribe desde el formulario de Editar completo) — nunca crear una segunda via de escritura para el mismo campo a traves del servicio de stock.
+
+Ambos pueden compartir el mismo mecanismo de UI (AJAX al blur/Enter, `min="0"`, sin motivo) sin compartir el mismo servicio de backend — son dos preguntas independientes ("como se ve/interactua" vs. "quien es dueno de escribir el dato").
+
+**Sincronizacion entre columnas relacionadas en la misma fila**: si dos columnas editables de la misma fila se usan juntas para un calculo visual (ej. el badge "Bajo minimo" compara Stock actual contra Stock minimo), al guardar cualquiera de las dos hay que actualizar en el DOM el dato que la otra columna usa para su propio calculo (ej. guardar un `data-*` con el valor fresco en el input hermano) — de lo contrario, editar ambas celdas en la misma sesion sin recargar la pagina deja el badge calculando contra un valor viejo.
+
 ## Que NO tocar al construir esta pantalla
 
 - El metodo que descuenta/repone stock desde Ventas/Compras (tipicamente `RegistrarMovimientoAsync` o equivalente) **nunca bloquea por stock negativo** — es una regla de negocio deliberada y distinta de la de "Ajuste manual"/listado inline (que si valida `>= 0`). No unificar ambas validaciones: una venta se puede confirmar aunque supere el stock disponible (advertencia no bloqueante en la UI), un ajuste manual/inline no.
