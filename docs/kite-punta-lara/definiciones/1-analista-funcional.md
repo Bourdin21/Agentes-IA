@@ -1,7 +1,60 @@
 # Memoria - Analista funcional
 
 ## Proyecto: kite-punta-lara
-## Ultima actualizacion: 2026-09-01
+## Ultima actualizacion: 2026-09-01 (con correcciones del 2026-09-02, ver abajo)
+
+---
+
+> ## ⚠ CORRECCIONES POSTERIORES — leer ANTES que el resto
+>
+> El cuerpo de este documento es el Análisis cerrado el 2026-09-01 y **se
+> conserva sin editar** por trazabilidad. Pero durante la Implementación
+> (2026-09-02) el cliente aportó conocimiento de campo y se hicieron
+> verificaciones empíricas que **contradicen cuatro cosas afirmadas acá**.
+> Quien arranque de este documento sin leer esto construye sobre premisas
+> falsas.
+>
+> **1. "Birazón" no existe como término.** El documento lo describe como un
+> "término local de club sin definición formal" y le atribuye dos fenómenos
+> (brisa de calma + bajante). En realidad es **virazón**, un término
+> meteorológico estándar con definición precisa: la brisa térmica que entra
+> desde el agua a la tarde. Se transcribió mal y se le inventó una definición
+> encima. Confirmado con el cliente el 2026-09-02. La "bajante" es un fenómeno
+> aparte —efecto del viento sobre el NIVEL del río— y no tenía por qué vivir
+> dentro de un régimen de viento.
+>
+> **2. Las estaciones de CARP no están todas "del lado uruguayo".** El
+> documento dice que están en el Canal Martín García, lejos de Punta Lara.
+> **Pilote Norden está a 20 km del spot** (-34,6286 / -57,9250), en pleno Río
+> de la Plata — coordenadas obtenidas del propio endpoint de CARP. Eso la
+> convierte en una referencia mucho más válida de lo que sugería el Análisis, y
+> valida la práctica del cliente de usarla para decidir si sale a navegar. Las
+> otras tres (Colonia, Conchillas, Carmelo) sí están bastante más al norte.
+>
+> **3. La "definición de navegable" cambió.** Acá se define como recomendación
+> de equipo (tabla nudos→kite). En producción, la navegabilidad la decide un
+> **rango de viento que elige cada usuario**, sin cuenta, con un tercer estado
+> "al límite" para cuando el sostenido no llega pero las rachas sí. La
+> recomendación de equipo se sacó de la vista pública: sin sesión no hay quiver
+> del usuario y recomendar contra una tabla genérica es engañoso. Queda para
+> Etapa 2.
+>
+> **4. La fuente de pronóstico se calibró.** El documento deja "Open-Meteo" sin
+> más. Se validaron cinco modelos contra mediciones reales de Norden y se
+> eligió **GDPS 15 km** (MAE 1,87 kt) — el `best_match` por defecto resolvía a
+> ECMWF, el peor del grupo (MAE 4,67), y por eso el sitio llegó a marcar 7,4 kt
+> mientras la estación medía 15,4. Hallazgo contraintuitivo: **promediar
+> modelos empeora**, porque tres de los cuatro comparten el mismo sesgo frío.
+>
+> Conocimiento de campo incorporado después, que este documento no tenía:
+> el SE entra arrachado; con sudestada el viento no entra parejo cerca de la
+> costa; las sudestadas sostenidas hacen crecer el río y los nortes sostenidos
+> lo bajan; **el viento de tierra (S/SO/O) es condición suficiente para no
+> navegar**; y la estación lee ~2,5 kt más que la costa.
+>
+> Estado actual completo: `metadata.md` y `5-implementador.md`.
+
+---
 
 ## Definiciones vigentes
 

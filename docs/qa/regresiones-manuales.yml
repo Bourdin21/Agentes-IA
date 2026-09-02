@@ -1931,6 +1931,43 @@ regresiones:
       - "Entrar por el boton 'Ajustar stock' de un producto cuyo nombre sea prefijo de otro y confirmar que se distinguen las filas."
     nota_generalizacion: "Regla preventiva: en una pantalla con escritura inmediata por fila (sin confirmacion), el listado tiene que contener todas las columnas necesarias para identificar univocamente la fila. Y todo filtro ofrecido en el panel debe tener su columna visible en la tabla — un filtro sobre un campo invisible siempre confunde. Ver tambien la regla inversa ya catalogada en MH-015 (columna ordenable sin soporte en el service)."
 
+  - id: MH-018
+    modulo: "Plantillas de gasto recurrente / Index (Views/GastosRecurrentes/Index.cshtml, columna 'Forma de pago' — CR-62)"
+    titulo: "Recurrencia de MH-015 en superficie nueva: la columna 'Forma de pago' se renderiza ordenable (default de DataTables) pero 'formaPago' no esta en el switch de SortColumn de GastoRecurrenteService.ListarAsync; al clickear el encabezado la flecha cambia y el listado se reordena por Nombre ascendente, ignorando ademas la direccion pedida"
+    severidad: trivial
+    reproducido_en: "marihogar - master (working tree), CR-62 (2026-09-02). Hallado por QA por revision de codigo (Views/GastosRecurrentes/Index.cshtml columnas 68-72 + GastoRecurrenteService.ListarAsync lineas 31-37 + DataTableRequestHelper.Parse, que mapea SortColumn al atributo 'data' de la columna clickeada). No verificado en navegador (MCP de Playwright declarado en .mcp.json pero no expuesto en la sesion)."
+    pasos:
+      - "Como Administrador, ir a /Gastos y apretar 'Gestionar plantillas de gasto recurrente'."
+      - "Cargar al menos 3 plantillas con distinta Forma de pago y nombres que NO queden en el mismo orden alfabetico que la forma de pago."
+      - "Clickear el encabezado 'Forma de pago'. Clickearlo de nuevo."
+    sintoma: "La flecha de orden aparece sobre 'Forma de pago' pero las filas se reordenan por Nombre ascendente (rama default del switch). El segundo click tampoco invierte nada: la rama default es 'query.OrderBy(g => g.Nombre)' fija, sin usar la variable 'asc' — a diferencia de las ramas 'nombre' y 'categoria', que si respetan la direccion."
+    expectativa: "O la columna ordena de verdad por FormaPago, o no se ofrece como ordenable (orderable: false), mismo criterio que ya se aplico en esta misma vista a 'descripcion' y a la columna de Acciones, y que ya se aplico como fix de MH-015 en PagosTarjeta/Index."
+    causa_raiz: "GastoRecurrenteService.ListarAsync mapea solo 'nombre' y 'categoria' en el switch de request.SortColumn. La vista es un clon de Marcas/Index.cshtml, donde el switch de MarcaService cubre el 100% de las columnas ordenables porque la unica columna extra ('cantidadProductos') va con orderable:false. Al clonar se agregaron 2 columnas nuevas (formaPago y descripcion): a 'descripcion' se le puso orderable:false, a 'formaPago' no. DataTables marca ordenable toda columna que no lo declare. Exactamente el mismo mecanismo que MH-015 (marihogar) y CRM-003 (olvidata-crm)."
+    capa: Web
+    archivos_fix:
+      - path: MariHogar.Web/Views/GastosRecurrentes/Index.cshtml
+        motivo: "Columna { data: 'formaPago' }: agregar orderable: false (queda igual que 'descripcion' en la misma vista). Opcion alternativa (mas trabajo, mismo resultado funcional): agregar la rama \"formaPago\" => asc ? query.OrderBy(g => g.FormaPago) : query.OrderByDescending(g => g.FormaPago) al switch de GastoRecurrenteService.ListarAsync. Elegir una sola; no aplicar las dos."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-02"
+      por: "Joaquin (directo, no delegado — cambio de 1 linea con fix ya propuesto por QA)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Web/Views/GastosRecurrentes/Index.cshtml
+          motivo: "Columna 'formaPago': agregado orderable: false, mismo criterio que 'descripcion' en la misma vista."
+      build: "dotnet build MariHogar.Web/MariHogar.Web.csproj -> 0 Errores."
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /GastosRecurrentes/Index -> click en el <th>Forma de pago</th> del DataTable #tablaGastosRecurrentes"
+      condicion_falla: "El encabezado 'Forma de pago' tiene la clase sorting/sorting_asc de DataTables (es clickeable) y al clickearlo el orden de la columna Forma de pago no queda monotono; el orden visible sigue siendo por Nombre."
+    criterio_aceptacion:
+      - "El encabezado 'Forma de pago' no ofrece orden (sin flecha, sin cursor de click) o, si lo ofrece, reordena realmente por forma de pago y respeta asc/desc."
+      - "Sin regresion en el orden por defecto (Nombre ascendente) ni en las columnas que si ordenan bien (Nombre, Categoria)."
+    pruebas_minimas:
+      - "Click en cada encabezado ordenable de /GastosRecurrentes y confirmar que el orden resultante corresponde a esa columna (o que el encabezado no es clickeable)."
+      - "Confirmar que el filtro por Nombre y la paginacion siguen funcionando despues del cambio."
+    nota_generalizacion: "Tercera aparicion del mismo mecanismo en el estudio (CRM-003, MH-015, MH-018) y la segunda dentro de marihogar. La regla preventiva de MH-015 sigue vigente y hay que aplicarla EN EL MOMENTO DE CLONAR un DataTable server-side, no despues: si al clon se le agregan columnas que el molde no tenia, cada columna nueva o entra al switch de SortColumn del service o sale con orderable:false. Observacion colateral de la misma familia: la vista tampoco declara 'searching: false' pese a que GastoRecurrenteService.ListarAsync ignora request.SearchValue (usa el filtro dedicado #filtroNombre) — el cuadro de busqueda global de DataTables queda inerte. Ese segundo punto es heredado tal cual de Marcas/Index.cshtml (mismo comportamiento hoy en produccion), no introducido por CR-62; se documenta aca para que se corrija junto si se toca la vista."
+
   - id: CRM-015
     modulo: "Matriz de modulos MVP/FULL — generador del borrador de propuesta (Application/Services/PropuestaMvpFullService.cs, helper Minuscula)"
     titulo: "Los modulos cuyo nombre EMPIEZA con una sigla salen deformados en el mensaje que se copia al WhatsApp del cliente: 'ABM Cuadrilla' -> 'aBM Cuadrilla', 'SEO basico y deploy' -> 'sEO basico y deploy', 'CRM de WhatsApp' -> 'cRM de WhatsApp'"

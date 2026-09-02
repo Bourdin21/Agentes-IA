@@ -502,7 +502,51 @@ El bloque `PagosVentaPorAcreditar` (ya agregado por CR-29, hoy filtra solo `Fech
 | Un `MovimientoStock` sin motivo tipeado por el usuario reduce trazabilidad real (todos van a decir lo mismo, "Ajuste desde listado de Stock") | Bajo | Decisión explícita del cliente, documentada en Análisis. El `UsuarioId` + `Fecha` + `Cantidad` (delta) siguen identificando exactamente quién/cuándo/cuánto — se pierde el "por qué" en texto libre, que es lo que el cliente decidió sacrificar por velocidad. |
 | Reemplazar `Stock/Index` cambia una URL que puede estar guardada en favoritos/accesos directos del cliente | Bajo | La URL sigue siendo la misma (`/Stock`) — cambia el contenido, no la ruta. Sin impacto real. |
 
+### CR-62 (Arquitectura) — Gastos (categoría/forma de pago/recurrentes) + Cuenta Corriente Local (usuario/origen clickeable/saldo filtrado)
+
+**Domain**:
+- `CategoriaGasto` gana `ComisionesBancarias = 7` (agregado puro, no reordena valores existentes — no repite el patrón de remapeo de CR-5).
+- `FormaPagoGasto` gana `DebitoAutomatico = 6` (agregado puro).
+- Nueva entidad `GastoRecurrente : SoftDestroyable { string Nombre, CategoriaGasto Categoria, string? Subcategoria, FormaPagoGasto FormaPago, string Descripcion }` — mismo patrón de catálogo simple que `Marca`/`Categoria`.
+- `MovimientoCCLocal` gana `UsuarioId` (`string?`, sin FK — mismo criterio ya usado por `Gasto`/otras entidades que solo guardan el Id de `ApplicationUser` sin navegación, evita acoplar el ledger al esquema de Identity).
+
+**Application**:
+- Nuevo `IGastoRecurrenteService { ListarAsync(DataTableRequest, filtro?), ListarActivosParaComboAsync(), CreateAsync(GastoRecurrenteInput), UpdateAsync(GastoRecurrenteInput), DeleteAsync(int) }` — mismo shape que `IMarcaService`.
+- `ICCLocalService` gana:
+  ```csharp
+  Task<decimal> ObtenerSaldoFiltradoAsync(MovimientoCCLocalFiltro filtro);
+  ```
+  Método **nuevo**, no un overload de `ObtenerSaldoActualAsync()` — ese método se mantiene intacto (usado también por `DashboardController.GetBalanceCaja`, que debe seguir devolviendo el saldo real completo, sin acoplarse a ningún filtro de UI).
+- `MovimientoCCLocalListItemDto` (o el DTO que arma `ListarAsync`) gana `UsuarioNombre` (`string?`).
+- `GastoDetailDto` nuevo (para `Gastos/Details`), y `GastoListItemDto`/`Gasto` sin cambios de campos.
+
+**Infrastructure**:
+- `GastoRecurrenteService.cs` (nuevo) — CRUD simple, clon de `MarcaService.cs`.
+- `VentaService.cs` — `AcreditarPagoAsync` y `EliminarPagoAsync`: el `MovimientoCCLocal` que crean pasa a setear `UsuarioId = usuarioId`, y el string de `Descripcion` **deja de interpolar `usuarioId`** (`"Pago con tarjeta acreditado - Venta #{pago.VentaId}"`, sin "por {GUID}"). El nombre se resuelve después, en el listado — no en el momento de escribir.
+- `CCLocalService.ListarAsync`: agrega la resolución de `UsuarioNombre`, mismo patrón exacto que `StockService.ListarMovimientosAsync` (traer `usuarioIds` distintos de la página actual, `_db.Users.AsNoTracking().ToListAsync()` filtrado en memoria — MySQL/EF Core 10 no traduce `Contains` sobre una colección local a un `IN` SQL — diccionar por Id). La vista compone `"{Descripcion} (por {UsuarioNombre})"` solo cuando `UsuarioNombre != null`.
+- `CCLocalService.ObtenerSaldoFiltradoAsync` (nuevo): mismos `Where` que `ListarAsync` aplica para `Tipo`/`FechaDesde`/`FechaHasta`, `SumAsync` de `Ingreso` menos `SumAsync` de `Egreso` sobre el conjunto filtrado (sin paginar — es una agregación, no un listado).
+- **Script de corrección retroactiva** (herramienta de una sola vez, fuera de la app — mismo patrón ya usado en este proyecto para correcciones de datos anteriores): recorre `MovimientosCCLocal.Descripcion` de los 2 orígenes afectados (`OrigenTipo="Venta"`, texto que matchea el patrón `"acreditado por {GUID}"`/`"corrección manual, {GUID}"`), extrae el GUID con una regex, lo resuelve contra `Users`, reemplaza la porción `"por {GUID}"`/`", {GUID}"` del texto por el nombre real, y opcionalmente completa `UsuarioId` en esas mismas filas (dry-run primero, listando cuántas filas matchean y qué reemplazo haría cada una, sin escribir; luego `--apply`).
+
+**Web**:
+- `GastosRecurrentesController.cs` (nuevo, `[Authorize(Policy = "RequireAdministracion")]`, clon de `MarcasController`) + `Views/GastosRecurrentes/{Index,Create,Edit}.cshtml`. Link de acceso agregado en `Gastos/Index.cshtml` (cabecera, mismo lugar que "Ver historial de movimientos" en Stock) — sin ítem de menú lateral propio.
+- `Gastos/Create.cshtml`: `<select id="selPlantilla">` (poblado desde `Model.Plantillas`, pasado por el ViewModel) — `on change` completa los `<select>`/`<input>` de Categoría/Subcategoría/Forma de pago/Descripción vía JS. Sin tocar Monto/Fecha.
+- `GastosController.cs`: nueva acción `Details(int id)` (GET) + `Views/Gastos/Details.cshtml` (solo lectura).
+- `CCLocalController.cs`:
+  - `Index()`: si no hay filtro en sesión, default `FechaDesde`/`FechaHasta` = primer/último día del mes actual (`DateTime.Today` con día 1 / `AddMonths(1).AddDays(-1)`, mismo criterio que ya usa `DashboardController.Index`). `SaldoActual` del ViewModel se calcula con `ObtenerSaldoFiltradoAsync` sobre ese filtro inicial (ya no con `ObtenerSaldoActualAsync()`).
+  - Nueva acción `GetSaldoFiltrado()` (POST, antiforgery, mismos parámetros de filtro que `GetData`) — llamada por AJAX cada vez que el usuario cambia el filtro, para refrescar el card "Saldo actual" sin recargar la página.
+- `CCLocal/Index.cshtml`: columna "Origen" pasa de texto plano a un `render` con `if/else` sobre `row.origenTipo` armando el `href` (`Ventas/Details/{id}` o `Gastos/Details/{id}`). El evento `reload()` que ya dispara el DataTable al cambiar filtros se extiende para también llamar `GetSaldoFiltrado` y actualizar el card.
+
+**Migración EF**: **2 migraciones**. (1) tabla `GastosRecurrentes` nueva (sin datos previos, tabla vacía al desplegar). (2) columna `UsuarioId` nullable en `MovimientosCCLocal`, sin backfill de esquema — el contenido histórico de `Descripcion` se corrige aparte, con el script de datos (no es responsabilidad de la migración EF rellenar texto libre).
+
+**Riesgos técnicos**:
+| Riesgo | Severidad | Mitigación |
+|---|---|---|
+| El script de corrección retroactiva reemplaza mal un texto en un ledger financiero ya cerrado (ej. un GUID que en realidad no correspondía a un usuario, o un falso positivo del regex) | Medio | Dry-run obligatorio primero (listar cambios propuestos sin escribir), verificación manual de una muestra antes de `--apply`. El texto reemplazado es solo el fragmento "por {GUID}"/", {GUID}" — el resto de `Descripcion` (monto, tipo, Venta #N) no se toca, así que un error de reemplazo en el peor caso deja un nombre incorrecto en el texto, nunca corrompe Monto/Fecha/Tipo/OrigenId (esos campos estructurados no los toca el script). |
+| Confundir `ObtenerSaldoActualAsync()` (saldo real completo) con `ObtenerSaldoFiltradoAsync()` (total del filtro) en algún consumo futuro | Bajo | Nombres de método explícitamente distintos, doc-comment en la interfaz aclarando el propósito de cada uno — ver también la nota de Diseño sobre por qué la columna "Saldo" por fila (CR-14) no cambia. |
+| `Gastos/Details` nueva sin acción `Anular` embebida (se sigue disparando desde `Index`) podría generar la expectativa de que se puede anular desde ahí | Bajo | Fuera de alcance de este pedido — `Details` es de solo lectura. Si el cliente lo pide después, es una ampliación menor sobre una pantalla ya creada, no un cambio de arquitectura. |
+
 ## Historial de ajustes
+- 2026-08-31 — CR-62 (Arquitectura): ver sección completa "CR-62 (Arquitectura) — Gastos (categoría/forma de pago/recurrentes) + Cuenta Corriente Local (usuario/origen clickeable/saldo filtrado)" más arriba. 2 enums ampliados (agregado puro), `GastoRecurrente` nueva entidad + CRUD clon de Marca, `MovimientoCCLocal.UsuarioId` + resolución de nombre (patrón `StockService`) + script de corrección retroactiva de `Descripcion`, `Gastos/Details` nueva, Origen clickeable condicional por tipo, `ObtenerSaldoFiltradoAsync` nuevo (sin tocar `ObtenerSaldoActualAsync`, que sigue siendo el saldo real usado por el Dashboard). 2 migraciones EF. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.
 - 2026-08-27 — CR-61 (Arquitectura): ver sección completa "CR-61 (Arquitectura) — Stock: listado de productos con edición inline reemplaza Ajuste manual" más arriba. `IStockService.AjustarAsync` reemplazado por `ActualizarStockAsync` (reemplaza el stock, sin `ConfirmarNegativo` — simplificación real). `StockController` reestructurado: `Index`/`GetData` pasan a servir productos, `Movimientos`/`GetMovimientosData` nuevos para el ledger, `Ajuste`/`GetStockActual` eliminados. Sin migración EF. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.
 - 2026-08-27 — CR-59 (Arquitectura): ver sección completa "CR-59 (Arquitectura) — Pagos con tarjeta de crédito a liquidar" más arriba. Controller + vista clon de Cheques, 1 método de listado nuevo (`ListarPagosTarjetaAsync`) + 1 método de Dashboard (`ObtenerPagosTarjetaPendientesAsync`), ambos de solo lectura. `AcreditarPagoAsync` reutilizado sin cambios. Sin migración EF. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.
 - 2026-08-21 — CR-55 (Arquitectura): ver sección completa "CR-55 (Arquitectura) — Nota de Crédito AFIP" más arriba. `TipoComprobanteAfip` +2 valores (códigos reales AFIP), `ComprobanteAfip` +2 columnas (`ComprobanteAsociadoId`, `Motivo`). `AfipService` arma el bloque `CbtesAsoc` (orden verificado contra el WSDL real de AFIP). `ComprobanteAfipService.GenerarNotaCreditoAsync` nuevo, reutiliza `EmitirAsync`/`ReintentarAsync` ya existentes. 1 migración EF sin backfill. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.

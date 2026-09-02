@@ -12,7 +12,8 @@
 ## Documentación de research/diseño previo
 - Google Doc "Diseño — Sistema de Agentes IA para Estudio Contable": research inicial de integración con Bejerman Onvio, arquitectura propuesta, stack tecnológico, catálogo de agentes hipotético y roadmap por fases. https://docs.google.com/document/d/1i-S5TaQ19uJFRmHiE0iLp3neTrfLcwq_UcsqCRjqO0k/edit
 - [guion-discovery.md](guion-discovery.md) — guión de la reunión de discovery con Contadores BMA (preguntas abiertas, catálogo de tareas a validar, checklist de cierre para pasar a Diseño)
-- [cuestionario-discovery-empleados.md](cuestionario-discovery-empleados.md) — cuestionario individual para cada empleado que usa Bejerman Web/Onvio (relevamiento tarea por tarea, complementa al guión grupal)
+- [cuestionario-discovery-empleados.md](cuestionario-discovery-empleados.md) — cuestionario individual genérico para cada empleado que usa Bejerman Web/Onvio y/o SOS Contador (relevamiento tarea por tarea, complementa al guión grupal)
+- [cuestionario-relevamiento-gaston.md](cuestionario-relevamiento-gaston.md) — cuestionario personalizado para Gastón (empleado que usa ambas herramientas — Bejerman y SOS Contador —, candidato a usuario piloto de la Fase 0)
 
 ## Archivos de memoria por agente
 - analista-funcional: /docs/contadores-bma-agentes-ia/definiciones/1-analista-funcional.md

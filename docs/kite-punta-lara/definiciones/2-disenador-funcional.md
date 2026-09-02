@@ -1,7 +1,55 @@
 # Memoria - Disenador funcional
 
 ## Proyecto: kite-punta-lara
-## Ultima actualizacion: 2026-09-01
+## Ultima actualizacion: 2026-09-01 (con correcciones del 2026-09-02, ver abajo)
+
+---
+
+> ## ⚠ CORRECCIONES POSTERIORES — leer ANTES que el resto
+>
+> El cuerpo es el Diseño cerrado el 2026-09-01, **conservado sin editar** por
+> trazabilidad. P1 se implementó y evolucionó bastante más allá de lo descrito
+> acá. Lo que cambió:
+>
+> **Las señales del motor son otras.** El punto 5 describe "birazón" (brisa de
+> calma + bajante) y sudestada. Hoy son siete, y con nombres corregidos:
+> **virazón** (el término real; "birazón" era una transcripción errada con una
+> definición inventada), **terral**, **sudestada**, **viento racheado**,
+> **viento desparejo**, **creciente** y **bajante**. La bajante dejó de ser
+> parte de un régimen de viento: es efecto del viento sobre el NIVEL del río,
+> junto con la creciente.
+>
+> **El viento de tierra BLOQUEA, y es la única señal de riesgo físico.** No
+> estaba contemplada acá. Decisión del cliente: *"el viento de tierra es
+> condición justa y necesaria para no navegar"*. Una hora con viento del S/SO/O
+> no es navegable por más que el viento entre en el rango. Se evalúa por HORA,
+> no por día.
+>
+> **La navegabilidad no es binaria ni sale de la tabla de equipo.** Cada
+> usuario elige su rango de viento (sin cuenta, queda en el navegador) y hay
+> tres estados: plena, **al límite** (el sostenido no llega al mínimo pero las
+> rachas sí, con margen de 1 kt) y fuera. La recomendación de equipo se sacó de
+> la vista pública — sin sesión no hay quiver del usuario — y queda para
+> Etapa 2.
+>
+> **El semáforo, que acá aparece en el wireframe sin regla definida**, se
+> definió en Implementación: rojo si el día está bloqueado o no queda ninguna
+> hora útil; amarillo si solo entra al límite o hay señales que exigen
+> criterio; verde el resto. Además el veredicto de HOY **mira el reloj**: solo
+> cuentan las horas que quedan por delante.
+>
+> **P1 tiene bastante más de lo diseñado**: grilla horaria de 06 a 21 con
+> viento, ráfagas, marea, temperatura y condición del cielo; medición real de
+> la estación superpuesta al pronóstico; dirección hora por hora; y un panel
+> público de acertividad de los modelos de pronóstico.
+>
+> **La presentación no es PHP.** El punto 6 asume plantillas server-side; desde
+> el 2026-09-02 el front es Astro estático consumiendo el backend como API JSON
+> (ver la nota de Presentación en `3-arquitecto-mvc.md`).
+>
+> Estado actual completo: `metadata.md` y `5-implementador.md`.
+
+---
 
 ## Definiciones vigentes
 

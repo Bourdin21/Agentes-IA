@@ -364,6 +364,47 @@ Los 3 ítems son funcionalidad nueva (no corrección de datos ya migrados) — s
 
 **Estado: APROBADO por el cliente (2026-08-11) — habilitada la Implementación.**
 
+### CR-62 (Presupuesto) — Gastos (categoría/forma de pago/recurrentes) + Cuenta Corriente Local (usuario/origen clickeable/saldo filtrado)
+
+**Paso 0 — Anclaje histórico**: sin referencia dedicada — ítem compuesto de 6 partes heterogéneas (2 agregados triviales de enum, 1 catálogo simple nuevo, 1 columna+resolución de nombre+script de datos, 1 pantalla nueva, 1 filtro+agregación nueva). Se ancla por descomposición directa de drivers (mismo criterio que CR-61), no contra una sola fila de la tabla de rangos.
+
+**Paso 1 — Clasificación**: 1 solo ítem funcional compuesto, tipo "Ampliación de 2 módulos existentes (Gastos, CC Local) sin integración externa" — el driver de mayor riesgo es el script de corrección retroactiva sobre un ledger financiero ya en producción, no la complejidad de ningún componente individual.
+
+**Drivers de esfuerzo reales**:
+- `CategoriaGasto`/`FormaPagoGasto`: agregado puro de 2 valores, sin migración, sin cambio de vista (las vistas ya generan sus `<select>` desde el enum) — esfuerzo trivial.
+- `GastoRecurrente`: entidad nueva + migración + `IGastoRecurrenteService` + `GastosRecurrentesController` + 3 vistas, clon directo de `Marca`/`MarcasController` — esfuerzo medio, alta reutilización de patrón interno.
+- `MovimientoCCLocal.UsuarioId` + resolución de nombre: 1 columna + migración + 2 call sites de `VentaService` + resolución en `CCLocalService.ListarAsync` (clon del patrón ya usado por `StockService`) — esfuerzo medio.
+- **Script de corrección retroactiva**: el único componente sin reutilización directa de patrón (aunque el *procedimiento* dry-run+apply ya es una práctica establecida en este proyecto) — regex sobre texto libre en producción, verificación manual antes de aplicar — esfuerzo medio, mayor cuidado que el resto.
+- `Gastos/Details` nueva: pantalla de solo lectura simple — esfuerzo bajo.
+- Origen clickeable (CC Local): 1 columna de render condicional en JS — esfuerzo bajo.
+- Filtro de mes actual + `ObtenerSaldoFiltradoAsync` + AJAX de refresco: esfuerzo medio (nuevo método de agregación + nuevo endpoint + JS de sincronización con el reload del DataTable ya existente).
+
+**M ajustado**: 7.0h (enums 0.3h, GastoRecurrente+CRUD+integración en Create 2.5h, UsuarioId+resolución+2 call sites 1.3h, script de corrección retroactiva 0.7h, Gastos/Details 0.5h, Origen clickeable 0.4h, filtro mes actual+saldo filtrado+AJAX 1.3h).
+
+**O/M/P**: O = 4.55h (M×0.65), P = 12.6h (M×1.80) — mismo spread que el resto de los CR de este proyecto.
+
+**PERT** = (O + 4M + P) / 6 = (4.55 + 28.0 + 12.6) / 6 = **7.53h**.
+
+**Riesgo**: Medio-Alto — más alto que CR-61 porque acá el script de corrección retroactiva toca **texto ya escrito** en un ledger financiero de producción (no solo agrega columnas nullable vacías) y la migración de `UsuarioId` es sobre una tabla con volumen real de movimientos ya cargados. Contingencia 20% (vs. 15% de CR-61).
+
+**Horas finales**: 7.53h × 1.20 = **9.04h ≈ 9.0h**.
+
+**Costo**: Horas facturables = 7.0/2.5 × 1.20 = 3.36h. Costo = 3.36h × USD 35/h = **USD 118** (redondeado de $117.60).
+
+**Tokens IA**: no aplica — por debajo del umbral de 4h facturables (3.36h).
+
+**Descuento de expansión agresiva/volumen**: no aplica — mismo criterio que el resto de los CR de este proyecto (ampliación sobre sistema propio en producción).
+
+**Ratio de calibración**: no aplica ratio contra mediana histórica — ítem compuesto ad hoc, anclado por descomposición directa de drivers.
+
+**Precio final: USD 118** (single-item, sin etapas).
+
+**Riesgos**: el script de corrección retroactiva de `Descripcion` — dry-run obligatorio y verificación manual de una muestra antes de aplicar sobre producción, mismo criterio ya usado en correcciones de datos anteriores de este proyecto.
+**Supuestos**: el cliente confirmó explícitamente que las plantillas de gasto recurrente NO crean el gasto solo ni recuerdan automáticamente (ver Análisis) — si en el uso real quiere alguna de esas 2 capacidades, es una ampliación aparte.
+**Exclusiones**: edición de un `Gasto` ya creado (sigue siendo inmutable, `Gastos/Details` es de solo lectura); recordatorio/notificación de gastos recurrentes; automatización de creación de gastos.
+**Dependencias del cliente**: ninguna.
+**Condiciones**: sin etapas, sin 50/50 (ítem puntual sobre sistema en producción, mismo criterio que el resto de los CR de esta sesión).
+
 ### CR-61 (Presupuesto) — Stock: listado de productos con edición inline reemplaza Ajuste manual
 
 **Paso 0 — Anclaje histórico**: sin referencia dedicada en `27-presupuesto-parametros.instructions.md` para "grilla con edición inline por celda vía AJAX" — categoría ad hoc. Se ancla contra "Modificación sobre módulo existente" (rango medio de esa tabla) ajustado hacia arriba respecto de CR-59: acá el patrón de guardado (AJAX por celda al instante) **no tiene precedente exacto en ningún proyecto del estudio** (el hallado en ShowroomGriffin guarda en lote con un `<form>`, mecanismo de transporte distinto) — es UI nueva de verdad, no un clon.
@@ -487,6 +528,7 @@ Los 3 ítems son funcionalidad nueva (no corrección de datos ya migrados) — s
 **Condiciones**: sin etapas, sin 50/50 (ítem puntual sobre sistema en producción, mismo criterio de facturación ya usado para el resto de los CR de esta sesión).
 
 ## Historial de ajustes
+- 2026-08-31 — CR-62 (Presupuesto): ver sección completa "CR-62 (Presupuesto) — Gastos (categoría/forma de pago/recurrentes) + Cuenta Corriente Local (usuario/origen clickeable/saldo filtrado)" más arriba. Ítem único compuesto (6 partes), PERT 7.53h, horas finales 9.0h (contingencia 20%, riesgo Medio-Alto), **USD 118**. Riesgo más alto que CR-61 por el script de corrección retroactiva sobre texto ya escrito en un ledger financiero de producción. Sin Tokens IA. Sin descuento de expansión. **Pendiente aprobación del cliente (gate) antes de habilitar Implementación.**
 - 2026-08-27 — CR-61 (Presupuesto): ver sección completa "CR-61 (Presupuesto) — Stock: listado de productos con edición inline reemplaza Ajuste manual" más arriba. Ítem único, PERT 6.45h, horas finales 7.4h (contingencia 15%, riesgo Medio), **USD 101**. Riesgo Medio por ser un patrón de UI (guardado AJAX por celda) sin precedente exacto en el estudio, y por tocar una pantalla ya en producción. Sin Tokens IA. Sin descuento de expansión. **Pendiente aprobación del cliente (gate) antes de habilitar Implementación.**
 - 2026-08-27 — CR-59 (Presupuesto): ver sección completa "CR-59 (Presupuesto) — Pagos con tarjeta de crédito a liquidar" más arriba. Ítem único, PERT 2.37h, horas finales 2.6h (contingencia 10%, riesgo Bajo), **USD 37**. Ítem de menor riesgo/costo del historial de CR de este proyecto (mayor reutilización, sin migración, sin lógica de negocio nueva). Sin Tokens IA. Sin descuento de expansión. **Pendiente aprobación del cliente (gate) antes de habilitar Implementación.**
 - 2026-08-21 — CR-55 (Presupuesto): ver sección completa "CR-55 (Presupuesto) — Nota de Crédito AFIP" más arriba. Ítem único, PERT 4.30h, horas finales 4.95h (contingencia 15%, riesgo Medio), **USD 67**. Anclado en la referencia de integración AFIP completa (8h mediana) con descuento fuerte por reutilización real del circuito ya construido (ratio M/mediana 0.50). Sin Tokens IA (por debajo del umbral de 4h facturables). Sin descuento de expansión (no es Build inicial). **Pendiente aprobación del cliente (gate) antes de habilitar Implementación.**
