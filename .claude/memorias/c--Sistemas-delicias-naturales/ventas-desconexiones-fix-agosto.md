@@ -1,0 +1,31 @@
+---
+name: ventas-desconexiones-fix-agosto
+description: "Investigación y fix de pérdida de datos por desconexión en Ventas (26/08/2026) — machineKey, rol Superusuario + auditoría de logins, autoguardado localStorage"
+metadata: 
+  node_type: memory
+  type: project
+  originSessionId: d598e711-73e1-4ffa-8130-c5cbb9032bfe
+  modified: 2026-08-27T01:44:07.001Z
+---
+
+Investigación del 26/08/2026 sobre "desconexiones" que hacían perder datos de carga de ventas.
+
+**Causa raíz encontrada**: el sitio no tenía `<machineKey>` fija en Web.config (InProc session + sin machineKey). Cualquier reciclado del pool de IIS (deploy, reciclado periódico del hosting, idle timeout) invalida los tokens antiforgery de formularios abiertos. `Global.asax.cs` captura `HttpAntiForgeryException` y redirige a Login SIN loguear el error (línea ~67, `Server.ClearError()` antes de llegar a `log.Error`) — por diseño, para no generar ruido, pero esto significa que este tipo de pérdida de datos **nunca deja rastro en el log**. Confirmado: cero entradas en LOG_ERROR.log en los días previos al incidente reportado, pese al síntoma.
+
+**Fix aplicado (deploy 26/08/2026 ~22:15)**:
+1. `<machineKey>` fija agregada a Web.config (validation=HMACSHA256, decryption=AES) — evita que los tokens se invaliden en reciclados futuros.
+2. Rol "Superusuario" (`Constantes.SuperusuarioRol`) + tabla `login_audits` (migración EF `202608270055400_LoginAudit`) + hook en `AccountController.Login` que registra cada intento (éxito/fallo, IP, user agent) sin interrumpir el login si falla el registro. Pantalla `LoginAuditsController`/`Views/LoginAudits/Index.cshtml` con cards de volumen (logins hoy, fallidos hoy, usuarios distintos hoy, últimos 7 días) + listado filtrable, gateada a rol Superusuario exclusivamente. Usuario `no-reply@olvidata.com.ar` (pass `Super123!`) creado en producción con roles Administrador + Superusuario.
+3. Autoguardado de borrador en localStorage para Ventas (Create/Edit), Facturas (Create) y Solicitudes de Ingreso de Stock (Create) — `Scripts/js/autosave-draft.js` (core genérico) + glue por pantalla que reusa el mecanismo existente de agregar filas (fetch a `/Ventas/Fields`, `/Facturas/Fields`) para reconstruir el estado sin reimplementar ningún cálculo. Se limpia el borrador solo ante éxito confirmado del guardado (no en el submit ciego), para no perder el borrador si la conexión se corta justo al guardar.
+
+**Cómo aplicar**: si vuelve a reportarse pérdida de datos en Ventas/Facturas/Depósito, revisar primero si el usuario tenía el borrador de localStorage disponible (debería haber podido restaurarlo) antes de asumir que el problema persiste. [[cuenta-corriente-gaps-agosto]]
+
+**QA post-deploy (26/08/2026, misma noche)**: se usó un agente general-purpose (no existe un agente "QA" dedicado en este entorno) en modo worktree aislado para revisar el código recién deployado. Encontró y se corrigieron 3 bugs reales antes de que el cliente los reportara todos:
+1. **LoginAudits/IndexData tiraba 500** (bug propio, no del QA): `FechaHora.ToString(formato)` dentro de un `.Select()` de EF6 no se puede traducir a SQL (`LINQ to Entities does not recognize the method`). Fix: materializar con `.ToList()` primero, formatear después en memoria. Confirmado por el usuario en producción vía el error de DataTables "Ajax error".
+2. **XSS sin autenticar en el listado de auditoría** (hallado por el QA): las columnas `UserNameIngresado`/`UserAgent`/`Ip`/`MotivoFalla` del DataTable no escapaban HTML. `UserNameIngresado` y `UserAgent` son 100% controlados por un atacante anónimo (basta un POST a `/Account/Login` con usuario inexistente, o cualquier User-Agent) y se ejecutarían en el navegador del único usuario Superusuario. Fix: `render: $.fn.dataTable.render.text()` en esas 4 columnas.
+3. **Duplicación de filas de producto al restaurar el borrador en Ventas/Edit y Facturas/Create** (hallado por el QA, severidad crítica): `restaurarTodo()` solo hacía `append` de las filas guardadas sin limpiar las que el servidor ya había renderizado (ambas pantallas arrancan con filas ya cargadas desde la base). Podía duplicar cada línea de una venta o, peor, de una factura ya generada hacia AFIP. Fix: `$('#js-productos-... tr.producto').remove()` antes de restaurar (el borrador ya capturaba el set completo de filas visibles al guardarse, incluidas las pre-existentes).
+
+También se rediseñó la UX de restauración: en vez de banner "Restaurar/Descartar", ahora se **restaura automáticamente** al detectar un borrador válido (con aviso toastr, sin requerir click) — el usuario reportó en vivo que el flujo de banner "no se completaba automáticamente" en Ventas/Create; no se confirmó un bug puntual en ese flujo pero el cambio de UX resuelve la expectativa reportada de todos modos, y es la decisión de producto más segura para un caso de recuperación de datos.
+
+**Gotcha de infraestructura para el futuro**: si se lanza un agente con `isolation: "worktree"` en este repo mientras hay un `MvcBuildViews=true`/deploy local en curso, el worktree queda en `.claude/worktrees/agent-.../` DENTRO del árbol del proyecto, y el paso `AspNetCompileMerge` (aspnet_compiler) lo escanea y encuentra el `web.config` del worktree como una "aplicación anidada", tirando el mismo falso-positivo ASPCONFIG de siempre pero por una causa distinta (no cache viejo). Mitigación usada: deployar puntualmente con `/p:PrecompileBeforePublish=false` (deploy no precompilado, funcionalmente equivalente, solo compila vistas la primera vez que se piden) mientras el agente sigue corriendo, y volver a precompilado en el siguiente deploy una vez el worktree se limpia solo al terminar el agente.
+
+**Nota técnica de tooling**: `ef6.exe` (packages\EntityFramework.6.4.4\tools\net45\win-x86\ef6.exe) permite scaffolding/aplicación de migraciones EF6 sin Visual Studio, PERO requiere pasar `-a` y `--config` como **rutas absolutas** — con rutas relativas falla silenciosamente tratando el nombre de connection string ("AppConnection") como si fuera la connection string literal, dando `ArgumentException: formato de cadena de inicialización` sin pista real de la causa. Además, tras `migrations add`, los archivos generados deben agregarse a mano al .csproj (proyecto de estilo antiguo, no hay wildcard include) antes de poder usarlos con `database update`.

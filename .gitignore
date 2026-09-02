@@ -1,2 +1,5 @@
 # Credenciales reales — nunca al historial de git (repo con remoto en GitHub).
 docs/credenciales.local.md
+
+# Memorias con credenciales en texto plano — nunca al historial (repo con remoto en GitHub).
+.claude/memorias/c--Sistemas-virtualwallet/

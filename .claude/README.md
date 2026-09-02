@@ -42,6 +42,52 @@ Sitio institucional estatico (Astro), sin backend de negocio — stack alternati
 Usa el subagent agentes-ia-implementador-astro-front para construir el sitio institucional de <cliente>, siguiendo el patron de diercas-front.
 ```
 
+## Agentes de negocio (Olvidata Soft)
+
+Ademas de los agentes del flujo MVC, este repo aloja los agentes de negocio del estudio — no son parte de la secuencia Discovery→Cierre, se invocan sueltos:
+
+| Comando | Rol |
+|---|---|
+| `/olvidata-ceo` | Estrategia, pricing, producto, pipeline, plan financiero |
+| `/olvidata-marketing` | Frameworks de comunicacion, estrategia de canal, angulo editorial |
+| `/olvidata-cm` | Community Manager — guiones de Reels, prompts de video IA (higgsfield.ai), carruseles, stories, captions |
+| `/olvidata-sales` | Ejecucion de un deal puntual |
+| `/olvidata-infra` | Servidores, SSL, dominios, application pools, bases de datos |
+| `/olvidata-presupuesto-bot` | Matriz de modulos MVP/FULL del bot/CRM propio |
+
+## Acceso global — junctions de Windows
+
+Los agentes viven **solo aca** (unica copia, versionada en git), pero tienen que estar disponibles desde cualquier carpeta, no solo con el cwd en este repo. Eso se resuelve con dos junctions de Windows que apuntan la carpeta de usuario a este repo:
+
+```
+C:\Users\<usuario>\.claude\agents    ==>  C:\Sistemas\Agentes-IA\.claude\agents
+C:\Users\<usuario>\.claude\commands  ==>  C:\Sistemas\Agentes-IA\.claude\commands
+```
+
+**Los junctions no viajan en git.** En una maquina nueva (o si se recrea el perfil), hay que rehacerlos — con las carpetas destino vacias o inexistentes:
+
+```powershell
+Remove-Item "$env:USERPROFILE\.claude\agents" -Force
+Remove-Item "$env:USERPROFILE\.claude\commands" -Force
+cmd /c mklink /J "$env:USERPROFILE\.claude\agents"   "C:\Sistemas\Agentes-IA\.claude\agents"
+cmd /c mklink /J "$env:USERPROFILE\.claude\commands" "C:\Sistemas\Agentes-IA\.claude\commands"
+```
+
+`mklink /J` (junction de directorio) no requiere permisos de administrador, a diferencia de los symlinks de archivo.
+
+## Memorias
+
+`.claude/memorias/<proyecto>/` es una **copia versionada** de las memorias que Claude Code guarda en `~/.claude/projects/<proyecto>/memory/`. No es la ruta operativa: el harness lee y escribe siempre en la carpeta de usuario, esta copia existe como respaldo en git. Refrescarla cada tanto:
+
+```bash
+find "$USERPROFILE/.claude/projects" -maxdepth 2 -type d -name memory | while read d; do
+  proj=$(basename "$(dirname "$d")")
+  [ -n "$(ls -A "$d")" ] && mkdir -p ".claude/memorias/$proj" && cp -r "$d/." ".claude/memorias/$proj/"
+done
+```
+
+**Nunca versionar** `~/.claude/settings.json` sin sanear: guarda reglas de permiso que pueden incluir credenciales de produccion en texto plano. Tampoco `~/.claude/projects/*/*.jsonl` (transcripts de sesion, cientos de MB, los administra la herramienta).
+
 ## Reglas siempre activas
 
 `CLAUDE.md` (raiz del repo) se carga en cada sesion — cumple el rol de la operativa global.

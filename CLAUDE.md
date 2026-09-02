@@ -53,6 +53,8 @@ Ver `.claude/README.md`. Entrada por rol:
 
 Cada comando/subagent lee su `.github/agents/*.agent.md` (fuente de verdad) y carga sus instrucciones modulares al activarse. Equivalen a `@rol` de Copilot / `/agentes-ia-*` de Cursor.
 
+Este repo aloja ademas los **agentes de negocio de Olvidata Soft** (`/olvidata-ceo`, `/olvidata-marketing`, `/olvidata-cm`, `/olvidata-sales`, `/olvidata-infra`, `/olvidata-presupuesto-bot`) — fuera de la secuencia Discovery→Cierre, se invocan sueltos. Detalle y setup de acceso global en `.claude/README.md`.
+
 ## Cómo activar un agente en esta terminal
 
 Para adoptar el rol de un agente específico, indicar explícitamente al inicio del pedido:

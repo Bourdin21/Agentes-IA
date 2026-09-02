@@ -1,0 +1,4 @@
+- [Project overview](project_overview.md) — Ganaderia system: ASP.NET Core/MySQL app for Olvidata Soft client, in production, module breakdown.
+- [Refactor FacturaVenta](implementador_refactor_facturaventa.md) — Factura→FacturaVenta rename & Organismo→Proveedor merge, closed 2026-05-07.
+- [Mejoras entrega2](analisis_mejoras_entrega2.md) — Cuotas→Ingresos rename, Dashboard/Tablero split, editable taxes/cuotas in Facturas, closed 2026-07-23.
+- [Docs locations](docs_locations.md) — where implementador log, manual de usuario, QA plan, and README live.

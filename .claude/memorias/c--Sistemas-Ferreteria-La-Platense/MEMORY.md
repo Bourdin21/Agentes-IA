@@ -1,0 +1,3 @@
+- [Estado del proyecto La Platense](project_la_platense_status.md) — Etapa1+migración deployada a prod en rama entrega-1-migracion; Entrega 2 construida sin aprobar
+- [Docs de La Platense](reference_la_platense_docs.md) — definiciones/trazabilidad viven en Agentes-IA/docs/la-platense, no en este repo
+- [Credenciales SmarterASP](reference_smarterasp_credentials.md) — password de Web Deploy/FTP compartida, guardada fuera de git en Agentes-IA/docs/credenciales.local.md

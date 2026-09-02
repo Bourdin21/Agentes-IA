@@ -1,0 +1,3 @@
+- [Roles activos](roles_activos.md) — hoy solo SuperUsuario está en uso real, aunque el código ya soporta Administrador/Vendedor/Empleado
+- [Límites de Meta/WhatsApp](meta_whatsapp_limites.md) — cuenta vs. por-destinatario son límites independientes; el cuestionario del bot no consume ninguno de los 2
+- [AJAX por prioridad](ajax_por_prioridad.md) — acciones de listado: re-renderizar solo la fila/partial afectada vía AJAX, nunca la pantalla completa

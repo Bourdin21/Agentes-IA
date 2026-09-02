@@ -1,0 +1,3 @@
+- [Joaquín es el experto de dominio](joaquin-experto-de-dominio-kite.md) — su conocimiento de campo corrigió al modelo varias veces; priorizarlo sobre la bibliografía.
+- [Decisiones de producto](kite-punta-lara-decisiones-de-producto.md) — qué bloquea, qué solo avisa, y los dos principios que gobiernan todo: no presentar inferencias como datos, y cerrar hacia el lado seguro.
+- [Trampas del hosting DonWeb](kite-punta-lara-hosting-donweb.md) — FTP enjaulado, `Require all denied` que no aplica, sin SSH, caché que miente después de cada deploy.
