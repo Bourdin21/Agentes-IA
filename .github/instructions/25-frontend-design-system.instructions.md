@@ -125,3 +125,24 @@ Bug real reportado por un cliente en producción (la-platense, ver `docs/patrone
 - Selección múltiple (checkbox por fila + "seleccionar todos" acotado a la página visible) + baja en lote: un solo endpoint que reciba la lista de ids y aplique la baja con una sola operación masiva (`ExecuteUpdateAsync` sobre el `Where(ids.Contains(...))`, no un loop de N llamadas individuales al service).
 - Implementación de referencia completa (Controller + Service + vista): `FerreteriaLaPlatense.Web/Controllers/ProductosController.cs` (`Delete`, `EliminarLote`), `FerreteriaLaPlatense.Infrastructure/Services/ProductoService.cs` (`EliminarLoteAsync`), `FerreteriaLaPlatense.Web/Views/Productos/Index.cshtml` — proyecto la-platense.
 - Este criterio es un estandar de desarrollo para todas las implementaciones futuras — cualquier listado DataTables con acción de baja debe seguir este patrón desde el arranque, no esperar a que un cliente lo reporte como bug.
+
+## Formularios de alta / edicion / detalle: diseño grafico obligatorio, no solo campos funcionales (obligatorio, vigente Septiembre 2026)
+
+Pedido explicito de Joaquin (2026-09-03, la-platense): "definir una regla nueva en implementacion que tenga en cuenta el diseño grafico a la hora de crear formularios". El problema real: las pantallas de alta/edicion nacian funcionalmente correctas pero visualmente crudas — un `<h3>` suelto, los campos estirados de punta a punta en un monitor ancho, el boton Guardar perdido al final de un scroll largo, y ningun indicio de que campo es obligatorio ni por que existe un campo raro.
+
+**Una pantalla de formulario no esta terminada cuando guarda bien: esta terminada cuando ademas se entiende y se ve como el resto del sistema.** Checklist obligatorio para toda pantalla de alta, edicion y detalle:
+
+1. **Encabezado de pantalla, nunca un `<h3>` suelto.** Titulo + una linea de descripcion que explique para que sirve la pantalla, y a la derecha las acciones de navegacion (Volver, y accion secundaria si aplica). Clases: `.ov-page-head`, `.ov-page-head__title`, `.ov-page-head__desc`, `.ov-page-head__actions`.
+2. **Ancho de lectura acotado.** Un formulario estirado a 2500px en un monitor ancho deja los labels a la izquierda y los inputs perdidos a la derecha. Envolver en `.ov-form-page` (max 1080px) o `.ov-form-page--wide` (max 1500px, solo si la pantalla tiene grillas internas tipo carrito de venta).
+3. **Campos agrupados en `card` con header e icono**, por bloque semantico ("Datos del cliente", "Datos fiscales", "Datos adicionales (opcionales)"). Nunca 15 inputs sueltos uno abajo del otro.
+4. **Grid responsive real** (`row g-3` + `col-md-*`/`col-lg-*` por campo), con anchos proporcionales al dato: un CUIT no ocupa lo mismo que un nombre, y un campo de notas va a `col-12`.
+5. **Campos obligatorios marcados visualmente** con `.ov-required` en el `<label>` (no alcanza con que falle la validacion al enviar).
+6. **Texto de ayuda (`.ov-field-hint`) en todo campo cuyo efecto no sea obvio** — que formato espera, que consecuencia tiene, cuando dejarlo vacio. Ej. "Dejar vacio para Consumidor Final".
+7. **Barra de acciones sticky (`.ov-form-actions`)** al pie del formulario: accion primaria primero, `Cancelar`/`Volver` como `btn-outline-secondary`, y las acciones destructivas separadas a la derecha con `.ov-form-actions__spacer`. En un formulario largo el boton Guardar tiene que estar siempre a la vista.
+8. **`autofocus` en el primer campo editable** de una pantalla de alta.
+9. **Pantallas de Detalle (solo lectura) usan `.ov-detail-grid`** con pares `.ov-detail-item__label` / `.ov-detail-item__value` — no una tabla de 2 columnas improvisada por pantalla, y no dejar una celda en blanco cuando no hay dato: usar `.ov-detail-item__value--empty` con un texto explicito ("Sin nota", "No informado").
+10. **Validacion visible arriba**: `asp-validation-summary="ModelOnly"` renderizado como `alert alert-danger` (no como un `<div class="text-danger">` suelto que se pierde), mas el `asp-validation-for` de cada campo.
+
+Las clases `.ov-*` de arriba viven en `wwwroot/css/site.css` del proyecto (implementacion de referencia completa: la-platense, seccion "Sistema de formularios"). Copiarlas al arrancar un proyecto nuevo — no reinventar el naming por proyecto.
+
+**Verificacion**: igual que la regla de combos, el resultado se mira en un navegador real antes de darlo por terminado — al menos una pantalla de alta, una de edicion y una de detalle, en ancho de escritorio y en mobile.
