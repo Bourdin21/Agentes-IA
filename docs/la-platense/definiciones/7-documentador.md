@@ -5,10 +5,15 @@
 
 ## Definiciones vigentes
 
-### Entregable vigente
-`docs/la-platense/manual-usuario.md` — **Manual de uso para el personal de la ferreteria** (no un resumen de sprint). Pedido explicito de Joaquin el 2026-09-03: un documento para entregarle al usuario final con las funcionalidades completas de todo lo entregado hasta la fecha.
+### Entregables vigentes
+1. `docs/la-platense/manual-usuario.md` — manual completo del sistema (Entrega 1 + Etapa 3 + Entrega 2).
+2. `docs/la-platense/manual-usuario-entrega-2.md` — **manual acotado a la Entrega 2**, para la aceptacion de esa entrega puntual. Cubre los 6 modulos del alcance real de Entrega 2 segun `5-implementador.md` (M5 Ventas+CC clientes, M6 AFIP, M8 Caja, M9 Gastos, M15 Entregas, M10 Dashboard corte 1) y deja explicitamente afuera Catalogo/Stock/Usuarios, que son Entrega 1.
 
-Se aparta del formato estandar de la etapa 7 (`07-documentacion.prompt.md` produce un resumen de sprint de media pagina). Se conservo el envoltorio de `31-formato-documento-cliente` (encabezado de marca, voseo, primera persona singular, pie de firma, cero tecnicismos) pero la estructura es de manual: una seccion por flujo, con pasos numerados y tablas de variantes.
+Ojo con el naming: la **Etapa 2 del presupuesto** (CC del negocio, CC de empleados, presupuestos PDF, aumento masivo, devoluciones) NO es lo mismo que la **Entrega 2 de implementacion**. El manual sigue el alcance de implementacion, que es lo que el cliente esta usando.
+
+Los dos son **manuales de uso para el personal de la ferreteria**, no resumenes de sprint. Se apartan del formato estandar de la etapa 7 (`07-documentacion.prompt.md` produce un resumen de media pagina): se conservo el envoltorio de `31-formato-documento-cliente` (encabezado de marca, voseo, primera persona singular, pie de firma, cero tecnicismos) pero la estructura es de manual — una seccion por flujo, con pasos numerados y tablas de variantes.
+
+Cada uno tiene ademas una version navegable publicada como pagina para compartir con el personal (el `.md` es la fuente; la pagina es la copia de lectura).
 
 ### Alcance entregado al cliente (cubierto por el manual)
 - **Ventas**: borrador editable, buscador de producto por nombre/codigo/codigo de barras + lector, descuento y recargo por linea (formula comercial), subtotal con IVA editable, pago mixto con auto-balanceo, nota por pago, cuotas con recargo configurable.
@@ -40,3 +45,4 @@ Construir la pantalla de **cobro/ajuste de cuenta corriente de clientes** — ci
 
 ## Historial de ajustes
 - 2026-09-03: primera version real del archivo (estaba en blanco desde el template). Se escribio `manual-usuario.md` completo a pedido de Joaquin, cubriendo Entrega 1 + Etapa 3 (migracion) + Entrega 2 + los cambios del 2026-09-03. Al verificar cada afirmacion contra el codigo aparecieron dos correcciones antes de entregar: la cuenta corriente es solo de consulta (no hay alta de pagos) y la marca de "verificado" del stock se pone sola al ajustar, no es un check manual. Ambas quedaron reflejadas en el manual.
+- 2026-09-03 (2): se agrego `manual-usuario-entrega-2.md`, acotado a la Entrega 2. Al delimitar el alcance aparecio una ambiguedad de naming que conviene no volver a pisar: la **Etapa 2 del presupuesto** (CC del negocio, CC de empleados, presupuestos PDF, aumento masivo de precios, devoluciones/NC) es un conjunto DISTINTO de la **Entrega 2 de implementacion** (M5 Ventas+CC clientes, M6 AFIP, M8 Caja, M9 Gastos, M15 Entregas, M10 Dashboard corte 1, 61h). El manual sigue el alcance de implementacion — que es lo que el cliente tiene funcionando. Se verifico ademas contra la vista real que el nivel "Salud financiera" del dashboard es una tarjeta con candado que anuncia la proxima entrega, y quedo documentado como tal en vez de omitirlo.
