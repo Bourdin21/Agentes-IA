@@ -257,7 +257,7 @@ Se separan porque la primera no tiene dependencias cruzadas y permite iniciar ca
 	```
 	o en una sola sentencia `UPDATE ... RETURNING` (MySQL 8 soporta vía ejecución con `FromSqlRaw`/`ExecuteSqlRawAsync`). Alternativa equivalente: `SELECT ... FOR UPDATE` + `UPDATE`.
   - Formato: `F-{n:D6}` (helper `FormatoCorrelativoHelper`).
-  - **Rechazo explícito** de `HasSequence` (EF Core no lo soporta para MySQL/Pomelo).
+  - **Rechazo explícito** de `HasSequence` (EF Core no lo soporta para MySQL).
 
 - **`LocalFileStorageService : IFileStorageService`**:
   - Raíz: `App_Data/comprobantes/{yyyy}/{MM}/`.
@@ -291,7 +291,7 @@ Se separan porque la primera no tiene dependencias cruzadas y permite iniciar ca
 
 | Decisión | Elección | Justificación |
 |---|---|---|
-| **Correlativo de Factura** | Tabla `ContadorFactura` con `UPDATE ... RETURNING` dentro de la transacción | EF Core + Pomelo no soportan `HasSequence` en MySQL; `FOR UPDATE` también válido pero requiere transaction explícita. |
+| **Correlativo de Factura** | Tabla `ContadorFactura` con `UPDATE ... RETURNING` dentro de la transacción | EF Core + MySql.EntityFrameworkCore no soportan `HasSequence` en MySQL; `FOR UPDATE` también válido pero requiere transaction explícita. |
 | **Novedades** | **Reutilizar `Notification` existente** con campo `Title="Acreditaciones del día"` agrupado; no crear `Novedad` duplicada | Reduce duplicación; `INotificationService` ya gestiona marcado de lectura. Decisión sujeta a confirmación con diseñador si se requiere modelo diferenciado. |
 | **Persistencia de enums** | `HasConversion<int>()` | Consistente con `EstadoUsuario` existente; menor tamaño en MySQL. |
 | **DTOs vs ViewModels** | DTOs en Application, VMs en Web | Evita que Application dependa de `DataAnnotations` de MVC. |
@@ -397,7 +397,7 @@ Se separan porque la primera no tiene dependencias cruzadas y permite iniciar ca
 
 ### 7.2 Supuestos
 - **ST1** MySQL 8 con soporte `FOR UPDATE` y `UPDATE ... RETURNING` (MariaDB también).
-- **ST2** EF Core 10 con provider Pomelo.EntityFrameworkCore.MySql alineado a .NET 10.
+- **ST2** EF Core 10 con provider **MySql.EntityFrameworkCore** (Oracle) 10.0.1 alineado a .NET 10 — verificado en `Ganaderia.Infrastructure.csproj` (2026-07-23). No se usa Pomelo (ver `Stack activo` en la operativa global del estudio).
 - **ST3** Deploy single-node en v1 (un solo host).
 - **ST4** UTC en DB, conversión en presentación.
 - **ST5** Enums como `int` (consistente con blankproject actual).

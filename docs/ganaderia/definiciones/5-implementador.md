@@ -5,7 +5,7 @@
 
 ## Contexto inicial
 
-- Solucion ya copiada del template y renombrada a `Ganaderia.{Domain, Application, Infrastructure, Web}` sobre .NET 10, EF Core 10 + Pomelo MySQL 8, Identity, Serilog, QuestPDF, Bootstrap 5.
+- Solucion ya copiada del template y renombrada a `Ganaderia.{Domain, Application, Infrastructure, Web}` sobre .NET 10, EF Core 10 + **MySql.EntityFrameworkCore** (Oracle) 10.0.1, Identity, Serilog, QuestPDF, Bootstrap 5.
 - Base reutilizable verificada en codigo:
   - `Ganaderia.Domain.Entities.SoftDestroyable` (Id + auditoria + soft delete via `DeletedAt`).
   - `Ganaderia.Application.DTOs.ServiceResult` y `ServiceResult<T>` (CreateSuccess/CreateError).
@@ -111,7 +111,7 @@ Sentar el modelo completo de dominio operativo (catalogos + facturacion + cuotas
 
 ### Riesgos y supuestos
 - La migracion no fue aplicada todavia contra `ganaderia_dev`; hacerlo despues de tener al menos una vista de catalogo (Etapa 1.5/2) para validar end-to-end.
-- Conversion `enum -> int` esta confiada al convention global de Pomelo; verificar tipos generados al revisar el archivo de migracion.
+- Conversion `enum -> int` esta confiada al convention global del provider MySQL; verificar tipos generados al revisar el archivo de migracion.
 - `ContadorFactura.Id` se fija en 1 con `ValueGeneratedNever` y se siembra en `SeedData`. No se diseno cluster: en un escenario multi-instancia agregaremos `RowVersion` o `SELECT ... FOR UPDATE`.
 - `LocalComprobanteStorageService` resuelve path con `AppContext.BaseDirectory\_storage\comprobantes` por defecto; en prod debe configurarse `Ganaderia:ComprobantesPath` fuera del directorio de deploy.
 - `AcreditacionCuotasHostedService` corre cada hora y dispara una vez por dia; suficiente para v1 mono-instancia (analisis v10 §7).
@@ -508,7 +508,7 @@ Notas para QA:
 
 ## Iteracion v13 — Entrega de mejoras post-reunion con cliente (2026-07-23)
 
-Repositorio exclusivo: `C:\Sistemas\ganaderia - emo`. Analisis funcional previo en el repo del proyecto: `C:\Sistemas\ganaderia - emo\docs\ganaderia\definiciones\6-analisis-mejoras-entrega2.md` (fecha de analisis 2026-07-22, mergeado aca el 2026-07-23 durante el barrido de memorias cross-proyecto — ver `trazabilidad.md`).
+Repositorio exclusivo: `C:\Sistemas\ganaderia - emo`. Analisis funcional previo en el repo del proyecto: `C:\Sistemas\ganaderia - emo\docs\ganaderia\analisis-mejoras-entrega2-2026-07-22.md` (fecha de analisis 2026-07-22, mergeado aca el 2026-07-23 durante el barrido de memorias cross-proyecto — ver `trazabilidad.md`).
 
 ### Alcance funcional entregado
 
@@ -535,7 +535,7 @@ Repositorio exclusivo: `C:\Sistemas\ganaderia - emo`. Analisis funcional previo 
 
 ### ⚠️ Riesgo operativo abierto — migraciones aplicadas en produccion SIN backup previo
 
-**Las 4 migraciones pendientes (`FacturaVenta_MotivoTexto`, `AgregarReferenciaEgresoPago`, `RenameCuotaToIngreso`, `FacturaVenta_ImpuestosEditables`) ya fueron aplicadas contra la base de datos de PRODUCCION el 2026-07-23** (script acumulado `migration-prod-20260723-1200.sql`, aplicado via `dotnet ef database update` directo), **sin backup previo** — `mysqldump`/`mysql` CLI no estaban disponibles en el entorno de esa sesion. El cliente acepto explicitamente el riesgo. **El deploy del codigo nuevo (Web Deploy) todavia esta pendiente**: la base de prod ya tiene el esquema nuevo pero la app publicada todavia corre el codigo viejo — inconsistencia activa hasta completar el deploy. Accion de seguimiento: (1) programar backup manual de la base de prod cuanto antes aunque las migraciones ya se hayan aplicado (mitiga riesgo hacia adelante), (2) completar el deploy del codigo lo antes posible para cerrar la ventana de inconsistencia esquema/codigo, (3) evaluar instalar `mysql-client`/`mysqldump` en el entorno de despliegue para que este riesgo no se repita en la proxima entrega.
+**Las 4 migraciones pendientes (`FacturaVenta_MotivoTexto`, `AgregarReferenciaEgresoPago`, `RenameCuotaToIngreso`, `FacturaVenta_ImpuestosEditables`) ya fueron aplicadas contra la base de datos de PRODUCCION el 2026-07-23** (script acumulado `migration-prod-20260723-1200.sql`, aplicado via `dotnet ef database update` directo), **sin backup previo** — `mysqldump`/`mysql` CLI no estaban disponibles en el entorno de esa sesion. El cliente acepto explicitamente el riesgo. **El deploy del codigo nuevo (Web Deploy) todavia esta pendiente**: la base de prod ya tiene el esquema nuevo pero la app publicada todavia corre el codigo viejo — inconsistencia activa hasta completar el deploy. **Actualizacion (cierre del mismo dia): el deploy del codigo ya se completo**, con lo que la ventana de inconsistencia esquema/codigo quedo cerrada (ver seccion de cierre al final del archivo). Sigue vigente la accion de seguimiento sobre backups: (1) programar backup manual periodico de la base de prod - las migraciones ya aplicadas no se pueden revertir sin uno, (2) instalar `mysql-client`/`mysqldump` en el entorno de despliegue para que la proxima entrega no dependa de aceptar este riesgo.
 
 ### Riesgos y supuestos
 
@@ -550,6 +550,136 @@ Repositorio exclusivo: `C:\Sistemas\ganaderia - emo`. Analisis funcional previo 
 - [x] Migraciones con `Up()`/`Down()` simetricos y no destructivos, validadas contra base real (dev).
 - [x] Manual de usuario del proyecto (`ganaderia - emo/docs/ganaderia/manual-usuario.md`) actualizado: seccion Ingresos, Facturas de venta (impuestos e ingresos editables).
 - [x] Migraciones aplicadas en produccion (ver riesgo operativo arriba — sin backup previo).
-- [ ] Deploy del codigo nuevo a produccion (Web Deploy) — **pendiente, prioridad alta** (base ya migrada, app todavia vieja).
+- [x] Deploy del codigo nuevo a produccion (Web Deploy) - completado 2026-07-23, health check 200 OK.
+- [ ] **Re-deploy pendiente** con los dos fixes del repaso de reglas (LP-003 y MH-020) - ver seccion de cierre al final del archivo.
 - [ ] Smoke test manual end-to-end en QA/prod.
 - [ ] Extender el plan de QA local del proyecto con casos de esta entrega (impuestos editables, ingresos personalizados, filtros de dashboard).
+
+---
+
+## Cierre de la iteracion v13 + repaso de reglas del estudio (2026-07-23, misma jornada)
+
+Continuacion de la sesion de la iteracion v13, ya con el merge cross-proyecto hecho. Dos bloques: lo que se completo de la entrega, y lo que salio de pasar el proyecto por las reglas vigentes del estudio.
+
+### Bloque A - cierre operativo de la entrega
+
+1. **Anulacion de factura sin bloqueo (pedido explicito del cliente).** Se elimino el guard que impedia anular una factura con ingresos ya acreditados. Ahora se anula siempre, en una sola transaccion (stock + items + ingresos + caja), y la UI informa el alcance completo en el dialogo de confirmacion en vez de bloquear. El mensaje de exito detalla cuantos items, ingresos y movimientos de caja se tocaron.
+2. **Listado de Caja simplificado.** `ICajaService.ListAsync` dejo de exponer filtro por `Estado` y ahora siempre trae solo `Acreditado`; se quitaron la columna y el filtro Estado de `Views/Caja/Index.cshtml`. El campo `MovimientoCaja.Estado` **sigue existiendo y sigue siendo necesario** (lo muta el rechazo/regularizacion) - lo que se quito es su exposicion en una pantalla donde siempre valia lo mismo.
+3. **Deploy a produccion completado** (Web Deploy, 49 archivos, health check 200 OK en `estanciasantarosa.com.ar`).
+4. **Automatizacion de deploy** (mismo patron que MariHogar): `scripts/deploy-prod.ps1` (migracion EF + publish + health check, con confirmacion interactiva y flags `-SkipMigration`/`-SkipPublish`/`-Force`) + tasks de VS Code `deploy-prod`, `deploy-prod: solo migrar`, `deploy-prod: solo publicar`. A diferencia de MariHogar se usa `dotnet publish -p:PublishProfile=` directo (aca no se pego el bug MSB4006 del SDK preview), asi se respetan tal cual las reglas del `.pubxml` (AppOffline, skips de App_Data/logs/config). El `.pubxml.user` ahora lleva `<Password>` en texto plano (gitignorado por `*.user`): el `<EncryptedPassword>` de Visual Studio usa DPAPI y **no se puede desencriptar fuera de la sesion de Windows que lo genero**, lo que rompia todo deploy scripteado (401 ERROR_USER_UNAUTHORIZED).
+5. **Limpieza de la base de produccion para arranque real desde cero** (pedido del cliente, sin backup previo - herramientas no disponibles, riesgo aceptado). Borrado: `FacturasVenta`, `FacturaVentaIngresos`, `FacturaVentaItems`, `Egresos`, `EgresoPagos`, `MovimientosCaja`, `ComprobantesFacturaVenta`, `ComprobantesEgreso` y **todo** `MovimientosStock`; contador de facturas y `AUTO_INCREMENT` reseteados. Conservado: `Grupos` (8), `Rubros` (17), `Proveedores` (17), `AspNetUsers` (2). Los archivos fisicos de comprobantes quedaron huerfanos en el disco del hosting (solo se borraron los registros).
+   - **Nota para el catalogo de patrones:** el historial de stock borrado contenia anotaciones operativas reales (IATF, mortandad, compras a cabana, registros de aftosa) y dos movimientos que documentaban *"estaba mal el stock inicial, puede haber mas errores"* - el cliente venia corrigiendo cargas iniciales erroneas con movimientos de `Muerte`, porque el sistema no tiene un tipo de movimiento "Ajuste". **Candidato claro para la proxima iteracion:** agregar un `TipoMovimientoStock.Ajuste` con semantica de reemplazo (ver `35-pantalla-control-stock.instructions.md`), en vez de que el usuario deforme la semantica de "Muerte" para cuadrar el stock.
+
+### Bloque B - repaso contra las reglas vigentes del estudio
+
+Barrido del proyecto contra `.cursor/rules/*` y `.github/instructions/*`. Dos incumplimientos reales encontrados **y corregidos**, ambos verificados empiricamente contra la base dev:
+
+1. **LP-003 (decimales culture-dependent en `value=`) - bug real, estaba en produccion.** `Facturas/Create.cshtml` (`Items[i].KilosTotales`, `Items[i].PrecioPorKilo`, `Ingresos[i].Importe`) y `Egresos/_FilaPago.cshtml` (`Importe`) escribian el decimal a mano en el `value=` de un `<input type="number">`. Con la cultura fija `es-AR` de este proyecto (`Program.cs` usa `UseRequestLocalization` con `es-AR` y **no hay** `InvariantDecimalModelBinder`), reabrir una factura en Edit renderizaba `value="900,000"` / `value="15000,0000"` / `value="5445000,00"` - el navegador considera invalido el valor y **deja el input vacio**, con lo que el usuario perdia los datos y el guardado fallaba con "los kilos totales deben ser > 0". Verificado sobre `/Facturas/Edit/5` en dev (HTML crudo con comas) y corregido con el helper prescripto por la regla (`Func<decimal,string> num = v => v.ToString(CultureInfo.InvariantCulture)`), re-verificado: ahora renderiza `900.000` / `15000.0000` / `5445000.00`. Los campos con `asp-for` (`PorcentajeIva`, `MontoIva`, ...) ya renderizaban invariante - el bug vive solo en los `value=` escritos a mano, tal como describe la regla.
+2. **MH-020 (ledger inmutable en cancelacion con pagos) - el cambio de anulacion del Bloque A lo violaba.** La implementacion inicial soft-deleteaba **todos** los `MovimientoCaja` asociados, incluidos los ya `Acreditado` (plata realmente cobrada). Mientras el guard bloqueaba anular con ingresos acreditados esto era inofensivo (solo alcanzaba movimientos `Pendiente`), pero al quitar el guard paso a borrar movimientos posteados - exactamente lo que la regla prohibe. Reescrito segun MH-020: los `Pendiente` se dan de baja sin contramovimiento (nunca postearon plata), y los `Acreditado` **no se tocan** y se compensan con un **contramovimiento** nuevo (`EsIngreso` invertido, mismo importe, mismo `FacturaIngresoId`, concepto "Reversion anulacion Factura F-NNNNNN: motivo"). Verificado en dev anulando la factura F-000005 con 5 movimientos acreditados: las 5 filas originales quedaron vivas y acreditadas, se postearon 5 contramovimientos, y el saldo bajo exactamente por lo efectivamente posteado (120.263.250 -> 93.038.250 = -27.225.000), no por el Total nominal.
+
+Verificaciones sin hallazgos: MH-001 (no hay `Contains` sobre colecciones locales de `string` en queries - todas son de `int`), stack activo (`MySql.EntityFrameworkCore` 10.0.1, no Pomelo - se corrigio la documentacion, que decia Pomelo), design system frontend (SweetAlert2/DataTables/daterangepicker en uso en 12 vistas), fronteras por capa (logica de negocio en Services, no en Controllers).
+
+**Desvio conocido y NO corregido - stock calculado on-the-fly (regla 35).** `35-pantalla-control-stock.instructions.md` fija como patron del estudio la **columna desnormalizada** (`StockActual` en la entidad) escrita por un unico servicio en la misma transaccion que el movimiento, con el ledger como historial inmutable. Ganaderia calcula el stock sumando `MovimientoStock.Cantidad * Signo(Tipo)` en cada lectura (`StockHelper.CalcularStockAsync`, `DashboardService`) - no tiene columna desnormalizada. Es un desvio real, pero **no se corrige en este repaso**: implica migracion + reescritura de stock/dashboard sobre un sistema en produccion que acaba de ser desplegado y limpiado, y la regla esta redactada para pantallas nuevas ("antes de disenar una desde cero"). Queda como item propio de Arquitectura para una proxima iteracion, junto con el `TipoMovimientoStock.Ajuste` del Bloque A punto 5.
+
+### Evidencia
+
+- OK `dotnet build` sin errores despues de cada fix.
+- OK LP-003: verificado con el metodo de deteccion de la propia regla (grep de comas dentro de `value=` en inputs numericos) sobre el HTML renderizado de `/Facturas/Edit/5`, antes (5 coincidencias) y despues (0).
+- OK MH-020: verificado por consulta SQL directa a `ganaderia_dev` antes/despues de anular F-000005.
+- PENDIENTE **re-deploy a produccion**: los dos fixes estan en el repo pero **no** en la app publicada.
+
+---
+
+## Iteracion v14 — Stock desnormalizado, movimiento de Ajuste y Data Protection (2026-09-04)
+
+Aplicacion de los dos desvios que el repaso de reglas del 2026-07-23 habia dejado señalados sin corregir, mas el fix de Data Protection que faltaba respecto del resto del estudio.
+
+### 1. Stock desnormalizado (`Grupo.StockActual`) — regla 35 cumplida
+
+Ganaderia calculaba el stock actual sumando `MovimientoStock.Cantidad * Signo(Tipo)` en **cada lectura**. Ahora sigue el patron del estudio: columna real en `Grupo`, ledger como historial.
+
+- **Punto unico de escritura**: `StockHelper.PostearMovimiento(db, grupo, tipo, cantidad, fecha, detalle, ...)` crea el movimiento **y** actualiza `grupo.StockActual` sobre la misma entidad trackeada, para que ambos caigan en el mismo `SaveChanges`/transaccion del caller. Todos los escritores pasan por ahi: `StockService` (inicial, nacimiento, compra, muerte, compensacion, ajuste) y `FacturaVentaService` (venta al emitir/editar, reposicion al anular).
+- **Caso que hay que recordar**: `FacturaVentaService.EditAsync` **borra** los movimientos viejos de la factura antes de reponerlos. Con la columna desnormalizada eso obliga a revertir su efecto (`StockActual -= Cantidad * Signo(Tipo)`) antes del `RemoveRange`, o la columna queda desfasada del ledger. Es el tipico borde que no aparece hasta que alguien edita una factura ya emitida.
+- **Lecturas migradas a la columna**: `StockService.GetStockGrupoAsync` / `GetStockTodosAsync`, validaciones de stock de `Muerte`/`Compensacion`/`FacturaVentaService.ValidarStockAsync`, `GrupoService.EliminarAsync` y `DashboardService.GetStockResumenAsync`.
+- **Lectura que sigue sumando el ledger, y esta bien**: `DashboardService.GetActividadHaciendaAsync` calcula `StockCierreMes`, que es un stock **historico a una fecha de corte** — eso no lo puede dar la columna. Se renombro el helper a `CalcularStockHistoricoAsync(db, grupoId, hasta)` para que la diferencia quede explicita y nadie lo use por error para el stock actual.
+- **Migracion** `Grupo_StockActual_Desnormalizado`: la scaffoldeada agregaba la columna en 0 y nada mas; se reescribio a mano para **poblarla desde el ledger** (`SUM` con el signo por tipo, excluyendo soft-deleted). Verificado en dev: los 5 grupos quedaron con columna == ledger.
+- **Efecto colateral resuelto**: habia una inconsistencia previa entre dos lecturas (`CalcularStockAsync` respetaba el filtro de soft-delete y `GetStockTodosAsync` usaba `IgnoreQueryFilters`, o sea contaban distinto). Con una unica columna como fuente de verdad, la ambiguedad desaparece.
+
+### 2. `TipoMovimientoStock.Ajuste` — semantica "reemplaza, no delta"
+
+Motivado por la evidencia real encontrada al limpiar produccion: el cliente usaba movimientos de **Muerte** para corregir cargas iniciales mal hechas (*"estaba mal el stock inicial, puede haber mas errores"*, 49 y 55 cabezas), porque no existia un tipo de movimiento para ajustar.
+
+- Nuevo valor `Ajuste = 7`. El signo va en `Cantidad` (como `Compensacion`), asi que `Signo(Ajuste) = 1`.
+- `IStockService.RegistrarAjusteAsync(grupoId, stockReal, fecha, detalle)`: el usuario carga el **stock real contado**, el servicio calcula `delta = stockReal - StockActual` y postea eso al ledger. El usuario no hace aritmetica.
+- Reglas de la instruccion 35 aplicadas: `min="0"` en el input (un stock real negativo no es una decision de negocio a confirmar, es invalido), **no se escribe movimiento con delta 0** (evita ruido de auditoria), y **motivo obligatorio** — se eligio el formulario dedicado y no la edicion inline del listado porque el caso de uso real aca es correccion puntual con explicacion, no conteo masivo; la instruccion pide explicitamente no asumir el modo de guardado sin confirmarlo con el cliente. Si mas adelante pide carga masiva, la instruccion 35 tiene el patron de listado editable inline listo para reemplazar este formulario.
+- UI: `Stock/Ajuste` con acceso desde la botonera del listado y desde un boton por fila (que precarga el grupo y su stock actual).
+
+### 3. Data Protection persistente (equivalente del machineKey)
+
+Ganaderia era el unico de los proyectos activos del estudio **sin** `AddDataProtection()` configurado: cada deploy regeneraba el keyring y deslogueaba a todos los usuarios. Se agrego el mismo patron que MariHogar/Eleven/VirtualWallet: `PersistKeysToFileSystem(ContentRootPath/DataProtection-Keys)` + `SetApplicationName("Ganaderia")`, con `DataProtection-Keys/` en `.gitignore` y una `MsDeploySkipRule` dedicada en el publish profile para que el deploy nunca borre la carpeta del servidor.
+
+### Evidencia
+
+- OK `dotnet build` sin errores.
+- OK Migracion aplicada en dev; verificado grupo por grupo que la columna quedo identica a la suma del ledger.
+- OK Ajuste probado end-to-end en la app corriendo: el formulario precarga el stock actual (85), al guardar 80 postea un movimiento `Ajuste` de `-5`, la columna queda en 80 y el ledger recalculado tambien en 80.
+- OK Guard de delta 0 probado: reenviar el mismo stock devuelve "No hay ajuste que registrar" y **no** agrega fila al ledger.
+- PENDIENTE re-deploy a produccion (por pedido explicito: no deployar todavia). Se acumulan para el proximo deploy: LP-003, MH-020, stock desnormalizado + migracion, Ajuste y Data Protection.
+
+---
+
+## Iteracion v15 — IVA en egresos + revision completa (2026-09-04)
+
+### 1. IVA discriminado en Egresos (mismo mecanismo que los ingresos)
+
+`Egreso` tenia un unico campo `Importe` sin discriminar IVA. Ahora replica la mecanica de `FacturaVenta`:
+
+- **Modelo**: `Subtotal` (neto) + `PorcentajeIva` + `MontoIva`. **`Importe` se mantiene con ese nombre y pasa a ser el TOTAL** (`Subtotal + MontoIva`) — renombrarlo a `Total` habria obligado a tocar caja, dashboard, listados, la fila de totales y la validacion de pagos sin ganar nada; es lo que se paga y lo que impacta en caja.
+- **Contrato**: `EgresoCreateInput` recibe `Subtotal`, `PorcentajeIva`, `MontoIva` y **ya no recibe `Importe`**: el total lo calcula el servicio, no viaja desde el cliente (mismo criterio que FacturaVenta). El servidor no recalcula el IVA, solo valida rangos (0-100% y monto >= 0).
+- **Validacion de pagos**: la suma de los `EgresoPago` ahora debe igualar el **total con IVA**, no el neto. El mensaje de error muestra ambos numeros. Se mantiene la tolerancia CERO original (PF56/RD6/S31) — distinta de la tolerancia de $0,01/ingreso que usan las facturas de venta; es una divergencia deliberada preexistente, no un descuido.
+- **UI** (`Egresos/Create`): card de IVA con % e importe editables, sincronizados en tiempo real con "ultimo tocado manda" (si el usuario escribe el importe a mano, al cambiar el subtotal se recalcula el % y no se le pisa el importe), presets 0/10,5/21/27% y total en vivo. `Egresos/Details` muestra el desglose Subtotal / IVA / Total.
+- **Migracion** `Egreso_IvaDiscriminado`: la scaffoldeada dejaba `Subtotal` en 0 y los egresos historicos con un total que no cerraba contra `Subtotal + IVA`. Se agrego backfill honesto: `Subtotal = Importe`, IVA en 0 (de los egresos viejos no se conoce el desglose real).
+- Verificado end-to-end en dev: alta con subtotal 100.000 + 21% -> total 121.000, pago validado contra el total, movimiento de caja por 121.000. Guard probado: un pago que ignora el IVA se rechaza con el mensaje correcto.
+
+**No se agregaron IIBB ni Otras Percepciones al egreso** (el pedido fue IVA). El modelo quedo preparado para sumarlas con el mismo patron si el cliente las necesita.
+
+### 2. Revision completa del sistema
+
+**Hallazgo corregido — MH-020 del lado de Egresos.** `EgresoService.AnularAsync` tenia exactamente la misma violacion que se corrigio en Facturas: daba de baja **todos** los `MovimientoCaja` del egreso *"sin importar su estado"* (criterio documentado en v11 §4.6), incluidos los ya `Acreditado`, o sea borraba del historial plata realmente pagada. Reescrito con el mismo criterio: los `Pendiente` se dan de baja sin contramovimiento, los `Acreditado` no se tocan y se compensan con un contramovimiento de signo invertido. Verificado en dev anulando un egreso de $121.000 ya acreditado: la fila original quedo viva, se posteo el contramovimiento y el saldo subio exactamente $121.000. **El criterio de v11 §4.6 queda superado por MH-020** para este caso.
+
+Vale la pena registrar el patron: **cuando una regla de cancelacion se corrige en un lado del sistema, hay que buscar de una el lado simetrico** (ventas <-> compras, ingresos <-> egresos). Es la misma leccion que dejo marihogar al replicar el fix en `OrdenCompraService` antes de que el cliente lo reportara.
+
+**Verificaciones sin hallazgos nuevos:**
+- LP-003: no quedan decimales culture-dependent en `value=` de inputs que postean (los 3 `value="@..."` restantes son `int`).
+- Combos `asp-items` sin `asp-for`: ninguno.
+- MH-001 (`Contains` sobre coleccion local de `string` contra MySQL): ninguno.
+- Smoke de las 18 pantallas del sistema autenticado: todas 200, sin excepciones.
+- Warnings de compilacion: solo el preexistente `CS0114` de `HomeController.StatusCode`.
+- Invariantes de datos en dev, todas en 0 desfasajes: columna de stock vs ledger; `Subtotal+IVA == Importe` en egresos; suma de pagos == total del egreso; suma de ingresos == total de la factura; `Subtotal+impuestos == Total` en facturas; y ningun grupo con stock negativo.
+
+**Limpieza:** se elimino un `<div class="row d-none">` vacio que habia quedado como resto del reordenamiento del formulario de egresos.
+
+### Estado de deploy
+
+Sigue **todo sin publicar**, por pedido explicito. Acumulado para el proximo deploy, en este orden de dependencia (codigo + migraciones juntos):
+1. LP-003 (decimales) y MH-020 en Facturas — de la sesion anterior.
+2. Stock desnormalizado + migracion `Grupo_StockActual_Desnormalizado`.
+3. `TipoMovimientoStock.Ajuste` + pantalla de ajuste.
+4. Data Protection persistente.
+5. IVA en egresos + migracion `Egreso_IvaDiscriminado`.
+6. MH-020 en Egresos.
+
+---
+
+## Iteracion v16 — Fusion de la pantalla de Grupos con Stock (2026-09-04)
+
+El cliente señalo que Grupos y Stock mostraban exactamente la misma tabla (Nombre, Categoria, Stock, Stock minimo) y pidio ocultar Grupos.
+
+**El detalle que no se podia pasar por alto:** Grupos no era solo un listado duplicado — era el UNICO acceso al alta, edicion y baja de grupos. Ocultarla sin mas habria dejado al cliente sin forma de crear un grupo nuevo. Asi que en vez de esconder la pantalla se **fusiono el ABM dentro de Stock**:
+
+- Se quito el link "Grupos" del menu lateral (seccion Catalogos).
+- `Stock/Index` suma el boton **"Nuevo grupo"** en la botonera y, por fila, las acciones **Editar** y **Dar de baja** (con la confirmacion SweetAlert2 que ya tenia el listado viejo, aclarando que la baja solo procede con stock 0).
+- `GruposController.Index` ya no renderiza: **redirige a `Stock/Index`**, para no romper links ni bookmarks viejos. Create/Edit/Delete siguen viviendo en `GruposController` (no se toco la logica) pero ahora vuelven a Stock al terminar, igual que el boton Cancelar de sus vistas.
+- Se elimino `Views/Grupos/Index.cshtml`, que quedaba inalcanzable (vista muerta).
+
+Verificado en la app corriendo: el menu ya no muestra Grupos, `/Grupos` redirige 302 a `/Stock`, `/Grupos/Create` sigue accesible, y crear un grupo desde el boton nuevo devuelve `Location: /Stock` con el grupo persistido.

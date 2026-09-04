@@ -300,3 +300,44 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - 17 suites de regresion sin errores. `astro check` 0 errores, build limpio. Lighthouse: **accesibilidad 100**, best practices 100, SEO 100 sin auditorias imperfectas; performance 86 a 87.
 - **Nota de entorno:** el dev server de Astro se volvio inestable y se caia despues de una o dos suites. La regresion se corrio contra el **build de produccion** servido en :4399, que ademas es el artefacto que se despliega. Conviene dejarlo asi de ahora en mas.
 - Riesgos/supuestos: sin novedades. Sigue pendiente solo el deploy (falta `scripts/deploy.sh` + `.env.deploy.example`, nada probado contra DonWeb).
+
+### 2026-09-02 - implementador-astro-front - decimonovena pasada: la ventana del dia la define la luz
+- Bug que vio Joaquin: *"Mañana dice que si se navega a las 21 hs y no hay luz a esa hora."* Tenia razon: la franja publicada estaba fija en 06-21 mientras en Punta Lara amanece 07:06 y atardece 18:35, asi que el sitio publicaba **una hora de oscuridad a la mañana y dos y media a la noche** y podia recomendar navegar de noche. Corregido en el backend, que ahora filtra por luz real (`daily=sunrise,sunset`).
+- **`horas.length` paso de 16 a 12 y ahora es variable con la estacion del año.** Era la primera vez que ese largo cambiaba de verdad desde que se decidio derivarlo todo de el, asi que se verifico a fondo:
+
+  | ventana | barras / flechas / hits | ancho SVG | paso de rotulos |
+  |---|---|---|---|
+  | 4 h (10-13) | 4 | 216 px | cada 1 |
+  | 12 h (07-18) | 12 | 568 px | cada 2 |
+  | 16 h (06-21, sin datos de luz) | 16 | 744 px | cada 2 |
+  | 17 h (05-21, verano) | 17 | 788 px | cada 2 |
+
+  El recorte por reloj sigue el largo nuevo (a las 12:10 sobre 07-18 quedan 5 horas atenuadas; a las 20:30, las 12), y las rachas y el veredicto tambien. **No hubo que tocar nada de geometria.**
+- **Donde se dice por que el dia se corta ahi:** una linea chica bajo el titulo del grafico, *"Solo horas con luz: amanece 07:06, atardece 18:35"*, con un sol en el azul de acento. Va ahi porque es el pie de pagina del grafico, no una noticia. **No en ambar**, que sigue reservado al viento de tierra: esto no es una alerta, es el motivo de un recorte. En las filas de la semana el horario entra como un item mas de la tira de contexto y la regla se cuenta **una vez** en el encabezado de la seccion.
+- **Sin `amanece`/`atardece` no se afirma nada.** En `null` el backend cayo a la franja fija y el corte no lo puso la luz, asi que decir un horario de sol ahi seria inventar justo el dato que causo el bug. La linea y el item se esconden **enteros, rotulo incluido**; verificado que no queda ningun `null`, `undefined` ni hueco de texto en la card.
+- **El matiz opcional, resuelto sin ensuciar:** la ultima hora con luz se avisa en el **tooltip** (*"Ultima hora con luz — atardece 18:35"*), no con una marca nueva en el grafico. Dos razones: el vocabulario cromatico ya carga seis significados y un septimo lo volveria ilegible; y esto **no cambia si la hora es navegable o no**, solo dice que clase de hora es. El indice sale de `horas.length - 1`, apoyado en que el backend ya recorto por luz — recalcularlo contra `atardece` seria una segunda fuente de verdad para el mismo hecho.
+- **No se inventaron horas de penumbra** ni se estiro la ventana: si una hora queda a caballo del atardecer, no se publica.
+- **Hallazgo de harness:** dos suites propias (`vtip` y `vraf`) tenian `data-idx="14"` y `querySelectorAll(...)[14]` escritos a mano — un supuesto de la ventana de 16 horas. **No fallo el sitio, fallaron las pruebas**, que es exactamente el tipo de cosa que el pedido de verificacion buscaba destapar. Se derivaron del largo real.
+- Verificacion en 390px, cinco escenarios (invierno 12 h, verano 17 h, extremo 4 h, sin datos de luz, y reloj despues del ocaso). Sin desborde horizontal, cero errores de consola en todos.
+- 18 suites de regresion sin errores. `astro check` 0 errores, build limpio. Lighthouse: **accesibilidad 100**, best practices 100, SEO 100 sin auditorias imperfectas; performance 87.
+- Riesgos/supuestos: sin novedades. Sigue pendiente solo el deploy (falta `scripts/deploy.sh` + `.env.deploy.example`, nada probado contra DonWeb).
+
+### 2026-09-02 - implementador-astro-front - vigesima pasada: crepusculo, la ventana no es solo el sol
+- Correccion de la pasada anterior, y el motivo es conocimiento de campo: **Joaquin corrigio que cortar exacto en el sol era conservador de mas**. Hay alrededor de una hora de luz util ANTES del amanecer y otra DESPUES del atardecer, y esas horas se navegan de verdad. El backend agrego `margen_crepusculo_minutos` (calibrable) y publica las horas de sol **mas** las de crepusculo.
+- Produccion hoy, verificado en vivo los cuatro dias: **14 horas (06-19)**, con crepusculo en 06 y 19. No 12.
+- **Las cuatro afirmaciones que quedaron falsas eran el mismo error que reporto Joaquin, al reves.** Antes el sitio decia que se navega cuando no hay luz; despues decia que todas las horas mostradas tenian sol mientras dibujaba dos que no:
+
+  | dónde | decía | ahora |
+  |---|---|---|
+  | línea de la card | "Solo horas con luz: amanece 07:07, atardece 18:35" junto a un gráfico 06-19 | "Sol de 07:07 a 18:35 · las puntas son crepúsculo, y también se navegan" |
+  | párrafo de la sección | "si una hora queda a caballo del atardecer, no se publica" | sol más el crepúsculo de las puntas |
+  | tooltip | "Última hora con luz — atardece 18:35" **sobre las 19** | "Crepúsculo — después del atardecer (18:35)" |
+  | rótulo de la fila | "Luz: 07:05 a 18:36" con horas afuera | "Sol: 07:05 a 18:36" |
+
+- **`horas[].crepusculo` es la unica fuente de la distincion.** No se recalcula en el front comparando contra `amanece`/`atardece` mas el margen: la formula vive en el backend y el margen es **calibrable**, asi que duplicarla garantizaria que el dia que Joaquin lo ajuste las dos versiones digan cosas distintas. El flag decide SI la hora es de crepusculo; los horarios de sol solo eligen de que lado esta, y si no vienen se dice la version generica en vez de adivinar.
+- La segunda clausula de la linea aparece **solo si el dia trae crepusculo**: con margen cero desaparece sola y vuelve la frase corta, que ahi si es verdadera.
+- `ultimaHoraDeLuz()` quedo sin consumidor y **se borro**.
+- **El crepusculo NO se marca en el grafico**, y el argumento se reforzo: al del septimo color se le suma que el unico recurso libre seria un gris, que chocaria de frente con el atenuado de "hora que ya paso" — dos grises diciendo cosas distintas sobre la misma barra. Con linea y tooltip alcanza, porque una hora de crepusculo **es navegable** y la barra verde no miente.
+- **Verificacion contra datos reales** (`localhost:8000/pronostico`, los 4 dias, sin mocks): se recorrieron las **14 horas de hoy una por una** comparando el tooltip contra su flag. Las 12 de sol no dicen nada; 06 dice "antes del amanecer (07:07)" y 19 dice "despues del atardecer (18:35)", y se comprobo ademas que el lado que declaran es coherente con los horarios de sol reales. **Ninguna hora publicada queda descrita como algo que no es.** Las tres filas de la semana tienen tantos hits como horas trae su dia y el rango de sol correcto de cada fecha; el rotulo "Luz" ya no existe en ninguna.
+- 18 suites de regresion sin errores. `astro check` 0 errores, build limpio. Lighthouse: **accesibilidad 100**, best practices 100, SEO 100 sin auditorias imperfectas; performance 87. Mobile 390 sin desborde y sin huecos de texto.
+- Riesgos/supuestos: sin novedades. Sigue pendiente solo el deploy (falta `scripts/deploy.sh` + `.env.deploy.example`, nada probado contra DonWeb).

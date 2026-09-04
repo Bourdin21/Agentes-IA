@@ -5,7 +5,7 @@
 - estado: activo (MVP base Etapa 1 + Etapa 2 con cierre real de calibracion 2026-07-03 — 20 h reales totales; proyecto sigue activo con iteraciones evolutivas post-produccion, ver 4-presupuestador.md)
 - owner: OlvidataSoft
 - descripcion: Sistema de gestion ganadera para productor argentino con modulos de ingresos, egresos, stock, caja, dashboard y catalogos operativos.
-- ruta_repositorio: <completar: C:\Sistemas\ganaderia - emo o C:\Sistemas\ganaderia - fausto>
+- ruta_repositorio: C:\Sistemas\ganaderia - emo
 - ruta_definiciones: /docs/ganaderia/definiciones
 
 ## Archivos de memoria por agente

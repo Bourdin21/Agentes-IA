@@ -1429,3 +1429,30 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Implementado directo: `_Layout.cshtml` (label del menú + ícono, de `fa-credit-card` a `fa-money-bill-trend-up` — decisión propia, el ícono de tarjeta ya no representaba una pantalla que desde CR-71 lista todos los métodos de pago) y `PagosTarjeta/Index.cshtml` (`ViewData["Title"]` + `<h3>`). El KPI "Pagos con tarjeta por acreditar" del Dashboard no se tocó (métrica distinta y más específica).
 - Build 0 errores (compilado a directorio scratch por la app corriendo en local). Deploy `deploy-prod.ps1 -Force -SkipMigration` — 4 archivos sincronizados, sitio verificado 200 OK. Sin migración EF.
 - Motivo: pedido explícito del cliente.
+
+### 2026-09-03 — orquestador (CR-74: opción "1 pago" en Tarjeta de crédito, implementado directo)
+- Pedido explícito del cliente: "agregar formas de pago con tarjeta de crédito falta la opción 1 pago". Implementación directa (cambio acotado, sin entidad ni migración nueva).
+- Relevamiento previo: el conjunto 3/6/9/12 de CR-40 estaba duplicado en **4 lugares** (2 validaciones server-side — `VentaService.CuotasValidasTarjeta` y `PagoVentaService.CuotasValidasTarjeta` — y 2 listas client-side en `Ventas/Create.cshtml` y `Ventas/Details.cshtml`), más la semilla de `ConfiguracionCuotaTarjeta` y 3 sitios que renderizan la etiqueta. Se tocaron los 9 puntos: dejar uno afuera habría dado una opción visible que el server rechazaba (o al revés).
+- Etiqueta: `1` se muestra como **"1 pago"**, no "1 cuotas" — helper `etiquetaCuotas()` compartido en los 2 selectores, más el detalle de la venta, la pantalla Ingresos y Configuración > Cuotas de tarjeta.
+- `SeedData` pasa de 4 a 5 filas fijas (1/3/6/9/12): la semilla es idempotente y corre al iniciar la app, así que la fila de "1 pago" (0% de interés) se crea sola al deployar, sin migración ni script de datos. El Administrador puede configurarle el % como a cualquier otra.
+- Build `dotnet build MariHogar.Web/MariHogar.Web.csproj` → 0 errores (compilado a directorio scratch: la app estaba corriendo en local y bloqueaba `bin/Debug`).
+- Motivo: pedido explícito del cliente.
+
+### 2026-09-03 — orquestador (CR-75: control de ventas con pagos no acreditados, implementado directo)
+- Pedido explícito del cliente sobre un caso concreto de producción (Venta #699): la venta figura Pagada con Saldo pendiente $0 aunque el pago todavía no está acreditado; "el usuario quiere tener control de las ventas que todavía no están acreditadas".
+- **Diagnóstico: no es un bug.** `Venta.Estado`/`SaldoPendiente` miden la deuda del cliente, no la disponibilidad del dinero — es el diseño correcto y además `Estado = Pagada` es lo que habilita remito y facturación AFIP. Lo que faltaba era visibilidad: el Resumen se leía como "la plata ya entró".
+- **Verificado contra producción antes de implementar** (consulta de solo lectura): Venta #699 = Estado Pagada, Total $948.000, un único pago Tarjeta de crédito en 12 cuotas por $948.000 con `EstadoAcreditacion` Pendiente hasta el 25/09/2026. Hoy hay **3** ventas no canceladas con al menos un pago pendiente de acreditar.
+- Alcance confirmado con el cliente en 1 pregunta: visibilidad en el detalle + filtro en el listado, **sin** tocar Estado ni Saldo pendiente. Se le presentó y descartó explícitamente la opción de que la venta no figure Pagada hasta acreditar (dejaría las ventas con tarjeta sin poder facturarse hasta que el banco acredite).
+- Cambio: `VentaDetailDto.MontoPendienteAcreditacion` (calculado sobre `Pagos`, sin consulta nueva) → línea "Sin acreditar" en el Resumen de `Ventas/Details`. `VentaListItemDto.TienePagosPendientesAcreditacion` + `VentaFiltro.SoloPendientesAcreditacion` → checkbox "Solo ventas con pagos pendientes de acreditación" (persistido en sesión) y badge "Sin acreditar" junto al Estado en `Ventas/Index`.
+- **Decisión de implementación**: el indicador por fila NO agrega una consulta nueva — se resuelve dentro de la consulta de pagos por fila que `ListarAsync` ya hacía para `FormasPago` (se le suma `EstadoAcreditacion` al `Select`). Se mantiene sin `Include` de colección sobre la query paginada (riesgo DN-001/DN-002) y sin `IN` sobre colección local (MH-001), igual que el resto del método.
+- Impacto en capas: Application (`VentaDtos.cs`), Infrastructure (`VentaService.cs`), Web (`VentasController.cs`, `Ventas/Index.cshtml`, `Ventas/Details.cshtml`). Sin migración EF.
+- Build 0 errores.
+- Motivo: pedido explícito del cliente sobre un caso real de producción.
+
+### 2026-09-03 — orquestador (CR-76: quitar el filtro "Vendedor" del listado de Ventas, implementado directo)
+- Pedido explícito del cliente: "en el listado de Ventas quitar filtro Vendedor". Implementación directa (solo UI + plomería del filtro, sin lógica de negocio).
+- **Decisión: se retiró end-to-end, no solo el control visible.** Los filtros de esta pantalla se persisten en sesión (`Filtros:Ventas:Index`), así que dejar `VentaFiltro.VendedorId` habría dejado un filtro fantasma: una sesión con un vendedor ya elegido seguiría acotando el listado sin ningún control que lo muestre ni que lo limpie. Se sacaron: combo + wiring JS (`Ventas/Index.cshtml`), `VentaIndexViewModel.Vendedores`, la carga del combo y el parseo del form (`VentasController`), `VentaFiltro.VendedorId` y su `Where` en `VentaService.ListarAsync`.
+- Se retiró además `IVentaService.ListarVendedoresParaComboAsync` + implementación: quedaba sin ningún consumidor. Verificado por grep que Presupuestos y Entregas usan su propia copia (`IPresupuestoService`/`IEntregaService`), así que no se ven afectados. Efecto colateral: una consulta a `Users` menos por cada carga del listado.
+- **Desvío consciente de PAT-008** (filtro por cada columna visible): la columna "Vendedor" queda en la grilla sin su filtro. Se le avisó al cliente en el momento y se dejó anotado en `1-analista-funcional.md` para que un QA futuro no lo levante como bug.
+- Build 0 errores. Sin migración EF.
+- Motivo: pedido explícito del cliente.

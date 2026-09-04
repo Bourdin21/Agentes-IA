@@ -14,6 +14,7 @@
 - [guion-discovery.md](guion-discovery.md) — guión de la reunión de discovery con Contadores BMA (preguntas abiertas, catálogo de tareas a validar, checklist de cierre para pasar a Diseño)
 - [cuestionario-discovery-empleados.md](cuestionario-discovery-empleados.md) — cuestionario individual genérico para cada empleado que usa Bejerman Web/Onvio y/o SOS Contador (relevamiento tarea por tarea, complementa al guión grupal)
 - [cuestionario-relevamiento-gaston.md](cuestionario-relevamiento-gaston.md) — cuestionario personalizado para Gastón (empleado que usa ambas herramientas — Bejerman y SOS Contador —, candidato a usuario piloto de la Fase 0)
+- [plantilla-importacion-proceso.md](plantilla-importacion-proceso.md) — plantilla para estructurar lo que salga del Proyecto de Claude.ai de Gastón (pasos, reglas de conversión, casos borde) antes de importarlo a este proyecto
 
 ## Archivos de memoria por agente
 - analista-funcional: /docs/contadores-bma-agentes-ia/definiciones/1-analista-funcional.md

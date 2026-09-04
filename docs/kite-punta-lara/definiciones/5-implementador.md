@@ -614,6 +614,61 @@ La serie arranco de nuevo, el panel volvio a 25 horas y a "Muestra inicial". La 
 sola. Con esa muestra GDPS dejo de ser el mas acertado y el panel NO editorializa sobre eso.
 
 
+**31. La ventana del dia la define la LUZ, y su largo pasa a ser variable.**
+Bug que vio Joaquin: "mañana dice que si se navega a las 21 hs y no hay luz a esa hora". La franja
+publicada estaba fija en 06-21 mientras en Punta Lara amanece 07:06 y atardece 18:35: el sitio
+publicaba una hora de oscuridad a la mañana y dos y media a la noche. El backend ahora filtra por
+`daily=sunrise,sunset` y publica una hora solo si su punto medio cae dentro de la luz.
+**`horas.length` paso de 16 a 12 y cambia con la estacion del año.** Es la primera vez que ese largo
+cambia de verdad desde que se derivo todo de el. Verificado con ventanas de 4, 12, 16 y 17 horas:
+ancho del SVG 216 / 568 / 744 / 788 px, paso de rotulos cada 1 con 4 horas y cada 2 con 12 y 17,
+recorte por reloj / rachas / veredicto siguiendo el largo nuevo. No hubo que tocar geometria.
+Campos nuevos `amanece` / `atardece` ('HH:MM' o `null`).
+**Superficie:** una linea chica bajo el titulo del grafico ("Solo horas con luz: amanece 07:06,
+atardece 18:35") con un sol en el azul de acento — no en ambar, que sigue siendo solo viento de
+tierra: esto no es una alerta, es el motivo de un recorte. En las filas de la semana el horario
+entra como un item mas de la tira de contexto y la regla se cuenta UNA VEZ en el encabezado.
+**Sin los datos no se dice nada.** En `null` el backend cayo a la franja fija y el corte no lo puso
+la luz; afirmar un horario de sol ahi seria inventar justo el dato que causo el bug. Linea e item se
+esconden enteros, rotulo incluido, sin dejar huecos de texto.
+**No se inventan horas de penumbra**: si una hora queda a caballo del atardecer, no se publica.
+La ULTIMA hora con luz se avisa en el TOOLTIP, no con un color nuevo en el grafico: el vocabulario
+cromatico ya tiene seis significados y esto ademas no cambia si la hora es navegable, solo dice que
+clase de hora es. El indice sale de `horas.length - 1` apoyado en que el backend ya recorto — no se
+recalcula contra `atardece`, que seria una segunda fuente de verdad para el mismo hecho.
+**Hallazgo de harness:** dos suites propias (`vtip`, `vraf`) tenian `data-idx="14"` y `[14]`
+escritos a mano, un supuesto de la ventana de 16 horas. No fallo el sitio, fallaron las pruebas. Se
+derivaron del largo real.
+
+
+**32. Correccion de la 31: la ventana es luz MAS crepusculo, y el copy no puede decir "solo sol".**
+La decision 31 corto exacto en el sol. Joaquin —el experto de campo— corrigio que eso era
+conservador de mas: hay alrededor de una hora de luz util ANTES del amanecer y otra DESPUES del
+atardecer, y esas horas se navegan. El backend agrego `margen_crepusculo_minutos` (calibrable) y
+clasifica cada hora por su punto medio; publica las de sol y las de crepusculo. Produccion hoy: 14
+horas (06-19), crepusculo en 06 y 19, los cuatro dias.
+Campo nuevo `horas[].crepusculo: boolean`, y **es la unica fuente de la distincion**. No se
+recalcula en el front contra `amanece`/`atardece` mas el margen: la formula vive en el backend y el
+margen es calibrable, asi que duplicarla garantiza que algun dia las dos versiones difieran.
+**Cuatro afirmaciones quedaron falsas y se corrigieron.** Todas eran el mismo error que reporto
+Joaquin, al reves — antes el sitio decia que se navega sin luz; despues decia que todas las horas
+tenian sol mientras mostraba dos que no:
+1. La linea de la card decia "Solo horas con luz: amanece 07:07, atardece 18:35" junto a un grafico
+   que arranca 06 y termina 19. Ahora: "Sol de 07:07 a 18:35 - las puntas son crepusculo, y tambien
+   se navegan", y la segunda clausula solo aparece si el dia TRAE crepusculo (leido del flag).
+2. El parrafo de la seccion describia la regla vieja ("si una hora queda a caballo del atardecer, no
+   se publica"). Reescrito.
+3. El tooltip decia "Ultima hora con luz - atardece 18:35" sobre las 19: se contradecia dentro de la
+   misma frase. Ahora sale del flag y sirve en LAS DOS PUNTAS.
+4. El rotulo "Luz" de la fila prometia cubrir toda la franja mientras el valor era el rango del sol.
+   Paso a decir "Sol".
+`ultimaHoraDeLuz()` quedo sin uso y se borro.
+**El crepusculo NO se marca en el grafico**, y el argumento cambio: al del septimo color se le suma
+que el unico recurso libre seria un gris, que chocaria con el atenuado de "hora que ya paso" — dos
+grises diciendo cosas distintas sobre la misma barra. Con linea y tooltip alcanza, porque una hora
+de crepusculo ES navegable y la barra verde no miente.
+
+
 ## Historial de ajustes
 - 2026-09-01: Scaffold inicial del repo PHP creado en `C:\Sistemas\kite-punta-lara` (estructura de carpetas, composer, conexion a datos, mailer PAT-007 reutilizado, helper CSRF, migraciones SQL sin aplicar, config de umbrales/equipo con placeholders declarados explicitamente). `composer install` corrido y smoke test local exitoso (`GET /` responde 200, maneja el error de conexion sin datos configurados). Git inicializado, sin commits todavia.
 - 2026-09-02: Migraciones aplicadas contra MySQL local de desarrollo, `pdo_mysql` habilitado en el PHP local. Cambio de arquitectura a pedido del cliente: Presentacion pasa a Astro (repo `kite-punta-lara-front`, pendiente de generar con el agente astro-front), este repo pasa a exponer solo `GET /pronostico` como JSON. Implementada la Etapa 1 completa del backend: `CacheService`, `PronosticoService` (Open-Meteo), `ConsolidadorEstacionesService` (CARP funcionando de verdad — estacion Pilote Norden via `meteo.comisionriodelaplata.org`, requirio CA bundle propio y desactivar verificacion TLS solo para ese host por su certificado roto/TLS legacy, confirmado con Joaquin; SMN sigue bloqueado por Cloudflare), `MotorDeCalculoService`, `PronosticoController`. Verificado end-to-end con `curl` — respuesta real con viento en vivo, recomendacion de equipo y señales de birazon/sudestada funcionando.
@@ -635,3 +690,5 @@ sola. Con esa muestra GDPS dejo de ser el mas acertado y el panel NO editorializ
 - 2026-09-02 (implementador-astro-front, decimosexta pasada - rediseño de cards por jerarquia): Joaquin reordeno la prioridad del producto (las horas navegables y el detalle hora a hora primero, los min/max al fondo). Se agrego `veredictoDelDia` en `semaforo.ts` —que no decide nada nuevo, se apoya en `rachasNavegables` y `motivoSinHoras`— y se reordeno la card de HOY y las filas de la semana alrededor de el. Medido en 390x844, el veredicto paso de y=1065 (fuera de pantalla) a y=371 y el grafico de y=875 a y=537; los min/max, que eran dos stat-cards con borde por encima de la respuesta, bajaron a una tira de texto. La leyenda de nueve claves paso a plegable y la nota de la serie medida se movio junto al bloque del rio, que es lo que explica. El veredicto usa verde para 'se navega' y NEUTRO para 'no' —nunca ambar, que sigue reservado al viento de tierra— y el bloque de seguridad quedo pegado al veredicto. Accesibilidad se mantuvo en 100. Ver decision 28.
 - 2026-09-02 (implementador-astro-front, decimoseptima pasada - despegue mezclado y salida de los min/max): Continuacion del rediseño. Los min/max de viento y rafagas salieron de la tira de contexto por pedido explicito (direccion y marea se quedan), y el despegue paso de ser `despegueMaximoNudos` —un pico del pronostico calculado en el backend— a `despegueDelDia`, un promedio ponderado por cantidad de horas que mezcla lo medido de las horas ya transcurridas con lo pronosticado para las que faltan. El ponderado sale solo porque cada hora entra como una muestra suelta. Las horas pasadas sin medicion no aportan (rellenarlas con pronostico ensuciaria la mitad observada) y el `title` declara cuantas horas vienen de cada fuente. Verificado con un dia calibrado a 2 kt medido y 8 kt pronosticado: 8,0 → 5,8 → 3,5 → 2,0 segun avanza el reloj. Queda registrado que `despegueMaximoNudos` ya no tiene consumidor en el front. Ver decision 29.
 - 2026-09-02 (implementador-astro-front, decimoctava pasada - nueva base de comparacion en el panel de modelos): El backend paso a comparar el pronostico en las coordenadas del spot contra el equivalente estimado en la costa (Norden - 2,5 kt), en vez de modelo-en-Norden contra lectura cruda de Norden. El lado de referencia dejo de ser una medicion, asi que se reescribio todo el copy que decia 'lo que midio la estacion' / 'del viento medido' / 'la unica medicion real'; el primer parrafo del metodo afirmaba lo contrario de lo que ahora pasa y se rehizo entero. Se agregaron `compara`, `medicionEsEstimada` y `correccionEstacionNudos` al contrato: la frase de que se compara la manda el backend y la bandera decide el vocabulario, de modo que el dia que haya sensor en el spot el panel diga 'medido' sin tocar el copy. Se detecto probando el contrato recortado que el parrafo de la cadena era incondicional e imprimia 'se le restan — —'; se partio en dos versiones elegidas por dato. La serie arranco de nuevo (25 horas) y vuelve a 'Muestra inicial', verificado que se lee como estado y no como error. Ver decision 30.
+- 2026-09-02 (implementador-astro-front, decimonovena pasada - la ventana del dia la define la luz): Joaquin detecto que el sitio decia que se navega a las 21 sin luz a esa hora. El backend paso a filtrar las horas por amanecer/atardecer reales y `horas.length` bajo de 16 a 12, con largo variable segun la estacion. El front ya derivaba ancho, paso de rotulos y recorte por reloj del largo, asi que no hubo que tocar geometria: verificado con ventanas de 4, 12, 16 y 17 horas. Se agrego una linea chica bajo el titulo del grafico explicando el horario de luz, un item de luz en la tira de cada fila y la regla contada una vez en el encabezado de la semana; con `amanece`/`atardece` en `null` todo eso se esconde entero en vez de inventar un horario de sol. La ultima hora con luz se avisa en el tooltip y no con un color nuevo. Se corrigieron dos suites propias que tenian el indice 14 escrito a mano. Ver decision 31.
+- 2026-09-02 (implementador-astro-front, vigesima pasada - crepusculo: la ventana no es solo el sol): Correccion de la pasada anterior. Joaquin aporto que hay ~1 hora de luz util antes del amanecer y otra despues del atardecer, y que esas horas se navegan, asi que cortar exacto en el sol era conservador de mas. El backend publica ahora 14 horas (06-19) con las puntas marcadas por un flag `crepusculo` nuevo. Se corrigieron las cuatro afirmaciones que quedaron falsas: la linea de la card, el parrafo de la seccion, el aviso del tooltip (que decia 'ultima hora con luz - atardece 18:35' sobre las 19, contradiciendose solo) y el rotulo 'Luz' de las filas, que paso a 'Sol'. La distincion sale SIEMPRE del flag, nunca de recalcular el margen en el front, porque es calibrable en el backend. `ultimaHoraDeLuz()` se borro. Verificado contra los datos reales de los cuatro dias: las 14 horas de hoy descritas segun su flag, sin una sola discrepancia. Ver decision 32.

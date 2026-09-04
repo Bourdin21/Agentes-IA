@@ -657,6 +657,44 @@ Pedido explícito del cliente (21/08/2026), en la misma entrega que el cierre de
 
 **Impacto en capas**: Application (`IPagoOrdenCompraService`), Infrastructure (`PagoOrdenCompraService.cs`), Web (`OrdenesCompraController.cs`, `OrdenesCompra/Details.cshtml`). Sin migración EF.
 
+## CR-76 — Quitar el filtro "Vendedor" del listado de Ventas
+
+Pedido explícito del cliente (03/09/2026): "en el listado de Ventas quitar filtro Vendedor".
+
+**Alcance**: se retira el filtro **completo**, no solo el control visible — combo, wiring de JS, `VentaIndexViewModel.Vendedores`, la carga del combo en el controller, el parseo del form, `VentaFiltro.VendedorId` y el `Where` de `VentaService.ListarAsync`. Motivo de retirarlo end-to-end: los filtros de esta pantalla se persisten en sesión, así que dejar la propiedad en `VentaFiltro` haría que una sesión con un `VendedorId` ya guardado siguiera filtrando en silencio, sin ningún control visible que lo muestre ni que lo limpie. Se retira también `IVentaService.ListarVendedoresParaComboAsync` (y su implementación), que quedaba sin ningún consumidor — Presupuestos y Entregas tienen su propia copia en sus respectivos services, así que no se ven afectados. Efecto colateral positivo: una consulta menos por cada carga del listado.
+
+**La columna "Vendedor" de la grilla se mantiene** (el pedido es sobre el filtro). **Desvío consciente de PAT-008** ("todo listado tiene un filtro funcional por cada columna visible"), a pedido explícito del cliente y anotado acá para que un QA futuro no lo reporte como bug: si más adelante se prefiere alinear con la regla, la alternativa es quitar también la columna.
+
+**Impacto en capas**: Application (`VentaDtos.cs`, `IVentaService.cs`), Infrastructure (`VentaService.cs`), Web (`VentasController.cs`, `VentaViewModels.cs`, `Ventas/Index.cshtml`). Sin migración EF.
+
+## CR-75 — Control de ventas con pagos todavía no acreditados
+
+Pedido explícito del cliente (03/09/2026), sobre un caso concreto en producción (Venta #699, https://marihogar.com.ar/Ventas/Details/699): "en el detalle de esta venta, en la parte del resumen, figura la venta como pagada, con saldo pendiente 0, pero el pago de la venta todavía no está acreditado, el usuario quiere tener control de las ventas que todavía no están acreditadas".
+
+**Diagnóstico (no es un bug, es falta de visibilidad)**: `Venta.Estado` y `SaldoPendiente` miden **la deuda del cliente**, no la disponibilidad del dinero — apenas los pagos cubren el total, la venta pasa a Pagada con saldo $0, sin importar el `EstadoAcreditacion` de esos pagos. Eso es correcto y no se toca (el cliente efectivamente ya pagó; la acreditación es un tema bancario que se sigue aparte en Ingresos y en Cuenta corriente del local, y `Estado = Pagada` es además lo que habilita remito y facturación AFIP). El problema real es que el Resumen se lee como "esta plata ya entró" cuando todavía no entró. Verificado contra producción: la Venta #699 tiene un único pago con Tarjeta de crédito en 12 cuotas por $948.000 en estado Pendiente hasta el 25/09/2026; hoy hay 3 ventas no canceladas en esa situación.
+
+**Alcance confirmado con el cliente (1 pregunta resuelta antes de implementar)**: visibilidad en el detalle **+ filtro en el listado**, sin cambiar el Estado ni el Saldo pendiente. Se descartó explícitamente la alternativa de que la venta no figure Pagada hasta acreditar: hoy `Estado = Pagada` habilita remito y facturación AFIP y lo usan varios reportes — con ese cambio una venta cobrada con tarjeta quedaría sin poder facturarse hasta que el banco acredite.
+
+**Diseño**:
+- `Ventas/Details`, card Resumen: nueva línea **"Sin acreditar: $X"** (solo cuando hay pagos pendientes), debajo de Pagado / Saldo pendiente. No modifica ninguno de los dos valores existentes.
+- `Ventas/Index`: checkbox **"Solo ventas con pagos pendientes de acreditación"** (persistido en sesión con el resto de los filtros) + badge **"Sin acreditar"** junto al badge de Estado en las filas afectadas, para que se distingan también sin filtrar.
+
+**Arquitectura**:
+- `VentaDetailDto.MontoPendienteAcreditacion` (calculado sobre `Pagos`, sin consulta nueva), `VentaListItemDto.TienePagosPendientesAcreditacion`, `VentaFiltro.SoloPendientesAcreditacion`.
+- `VentaService.ListarAsync`: filtro nuevo con la misma forma que el de forma de pago (`v.Pagos.Any(...)`, subquery correlacionada). El indicador por fila se resuelve **dentro de la consulta de pagos por fila que ya existía** para `FormasPago` (se le agrega `EstadoAcreditacion` al `Select`) — sin consultas nuevas y sin `Include` de colección sobre la query paginada (riesgo DN-001/DN-002), respetando el patrón ya establecido en el método.
+
+**Impacto en capas**: Application (`VentaDtos.cs`), Infrastructure (`VentaService.cs`), Web (`VentasController.cs`, `Ventas/Index.cshtml`, `Ventas/Details.cshtml`). Sin migración EF.
+
+## CR-74 — Tarjeta de crédito: agregar la opción "1 pago"
+
+Pedido explícito del cliente (03/09/2026): "agregar formas de pago con tarjeta de crédito falta la opción 1 pago".
+
+**Diseño**: la cantidad de cuotas de Tarjeta de crédito estaba acotada a 3/6/9/12 (CR-40) y no contemplaba la venta en un solo pago, que es un caso real y frecuente. Se agrega `1` al conjunto válido, mostrado como **"1 pago"** (no "1 cuotas") en todas las pantallas donde aparece. El circuito no cambia en nada más: un pago en 1 cuota con tarjeta sigue siendo un pago de acreditación diferida (el banco liquida igual), con su fecha efectiva y su estado Pendiente/Acreditado como cualquier otro.
+
+**Arquitectura**: `1` se suma a los 2 conjuntos de validación server-side (`VentaService.CuotasValidasTarjeta` y `PagoVentaService.CuotasValidasTarjeta`) y a las 2 listas client-side (`Ventas/Create.cshtml`, `Ventas/Details.cshtml`), más la semilla de `ConfiguracionCuotaTarjeta` en `SeedData` — que pasa de 4 a 5 filas fijas (1/3/6/9/12), así el Administrador puede configurar el % de interés de "1 pago" desde Configuración > Cuotas de tarjeta igual que el resto. La semilla es idempotente y corre al iniciar la app: la fila nueva se crea sola al deployar, en 0%, sin migración ni script de datos. Etiqueta "1 pago" aplicada en los 2 selectores de cuotas, en el detalle de la venta, en la pantalla Ingresos y en la pantalla de configuración.
+
+**Impacto en capas**: Domain (comentarios), Application (comentarios de DTOs), Infrastructure (`VentaService.cs`, `PagoVentaService.cs`, `SeedData.cs`), Web (`Ventas/Create.cshtml`, `Ventas/Details.cshtml`, `PagosTarjeta/Index.cshtml`, `ConfiguracionCuotas/Index.cshtml`). **Sin migración EF** (la fila nueva la siembra `SeedData`).
+
 ## CR-73 — "Pagos con tarjeta" pasa a llamarse "Ingresos"
 
 Pedido explícito del cliente (03/09/2026), como cierre de la decisión que CR-71 había dejado abierta ("queda anotado como decisión abierta para el cliente si más adelante prefiere un label genérico"): "La pantalla Pagos con tarjeta ahora debe llamarse Ingresos".
@@ -1055,6 +1093,9 @@ Pedido explícito del cliente, en paralelo al deploy de CR-44 (19/08/2026): "se 
 **Impacto en capas**: Application (`OrdenCompraInput.Fecha` nuevo, `IOrdenCompraService.RecibirAsync` con parámetro opcional nuevo), Infrastructure (`OrdenCompraService.CreateAsync`/`UpdateAsync`/`RecibirAsync`, helper privado `CalcularFecha` compartido), Web (`OrdenCompraFormViewModel.Fecha`, `OrdenesCompraController.MapInput`/`Edit` GET/`Recibir`, `OrdenesCompra/Create.cshtml` — input de fecha junto al selector de Proveedor, `OrdenesCompra/Details.cshtml` — SweetAlert de fecha en "Marcar recibida"). **Sin migración EF** (ambas columnas ya existían en el esquema desde el sprint original, solo se dejó de hardcodear `DateTime.UtcNow`).
 
 ## Historial de ajustes
+- 2026-09-03 — CR-76: ver sección completa "CR-76 — Quitar el filtro 'Vendedor' del listado de Ventas" más arriba. Se retira end-to-end (no solo el control: también `VentaFiltro.VendedorId`, porque persiste en sesión y habría seguido filtrando invisible) más el combo ya sin consumidores. La columna Vendedor se mantiene — desvío consciente de PAT-008, a pedido del cliente. Sin migración EF.
+- 2026-09-03 — CR-75: ver sección completa "CR-75 — Control de ventas con pagos todavía no acreditados" más arriba. Nueva línea "Sin acreditar" en el Resumen del detalle + checkbox "Solo ventas con pagos pendientes de acreditación" y badge en el listado. NO cambia Estado ni Saldo pendiente (se descartó explícitamente con el cliente: rompería remito y facturación AFIP). Sin migración EF.
+- 2026-09-03 — CR-74: ver sección completa "CR-74 — Tarjeta de crédito: agregar la opción '1 pago'" más arriba. Se suma 1 al conjunto de cuotas válidas (server y cliente) y a la semilla de Configuración > Cuotas de tarjeta (5 filas fijas: 1/3/6/9/12), mostrado como "1 pago" en todas las pantallas. Sin migración EF — la fila la siembra SeedData al iniciar.
 - 2026-09-03 — CR-73: ver sección completa "CR-73 — 'Pagos con tarjeta' pasa a llamarse 'Ingresos'" más arriba. Cierra la decisión abierta que CR-71 había dejado pendiente. Solo label de menú + título de pantalla; URL, controller, servicio y DTOs sin renombrar. Ícono del menú cambiado de tarjeta a uno de ingresos. Sin migración EF.
 - 2026-09-03 — CR-72: ver sección completa "CR-72 — Renombres en Gastos/Gasto recurrente + reorden visual de Gastos/Create" más arriba. "Gestionar plantillas de gasto recurrente" → "Nuevo gasto recurrente" (mismo destino); "Cargar desde plantilla" → "Seleccionar gasto recurrente"; `Gastos/Create` reordenado en 3 cards (Seleccionar gasto recurrente / Datos del gasto / Formas de pago) sin tocar ids ni JS. Solo Web, sin migración EF.
 - 2026-09-03 — CR-71: ver sección completa "CR-71 — 'Pagos con tarjeta' pasa a listar todos los pagos de ventas" más arriba. Se retira el filtro fijo por Tarjeta de crédito de CR-59; la pantalla suma filtro y columna "Forma de pago" y "solo pendientes" queda cubierto por el filtro de Estado ya existente. Solo pagos de Ventas (pagos a proveedores fuera de alcance, confirmado con el cliente). Sin renombrar controller/ruta/menú. Sin migración EF.
