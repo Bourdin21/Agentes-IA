@@ -81,7 +81,7 @@ Leer según el agente activo:
 - `22-infrastructure` — EF Core, repositorios, servicios, health checks
 - `23-web` — Controllers, Views, Middleware, ViewModels
 - `24-config-paquetes` — configuración de paquetes NuGet
-- `25-frontend-design-system` — SweetAlert2, DataTables, daterangepicker
+- `25-frontend-design-system` — SweetAlert2, DataTables, daterangepicker, maskMoney (importes)
 - `26-checklists` — checklists por tipo de módulo
 - `27-presupuesto-parametros` — rangos y parámetros de estimación
 - `28-estimacion-avanzada` — método PERT y contingencia variable

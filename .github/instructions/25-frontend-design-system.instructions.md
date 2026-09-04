@@ -68,6 +68,26 @@ Bug detectado en KOI (2026-08-12): en celdas de tabla angostas, el espacio HTML 
 - Si el proyecto ya tiene un helper de formato de moneda (`FormatoMoneda`, `MoneyHelper`, etc.), evaluar que la clase forme parte del propio helper (ej. un metodo que devuelva el HTML completo con el `<span class="ov-monto">`) en vez de depender de que cada vista se acuerde de aplicarla a mano.
 - Este criterio es un estandar de desarrollo para todas las implementaciones futuras (no una decision puntual por proyecto) — mismo patron que el fix de tema oscuro de KOI (Etapa 9), que tambien paso de bug puntual a regla del design system compartido.
 
+# Importes: mascara de entrada y ordenamiento en listados (obligatorio, vigente Septiembre 2026)
+
+Detectado en virtualwallet (2026-09-04): los inputs de monto del alta/edicion de movimientos eran `type="number"`, que no admite separador de miles — pegar un importe copiado de un resumen bancario o una planilla ("1.234.567,89") dejaba el campo vacio o truncado, en silencio y sin mensaje.
+
+## Entrada de importes
+
+- **Todo input que recibe un importe monetario usa la mascara de jquery-maskMoney con 2 decimales fijos**, formato es-AR (miles ".", decimales ","), en cualquier moneda: pesos y dolares se editan con el mismo formato, cambia el simbolo del prefijo, no la mascara. Nunca `type="number"` en un campo de importe — no soporta separador de miles y rompe el pegado.
+- La libreria va **vendorizada en `wwwroot/lib`**, no por CDN: el resto de las libs del proyecto ya lo estan, y un CDN caido deja todos los formularios sin mascara.
+- **Convertir a numero plano invariante antes del submit** (`1234567.89`): el model binder del server parsea en cultura invariante y un valor enmascarado no bindea. Si la validacion del cliente frena el envio, volver a enmascarar para que el usuario no quede viendo el numero crudo.
+- **Parchear los validadores `number` y `range` de jquery-validation** para que evaluen el valor desenmascarado. Con `[Range]` en el ViewModel (lo habitual en un campo de importe) el validador por defecto rechaza "1.234,56" y bloquea el guardado sin explicar por que.
+- Cualquier script que lea el importe tiene que leer el valor **desenmascarado**, nunca `parseFloat(input.value)`: sobre "1.234,56" devuelve `1.234`, un error silencioso de 1000x que no rompe nada visible y termina en la base.
+- Implementacion de referencia: `wwwroot/js/money-mask.js` en virtualwallet — marca los inputs con `data-money-mask` y resuelve mascara, paste, submit y validacion en un solo lugar, sin que cada vista tenga que acordarse de nada.
+
+## Importes en listados
+
+- **Toda columna de importe se puede ordenar ascendente y descendente**, y ordena por el VALOR NUMERICO, nunca por el texto formateado: ordenar "$ 1.000,00" como string lo deja antes que "$ 900,00".
+- El filtro por columna de importe ya es obligatorio por la regla general de listados (ver "Listados: DataTables + filtros por columna"), lo mismo que poder encontrarlo desde el buscador global **escribiendo solo el numero** ("1500" tiene que encontrar "$ 1.500,00").
+- El signo y la moneda van siempre en la misma linea que el numero (ver "Importes monetarios: sin salto de linea").
+- Resumen operativo: un importe visible en pantalla tiene que ser **siempre** ordenable asc/desc, filtrable por su columna, alcanzable desde el buscador global tipeando solo el numero, y no puede partirse en dos lineas.
+
 # Fuentes e iconos self-hosted (obligatorio, vigente Agosto 2026)
 
 Aplicado sobre el template `blankproject` (repo base de todo proyecto nuevo) a partir de la actualizacion visual de olvidata.com.ar (Astro 4→7, fuentes self-hosted, iconos SVG en vez de CDN — "cero requests a CDNs externos"). Portado al baseline MVC con el mismo objetivo, adaptado a lo que es seguro y de bajo riesgo en un stack server-rendered con Bootstrap 5 + jQuery (no se adopto inline-SVG-por-icono ni un router client-side — ver justificacion abajo).
