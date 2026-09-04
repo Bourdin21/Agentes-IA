@@ -3025,3 +3025,133 @@ Script de una sola vez, ya ejecutado con `--apply` contra produccion (7 filas, t
 - Verificacion visual en navegador de cualquier pantalla (auditoria de codigo, sin app levantada).
 - Estado real de los datos de produccion (no se ejecuto ninguna consulta contra produccion).
 - Revision linea por linea de las definiciones 1/2/3 completas (la comparacion doc-vs-codigo fue puntual sobre CR-59 a CR-66, segun el pedido).
+
+---
+
+## CR-67 (implementacion directa, sin Diseño/Arquitectura formal) — Cierre de GAP-1/2/3 de la auditoria de infraestructura + ocultar canceladas de listados y ledgers
+
+**Fecha QA:** 2026-09-02. **Rama:** `master` (working tree sin commitear, 12 archivos modificados). **Sin deployar a produccion.**
+**Alcance validado:** Parte A (reversion de pagos al cancelar una OC, guard de acreditacion de cheque, filtro de OC Cancelada en los 2 jobs de notificacion) + Parte B (ocultar Ventas/OCs Canceladas de los listados por defecto y sus movimientos de los 2 ledgers de Cuenta Corriente, con checkbox "Mostrar cancelados").
+
+### Verificacion automatizada por navegador — BLOCKED
+
+El servidor MCP `playwright` esta declarado en `C:/Sistemas/Agentes-IA/.mcp.json` pero **no quedo expuesto en esta sesion** (`ToolSearch` sobre `mcp__playwright__*` no devuelve ninguna herramienta). Se declara explicitamente y se cae al procedimiento manual (`33-verificacion-automatizada-qa.instructions.md`). Ademas, **la app no se levanto** por la regla vigente del usuario (`feedback_no_smoke_test`: el usuario prueba manualmente, QA no levanta la app ni simula requests).
+
+Para no dejar la verificacion tecnica solo en lectura de codigo, se ejecutaron dos comprobaciones objetivas que **no** requieren navegador ni app levantada:
+
+1. **Build completo de la solucion**: `dotnet build` sobre `MariHogar.slnx` -> **0 Errores**, 8 advertencias (todas `NU1902` de MailKit/MimeKit, baseline preexistente). Confirma la sintaxis C# de todo el CR, incluido `Request.Form["incluirCanceladas"] == "true"` (comparacion `StringValues`/`string`, valida) y las expresiones con navegacion anulable.
+2. **Harness de traduccion EF Core -> SQL** (programa standalone descartable, fuera del repo, en el scratchpad; referencia `MariHogar.Infrastructure` y construye `AppDbContext` con el provider real `MySql.EntityFrameworkCore`). Ejecuta `ToQueryString()` sobre las 4 consultas nuevas y despues las corre de verdad (solo `COUNT`, **solo lectura**) contra `marihogar_dev`. Resultado: **4/4 traducen y 4/4 ejecutan sin excepcion**. Esto responde de forma empirica el punto 3 del pedido, que se habia planteado como no verificable.
+
+### Cobertura por criterio de aceptacion
+
+| # | Criterio (punto del pedido) | Resultado | Evidencia |
+|---|---|---|---|
+| 1 | `OrdenCompraService.CancelarAsync`: transaccion completa | **PASS** | `BeginTransactionAsync` despues de los guards, `SaveChangesAsync` + `CommitAsync` al final del `try`, `RollbackAsync` en el `catch`. Estructura identica a `VentaService.CancelarAsync`. |
+| 1b | `EstadosCancelables` intacto | **PASS** | `OrdenCompraService.cs:27` sigue siendo `[Borrador, Confirmada]`, sin cambios. El diff no toca el guard: cambia QUE pasa al cancelar, no QUE se puede cancelar. |
+| 1c | El `Include(o => o.Pagos).ThenInclude(p => p.Cheque)` no rompe nada | **PASS** | El unico uso previo de `oc` en el metodo eran 3 asignaciones escalares (`Estado`/`MotivoCancelacion`/`FechaCancelacion`). `PagoOrdenCompra` y `Cheque` heredan de `SoftDestroyable` y tienen filtro global `DeletedAt == null`, que EF aplica tambien dentro del `Include` — o sea `oc.Pagos` nunca trae pagos ya soft-deleteados. |
+| 1d | Cobertura exhaustiva del `foreach` | **PASS** | `EstadoPagoOrdenCompra` tiene solo 2 valores (`Pendiente`, `Pagado`). Las 3 ramas (Pendiente sin cheque / Pendiente con cheque / Pagado) cubren el producto cartesiano completo, sin caso caido. |
+| 1e | La reversion deja el ledger en cero | **PASS** | Una OC cancelable nunca fue `Recibida`, asi que nunca tuvo `Cargo` de mercaderia: el ledger solo tiene el `Pago` (-$X). El `Cargo` de reversion (+$X) lo lleva exactamente a 0. Signos coherentes con `ObtenerSaldoActualAsync` (`Cargos - Pagos`). |
+| 1f | Sin transaccion anidada | **PASS** | `CCProveedorService.RegistrarMovimientoAsync` solo hace `Add` y devuelve `Task.CompletedTask` — no abre transaccion ni llama `SaveChangesAsync` (el caller controla la unidad de trabajo). No hay riesgo de `InvalidOperationException` por transaccion ya iniciada. |
+| 2 | Guard nuevo en `ChequeService.AcreditarAsync` | **PASS** | Mensaje claro y accionable ("La orden de compra de este cheque esta cancelada, no se puede acreditar."). Ubicado **despues** de los guards existentes y **antes** de `BeginTransactionAsync`, asi que el camino feliz (OC no cancelada) no cambia en absoluto. |
+| 3 | Los filtros de los 2 jobs traducen a SQL | **PASS (empirico)** | Ver harness arriba. Ambas consultas traducen y ejecutan. **Observacion importante**, ver OBS-1 abajo: EF elimina las ramas `== null` y emite `INNER JOIN`. |
+| 4 | El `else` nuevo solo afecta `Estado == null` | **PASS** | El `if (filtro.Estado.HasValue)` original quedo intacto en ambos servicios; el `else` es una rama nueva que no puede alcanzarse cuando el usuario elige un estado. Elegir "Pendiente"/"Pagada"/"Confirmada"/"Recibida" — y tambien "Cancelada" — se comporta exactamente como antes. |
+| 4b | No hay otro consumidor de los 2 `ListarAsync` | **PASS** | Grep de todos los `.ListarAsync(` de la solucion: `_ventaService.ListarAsync` tiene **un unico** call site (`VentasController.cs:72`, el POST del DataTable) y `_ordenCompraService.ListarAsync` tambien **uno solo** (`OrdenesCompraController.cs:73`). No hay reporte interno, buscador de Presupuestos ni job que los consuma. |
+| 4c | La escotilla de escape existe en la UI | **PASS** | `Views/Ventas/Index.cshtml:41` y `Views/OrdenesCompra/Index.cshtml:36` ya tenian `<option value="Cancelada">` con binding `selected`. El filtro puntual sigue funcionando. |
+| 5 | Mapeo `OrigenTipo`/`OrigenId` de la subquery de proveedores | **PASS** | Verificado contra el codigo real que escribe el ledger, no contra la documentacion: `OrdenCompraService.RecibirAsync` postea `"OrdenCompra"` + `oc.Id`; `PagoOrdenCompraService.RegistrarPagoAsync`/`ConfirmarPagoAsync` y `ChequeService.AcreditarAsync` postean `"PagoOC"` + `pago.Id`; la reversion nueva de `CancelarAsync` usa tambien `"PagoOC"` + `pago.Id`. Coincide exactamente con las 2 ramas de la subquery. Confirmado ademas contra `tools/SeedTestData` y `tools/ImportarHistorico`, que usan los mismos literales. |
+| 5b | La rama `"OrdenCompra"` de la subquery | **PASS (defensiva)** | Es inalcanzable en la practica: el `Cargo` con `OrigenTipo="OrdenCompra"` solo se postea en `RecibirAsync`, y `Recibida` no es un estado cancelable. No molesta y protege ante un cambio futuro de `EstadosCancelables`. |
+| 6 | `ObtenerSaldoTotalAsync` sigue sumando todo el ledger | **PASS** | Sin cambios en el diff. No conoce `IncluirCanceladas` (que vive en el filtro del listado, no en las firmas de saldo). La "Deuda total a proveedores" del Dashboard (CR-58) sigue correcta, y ahora **mas** correcta gracias a los contramovimientos de la Parte A. |
+| 6b | Ocultar filas no cambia ningun total | **PASS** | Doble verificacion: (a) `CCLocalService.ObtenerSaldoFiltradoAsync` **ignora deliberadamente** `Tipo` y `FechaDesde` (decision explicita de CR-66) y devuelve siempre el neto acumulado `Ingresos - Egresos`, asi que nunca fue "la suma de las filas visibles" y ocultar filas no lo puede mover; (b) el par movimiento+reversion siempre comparte `OrigenTipo`/`OrigenId`, asi que o se ocultan **los dos** o ninguno — nunca medio par. El impacto neto de una entidad cancelada es $0 y se oculta completo. |
+
+### Maquina de estados
+
+`OrdenCompra`: `Borrador -> Confirmada -> Recibida`, con `Cancelada` alcanzable **solo** desde `Borrador` y `Confirmada` (`EstadosCancelables`). CR-67 no agrega, quita ni redirige ninguna transicion: solo agrega efectos colaterales a la transicion ya existente `-> Cancelada`. Transiciones invalidas re-verificadas por codigo: `Recibida -> Cancelada` sigue bloqueada con su mensaje propio, y `Cancelada -> Cancelada` tambien (mensaje "ya esta cancelada"). `Cancelada` sigue siendo terminal.
+
+`Cheque`: `Pendiente -> Acreditado` / `Pendiente -> Rechazado`. CR-67 agrega una precondicion a `-> Acreditado` (OC no Cancelada). **`-> Rechazado` no recibio el mismo guard, y esta bien**: `RechazarAsync` no postea ningun movimiento de CC (comentario CR-46 verificado en el codigo), asi que rechazar el cheque de una OC cancelada es inocuo. **Consecuencia colateral relevante**, ver MH-019: para un cheque de una OC Cancelada, `-> Acreditado` queda cerrada de forma permanente, y `Pendiente` pasa a ser un estado del que ya no se sale.
+
+### Cobertura del catalogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
+
+| id | aplica | resultado | accion |
+|---|---|---|---|
+| MH-001 (IN sobre coleccion local de string) | si | **PASS** | Las 4 consultas nuevas usan subqueries **correlacionadas** (`_db.X.Any(...)` contra un DbSet) y comparaciones contra **literales** constantes (`"Venta"`, `"PagoOC"`), no colecciones locales. Segun `nota_qa_sprint4`, el riesgo real de MH-001 es especifico de colecciones locales de `string`; aca no hay ninguna. Confirmado ademas empiricamente: las 4 ejecutan contra MySQL real. |
+| MH-002 (particularidad de traduccion del provider MySQL) | si | **PASS** | Verificado con el harness de `ToQueryString()` + ejecucion real. El SQL generado usa `NOT EXISTS` correlacionado para los 2 ledgers, que es la forma canonica y eficiente. |
+| MH-013 / CR-55 (Nota de Credito anula la factura) | no | N/A | CR-67 no toca comprobantes AFIP. |
+| MH-015 / MH-018 (columna ordenable sin rama en el switch de SortColumn) | si | **PASS** | CR-67 no agrega ninguna columna a los 2 DataTables; solo agrega un checkbox de filtro. Los `switch` de `SortColumn` de ambos servicios quedaron sin cambios. |
+| MH-016 / MH-017 | no | N/A | Modulos no tocados por este CR. |
+| REG-004 (maquina de estados vs. botones de la UI) | si | **PASS** | Ver seccion de maquina de estados: no cambian las transiciones, asi que los botones existentes siguen alineados. |
+| REG-010 / KOI-003 (link de sidebar sin guard de rol) | no | N/A | CR-67 no agrega pantallas ni links nuevos. |
+| KOI-001 (boton fuera del form con SweetAlert2) | no | N/A | Los controles nuevos son 2 checkboxes que recargan un DataTable, sin `btn-swal-confirm`. |
+| Resto del catalogo (49 items) | no | N/A | Modulos/patrones no alcanzados por este CR. |
+
+### Defectos detectados
+
+**MH-019 (MAJOR, catalogado — NO auto-corregido por pedido explicito).**
+Al cancelar una OC con un pago programado **con cheque**, CR-67 deja deliberadamente vivos el `PagoOrdenCompra` (Pendiente) y su `Cheque` (Pendiente) — decision correcta y explicita del caso (b). Pero solo agrego el filtro de OC Cancelada en **2 de los 5** consumidores de ese estado. Quedaron sin filtrar:
+
+- `DashboardService.ObtenerChequesPorVencerAsync` -> la card "Cheques por vencer" del Dashboard sigue sumando ese monto.
+- `ProyeccionFinancieraService.ObtenerAsync`, bloque `cheques` -> "Cheques por vencer" de la Proyeccion.
+- `ProyeccionFinancieraService.ObtenerAsync`, bloque `pagosCompraProgramados` -> "Pagos de compra programados".
+
+Agravante: como el guard nuevo de `AcreditarAsync` cierra la **unica** transicion de salida de ese cheque, el numero equivocado queda **permanente y sin forma de limpiarlo desde la UI**. Antes del guard, el usuario podia al menos acreditarlo. Contradice ademas de forma directa el pedido literal del cliente que motivo la Parte B ("no se deben mostrar en ningun informe... no figuren en ningun lado"): el Dashboard y la Proyeccion son informes.
+
+Origen del error, documentado: la propia auditoria de infraestructura de hoy afirma en GAP-3 que "`ProyeccionFinancieraService` **no** esta afectado (ya acota a OCs Confirmada/Recibida)". Eso es cierto **solo** para el calculo de `saldoOc` (`ocsPendientes`), pero **no** para las otras dos consultas del **mismo metodo**. CR-67 heredo esa afirmacion sin re-verificarla. `saldoOc` efectivamente esta bien y no hay que tocarlo.
+
+**No se aplico auto-fix** (instruccion explicita del pedido). Ademas no calificaria como auto-fix catalogado: elegir si el cheque de una OC cancelada debe seguir visible en `/Cheques` es una decision de negocio del cliente, no la replica de una solucion ya validada.
+
+### Observaciones (no son defectos, pero conviene dejarlas escritas)
+
+**OBS-1 — Los guards `== null` de los 2 jobs son codigo muerto; EF emite `INNER JOIN`.**
+El SQL real generado para `ChequeService.ObtenerYMarcarVencidosNoNotificadosAsync` es un `INNER JOIN` a `PagosOrdenCompra` y a `OrdenesCompra` (ambos con `DeletedAt IS NULL`), y la condicion queda reducida a `o0.Estado <> 4`: EF **descarta** las ramas `c.PagoOrdenCompra == null || c.PagoOrdenCompra.OrdenCompra == null` porque las FK son requeridas. Implicancia: un cheque cuyo pago u OC estuvieran soft-deleteados dejaria de notificarse **en silencio**, y antes de CR-67 si se notificaba (la consulta no tenia ningun join). **Hoy no es alcanzable**: el unico punto del sistema que soft-deletea un `PagoOrdenCompra` es la linea nueva de `CancelarAsync`, que excluye explicitamente los pagos con cheque, y no existe ningun camino que soft-deletee una `OrdenCompra`. Queda como fragilidad latente: si un CR futuro habilita el borrado logico de OCs o de pagos con cheque, esos cheques desaparecen de las notificaciones sin error. El guard `== null` da una falsa sensacion de proteccion que el SQL no cumple.
+En el job de `PagoOrdenCompra` el `INNER JOIN` a `OrdenesCompra` y a `Proveedores` **ya existia antes de CR-67** (por el `Include`/`ThenInclude` preexistente): ahi CR-67 solo agrega `AND o0.Estado <> 4`, sin cambiar la forma del join. Nota preexistente, no de este CR: un Proveedor soft-deleteado ya suprimia esas notificaciones.
+
+**OBS-2 — La columna "Saldo" del ledger no se reconcilia con las filas visibles.**
+`ObtenerSaldosAcumuladosAsync` (ambos servicios) calcula el saldo corrido sobre el ledger **completo**, asi que al ocultar filas la columna "Saldo" de dos filas visibles consecutivas puede no diferir en el `Monto` de la segunda. **No es un defecto de CR-67**: es la decision explicita y ya documentada de CR-14 ("el saldo de un movimiento es su posicion real en la cuenta, no depende del filtro que este mirando el usuario"), y el mismo efecto ya se producia con los filtros de Tipo y Fecha que existen desde antes. Se deja anotado por si el cliente lo reporta como confuso.
+
+**OBS-3 — `ActualizarFechaPagoTransferenciaAsync` no tiene guard de OC Cancelada.**
+Un pago `Pagado` de una OC cancelada sobrevive (por diseño, para conservar el par movimiento+reversion). Si es de metodo Transferencia, la fecha se puede seguir editando, y eso mueve la fecha del `Pago` original pero no la del `Cargo` de reversion. **Sin impacto en ningun saldo** (ambos siguen contando y el neto sigue siendo 0) y ambas filas estan ocultas por defecto. Cosmetico, severidad trivial, no se cataloga.
+
+### Verificacion manual pendiente (procedimiento paso a paso — reemplaza a la automatizacion bloqueada)
+
+Requiere datos que **no existen en `marihogar_dev`**: la base de dev tiene **0 OrdenesCompra Canceladas y 0 Ventas Canceladas** (verificado por QA con consulta de solo lectura). Todo el CR es, por lo tanto, **no ejercitable con los datos actuales de dev** — hay que fabricar el escenario.
+
+1. **Reversion del pago Pagado (el camino mas riesgoso).** Crear OC -> Confirmar -> registrar pago **Efectivo** (queda `Pagado`, postea `Pago` en la CC del proveedor) -> anotar el saldo del proveedor -> Cancelar la OC con motivo. Esperado: mensaje de exito; en `Proveedores -> Cuenta Corriente` el saldo de cabecera **vuelve al valor previo al pago**; con el checkbox "Mostrar compras/pagos cancelados" **destildado** no se ve ninguna de las 2 filas; al **tildarlo** aparecen las 2 (el `Pago` y el `Cargo` de reversion, este ultimo marcado como reversion).
+2. **Pago Pendiente sin cheque.** OC Confirmada + pago programado con Transferencia y fecha futura -> Cancelar. Esperado: el pago desaparece del detalle de la OC (soft-delete) y no genera ningun movimiento de CC.
+3. **Pago Pendiente con cheque.** OC Confirmada + pago programado con Cheque -> Cancelar. Esperado: el pago y el cheque **siguen existiendo**; ir a `/Cheques` e intentar **Acreditar** ese cheque -> debe rechazar con "La orden de compra de este cheque esta cancelada, no se puede acreditar.". **Aca se observa MH-019**: mirar el Dashboard y la Proyeccion financiera y confirmar si el monto del cheque sigue sumando (hoy: si).
+4. **No regresion del camino feliz de acreditacion.** Cheque de una OC **Confirmada** (no cancelada) -> Acreditar -> debe seguir funcionando igual: cheque a `Acreditado`, pago a `Pagado`, `Pago` posteado en la CC con la fecha de vencimiento del cheque.
+5. **Listados por defecto.** `/Ventas` y `/OrdenesCompra` sin tocar el combo de Estado: no deben aparecer las Canceladas. Elegir "Cancelada" en el combo: deben aparecer solo esas. Elegir "Confirmada"/"Pendiente"/etc.: identico a antes.
+6. **Ledger de CC Local.** `/CCLocal` con el checkbox destildado: no deben verse los movimientos de Ventas Canceladas; el saldo de cabecera debe ser el mismo con el checkbox tildado y destildado. Probar tambien "Limpiar filtros" (debe destildar el checkbox y recargar).
+7. **Persistencia del filtro en sesion.** Tildar el checkbox, navegar a otra pantalla y volver: el checkbox debe volver tildado (se guarda en `HttpContext.Session`).
+
+### Riesgos de liberacion y mitigaciones
+
+- **Riesgo alto — `CancelarAsync` nunca se ejercito con datos reales.** Es el unico camino de **escritura** nuevo del CR y hoy no tiene ninguna cobertura empirica (dev tiene 0 OCs canceladas). Mitigacion: ejecutar si o si los casos 1, 2 y 3 del procedimiento manual en dev **antes** de deployar.
+- **Riesgo medio — MH-019 llega a produccion junto con el CR.** El Dashboard y la Proyeccion van a mostrar montos de cheques que ya no se van a pagar, de forma permanente. Mitigacion: corregir los 3 `Where` antes del deploy (es un cambio acotado y del mismo patron ya validado), o avisar al cliente.
+- **Riesgo medio — datos historicos de produccion.** Las OCs ya canceladas **antes** de este fix no reciben contramovimiento retroactivo: si en produccion existe alguna OC Cancelada con un pago `Pagado`, su `Pago` sigue sin su `Cargo`, subestimando la deuda. CR-67 arregla el flujo de aca en adelante, no el pasado. Mitigacion: consulta de **solo lectura** contra produccion para dimensionarlo (la auditoria de hoy ya lo recomendaba y sigue pendiente). Si el conteo es 0, no hay nada que remediar.
+- **Riesgo bajo — el cliente pidio "baja logica" y recibio "ocultar por defecto".** Es una desviacion consciente del pedido literal, ya confirmada con el cliente en 2 `AskUserQuestion`, y es la decision correcta (una baja logica real hubiera roto el link "Origen" de CC Local y la trazabilidad que se uso hoy varias veces con la Venta #694). Mitigacion: dejarlo escrito en el resumen al cliente para que no lo lea como incumplido.
+- **Riesgo bajo — el checkbox de CC Local ocupa `col-md-3` en una fila que ya tenia columnas.** Posible desalineacion visual del filtro. Solo verificable en navegador (BLOCKED).
+
+### Pruebas minimas ejecutadas por QA
+
+- `dotnet build` de la solucion completa: **0 Errores**, 8 advertencias `NU1902` preexistentes.
+- Traduccion EF Core -> SQL de las 4 consultas nuevas via `ToQueryString()`: **4/4 OK**, con inspeccion del SQL generado.
+- Ejecucion real (solo `COUNT`, solo lectura) de las 4 consultas contra `marihogar_dev`: **4/4 sin excepcion**.
+- Relevamiento de datos de dev: 0 OCs Canceladas, 0 Ventas Canceladas, 1151 movimientos de CC Local, 586 de CC Proveedor.
+- Grep exhaustivo de call sites de los 2 `ListarAsync` modificados (1 cada uno) y de todos los escritores de `OrigenTipo`/`OrigenId` en servicios y en `tools/`.
+- Grep de todos los consumidores de `EstadoCheque.Pendiente` / `EstadoPagoOrdenCompra.Pendiente` (asi se encontro MH-019).
+- Grep de todos los caminos de soft-delete (`DeletedAt = `) para acotar la alcanzabilidad de OBS-1.
+
+### Checklist de salida para merge
+
+- [x] Build limpio (0 errores).
+- [x] Sin migracion EF pendiente (el CR no agrega ni cambia ninguna entidad; `IncluirCanceladas` vive en los DTO de filtro, no en el modelo).
+- [x] Sintaxis EF Core de las 4 consultas nuevas verificada empiricamente (traduce y ejecuta).
+- [x] Guards de estado preexistentes intactos (`EstadosCancelables`, `EstadosPagables`).
+- [x] Sin consumidores colaterales de los 2 `ListarAsync` modificados.
+- [x] Totales y saldos no alterados por el ocultamiento de filas.
+- [ ] **Casos 1, 2 y 3 del procedimiento manual ejecutados en dev** (bloqueante: es el unico camino de escritura nuevo y no tiene cobertura).
+- [ ] Decision sobre MH-019 (corregir antes del deploy, o aceptar y avisar al cliente).
+- [ ] Decision del cliente sobre si `/Cheques` debe ocultar tambien los cheques de OCs Canceladas.
+- [ ] Consulta de solo lectura contra produccion para dimensionar OCs Canceladas con pagos historicos.
+
+### Estado go/no-go
+
+**GO CONDICIONAL.** El CR es solido: la Parte A esta bien construida (transaccion correcta, cobertura exhaustiva de estados, signos del ledger correctos, sin transaccion anidada) y la Parte B no altera ningun total, lo cual se verifico y no solo se asumio. No se encontro ningun defecto en lo que el pedido marcaba como mas riesgoso. Bloquean el deploy dos cosas, ninguna de ellas un error del codigo escrito: (1) ejecutar en dev los 3 casos de cancelacion, que hoy no tienen ninguna cobertura empirica; (2) decidir que hacer con **MH-019**, que es un hueco de alcance heredado de la auditoria, no un bug de lo que se implemento.

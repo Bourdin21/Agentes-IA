@@ -521,6 +521,99 @@ asi que un IntersectionObserver ingenuo lo dejaria en `opacity: 0` para siempre.
 cubria gratis porque compara scroll, no visibilidad.
 
 
+**28. La card se reordeno alrededor de la pregunta que contesta.**
+Joaquin cambio la prioridad del producto: "no me importa que los min/max de viento y rafagas sean
+del dia que ves en el grafico. Me importa mas el detalle de hora a hora del viento y estado actual.
+Sobre todo los dias navegables". No era un ajuste cosmetico sino una reordenacion de jerarquia.
+La medicion que justifica el cambio, en 390x844 (mobile, que es donde se decide):
+
+| | antes | despues |
+|---|---|---|
+| veredicto (que horas se navega) | y=1065 (fuera de pantalla) | **y=371** |
+| grafico hora por hora | y=875 | **y=537** |
+| estado actual del rio | y=371 | y=772 |
+| min/max del dia | y=767 | y=1212 |
+
+O sea: lo que menos le importa estaba 300px POR ENCIMA de la respuesta que la pantalla existe para
+dar, y la respuesta no entraba en la primera pantalla.
+El veredicto (`veredictoDelDia`) dice tres cosas en tamaño decreciente: kicker ("Hoy se navega" /
+"Se navega ahora" / "Hoy no se navega"), titular con EL HORARIO ("14 a 19 h") o el motivo corto, y
+una linea de contexto ("6 horas - pico 17 kt - 2 ventanas"). Las ventanas en detalle se listan solo
+si hay MAS DE UNA. No decide nada nuevo: se apoya en `rachasNavegables` y `motivoSinHoras`, las
+mismas fuentes de la pildora y del `aria-label` (decision 25), asi que las cuatro superficies no
+pueden contradecirse. Hereda gratis el recorte por reloj de la decision 24: dentro de una ventana el
+kicker pasa a "Se navega ahora" y el titular se recorta a lo que queda.
+**Vocabulario de color respetado sin excepciones:** el veredicto tiene dos estados y ninguno es
+ambar. `ok` verde; `no` NEUTRO a proposito, porque el ambar es viento de tierra y nada mas, y un
+"no" puede ser por falta de viento. El bloque de seguridad quedo pegado al veredicto: la posicion
+mas visible que tuvo nunca.
+**Nada se borro.** Los min/max bajaron de stat-cards con borde a una tira rotulo+valor; la leyenda
+(nueve claves, cuatro renglones) paso a `<details>` plegable; la nota de la serie medida se movio
+debajo del bloque del rio, donde explica las dos cifras que ese bloque muestra.
+En la semana la fila arranca por el veredicto en vez de por la fecha y el rango: se recorre por la
+izquierda leyendo solo "que dia sirve". La columna de info crecio de 232 a 320px porque a 232 el
+bloque de seguridad se partia en renglones de tres palabras.
+
+
+**29. El despegue pasa a mezclar medicion y pronostico; los min/max salen de pantalla.**
+Pedido de Joaquin: "Velocidad viento / Rafagas: no mostrar. Mostrar solo el despegue de viento que
+viene teniendo el dia y promediarlo con lo pronosticado para las proximas horas".
+`despegueDelDia(dia, desdeIdx)` promedia, hora por hora:
+- horas ya transcurridas CON medicion → `rafagaMedidaNudos - vientoMedidoNudos`;
+- horas por delante → `rafagaNudos - vientoNudos`.
+Vive en el front porque el corte entre las dos fuentes es el reloj del visitante.
+**Ponderado por cantidad de horas, no 50/50 entre fuentes**: con 10 medidas y 2 por delante,
+promediar los dos promedios le daria a esas 2 el mismo peso que a las 10. Como cada hora entra como
+una muestra suelta, el promedio de todas las muestras YA es el ponderado — no hay aritmetica de
+pesos que mantener.
+**Una hora pasada SIN medicion no aporta nada.** No es "lo que vino pasando" ni "lo que queda", y
+rellenarla con pronostico seria colar pronostico viejo en la mitad observada del numero. Por eso el
+`title` declara cuantas horas entraron de cada lado: sin eso, un dia con la estacion caida daria un
+numero mas flaco sin que se note. Misma disciplina que con las dos mareas y con la correccion al
+spot — el numero mezcla fuentes y eso tiene que poder saberse.
+Tres casos salen sin ramas especiales: dia futuro (`desdeIdx = 0`) da puro pronostico; hoy sin
+mediciones, lo mismo; hoy ya pasado (`desdeIdx = horas.length`) da puro observado. Sin rafagas en el
+modelo el item se esconde entero, rotulo incluido.
+Verificado con un dia armado para que el despegue medido sea 2 kt y el pronosticado 8 kt: da
+8,0 → 5,8 → 3,5 → 2,0 segun avanza el reloj.
+**Los min/max de viento y rafagas salieron de pantalla** (un paso mas que la decision 27, que solo
+los habia bajado de rango). Direccion y marea se quedan. **Efecto colateral a registrar:
+`despegueMaximoNudos` se quedo SIN CONSUMIDOR en el front** — sigue en el payload y sigue siendo
+valido, pero ya no se dibuja. `textoDespegue` se reescribio sobre el promedio nuevo y
+`extremosRafaga` se borro por quedar sin uso.
+
+
+**30. Cambio de BASE de comparacion en el panel de modelos: el lado "medido" dejo de ser medido.**
+Revision de contrato del 2026-09-02. Antes se le pedia a cada modelo el pronostico en las
+coordenadas de Norden y se comparaba contra la lectura CRUDA de Norden. Ahora se le pide en las
+coordenadas DEL SPOT y se compara contra el equivalente estimado en la costa (Norden - 2,5 kt).
+Consecuencia de fondo: **no hay sensor en Punta Lara, asi que el lado de referencia es una
+INFERENCIA**, igual que `vientoNudosSpot` en `estaciones[]`. Todo el copy que decia "lo que midio la
+estacion", "del viento medido" o "es la unica medicion real" quedo incorrecto. Peor: el primer
+parrafo del metodo afirmaba exactamente lo contrario de lo que ahora pasa ("las coordenadas exactas
+de la estacion, no las del spot"), asi que se rehizo entero.
+Tres campos nuevos en `metodo`:
+- `compara` — frase del backend con que se compara contra que. **Se muestra tal cual.** Tenerla
+  escrita a mano en el markup fue lo que dejo el panel mintiendo cuando cambio la base; ahora la
+  fuente de verdad de lo que el panel puede afirmar viene con el dato.
+- `medicionEsEstimada` — bandera de COMPORTAMIENTO. El dia que haya sensor en el spot pasa a
+  `false` y el panel dice "medido" solo. Ausente ⇒ se asume `true`: llamar "estimado" a una
+  medicion subvende el dato, llamar "medido" a una inferencia lo falsea.
+- `correccionEstacionNudos` — los nudos que se restan. NO es un valor medido y el panel lo dice.
+El `<details>` cuenta la cadena completa y aclara que los 2,5 kt son conocimiento de campo. Hay DOS
+versiones del parrafo de la cadena, elegidas por dato: sin correccion que explicar la larga imprimia
+"se le restan — —" y, con un sensor propio, habria afirmado algo falso. Se encontro probando el
+contrato recortado y el caso `medicionEsEstimada: false`.
+**Matiz que si se conto y matiz que no.** SI: comparar contra un estimado agrega algo que validar —
+si la correccion estuviera mal calibrada, TODOS los modelos mostrarian sesgo del mismo lado Y de
+tamaño parecido (las dos condiciones importan: mismo signo con magnitudes distintas apunta a error
+de los modelos). NO: que la correccion estrecho los sesgos respecto de la base vieja. Es cierto,
+pero son dos muestras de tamaño y periodo distintos, y afirmarlo con 25 horas es justo lo que este
+panel existe para no hacer; ademas hardcodear los valores viejos los congelaria en el copy.
+La serie arranco de nuevo, el panel volvio a 25 horas y a "Muestra inicial". La madurez lo maneja
+sola. Con esa muestra GDPS dejo de ser el mas acertado y el panel NO editorializa sobre eso.
+
+
 ## Historial de ajustes
 - 2026-09-01: Scaffold inicial del repo PHP creado en `C:\Sistemas\kite-punta-lara` (estructura de carpetas, composer, conexion a datos, mailer PAT-007 reutilizado, helper CSRF, migraciones SQL sin aplicar, config de umbrales/equipo con placeholders declarados explicitamente). `composer install` corrido y smoke test local exitoso (`GET /` responde 200, maneja el error de conexion sin datos configurados). Git inicializado, sin commits todavia.
 - 2026-09-02: Migraciones aplicadas contra MySQL local de desarrollo, `pdo_mysql` habilitado en el PHP local. Cambio de arquitectura a pedido del cliente: Presentacion pasa a Astro (repo `kite-punta-lara-front`, pendiente de generar con el agente astro-front), este repo pasa a exponer solo `GET /pronostico` como JSON. Implementada la Etapa 1 completa del backend: `CacheService`, `PronosticoService` (Open-Meteo), `ConsolidadorEstacionesService` (CARP funcionando de verdad — estacion Pilote Norden via `meteo.comisionriodelaplata.org`, requirio CA bundle propio y desactivar verificacion TLS solo para ese host por su certificado roto/TLS legacy, confirmado con Joaquin; SMN sigue bloqueado por Cloudflare), `MotorDeCalculoService`, `PronosticoController`. Verificado end-to-end con `curl` — respuesta real con viento en vivo, recomendacion de equipo y señales de birazon/sudestada funcionando.
@@ -539,3 +632,6 @@ cubria gratis porque compara scroll, no visibilidad.
 - 2026-09-02 (implementador-astro-front, decimotercera pasada — el reloj manda + auditoria de consistencia): Bug reportado por Joaquin: "el estado actual del rio marca que ya paso la hora de kite y no hay mas el resto del dia, pero el sistema informa dia de kite". La causa era `indiceHoraActual` devolviendo `-1` para dos casos opuestos (antes / despues de la ventana); se agrego `desdeAhora()` y se enhebro hasta el semaforo, las rachas y la grilla — solo HOY mira el reloj, las rachas empezadas se RECORTAN en vez de descartarse, el pasado se atenua pero la serie medida nunca, y aparece el caso nuevo "Hoy ya paso" distinguido de "Fuera de tu rango". Segundo lote, auditoria de consistencia: se unifico el motivo de "no se navega" en `motivoSinHoras()` — el hallazgo mas grave fue un dia enteramente offshore que decia "Fuera de tu rango", y el `aria-label` del grafico que anunciaba rachas ya pasadas a lectores de pantalla. Se cerro la colision de ambar (sudestada sin temporal era del mismo color que el bloque de seguridad; ahora el ambar es exclusivamente seguridad), se corrigio el texto de "Como viene la semana" que contradecia las barras al limite y las descartadas por offshore, y se limpiaron dos comentarios desactualizados y CSS muerto/duplicado. Ver decisiones 24 y 25.
 - 2026-09-02 (implementador-astro-front, decimocuarta pasada — direccion hora por hora): Pedido de Joaquin: "mostrar direccion del viento en cada hora de cada grafico". Las flechas pasaron de salir cada `pasoEtiquetas` horas (y de no salir en los tres dias siguientes) a dibujarse en las 16 horas de los cuatro graficos. El desafio era de legibilidad: se resolvio con fila propia debajo de los rotulos (no se superponen a las barras), flechas mas chicas y tenues, y la flecha de una hora offshore en ambar apareada con su tira, para que la direccion y el motivo del descarte se lean juntos. El compacto crecio de 120 a 130 px. Ver decision 26. En la misma pasada se cerro el ultimo supuesto abierto del proyecto: Joaquin confirmo contra el viento real que la flecha apunta bien (convencion meteorologica + 180 grados para mostrar el flujo).
 - 2026-09-02 (implementador-astro-front, decimoquinta pasada - performance con el fondo intacto): Se pidieron tres mejoras de rendimiento. Medidas por separado, dos eran falsas: la duplicacion de GSAP era un falso positivo (ScrollTrigger llama a `gsap.quickSetter`, de ahi el string en los dos bundles; los marcadores exclusivos del core aparecen una sola vez) y forzar `manualChunks` empeoraba el total en 564 bytes, asi que se revirtio; diferir el canvas tampoco servia, porque `wind-bg.js` pesa lo que pesa por ser el chunk compartido donde vive el core de GSAP, que el dashboard necesita igual. La tercera si: los subsets `latin` de Inter bajaron `dist` de 69 a 21 archivos. El costo real estaba fuera de la lista, ScrollTrigger con 42 KB y un solo consumidor, y se reemplazo por IntersectionObserver conservando GSAP para la animacion. JS 177.248 a 134.679 bytes (-24%), Lighthouse 79 a 83. El fondo animado quedo igual, verificado. Ver decision 27.
+- 2026-09-02 (implementador-astro-front, decimosexta pasada - rediseño de cards por jerarquia): Joaquin reordeno la prioridad del producto (las horas navegables y el detalle hora a hora primero, los min/max al fondo). Se agrego `veredictoDelDia` en `semaforo.ts` —que no decide nada nuevo, se apoya en `rachasNavegables` y `motivoSinHoras`— y se reordeno la card de HOY y las filas de la semana alrededor de el. Medido en 390x844, el veredicto paso de y=1065 (fuera de pantalla) a y=371 y el grafico de y=875 a y=537; los min/max, que eran dos stat-cards con borde por encima de la respuesta, bajaron a una tira de texto. La leyenda de nueve claves paso a plegable y la nota de la serie medida se movio junto al bloque del rio, que es lo que explica. El veredicto usa verde para 'se navega' y NEUTRO para 'no' —nunca ambar, que sigue reservado al viento de tierra— y el bloque de seguridad quedo pegado al veredicto. Accesibilidad se mantuvo en 100. Ver decision 28.
+- 2026-09-02 (implementador-astro-front, decimoseptima pasada - despegue mezclado y salida de los min/max): Continuacion del rediseño. Los min/max de viento y rafagas salieron de la tira de contexto por pedido explicito (direccion y marea se quedan), y el despegue paso de ser `despegueMaximoNudos` —un pico del pronostico calculado en el backend— a `despegueDelDia`, un promedio ponderado por cantidad de horas que mezcla lo medido de las horas ya transcurridas con lo pronosticado para las que faltan. El ponderado sale solo porque cada hora entra como una muestra suelta. Las horas pasadas sin medicion no aportan (rellenarlas con pronostico ensuciaria la mitad observada) y el `title` declara cuantas horas vienen de cada fuente. Verificado con un dia calibrado a 2 kt medido y 8 kt pronosticado: 8,0 → 5,8 → 3,5 → 2,0 segun avanza el reloj. Queda registrado que `despegueMaximoNudos` ya no tiene consumidor en el front. Ver decision 29.
+- 2026-09-02 (implementador-astro-front, decimoctava pasada - nueva base de comparacion en el panel de modelos): El backend paso a comparar el pronostico en las coordenadas del spot contra el equivalente estimado en la costa (Norden - 2,5 kt), en vez de modelo-en-Norden contra lectura cruda de Norden. El lado de referencia dejo de ser una medicion, asi que se reescribio todo el copy que decia 'lo que midio la estacion' / 'del viento medido' / 'la unica medicion real'; el primer parrafo del metodo afirmaba lo contrario de lo que ahora pasa y se rehizo entero. Se agregaron `compara`, `medicionEsEstimada` y `correccionEstacionNudos` al contrato: la frase de que se compara la manda el backend y la bandera decide el vocabulario, de modo que el dia que haya sensor en el spot el panel diga 'medido' sin tocar el copy. Se detecto probando el contrato recortado que el parrafo de la cadena era incondicional e imprimia 'se le restan — —'; se partio en dos versiones elegidas por dato. La serie arranco de nuevo (25 horas) y vuelve a 'Muestra inicial', verificado que se lee como estado y no como error. Ver decision 30.

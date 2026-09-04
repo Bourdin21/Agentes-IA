@@ -25,7 +25,7 @@
 # en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
 
 version: 1
-ultima_actualizacion: 2026-08-21
+ultima_actualizacion: 2026-09-03
 
 patrones:
 
@@ -666,3 +666,113 @@ patrones:
         path: "FerreteriaLaPlatense.Web/Views/Ventas/Editar.cshtml (saldoPendienteActual, agregarFilaPago)"
         motivo: "Tercera instancia — pedido explicito del cliente sobre el sistema ya en produccion, mismo criterio sin variacion"
         pendiente_verificar: false
+
+  - id: PAT-020
+    nombre: "Cancelacion de comprobante con pagos: ledger inmutable + reversion acotada a lo posteado"
+    categoria: financiero
+    descripcion: >
+      Al cancelar un comprobante (Venta, Orden de Compra, o cualquier entidad con maquina de
+      estados + pagos/cobros asociados): los pagos aun no posteados (Pendiente) se dan de baja
+      junto con el comprobante sin generar movimiento; los pagos ya posteados (Acreditado/Pagado)
+      se reversan con un CONTRAMOVIMIENTO nuevo que comparte OrigenTipo/OrigenId con el original
+      (nunca se edita ni borra el movimiento ya posteado); el monto reversado es la suma de lo
+      efectivamente posteado, nunca el Total nominal del comprobante; y ninguna operacion
+      posterior sobre un pago de un comprobante ya en estado terminal recalcula el estado de ese
+      comprobante (guard explicito antes de cualquier logica derivada de sus pagos).
+    cuando_usar: >
+      Cualquier comprobante con maquina de estados (Venta, Orden de Compra, Pedido, Reserva...)
+      que tenga pagos/cobros parciales o diferidos asociados y una accion de cancelacion — sobre
+      todo si el pago puede quedar en un estado "todavia no posteado" al momento de cancelar
+      (ej. una tarjeta a cuotas que nunca llego a acreditarse).
+    proyecto_origen: marihogar (Ventas, CR-64/CR-65 — bug real reportado por el cliente sobre la Venta #694 en produccion, 2026-09-02)
+    proyectos_que_lo_usan:
+      - marihogar (replicado proactivamente del lado de Compras, OrdenCompraService.CancelarAsync, CR-67, antes de que el cliente lo reportara ahi)
+    archivos_referencia:
+      - proyecto: marihogar
+        path: "MariHogar.Infrastructure/Services/VentaService.cs (CancelarAsync, EliminarPagoAsync)"
+        motivo: "Version original: soft-delete de PagoVenta Pendiente al cancelar, reversal acotado a pagos != Pendiente, guard de Estado en EliminarPagoAsync"
+        pendiente_verificar: false
+      - proyecto: marihogar
+        path: "MariHogar.Infrastructure/Services/OrdenCompraService.cs (CancelarAsync)"
+        motivo: "Mismo patron reaplicado del lado de Compras: PagoOrdenCompra Pendiente sin cheque se da de baja, Pagado se reversa con Cargo de reversion"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-005
+    notas: >
+      Formalizado como regla de implementador en `32-estandares-qa-implementador.instructions.md`
+      (seccion "Cancelacion de un comprobante con pagos", MH-020) y catalogado en
+      `docs/qa/regresiones-manuales.yml` (MH-020). Riesgo relacionado a vigilar al aplicar este
+      patron: si se agrega un guard nuevo que bloquea la ultima transicion de salida de un pago
+      colgado (ej. "no acreditar sobre una OC Cancelada"), hay que barrer TODOS los consumidores
+      de ese estado "huerfano" — no solo el que motivo el cambio (ver MH-019, hallado por QA sobre
+      este mismo CR en marihogar: 2 de 5 consumidores quedaron sin el filtro nuevo).
+
+  - id: PAT-021
+    nombre: "Modo de precio por item: formula vs. valor manual, con exclusion explicita del recalculo batch"
+    categoria: negocio
+    descripcion: >
+      Un catalogo cuyo precio se DERIVA de una formula (cantidad x tasa, peso x valor del kilo,
+      horas x tarifa) tarde o temprano recibe un item que no encaja en esa formula — un tramite
+      administrativo en un laboratorio, un flete en un catalogo de productos, una multa en un
+      catalogo de servicios. La solucion NO es forzar el item a la formula con decimales o
+      cantidades ficticias: eso deja el precio a merced del proximo cambio de tasa, que es
+      exactamente el problema que se queria evitar. El patron: el item declara un ModoPrecio
+      (enum, default = el modo derivado, valor 1 en DB para que la migracion no toque nada) y
+      cada modo tiene UN escritor unico y exclusivo de su campo de precio. Piezas no negociables:
+      (1) el recalculo batch de la tasa FILTRA por modo — el item manual queda fuera a proposito,
+      y ese filtro es el corazon del patron; (2) el campo del modo inactivo se OCULTA Y SE
+      DESHABILITA en el formulario (deshabilitado no se envia ni valida en HTML5: un campo
+      invisible nunca puede bloquear el submit), y el controller escribe solo el campo del modo
+      activo, de forma que alternar de modo y volver no pierde el dato del otro; (3) la validacion
+      "obligatorio >= 1" del campo derivado pasa de DataAnnotation a IValidatableObject
+      CONDICIONADA al modo, porque un [Range] incondicional bloquea el guardado por un campo que
+      el usuario no ve; (4) si el precio varia por otra dimension (centro, sucursal, lista), la
+      tabla de valores manuales es ACOTADA — una fila por (item manual x dimension), NO una matriz
+      completa del catalogo — y la falta de una fila BLOQUEA la operacion con mensaje accionable
+      en vez de cobrar $0; (5) si el item derivado puede ser COMPONENTE de un agregado (combo,
+      perfil, kit) cuyo total se calcula sumando la formula, hacen falta las DOS mitades de la
+      regla: rechazar un componente manual al armar el agregado, Y rechazar el pase a manual de un
+      item que ya es componente — con solo la primera, la regla se evita en un paso y el agregado
+      pierde volumen (y precio) en silencio, sin que nadie lo haya editado.
+    cuando_usar: >
+      Cualquier catalogo con precio derivado por formula que necesite convivir con items de precio
+      fijo, y en general cualquier entidad donde un mismo campo persistido puede tener dos
+      escritores distintos segun una condicion del negocio. No usar si TODOS los items encajan en
+      la formula (el enum agrega complejidad sin pagarla), ni si el precio fijo puede vivir en una
+      entidad separada sin compartir el resto del ciclo de vida del item.
+    proyecto_origen: labipac (sesion 7, 2026-09-03 — caso real LIBRETA SANITARIA, un tramite administrativo dentro de un catalogo de practicas de laboratorio cotizadas por unidades bioquimicas)
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: labipac
+        path: "LabIPAC.Domain/Enums/TipoModoPrecio.cs + LabIPAC.Domain/Entities/UnidadBioquimica.cs"
+        motivo: "El enum con default = modo derivado (valor 1) y la doc de que campo aplica en cada modo"
+        pendiente_verificar: false
+      - proyecto: labipac
+        path: "LabIPAC.Infrastructure/Services/PracticaService.cs (ActualizarPrecioPorUnidadAsync + ValidarComposicionSinPreciosManualesAsync)"
+        motivo: "Pieza 1 (el batch filtra por ModoPrecio = PorUnidad) y primera mitad de la pieza 5 (rechazo del componente manual en el agregado)"
+        pendiente_verificar: false
+      - proyecto: labipac
+        path: "LabIPAC.Infrastructure/Services/UnidadBioquimicaService.cs (ValidarSegunModo + guard de RN-37 en UpdateAsync)"
+        motivo: "Escritor unico por modo y segunda mitad de la pieza 5 (rechazo del pase a manual de un item ya usado como componente)"
+        pendiente_verificar: false
+      - proyecto: labipac
+        path: "LabIPAC.Infrastructure/Services/ProduccionMensualService.cs (GetPrecioVigenteAsync) + LabIPAC.Domain/Entities/PrecioManualUnidadBioquimicaCentroSalud.cs"
+        motivo: "Pieza 4: ramificacion por modo en el resolutor de precio y tabla acotada item-manual x dimension con indice unico compuesto"
+        pendiente_verificar: false
+      - proyecto: labipac
+        path: "LabIPAC.Web/Views/UnidadesBioquimicas/_ModoPrecioSelector.cshtml + _ModoPrecioScripts.cshtml + Models/UnidadBioquimicaViewModels.cs"
+        motivo: "Piezas 2 y 3: partial compartido por Create/Edit, JS que oculta Y deshabilita el bloque inactivo, y validacion condicional por IValidatableObject"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      Nacio como correccion de un modelo previo (PAT no catalogado) en el que el precio de TODO el
+      catalogo se derivaba de una unica tasa. El cliente habia propuesto como workaround usar
+      cantidades con decimales para forzar el precio deseado; se descarto porque no resuelve el
+      problema de fondo — el precio se sigue recalculando con cada cambio de tasa. Vale la pena
+      registrar dos cosas que en labipac hubo que descubrir implementando: (a) la segunda mitad de
+      la pieza 5 (bloquear el pase a manual de un componente) NO estaba en el pedido y es la
+      decision mas discutible del patron — se agrego porque sin ella la regla es evitable en un
+      paso, pero conviene confirmarla con el cliente porque se siente rigida; (b) la contrapartida
+      permanente del modo manual es que ningun aumento general lo alcanza, asi que el patron tiene
+      que venir acompanado de VISIBILIDAD de lo que falta cargar (badge de faltantes, fila propia
+      en el reporte de diagnostico), no de automatismo — automatizarlo seria volver al problema.

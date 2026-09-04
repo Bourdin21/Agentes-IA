@@ -5,6 +5,295 @@
 
 ## Historial de sesiones
 
+### Sesión 8 — CORRECCIÓN DE FONDO: la cantidad de unidades bioquímicas es por (Práctica × Centro de Salud)
+**Fecha:** 2026-09-03
+**Estado:** ✅ **BUILD OK** (`dotnet build LabIPAC.slnx` sobre solución limpia → **0 errores, 9 warnings**, exactamente los mismos 9 preexistentes: NU1902 MailKit/MimeKit ×8 + CS0114 `HomeController.StatusCode`). **1 migración EF nueva, CON BACKFILL DE DATOS REALES, aplicada y verificada en `labipac_dev` + en una base de prueba con datos equivalentes a producción.** Sin commit: los cambios quedan en el working tree sobre `main`.
+
+Input: `3-arquitecto-mvc.md` sesión 8 (diseño técnico completo, ya aprobado por el cliente).
+
+> **Por qué existe esta sesión.** El modelo de precios se implementó mal en la sesión 6 y ya se deployó **dos veces** a producción. El cliente aclaró que la "cantidad de unidades bioquímicas" **no es un valor que define el laboratorio**: es un dato que **cada Centro de Salud le informa** (su propio nomenclador/convenio), tiene **decimales**, y es **distinto para la misma Práctica según el centro**. Era el pedido original de la sesión 6, mal interpretado en su momento.
+
+#### 0. Escaneo de reutilización
+- **`docs/patrones/catalogo.yml`:** sin match para "un dato que cada contraparte informa sobre el mismo ítem del catálogo". Lo más cercano es **PAT-021** (sesión 7, de este mismo proyecto), pero es sobre *de dónde sale un precio*, no sobre *quién provee un insumo del cálculo*.
+- **`docs/*/definiciones/5-implementador.md`:** sin match cross-proyecto.
+- **Decisión: implementar en labipac reutilizando patrones INTRA-proyecto ya validados y en producción**, no inventar ninguno:
+  - `PrecioManualUnidadBioquimicaCentroSalud` (sesión 7) es el **molde exacto** de `CantidadUnidadBioquimicaCentroSalud`: misma clave compuesta, mismo índice único no filtrado por `DeletedAt`, mismo upsert con reactivación de fila soft-deleted.
+  - El **patrón de fila única** de `PrecioPorUnidad` (sesión 2, enforced en Service y no en DB) es el molde de `CentroSalud.EsReferencia` — literalmente lo reemplaza.
+  - `PreciosPorCentro/Index.cshtml` y `PreciosManuales.cshtml` son el molde visual de WF-18.
+  - `ConstruirMensajeBloqueoPrecioAsync` (DD-07) es el molde de los mensajes de bloqueo nuevos.
+- **Alta al catálogo:** no. Lo genuinamente reutilizable acá (upsert por clave compuesta con reactivación de soft-delete) ya está cubierto por lo que se registró en sesiones anteriores; el resto es específico del dominio.
+
+#### 1. Alcance funcional
+`Precio(Práctica, Centro) = CantidadUnidadBioquimicaCentroSalud[Práctica, Centro] × PrecioPorUnidadCentroSalud[Centro]`, con la cantidad **informada por cada centro** y con decimales. Para un Perfil, la suma en vivo de sus componentes por ese mismo centro. El **precio de referencia de catálogo** deja de salir de un valor global y pasa a calcularse contra el **Centro de Salud marcado como referencia**. El modo `Manual` de la sesión 7 **no se toca**.
+
+#### 2. Plan de ejecución (etapas, en este orden)
+1. Domain (entidad nueva, campo nuevo, campo eliminado, `Practica.Unidad` a decimal). 2. Application (DTOs + interfaces; retiro de M25). 3. `AppDbContext`. 4. Services. 5. Web (VMs, controllers, vistas). 6. Migración **con backfill**, hand-editada en el orden correcto. 7. Verificación del backfill contra `labipac_dev` y contra una base réplica de producción. 8. Scripts de deploy y documentación.
+
+#### 3. Cambios por capa
+
+| Capa | Archivo | Cambio |
+|---|---|---|
+| Domain | `Entities/CantidadUnidadBioquimicaCentroSalud.cs` | **NUEVO** — `SoftDestroyable`, FK `UnidadBioquimicaId` + FK `CentroSaludId` (índice único compuesto), `Cantidad` decimal(18,4). |
+| Domain | `Entities/UnidadBioquimica.cs` | **− `CantidadUnidades`** (int). Doc de `PrecioActual` reformulada (RN-40). |
+| Domain | `Entities/CentroSalud.cs` | **+ `EsReferencia`** (bool, default false). Patrón de fila única, enforced en Service. |
+| Domain | `Entities/Practica.cs` | `Unidad` pasa de `int` a `decimal`; su doc explicita que es el volumen **de referencia** y que **no** es la fuente del precio de producción. |
+| Domain | `Entities/PrecioPorUnidad.cs` | **ELIMINADO** (entidad + tabla). Se verificó que no le quedaba ningún consumidor. |
+| Application | `DTOs/CantidadUnidadBioquimicaCentroSaludDtos.cs` | **NUEVO** — `CantidadUnidadBioquimicaCentroDto` + `CentroSaludCargaCantidadesDto`. |
+| Application | `Interfaces/ICantidadUnidadBioquimicaCentroSaludService.cs` | **NUEVO** — 6 métodos (obtener / listar por centro / estado de centros / upsert individual / **guardado en lote atómico** / contar faltantes). |
+| Application | `DTOs/PrecioPorUnidadCentroSaludDtos.cs` | **+** `ReferenciaCatalogoDto`; `PrecioPorUnidadCentroSaludDto` + `EsReferencia`/`PracticasSinCantidad`; `DiagnosticoCatalogoItemDto` + `CentroSaludIdDestino`. **−** `SugerenciaCantidadUnidadesDto` (M25). |
+| Application | `Interfaces/IPracticaService.cs` | **−** `ObtenerPrecioPorUnidadVigenteAsync`, `ActualizarPrecioPorUnidadAsync`, `AumentarPrecioPorUnidadPorcentajeAsync`, `SugerirCantidadUnidadesAsync`. **+** `ObtenerReferenciaCatalogoAsync`, `RecalcularCatalogoReferenciaAsync`. `CalcularVolumenComposicionAsync` cambia de firma (`+ centroSaludId`, devuelve `decimal?`). |
+| Application | `Interfaces/ICentroSaludService.cs` | **+** `ObtenerReferenciaAsync`; doc del patrón de fila única en Create/Update. |
+| Application | `Interfaces/IUnidadBioquimicaService.cs` / `IProduccionMensualService.cs` | Solo doc. **`GetPrecioVigenteAsync` NO cambia de firma** — RA-15 no se reabre. |
+| Infrastructure | `Data/AppDbContext.cs` | `DbSet` nuevo, `DbSet<PrecioPorUnidad>` retirado; config de la entidad nueva (índice único compuesto + 2 FK `Restrict`); `Practica.Unidad` `HasPrecision(18,4)`; `CentroSalud.EsReferencia` con default. |
+| Infrastructure | `Services/CantidadUnidadBioquimicaCentroSaludService.cs` | **NUEVO** — calco de `PrecioManualUnidadBioquimicaCentroSaludService` + guardado en lote atómico + disparo del recálculo cuando el centro tocado es el de referencia. |
+| Infrastructure | `Services/PracticaService.cs` | **Reescritura de toda la parte de precios.** Volumen por centro con semántica `null` = bloquear; `RecalcularCatalogoReferenciaAsync` reemplaza a `ActualizarPrecioPorUnidadAsync`; **−260 líneas** del algoritmo de M25; diagnóstico M24 rediseñado por centro. |
+| Infrastructure | `Services/ProduccionMensualService.cs` | **La bisagra (RA-15).** `GetPrecioVigenteAsync` calcula el volumen **en vivo contra el centro**; método privado nuevo `CalcularVolumenPerfilEnCentroAsync`. |
+| Infrastructure | `Services/UnidadBioquimicaService.cs` | Deja de escribir/leer `CantidadUnidades`; `PrecioActual` de referencia contra el centro de referencia; se retira la cascada DD-09 de acá (se mudó al servicio de cantidades); aviso al pasar de Manual a PorUnidad sin cantidades. |
+| Infrastructure | `Services/CentroSaludService.cs` | Patrón de fila única de `EsReferencia` en Create/Update (atómico) + desmarcado y recálculo al eliminar el centro de referencia + `ObtenerReferenciaAsync`. |
+| Infrastructure | `Services/PrecioPorUnidadCentroSaludService.cs` | `ListarPorCentroAsync` suma `EsReferencia`/`PracticasSinCantidad` (un solo GROUP BY, sin N+1); `ActualizarValorAsync` dispara el recálculo **solo si el centro es el de referencia**. |
+| Infrastructure | `DependencyInjection.cs` | Registro del servicio nuevo. |
+| Web | `Models/UnidadBioquimicaViewModels.cs` | **−** `CantidadUnidades` y su `IValidatableObject`. **+** contexto de referencia de solo lectura; la row cambia a `CentrosConCantidad`/`CentrosActivos`. |
+| Web | `Models/PracticaViewModels.cs` | `Unidad` a `decimal`; `PrecioPorUnidadVigente` → `PrecioUnidadReferencia` (decimal?) + `NombreCentroReferencia`; `UnidadBioquimicaSelectItem.CantidadUnidades` a `decimal?`; **VM-16 retirado**. |
+| Web | `Models/CentroSaludViewModels.cs` | **+** `EsReferencia` y `NombreReferenciaActual`. |
+| Web | `Models/PreciosPorCentroViewModels.cs` | **+ VM-21** (`CantidadesPorCentroViewModel` y sus 2 rows); **−** el VM de sugerencias (M25). |
+| Web | `Models/ProduccionMensualViewModels.cs` | `UnidadPerfil` a `decimal?`; `PracticaAltaRapidaViewModel`: `CantidadUnidades` a `decimal` **+ `ProduccionMensualId`**. |
+| Web | `Controllers/UnidadesBioquimicasController.cs` | Quita el campo del ABM; grilla informa cobertura por centro; `AplicarReferenciaAsync` nuevo. |
+| Web | `Controllers/PracticasController.cs` | **−** las 2 acciones de precio global, **+** `RecalcularReferencia`; el combo de composición trae las cantidades del centro de referencia en **una sola consulta**. |
+| Web | `Controllers/PreciosPorCentroController.cs` | **+** `Cantidades` GET/POST (WF-18) con chequeo de `ModelState` que rechaza el lote entero; `Diagnostico` sin M25 y con destino "Cantidades". |
+| Web | `Controllers/CentrosSaludController.cs` | `EsReferencia` en Create/Edit + columna y **filtro server-side** en la grilla. |
+| Web | `Controllers/ProduccionMensualController.cs` | Alta rápida de Práctica escribe la cantidad del centro del período; `CalcularVolumenPerfilesDelPeriodoAsync` nuevo (una consulta agrupada, sin N+1); mensajes de bloqueo por centro que **listan los componentes faltantes**. |
+| Web | `Views/PreciosPorCentro/Cantidades.cshtml` | **NUEVO** (WF-18). |
+| Web | `Views/Practicas/_ReferenciaPerfil.cshtml` | **NUEVO** — partial compartido por Create y Edit. |
+| Web | `Views/CentrosSalud/_ReferenciaSelector.cshtml` | **NUEVO** — partial compartido por Create y Edit. |
+| Web | `Views/UnidadesBioquimicas/_ModoPrecioSelector.cshtml` / `_ModoPrecioScripts.cshtml` | Bloque *Por unidad* pasa a solo lectura; el JS de cálculo en vivo se retira (ya no hay input que escuchar). |
+| Web | `Views/Practicas/Index.cshtml` / `Create` / `Edit` | Card "Precio por Unidad" reemplazada por la informativa + botón de recálculo; partial nuevo; preview con semántica "Sin calcular". |
+| Web | `Views/PreciosPorCentro/Index.cshtml` / `Diagnostico.cshtml` | Botón + badge a WF-18, badge `Referencia`, aviso de faltantes por centro; tabla de M25 eliminada. |
+| Web | `Views/UnidadesBioquimicas/Index.cshtml`, `CentrosSalud/*`, `ProduccionMensual/*` | Columnas, filtros y modales adaptados (detalle en `2-disenador-funcional.md` sesión 8). |
+| Deploy | `deploy/migration_s8_prod.sql` | **NUEVO** — script plano de esta migración, **ejecutable con el cliente `mysql`**. |
+| Deploy | `deploy/migrations_prod.sql` | Regenerado con `--idempotent`: **+78 líneas, el contenido previo quedó byte a byte idéntico** (verificado por `Compare-Object`: 0 líneas removidas). |
+| Deploy | `deploy/README-produccion.md` | Reescrito para este deploy: procedimiento de backfill con las consultas de verificación exactas, paso post-deploy obligatorio, y el hallazgo sobre el script idempotente (ver §6). |
+
+#### 4. Migración EF — `20260903214759_CantidadUnidadesPorCentroSaludYCentroReferencia`
+
+**`Up()` está hand-editado**: EF scaffolded el `DROP COLUMN` *antes* de que existiera la tabla nueva, lo que habría **destruido los 52 valores del cliente**. El orden correcto, escrito a mano, es:
+
+1. `ALTER TABLE CentrosSalud ADD EsReferencia tinyint(1) NOT NULL DEFAULT 0`
+2. `ALTER TABLE Practicas MODIFY Unidad decimal(18,4) NOT NULL` (ampliación de tipo, sin pérdida)
+3. `CREATE TABLE CantidadesUnidadBioquimicaCentroSalud` + índice único compuesto + 2 FK
+4. **BACKFILL** — `INSERT ... SELECT ... FROM UnidadesBioquimicas u JOIN CentrosSalud c ON c.Id = 1 AND c.DeletedAt IS NULL WHERE u.DeletedAt IS NULL AND u.CantidadUnidades > 0`
+5. Marcar el centro Id=1 como `EsReferencia` (guardado por que exista y tenga precio de unidad cargado)
+6. `ALTER TABLE UnidadesBioquimicas DROP COLUMN CantidadUnidades`
+7. `DROP TABLE PreciosPorUnidad`
+
+**Detalles de diseño del backfill, deliberados:**
+- El `JOIN CentrosSalud c ON c.Id = 1` en lugar de un `CentroSaludId = 1` a secas: si en la base destino no existiera un centro con Id=1, **no migra nada en vez de romper por violación de FK**. Es lo que permite que la misma migración corra en producción, en `labipac_dev` y en una base recién creada.
+- **No filtra por `Activo` ni por `ModoPrecio`**, a propósito: cualquier valor que el cliente haya cargado a mano se conserva. Una fila para una práctica en modo Manual es **inerte** (ningún cálculo la lee: `GetPrecioVigenteAsync` ramifica por modo antes de mirar cantidades, y los listados/diagnósticos filtran por `PorUnidad`) y vuelve a ser útil si esa práctica alguna vez vuelve a `PorUnidad`.
+- **Marcar el centro 1 como referencia es una decisión de DATOS, no de esquema.** Sin ella el catálogo entero quedaría "sin referencia" apenas se despliega, cuando hasta hoy mostraba precios. Se eligió el mismo centro que recibe el backfill porque es el único con Precio de Unidad Bioquímica cargado. El cliente puede cambiarlo desde el ABM en cualquier momento.
+- **El `Down()` NO reconstruye los datos** y lo dice explícitamente en el propio archivo: `CantidadUnidades` vuelve en 0 (con varios centros cargados no hay criterio para elegir cuál "des-migrar") y `PreciosPorUnidad` vuelve vacía. Para revertir en producción: **restaurar el backup**, no correr el `Down`.
+
+##### 4.1 Verificación del backfill — RESULTADOS REALES
+
+**Prueba A — `labipac_dev`.** La base de dev no tenía datos comparables (3 prácticas, 2 de ellas soft-deleted; ningún centro con Id=1), así que se sembró a mano un escenario que reprodujera producción en chico: centro Id=1 "CENTRO MEDICO LABORAL" con precio de unidad 1085.86 (el valor real de producción), 4 prácticas activas con `CantidadUnidades > 0`, 1 práctica activa con 0, 1 práctica **Manual**, y 1 práctica **soft-deleted con `CantidadUnidades = 99`** (para verificar que el backfill la excluye).
+
+| | Antes de migrar | Después de migrar |
+|---|---|---|
+| `UnidadesBioquimicas WHERE DeletedAt IS NULL AND CantidadUnidades > 0` | **4** | (columna eliminada) |
+| `CantidadesUnidadBioquimicaCentroSalud WHERE CentroSaludId = 1` | 0 | **4** ✅ |
+
+Filas migradas: `CREATININA` 5.0000, `ZZ-TEST GLUCEMIA` 12.0000, `ZZ-TEST HEMOGRAMA` 25.0000, `ZZ-TEST COLESTEROL` 8.0000. La soft-deleted (99), la de cantidad 0 y la Manual quedaron **correctamente fuera**. `CentrosSalud.EsReferencia = 1` solo en el Id=1. `Practicas.Unidad` → `decimal(18,4)`. `PreciosPorUnidad` → tabla inexistente.
+
+**Prueba B — base réplica del estado de producción.** Base limpia migrada hasta la sesión 7 (`dotnet ef database update 20260903202955_...`), sembrada con **los 3 Centros de Salud reales** (Id 1/2/3, con sus nombres de producción), el `PrecioPorUnidadCentroSalud` de 1085.86 en el Id=1, el `PrecioPorUnidad` global, 7 prácticas (con cantidad / sin cantidad / Manual / **inactiva con cantidad** / **soft-deleted con cantidad**) y un Perfil con composición. Se aplicó **`deploy/migration_s8_prod.sql` con el cliente `mysql`** (no con `dotnet ef`), que es exactamente lo que va a correr el orquestador: **exit code 0**, `a_migrar = 4` → `migradas = 4`, incluyendo la **inactiva** (se conserva su valor, es lo correcto) y excluyendo la **soft-deleted**. Las dos bases de prueba se eliminaron al terminar.
+
+##### 4.2 ⚠️ Hallazgo: `deploy/migrations_prod.sql` NO es ejecutable con el cliente `mysql`
+
+**Es un defecto preexistente, no introducido en esta sesión** — verificado corriendo también el archivo **anterior** (sesión 7): falla idéntico.
+
+El proveedor de EF para MySQL emite los bloques idempotentes como `IF NOT EXISTS(...) BEGIN ... END;`, sintaxis que **solo es válida dentro de un stored procedure**. Pasarlo por `mysql < archivo` corta en la línea 8 con `ERROR 1064 (42000)`. El README de deploy lo presentaba como "Opción A — RECOMENDADA para producción", lo cual es incorrecto.
+
+**Mitigación entregada:** `deploy/migration_s8_prod.sql` (script plano solo de esta migración, generado con `dotnet ef migrations script <desde> <hasta>` y **probado end-to-end**, Prueba B). `migrations_prod.sql` se regeneró igual —queda como referencia del esquema completo— y el README lo aclara en un aviso destacado. Vale la pena que QA/el orquestador confirmen cómo se venían aplicando realmente las migraciones anteriores (probablemente por Opción B, `dotnet ef database update`).
+
+##### 4.3 Instrucciones exactas para el orquestador (producción)
+
+```bash
+# 0. BACKUP OBLIGATORIO (esta migración mueve datos del cliente)
+mysqldump -u <u> -p<p> <db> > backup_antes_s8_$(date +%Y%m%d_%H%M).sql
+
+# 1. ANTES: anotar el número. Debería dar 52 — si da otro, ESE es el que tiene que coincidir después.
+mysql -u <u> -p<p> <db> -e \
+  "SELECT COUNT(*) AS a_migrar FROM UnidadesBioquimicas WHERE DeletedAt IS NULL AND CantidadUnidades > 0;"
+
+# 1-bis. Confirmar que el centro destino existe y tiene precio de unidad (sin esto el backfill no migra nada
+#        y el centro no queda marcado como referencia).
+mysql -u <u> -p<p> <db> -e \
+  "SELECT Id, Nombre, Activo FROM CentrosSalud WHERE DeletedAt IS NULL; \
+   SELECT COUNT(*) FROM PreciosPorUnidadCentroSalud WHERE CentroSaludId = 1 AND DeletedAt IS NULL;"
+
+# 2. Aplicar
+mysql -u <u> -p<p> <db> < deploy/migration_s8_prod.sql
+
+# 3. DESPUÉS: tiene que dar EXACTAMENTE el mismo número que el paso 1. Si no coincide → restaurar backup.
+mysql -u <u> -p<p> <db> -e \
+  "SELECT COUNT(*) AS migradas FROM CantidadesUnidadBioquimicaCentroSalud WHERE CentroSaludId = 1; \
+   SELECT Id, Nombre, EsReferencia FROM CentrosSalud WHERE DeletedAt IS NULL;"
+```
+
+**4. Paso post-deploy OBLIGATORIO:** entrar a **Perfiles** y apretar **"Recalcular precios de referencia"**.
+Los precios de catálogo (`UnidadBioquimica.PrecioActual`, `Practica.Unidad`/`PrecioActual`) quedan, apenas termina la migración, con el valor calculado contra el `PrecioPorUnidad` global que esta migración elimina. **La migración no los recalcula a propósito**: sería un UPDATE multi-tabla con subconsultas difícil de revisar, y son valores de catálogo. **No afecta el precio de las líneas de producción**, que se calcula en vivo contra el centro de cada período y queda congelado en el `PrecioSnapshot` de cada línea (RN-03).
+
+**5. Esperado y correcto después del deploy:** los otros 2 centros (`ASOCIACION MUTUAL PROTECCION FAMILIAR`, `MEDOC`) aparecen con **todas** las prácticas sin cantidad en WF-18. Todavía no informaron su nomenclador; hasta que lo hagan, sus períodos bloquean el alta de líneas con mensaje accionable en vez de cotizar de menos.
+
+#### 5. Evidencia de build
+`dotnet clean` + `dotnet build LabIPAC.slnx` → **0 errores, 9 warnings**, los mismos 9 preexistentes (8× NU1902 MailKit/MimeKit + 1× CS0114 `HomeController.StatusCode`). **Ningún warning nuevo.**
+
+Sin smoke test funcional (no se levanta la app, por la regla del rol). La verificación propia fue: build limpio, relectura del código escrito, y **verificación de datos a nivel SQL** contra dos bases reales (§4.1).
+
+#### 6. Decisiones tomadas por el implementador (a criterio, documentadas)
+1. **M24 adaptado, M25 retirado.** M24 se rediseñó y quedó **más útil** que la versión que reemplaza: cada fila dice *en qué Centro de Salud* falta el dato, y el botón "Completar" abre WF-18 ya posicionada en ese centro. M25 se retiró por completo: despejaba la `CantidadUnidades` de un sistema de ecuaciones cuya premisa era que existía **un valor global por práctica** — exactamente lo que dejó de ser cierto. No se rediseñó porque **no habría de dónde sacar el dato**: lo informa cada centro, no se deduce. (≈260 líneas de algoritmo + su DTO, VM y tabla, eliminadas.)
+2. **`PrecioPorUnidad` retirada del todo** (entidad, `DbSet`, tabla, 3 métodos de `IPracticaService`, 2 acciones de controller, VM-16 y la card de Perfiles/Index), tras confirmar por búsqueda que no le quedaba **ningún** consumidor. Mismo criterio que el retiro de F-001 en la sesión 6: no dejar código ni tablas muertas.
+3. **`Practica.Unidad` pasa de `int` a `decimal(18,4)`.** No estaba explicitado en el diseño, pero es necesario: es la suma de cantidades que ahora admiten fracciones, y con `int` se truncaba silenciosamente el volumen del Perfil.
+4. **La migración marca el centro Id=1 como referencia.** Ver §4. Es la decisión con más "criterio propio" de la sesión: preserva la continuidad visual del catálogo, pero es un dato de negocio — **conviene confirmarlo con el cliente**, aunque sea reversible desde el ABM en 2 clicks.
+5. **La migración NO recalcula los precios de referencia.** Se prefirió un paso post-deploy explícito (§4.3) antes que un UPDATE multi-tabla con subconsultas imposible de revisar por el cliente. El botón que lo hace es parte del entregable.
+6. **WF-18 guarda con un submit único, no fila por fila por AJAX** como sus pantallas hermanas. Es una desviación deliberada del patrón: un centro informa su nomenclador completo (decenas de prácticas), y así la carga es atómica y mucho más rápida de operar.
+7. **Alta rápida de Práctica: la cantidad se atribuye al centro del período.** La alternativa (crear la práctica sin cantidad) rompía el flujo: el usuario quedaría con una práctica que no puede cargar en la línea que estaba armando. En un período histórico sin centro se rechaza con un mensaje que deriva al ABM + WF-18.
+8. **`null` significa "bloquear", nunca "0".** Es la regla que atraviesa toda la implementación: si a un componente le falta la cantidad en ese centro, `CalcularVolumenComposicionAsync` devuelve `null` y el Perfil **entero** se bloquea. Sumar solo los componentes con dato daría un precio silenciosamente **más bajo** que el real — el error exacto que DD-07 existe para evitar.
+9. **Trampa encontrada en revisión propia, dejada documentada en el código:** `IgnoreQueryFilters()` en la consulta externa desactiva los query filters de **todo el árbol**, incluidas las subconsultas. La grilla de Prácticas lo usa (para mostrar las eliminadas con su botón Reactivar), así que el conteo de "centros con cantidad cargada" necesita un `c.DeletedAt == null` **explícito**: sin él, una cantidad que el usuario borró desde WF-18 seguiría contando como cargada. Se revisaron una por una las demás consultas nuevas — ninguna otra combina `IgnoreQueryFilters` con una subconsulta sobre las tablas por centro.
+10. **Datos de prueba en `labipac_dev`: SE DEJARON.** Son un fixture coherente para QA (centro de referencia con precio real de producción, prácticas con/sin cantidad, una Manual) y están **claramente identificados con el prefijo `ZZ-TEST`** salvo el centro Id=1 y la cantidad 5 en `CREATININA`. Las 2 bases de prueba adicionales (`labipac_s8test`, `labipac_s8prev`) **se eliminaron**.
+
+#### 7. Riesgos y supuestos
+- **RA-19 (crítico, nuevo).** Es la primera migración del proyecto que mueve datos reales del cliente. Si el backfill no corriera (centro Id=1 inexistente o soft-deleted en producción), el `DROP COLUMN` posterior **igual se ejecuta** y los 52 valores se pierden sin error visible. **Mitigación:** el paso 1-bis de §4.3 lo confirma antes de aplicar, y el conteo antes/después lo detecta después. Backup obligatorio.
+- **RA-20 (medio, nuevo).** Después del deploy, **2 de los 3 centros no pueden cotizar nada** hasta que informen su nomenclador. Es correcto y esperado, pero es un cambio de experiencia fuerte: conviene avisarle al cliente antes, no que lo descubra al cargar un período.
+- **RA-15 (mitigado, sigue vigente).** `GetPrecioVigenteAsync` **no cambió de firma**, así que ningún caller quedó silenciosamente desactualizado. Lo que sí cambió es que el volumen se calcula en vivo: un caller que antes leyera `Practica.Unidad` para cotizar estaría equivocado — se revisaron los 3 lugares que lo hacían y se corrigieron.
+- **RA-17 (reformulado).** Ya no es "Perfiles sin composición completa quedan sin precio", sino "**por centro**". Un Perfil puede cotizar perfecto en un centro y estar bloqueado en otro. El diagnóstico M24 rediseñado es la mitigación.
+- **Supuesto.** Los 52 valores cargados corresponden al nomenclador del CENTRO MEDICO LABORAL. Confirmado explícitamente por el cliente; el sistema los deja marcados implícitamente para revisión (son visibles y editables en WF-18).
+
+#### 8. Pruebas mínimas requeridas para QA
+1. **Regresión modo `Manual` (sesión 7) — no debe haber cambiado nada.** Una práctica Manual con precio cargado para un centro cotiza igual que antes; sin precio, bloquea con el mismo mensaje; no aparece en WF-18; sigue sin poder componer un Perfil (RN-37/RN-38).
+2. **Práctica `PorUnidad` con cantidad en el centro del período** → precio = `cantidad × precio de unidad del centro`. Verificar con decimales (ej. 1,5 unidades).
+3. **La misma práctica con cantidades distintas en 2 centros** → dos períodos de centros distintos dan **precios distintos**. Es el corazón del cambio.
+4. **Perfil con todos sus componentes con cantidad en un centro** → precio = suma de las cantidades × precio de unidad. **Perfil con un componente sin cantidad en ese centro** → **bloquea**, y el mensaje **nombra ese componente**.
+5. **Centro de referencia:** marcar uno desmarca al otro (fila única); el catálogo se recalcula; sin ninguno marcado, Prácticas y Perfiles muestran "Sin referencia" y **no** $ 0. Eliminar el centro de referencia lo desmarca.
+6. **WF-18:** cargar el nomenclador de un centro completo con un submit; vaciar un campo vuelve esa práctica no cotizable en ese centro; un 0 se rechaza; guardar en el centro de referencia recalcula el catálogo.
+7. **ABM de Prácticas:** confirmar que **ya no existe** el campo "Cantidad de unidades" y que el precio se ve en solo lectura con su origen explicado.
+8. **Alta rápida desde Carga Masiva:** práctica nueva con cantidad → cotiza inmediatamente en ese período; la misma práctica en otro centro aparece sin cantidad.
+9. **Diagnóstico de catálogo:** lista por centro; el botón "Completar" abre WF-18 en el centro correcto; ya no hay tabla de sugerencias.
+10. **Períodos históricos sin centro (RN-29):** siguen usando el precio de referencia, sin bloquear.
+
+#### 9. Checklist de salida para merge
+- [x] Build limpio, 0 errores, sin warnings nuevos.
+- [x] Migración con el backfill **antes** del `DROP COLUMN`, hand-editada y comentada.
+- [x] Backfill verificado con conteo antes/después en 2 bases (4 → 4), incluyendo casos borde.
+- [x] `deploy/migration_s8_prod.sql` probado con el cliente `mysql` (exit 0).
+- [x] `deploy/migrations_prod.sql` regenerado (contenido previo byte a byte idéntico).
+- [x] `deploy/README-produccion.md` reescrito, con el hallazgo del script idempetente documentado.
+- [x] Sin código muerto: `PrecioPorUnidad` y M25 retirados por completo.
+- [x] Bases de prueba temporales eliminadas.
+- [ ] **Confirmar con el cliente** que el centro Id=1 debe quedar como centro de referencia (decisión 4 de §6).
+- [ ] **Avisar al cliente** que los otros 2 centros no cotizan hasta cargar su nomenclador (RA-20).
+- [ ] Ejecutar el paso post-deploy "Recalcular precios de referencia" (§4.3).
+- [ ] QA sobre los 10 puntos de §8.
+
+---
+
+### Sesión 7 — Modo de precio por Práctica (`PorUnidad` / `Manual`)
+**Fecha:** 2026-09-03
+**Estado:** ✅ BUILD OK (`dotnet build LabIPAC.slnx` → **0 errores, 9 warnings**, exactamente los mismos 9 preexistentes: NU1902 MailKit/MimeKit ×8 + CS0114 `HomeController.StatusCode`). **1 migración EF nueva, aplicada y verificada en `labipac_dev`.** Sin commit: los cambios quedan en el working tree sobre `main`.
+**Nota de numeración (importante para leer los comentarios del código):** en el código conviven **dos** cosas etiquetadas "sesión 7". Las anteriores a esta entrega (`PracticaService.ActualizarPrecioPorUnidadAsync`, `PreciosPorCentroController`) se refieren al **retiro de F-001 / QA-S3-02**, que esta memoria registra como *Sesión 6*. Las nuevas se refieren a **este** trabajo, que es la "sesión 7" de analista/diseñador/arquitecto (`1-`, `2-`, `3-`, entrada 2026-08-24). Para desambiguar sin tocar código ya deployado, **todo lo nuevo se ancla además a un número de regla (RN-34 a RN-38)**, que es único. Al leer un comentario, la regla manda sobre la etiqueta de sesión.
+
+Input: `3-arquitecto-mvc.md` sesión 7 (diseño técnico completo, ya aprobado por el cliente) + `1-analista-funcional.md` sesión 7 (contexto de negocio).
+
+#### 0. Escaneo de reutilización
+- **`docs/patrones/catalogo.yml`:** sin match. Lo más cercano es **PAT-018** (sugerencia derivada por sistema de ecuaciones, originado en este mismo proyecto) y **PAT-013**, pero ambos son sobre *reconstruir un dato faltante*, no sobre *elegir de dónde sale un precio*.
+- **`docs/*/definiciones/5-implementador.md`:** único hit, **ShowroomGriffin** (`TipoPrecioZapatilla`, V7). **Descartado tras inspeccionarlo:** ahí `TipoPrecio` es una FK a un catálogo de *tipos de calzado* usada para segmentar precios — no un interruptor que cambia **quién escribe** el precio de un ítem. Además fue eliminado en una refactorización posterior de ese proyecto.
+- **Decisión: implementar en labipac**, reutilizando patrones **intra-proyecto** ya validados y en producción, no inventando ninguno: `PrecioPorUnidadCentroSalud` (entidad + servicio + upsert con reactivación de fila soft-deleted, sesión 5) como molde exacto de `PrecioManualUnidadBioquimicaCentroSalud`; `PreciosPorCentro/Index.cshtml` (card + input-group + AJAX + confirmación SweetAlert2) como molde visual de la pantalla nueva; el bloqueo accionable de `ConstruirMensajeBloqueoPrecioAsync` (DD-07) como molde del mensaje de RN-36.
+- **Alta al catálogo:** sí — **PAT-021** ("Modo de precio por ítem: fórmula vs. valor manual, con exclusión explícita del recálculo batch"). Es genuinamente reutilizable: cualquier catálogo cuyo precio se derive de una fórmula termina teniendo ítems que no encajan en ella.
+
+#### 1. Alcance funcional
+Cada Práctica (`UnidadBioquimica`) declara un **modo de precio**. En `PorUnidad` (default) todo funciona **exactamente como antes** — regresión cero sobre lo deployado el 2026-08-24. En `Manual`, el precio se carga a mano (uno de referencia en el ABM, y uno por Centro de Salud en una pantalla nueva), no se recalcula nunca, y la práctica no puede componer un Perfil. Caso real que lo motivó: `LIBRETA SANITARIA`, un trámite administrativo sin relación con análisis bioquímicos.
+
+#### 2. Plan de ejecución (etapas, en este orden)
+1. Domain: enum + campo + entidad nueva. 2. `AppDbContext` + migración. 3. Services (`UnidadBioquimicaService`, `PracticaService`, `ProduccionMensualService`, servicio nuevo). 4. Web (VMs, controllers, vistas). 5. Migración aplicada a `labipac_dev` + verificación de reglas. 6. Script de producción y documentación.
+
+#### 3. Cambios por capa
+
+| Capa | Archivo | Cambio |
+|---|---|---|
+| Domain | `Enums/TipoModoPrecio.cs` | **NUEVO** — `PorUnidad = 1`, `Manual = 2`. |
+| Domain | `Entities/UnidadBioquimica.cs` | + `ModoPrecio` (default `PorUnidad`). Doc de `CantidadUnidades`/`PrecioActual` actualizada por modo. |
+| Domain | `Entities/PrecioManualUnidadBioquimicaCentroSalud.cs` | **NUEVO** — `SoftDestroyable`, FK `UnidadBioquimicaId` + FK `CentroSaludId`, `Valor` decimal(18,2). |
+| Application | `DTOs/PrecioManualUnidadBioquimicaCentroSaludDtos.cs` | **NUEVO** — `PracticaPrecioManualDto` + `PrecioManualCentroDto`. |
+| Application | `Interfaces/IPrecioManualUnidadBioquimicaCentroSaludService.cs` | **NUEVO** — 4 métodos (obtener / listar / upsert / contar faltantes). |
+| Application | `Interfaces/IUnidadBioquimicaService.cs` | + `GetActivasParaComposicionPerfilAsync()` (RN-38). Doc de `CreateAsync`/`UpdateAsync` por modo. |
+| Application | `Interfaces/IProduccionMensualService.cs` | Doc de `GetPrecioVigenteAsync`: rama Manual y cuarta causa de bloqueo. **Sin cambio de firma** (RA-15 no se reabre). |
+| Application | `DTOs/PrecioPorUnidadCentroSaludDtos.cs` | `DiagnosticoCatalogoItemDto` + `DestinoEdicion` (string?, `"PreciosManuales"`). |
+| Infrastructure | `Data/AppDbContext.cs` | `DbSet` nuevo; `ModoPrecio` con `HasConversion<int>()` + `HasDefaultValue(PorUnidad)`; config de la entidad nueva con **índice único compuesto** y 2 FK `Restrict`. |
+| Infrastructure | `Services/PrecioManualUnidadBioquimicaCentroSaludService.cs` | **NUEVO** — calco de `PrecioPorUnidadCentroSaludService` con clave compuesta. Valida que la práctica esté **efectivamente en modo Manual** antes de guardar. |
+| Infrastructure | `Services/UnidadBioquimicaService.cs` | `Create`/`Update` ramifican por modo (`ValidarSegunModo`); **RN-37**: rechaza el pase a Manual si la práctica compone un Perfil activo; la cascada DD-09 solo corre en modo `PorUnidad`. + `GetActivasParaComposicionPerfilAsync`. |
+| Infrastructure | `Services/PracticaService.cs` | **RN-38** en `Create`/`Update` (`ValidarComposicionSinPreciosManualesAsync`); filtro `ModoPrecio = PorUnidad` en `CalcularVolumenComposicionAsync` y `RecalcularUnidadYPrecioAsync`; **RN-35**: el batch de `ActualizarPrecioPorUnidadAsync` excluye las Manual; diagnóstico M24 deja de listar Manual como "sin cantidad" y suma el caso (c) "sin precio manual en algún centro". |
+| Infrastructure | `Services/ProduccionMensualService.cs` | `GetPrecioVigenteAsync` (**la bisagra, RA-15**): rama Manual que resuelve contra la tabla nueva y bloquea si falta. |
+| Web | `Models/UnidadBioquimicaViewModels.cs` | + `ModoPrecio`, `PrecioActual` vuelve a ser input, + `PerfilesQueLaUsan`, + `ModoPrecio` en la row. `CantidadUnidades` pasa de `[Range]` a `IValidatableObject` **condicional**. |
+| Web | `Models/PreciosPorCentroViewModels.cs` | + `CantidadPracticasManuales`, `CombinacionesManualesSinPrecio`, `TotalPracticasManualesSinPrecio`; **VM-20** `PreciosManualesIndexViewModel` + sus 2 rows. |
+| Web | `Controllers/UnidadesBioquimicasController.cs` | Escritura por modo en `Create`/`Edit`; `ObtenerPerfilesQueUsanAsync` (aviso previo de RN-37); columna + **filtro server-side** de modo en `GetData`. |
+| Web | `Controllers/PreciosPorCentroController.cs` | Acciones nuevas `PreciosManuales` (GET) y `ActualizarPrecioManual` (POST AJAX), ambas `RequireAdministracion`; conteos nuevos en `Index`; `Diagnostico` resuelve `UrlEdicion` contra WF-17 cuando corresponde. |
+| Web | `Controllers/PracticasController.cs` | Combo de composición desde `GetActivasParaComposicionPerfilAsync`; los conteos de la card "Precio por Unidad" excluyen las Manual (el batch ya no las toca). |
+| Web | `Controllers/ProduccionMensualController.cs` | Lista separada para la composición del alta rápida de Perfil; mensaje de bloqueo específico de RN-36. |
+| Web | `Views/UnidadesBioquimicas/_ModoPrecioSelector.cshtml` | **NUEVO** — partial compartido por Create y Edit (selector + los 2 bloques). |
+| Web | `Views/UnidadesBioquimicas/_ModoPrecioScripts.cshtml` | **NUEVO** — partial de JS: alterna los bloques (oculta **y deshabilita**). |
+| Web | `Views/UnidadesBioquimicas/Create.cshtml` / `Edit.cshtml` | Usan los partials; Edit suma el aviso previo de RN-37. |
+| Web | `Views/UnidadesBioquimicas/Index.cshtml` | Columna "Modo de precio" + dropdown de filtro; "—" en cantidad para las Manual. |
+| Web | `Views/PreciosPorCentro/PreciosManuales.cshtml` | **NUEVO** (WF-17). |
+| Web | `Views/PreciosPorCentro/Index.cshtml` | Botón "Precios manuales" con badge + aclaración en el aviso. |
+| Web | `Views/PreciosPorCentro/Diagnostico.cshtml` | Tercera tarjeta de conteo. |
+| Deploy | `deploy/migrations_prod.sql` | Regenerado con `--idempotent`: **solo +40 líneas**, el contenido previo quedó byte a byte idéntico (verificado por diff). |
+
+#### 4. Migración EF
+`20260903202955_AddModoPrecioYPreciosManualesPorCentro`:
+- `ALTER TABLE UnidadesBioquimicas ADD COLUMN ModoPrecio int NOT NULL DEFAULT 1` — **sin backfill**, el default preserva el comportamiento de las 60 Prácticas de producción sin ningún cambio.
+- `CREATE TABLE PreciosManualesUnidadBioquimicaCentroSalud` + índice **único compuesto** `(UnidadBioquimicaId, CentroSaludId)` + FK `Restrict` a ambas tablas. Nace vacía a propósito (DD-13).
+- **Riesgo de rollback: bajo.** El `Down` es simétrico (drop de columna + drop de tabla) y no toca datos preexistentes. Aplicada y verificada en `labipac_dev`.
+- El índice único **no puede filtrar por `DeletedAt`** (MySQL no soporta índices filtrados): el servicio hace upsert **reactivando** la fila soft-deleted, mismo criterio ya usado en `PrecioPorUnidadCentroSaludService`.
+
+#### 5. Verificación ejecutada
+- **Build:** `dotnet build LabIPAC.slnx` → **0 errores, 9 warnings** (los 9 preexistentes; ninguno nuevo). Las vistas Razor **compilan en build** (no hay runtime compilation), así que el build limpio cubre también los `.cshtml` nuevos y modificados.
+- **Migración contra `labipac_dev`:** `dotnet ef database update` OK. `SHOW COLUMNS` confirma `ModoPrecio int NOT NULL DEFAULT 1`; `SHOW CREATE TABLE` confirma el índice `UNIQUE (UnidadBioquimicaId, CentroSaludId)` y las 2 FK `RESTRICT`. **Las 3 prácticas existentes quedaron en `ModoPrecio = 1`** (regresión cero a nivel de datos).
+- **Arnés de verificación de reglas (24 checks, todos OK).** Proyecto de consola descartable en el scratchpad que llama a los **Services directamente** contra `labipac_dev`. **No es un smoke test funcional** (no levanta la app, no ejercita HTTP/navegador): existe porque las consultas EF nuevas —el enum con `HasConversion` + default, la constante de enum dentro de una proyección, el índice compuesto— **solo fallan en runtime**, y esta es la zona de RA-15. Cubrió: alta PorUnidad y Manual; `PrecioActual` respetado en Manual; RN-38 en alta y en edición de Perfil; RN-37; RN-36 bloqueando sin precio y devolviendo el valor con precio; RN-29 (histórico sin centro); RN-28 sin cambios en ambas ramas (Práctica y Perfil, con una tasa de centro cargada temporalmente); RN-35 (el batch mueve la PorUnidad y **no** toca la Manual); diagnóstico, listado WF-17 y combo de composición.
+- **Base de desarrollo limpia:** el arnés borra lo que crea y además restaura la auditoría y los `UpdatedAt` del día. Verificado por SQL al cierre: 3 prácticas / 1 perfil originales con sus valores y timestamps intactos, `PrecioPorUnidad` = 918,79, 0 filas en las 2 tablas de precios por centro, 0 `AuditLogs` del día.
+- **Sin smoke test funcional propio** (regla del rol): la verificación por navegador queda en la guía de abajo.
+
+#### 6. Riesgos y supuestos
+- **R-1 (MEDIO) — el precio manual queda fuera de todo aumento (DD-11).** Es el pedido explícito, pero implica trabajo manual recurrente: al subir el Precio de Unidad Bioquímica de un centro, las prácticas Manual **no** se mueven. Mitigado con visibilidad (badge de faltantes, fila en el diagnóstico), no con automatismo. **Conviene confirmarlo con el cliente en estos términos.**
+- **R-2 (MEDIO) — RN-37 es un agregado del implementador, no del pedido (DD-12).** Bloquea pasar a Manual una práctica que hoy compone un Perfil. Sin ella RN-38 es evitable en un paso y el efecto sería una caída silenciosa de precio en los Perfiles afectados. Es la decisión más discutible de la entrega: **si al cliente le resulta rígida, se revierte quitando un solo bloque** en `UnidadBioquimicaService.UpdateAsync` (el filtro defensivo de `CalcularVolumenComposicionAsync` ya evita el cálculo incorrecto).
+- **R-3 (BAJO) — `CantidadUnidades` en modo Manual.** En el alta queda en 0 y en la edición se conserva el valor previo (el input se deshabilita, no se envía, y el Controller no lo pisa). Así, alternar de modo y volver no pierde el dato. El listado muestra "—" para no confundirlo con un dato faltante.
+- **R-4 (BAJO) — validación condicional sin equivalente cliente.** `CantidadUnidades >= 1` pasó de `[Range]` a `IValidatableObject`, así que **no** hay validación jQuery del lado cliente para ese campo; la del servidor sí, y el mensaje se muestra en el `span` del campo. Fue necesario: un `[Range]` incondicional bloqueaba el guardado en modo Manual por un campo invisible.
+- **R-5 (BAJO) — el nombre del índice único aparece truncado** (`..._UnidadBioquimicaI~`) por el límite de 64 caracteres de MySQL. Lo genera así EF y es consistente entre la migración y el script de producción; no afecta el funcionamiento.
+- **Supuesto:** un Perfil (`Practica`) **no** tiene modo de precio — siempre se resuelve por fórmula. Está explícito en el diseño (RN-38) y es lo que hace que la rama Manual de `GetPrecioVigenteAsync` aplique solo a `UnidadBioquimica`.
+
+#### 7. Pruebas mínimas requeridas para QA
+1. **Regresión cero (lo más importante):** una Práctica en modo Por unidad y un Perfil existentes deben comportarse **idéntico a antes** — precio de referencia, recálculo por cambio de `PrecioPorUnidad`, cascada al editar `CantidadUnidades`, y precio en un período con Centro de Salud.
+2. **Alta y edición en modo Manual:** al elegir Manual desaparece Cantidad de unidades y aparece el precio editable; el precio guardado es exactamente el ingresado; volver a Por unidad recupera la cantidad de unidades previa.
+3. **RN-35:** con una práctica Manual cargada, aplicar un aumento % desde la card "Precio por Unidad" → su `PrecioActual` **no** cambia; las Por unidad sí. Los conteos del SweetAlert no deben incluirla.
+4. **RN-38 en los dos flujos:** agregar una práctica Manual a la composición de un Perfil desde el ABM completo **y** desde el alta rápida de Carga Masiva → rechazo con mensaje claro. Verificar además que ni siquiera aparece en el combo.
+5. **RN-37:** editar una práctica Por unidad que compone un Perfil y pasarla a Manual → rechazo listando los Perfiles; el aviso azul debe aparecer al abrir el formulario, antes de guardar.
+6. **RN-36 punta a punta:** práctica Manual **sin** precio en el centro → el modal de Agregar ítem y la Carga Masiva bloquean con el mensaje que nombra la pantalla; cargar el precio en WF-17 → la misma línea se agrega con ese precio exacto.
+7. **WF-17:** badge "N sin cargar" / "Completa" correcto; estados vacíos (sin prácticas Manual / sin centros activos); el badge del botón en WF-16 coincide con los faltantes reales.
+8. **Diagnóstico:** una práctica Manual **no** figura como "Sin cantidad de unidades"; sí figura como "Sin precio manual en algún centro" cuando corresponde, y su botón Completar lleva a WF-17.
+9. **Listado y filtro:** columna "Modo de precio" y filtro dropdown (Todos / Por unidad / Manual) sobre datos reales.
+10. **No-regresión de reportes:** PDF y Excel de Producción Mensual leen `PrecioSnapshot`; una línea de práctica Manual debe salir con su precio del momento de la carga.
+
+#### 8. Checklist de salida para merge
+- [x] Build OK, 0 errores, sin warnings nuevos (vistas Razor incluidas).
+- [x] Migración EF creada, aplicada y verificada en `labipac_dev` (columna con default 1 + índice único compuesto + FK Restrict).
+- [x] Datos existentes intactos: las prácticas preexistentes quedaron en `ModoPrecio = PorUnidad`.
+- [x] 24 verificaciones de reglas RN-28/29/33/34/35/36/37/38 en verde contra la base de desarrollo.
+- [x] `labipac_dev` sin datos de prueba (verificado por SQL, incluidos `AuditLogs` y `UpdatedAt`).
+- [x] Lógica de negocio en Services, no en Controllers.
+- [x] `deploy/migrations_prod.sql` regenerado (solo adiciones, verificado por diff).
+- [x] Patrón nuevo dado de alta en `docs/patrones/catalogo.yml` (PAT-021).
+- [ ] QA funcional de los 10 puntos de arriba.
+- [ ] **Confirmar con el cliente R-1** (los precios manuales quedan fuera de todo aumento: hay que actualizarlos a mano).
+- [ ] **Confirmar con el cliente R-2** (RN-37: no se puede pasar a Manual una práctica que compone un Perfil).
+- [ ] Deploy: aplicar `deploy/migrations_prod.sql` **antes** de publicar el código (la columna nueva es leída por todas las consultas de `UnidadesBioquimicas`).
+- [ ] Post-deploy: marcar `LIBRETA SANITARIA` como Manual y cargarle su precio de referencia y su precio por Centro de Salud — es el caso que originó el pedido.
+
 ### Sesión 6 — QA-S3-02: un solo escritor para `UnidadBioquimica.PrecioActual` + retiro completo de F-001
 **Fecha:** 2026-08-24
 **Estado:** ✅ BUILD OK (`dotnet build LabIPAC.slnx --no-incremental` → **0 errores, 9 warnings**, exactamente los mismos preexistentes: NU1902 MailKit/MimeKit ×8 + CS0114 `HomeController.StatusCode`). **Sin migración EF** — no cambió ninguna entidad ni columna.

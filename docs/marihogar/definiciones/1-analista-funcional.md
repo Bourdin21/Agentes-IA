@@ -657,6 +657,104 @@ Pedido explícito del cliente (21/08/2026), en la misma entrega que el cierre de
 
 **Impacto en capas**: Application (`IPagoOrdenCompraService`), Infrastructure (`PagoOrdenCompraService.cs`), Web (`OrdenesCompraController.cs`, `OrdenesCompra/Details.cshtml`). Sin migración EF.
 
+## CR-73 — "Pagos con tarjeta" pasa a llamarse "Ingresos"
+
+Pedido explícito del cliente (03/09/2026), como cierre de la decisión que CR-71 había dejado abierta ("queda anotado como decisión abierta para el cliente si más adelante prefiere un label genérico"): "La pantalla Pagos con tarjeta ahora debe llamarse Ingresos".
+
+**Alcance confirmado con el cliente**: solo el label visible (menú, título de la pantalla) — la URL (`/PagosTarjeta`), el controller, el servicio (`IVentaService.ListarPagosTarjetaAsync`) y los DTOs (`PagoTarjetaFiltro`, `PagoTarjetaListItemDto`) no se renombran, para no tocar más archivos de los necesarios sin beneficio funcional.
+
+**Cambio**: `_Layout.cshtml` (label del menú "Pagos con tarjeta" → "Ingresos", ícono `fa-credit-card` → `fa-money-bill-trend-up` — decisión propia, un ícono de tarjeta ya no representaba bien una pantalla que desde CR-71 lista todos los métodos de pago) y `PagosTarjeta/Index.cshtml` (`ViewData["Title"]` y `<h3>` → "Ingresos"). El KPI del Dashboard "Pagos con tarjeta por acreditar" **no se tocó**: es una métrica más específica (solo tarjeta de crédito pendiente de acreditar), no el nombre de la pantalla.
+
+**Impacto en capas**: Web únicamente (2 archivos `.cshtml`). Sin cambios en Application/Infrastructure/Domain, sin migración EF.
+
+## CR-72 — Renombres en Gastos/Gasto recurrente + reorden visual de Gastos/Create
+
+Pedido explícito del cliente (03/09/2026): en `Gastos/Index` el botón "Gestionar plantillas de gasto recurrente" debe decir solo "Nuevo gasto recurrente"; en `Gastos/Create` el selector "Cargar desde plantilla" debe decir "Seleccionar gasto recurrente"; y mejorar el orden visual de `Gastos/Create` ("se ve desprolijo/desordenado").
+
+**Alcance confirmado con el cliente (3 preguntas resueltas antes de implementar)**: (1) el botón renombrado en `Gastos/Index` **solo cambia el texto**, sigue llevando al listado CRUD completo de plantillas (`GastosRecurrentesController.Index`) — no pasa a ir directo a un alta; (2) la mejora pedida es sobre `Gastos/Create`, no sobre las pantallas de `GastosRecurrentes`; (3) el problema puntual es que "el formulario en general se ve desprolijo/desordenado" — no un control específico.
+
+**Diseño**: cambio puramente de presentación, sin tocar controllers, services ni DTOs.
+- `Gastos/Index.cshtml`: el link a `GastosRecurrentesController.Index` cambia su texto de "Gestionar plantillas de gasto recurrente" a "Nuevo gasto recurrente" — mismo destino, mismo ícono.
+- `Gastos/Create.cshtml`: reestructurado de un único `<div class="card">` con todos los campos apilados en una sola columna, a 3 bloques separados dentro del mismo `<form>` (sin cambiar ids ni el JS que ya manejaba `#listaPagos`/`#totalPagos`/`#pagosJson`/`#btnAgregarPago`, que sigue funcionando sin modificaciones):
+  1. Card "Seleccionar gasto recurrente" (antes "Cargar desde plantilla") — solo visible si hay plantillas, igual que antes.
+  2. Card "Datos del gasto" — Categoría y Fecha ahora en la misma fila (2 columnas), Subcategoría y Descripción debajo a ancho completo.
+  3. Card "Formas de pago" — el botón "Agregar forma de pago" pasa al `card-header` (antes compartía fila con el label "Formas de pago" dentro del body); se agrega una fila de encabezados de columna ("Forma de pago" / "Monto") sobre la lista de líneas, ausente hasta ahora.
+- El ancho de la columna del formulario pasa de `col-lg-6` a `col-lg-8` para acomodar la fila de 2 columnas de Categoría/Fecha sin apretar los controles.
+
+**Impacto en capas**: Web únicamente (`Views/Gastos/Index.cshtml`, `Views/Gastos/Create.cshtml`). Sin cambios en Application/Infrastructure/Domain, sin migración EF.
+
+## CR-71 — "Pagos con tarjeta" pasa a listar todos los pagos de ventas, filtrables por forma de pago
+
+Pedido explícito del cliente (03/09/2026): "la pantalla Pagos con tarjeta ahora debe mostrar un listado con todos los pagos del sistema, con la posibilidad de filtrarlos por tipo de pago, y de mostrar solo pendientes".
+
+**Alcance confirmado con el cliente (2 preguntas resueltas antes de implementar)**: (1) es **solo pagos de Ventas** — los pagos a proveedores / Órdenes de compra quedan explícitamente fuera (arquitectura distinta, `EstadoPagoOrdenCompra` propio, se evaluará como CR aparte); (2) el combo de forma de pago lista **todos** los métodos usados en Ventas, incluidos Efectivo y Tarjeta de débito: como esos nacen `EstadoAcreditacion = Acreditado`, combinarlos con "solo pendientes" devuelve 0 filas, que es el resultado correcto y no un caso a excluir del combo.
+
+**Diseño**: la pantalla de CR-59 (`PagosTarjeta/Index`, Administrador-only) deja de estar acotada a Tarjeta de crédito. Se agrega un filtro "Forma de pago" (mismas opciones y mismas etiquetas legibles que el combo ya existente en `Ventas/Index`) y una columna "Forma de pago" en la grilla, respetando la regla de que todo dato visible en el listado tiene su filtro. El requisito "mostrar solo pendientes" ya lo cubre el filtro de Estado existente (Pendiente / Acreditado / Todos) — no se agregó un control nuevo. La acción "Acreditar" no cambia: sigue apareciendo solo en filas Pendiente y `AcreditarPagoAsync` conserva su guard de estado, así que en la práctica solo se ofrece sobre Tarjeta de crédito / Banco Carrefour.
+
+**Decisión de nomenclatura**: no se renombró nada — controller, ruta, `ListarPagosTarjetaAsync` y el ítem de menú "Pagos con tarjeta" siguen igual. El cliente pidió ampliar la pantalla que ya usa, no crear una nueva; renombrar la ruta/menú rompería la referencia que el cliente tiene de ella. Solo se actualizó el texto descriptivo bajo el título y la etiqueta del filtro de Estado ("Estado de acreditación"). Queda anotado como decisión abierta para el cliente si más adelante prefiere un label genérico ("Pagos" / "Conciliación de pagos").
+
+**Arquitectura**:
+- `PagoTarjetaFiltro` gana `MetodoPago? Metodo` (nulo = todos los métodos); se persiste en sesión con el resto de los filtros, sin cambios de mecanismo.
+- `PagoTarjetaListItemDto` gana `Metodo` (nombre del enum, traducido a etiqueta legible en el cliente).
+- `VentaService.ListarPagosTarjetaAsync`: se retira el `Where(p => p.Metodo == MetodoPago.TarjetaCredito)` fijo de CR-59 y pasa a ser un filtro opcional. Se agrega ordenamiento por `metodo` (columna nueva, mismo patrón que el resto).
+- Orden por defecto **sin cambios** (`FechaAcreditacionEfectiva` desc): como solo Tarjeta de crédito tiene fecha de acreditación, los pagos de los demás métodos (que la tienen nula) quedan al final en la vista sin filtros. Se preserva a propósito el comportamiento de CR-59 — con el filtro Estado=Pendiente, que es el uso principal, todas las filas tienen fecha y el orden es el correcto.
+
+**Impacto en capas**: Application (`PagoTarjetaDtos.cs`, `IVentaService.cs`), Infrastructure (`VentaService.cs`), Web (`PagosTarjetaController.cs`, `PagosTarjeta/Index.cshtml`). **Sin migración EF** — no se toca ninguna entidad ni columna.
+
+## CR-70 — Gasto con varias líneas de pago (ej. sueldo pagado mitad efectivo, mitad transferencia)
+
+Pedido explícito del cliente (02/09/2026): "el usuario tiene que reflejar un gasto que paga un sueldo mitad en efectivo y mitad transferencia" → confirmado "un solo gasto con varias líneas de pago" (se descartó la alternativa de cargar 2 Gastos separados, que ya funcionaba sin cambios de código).
+
+**Diseño**: mismo patrón exacto que `PagoVenta`/`PagoOrdenCompra` — un `Gasto` (Categoría/Subcategoría/Descripción/Fecha, sigue siendo un único registro) pasa a tener una colección de `GastoPago` (cada línea: Forma de pago + Monto). `Gasto.Monto` deja de cargarse a mano y pasa a ser la suma de las líneas (igual criterio que `Venta.Total`). `Gasto.FormaPago` (campo único) se retira — no tiene sentido una vez que puede haber más de una forma de pago por gasto.
+
+**Arquitectura**:
+- Nueva entidad `GastoPago { Id, GastoId, FormaPago, Monto }` (sin `SoftDestroyable` — no hay plan de eliminar una línea suelta, el Gasto completo se anula como siempre).
+- `Gasto` pierde `FormaPago`, gana `ICollection<GastoPago> Pagos`.
+- `GastoService.CrearAsync` recibe `List<GastoPagoInput>` en vez de `Monto`/`FormaPago` sueltos — valida al menos 1 línea con Monto > 0, calcula el total, crea el `Gasto` + sus `GastoPago`, y postea **un único** movimiento de Egreso en CC Local por el total (sin cambios respecto de hoy — Gasto no tiene el concepto de acreditación diferida de Venta/OC, no hace falta un movimiento por línea).
+- `GastoService.AnularAsync` sin cambios de lógica (sigue revirtiendo `Gasto.Monto`, ahora el total ya calculado).
+- **Migración con backfill**: nueva tabla `GastosPago`, `INSERT... SELECT` de cada `Gasto` existente como su propia línea única (mismo `FormaPago`/`Monto` que ya tenía), después se elimina la columna `Gastos.FormaPago`. Mismo criterio de migración con corrección de datos ya usado en CR-5 (`UPDATE...CASE`) — acá es un `INSERT...SELECT`, sin pérdida de información (cada Gasto viejo queda con exactamente 1 línea, idéntica a como estaba).
+- `GastoListItemDto`/`GastoDetailDto`: `FormaPago` (string único) pasa a listar todas las líneas — mismo patrón que `VentaListItemDto.FormasPago` (post-proceso por fila, sin `Include` en la query paginada, `string.Join(", ", ...)`).
+- `GastoFiltro.FormaPago`: sigue filtrando gastos que tengan **al menos una** línea con esa forma de pago (`g.Pagos.Any(...)`, mismo criterio que `VentaFiltro.Metodo`).
+- `GastoRecurrente` (plantilla, CR-62) no cambia de forma — sigue prellenando una sola Forma de pago (la de la primera línea); si el gasto real termina con más de una línea, las demás se cargan a mano. No se amplía a plantillas multi-línea en este alcance.
+- `Gastos/Create.cshtml`: el bloque de Monto/Forma de pago pasa a una lista de líneas repetible (agregar/quitar, mismo patrón visual que `Ventas/Create.cshtml`), con un total en vivo. `Gastos/Details.cshtml`: muestra la tabla de líneas en vez de una Forma de pago/Monto únicos.
+
+**Impacto en capas**: Domain (`GastoPago` nueva, `Gasto` sin `FormaPago`), Application (`GastoPagoInput`, `GastoInput`, `GastoListItemDto`, `GastoDetailDto`, `GastoFiltro` sin cambio de forma pero de semántica), Infrastructure (`GastoService.cs`, `AppDbContext.cs`), Web (`GastosController.cs`, `GastoViewModels.cs`, `Gastos/Create.cshtml`, `Gastos/Details.cshtml`). **1 migración EF con backfill de datos** (~500 `Gasto` existentes, sin pérdida de información).
+
+## CR-69 — Edición inline (on-demand, AJAX) de la nota de un pago desde Ventas/Details
+
+Pedido explícito del cliente (02/09/2026): "el usuario quiere poder editar la nota del pago o detalle on demand en la pantalla vía AJAX dentro del detalle de la venta" — extensión directa de CR-68.
+
+Nuevo `IVentaService.ActualizarNotaPagoAsync(pagoVentaId, nota)` — sin restricción de estado (Nota es solo texto de referencia, sin impacto en Caja/Estado de la Venta, editable en cualquier momento). En `Ventas/Details.cshtml`, la celda de nota de cada pago pasa de texto estático a un patrón click-to-edit: click en el texto (o "+ Agregar nota" si está vacío) lo convierte en un `<input>`, que guarda solo al perder el foco o con Enter — sin recargar la pantalla, mismo nivel de permiso que "Registrar pago" (`RequireVentas`, no restringido a Administrador).
+
+**Impacto en capas**: Application (`IVentaService`), Infrastructure (`VentaService.cs`), Web (`VentasController.cs` — acción `ActualizarNotaPago` nueva, endpoint JSON puro, `Ventas/Details.cshtml`). Sin migración EF (reutiliza la columna de CR-68).
+
+## CR-68 — Nota opcional al registrar un pago de Venta
+
+Pedido explícito del cliente (02/09/2026): "al registrar un pago de una venta se solicita una nota opcional de referencia del pago."
+
+`PagoVenta` gana `Nota` (`string?`, max 500) — igual criterio que `Venta.NotaInterna`: texto libre, nunca aparece en ningún comprobante/PDF. Disponible en los 2 puntos donde se crea un `PagoVenta`: al confirmar la Venta (`Ventas/Create.cshtml`, un input "Nota (opcional)" por línea de pago) y al registrar un pago sobre una Venta ya creada (`Ventas/Details.cshtml`, card "Registrar pago"). Se muestra en la tabla de Pagos de `Ventas/Details` (debajo de cuotas/monto base, en cursiva).
+
+**Impacto en capas**: Domain (`PagoVenta.Nota`), Application (`PagoVentaDto`/`PagoVentaInput`/`PagoVentaLineaInput`), Infrastructure (`VentaService.cs`, `PagoVentaService.cs`), Web (`VentasController.cs`, `Ventas/Create.cshtml`, `Ventas/Details.cshtml`). **1 migración EF** (`AddPagoVentaNota`, columna nullable, sin backfill).
+
+## CR-67 — Ventas/Compras/pagos cancelados ocultos de informes por defecto + integridad de Cuenta Corriente de Proveedores al cancelar OC
+
+Pedido explícito del cliente (02/09/2026): "tanto las ventas y pagos cancelados como las compras y pagos a proveedores cancelados no se deben mostrar en ningún informe [...] para no prestar a confusión." Disparado por una auditoría de infraestructura del mismo día que encontró 3 gaps preexistentes del lado Compras, espejo de los bugs ya corregidos en Ventas (CR-64/65).
+
+**Decisiones confirmadas por el cliente (`AskUserQuestion`)**: (1) ocultas de los listados principales por defecto, pero auditables vía filtro explícito — **no** baja lógica real (hubiera roto el link "Origen" de CC Local armado en CR-62, y la posibilidad de investigar un caso puntual como se hizo hoy con la Venta #694); (2) también ocultar del ledger de Cuenta Corriente (Local y Proveedores) los movimientos de origen cancelado, con un checkbox "Mostrar cancelados" para verlos igual.
+
+**Parte A — cierre de los 3 gaps de Compras** (mismo patrón que CR-64/65, del lado OrdenCompra/Cheque):
+- `OrdenCompraService.CancelarAsync`: un `PagoOrdenCompra` `Pendiente` sin cheque asociado se soft-deletea al cancelar (nada que revertir); uno ya `Pagado` (pago anticipado antes de Recibida) se revierte con un Cargo de reversión en `MovimientosCCProveedor` — antes quedaba un Pago sin su contra-Cargo, subestimando la "Deuda total a proveedores" del Dashboard.
+- `ChequeService.AcreditarAsync`: nuevo guard — no se puede acreditar un cheque de una OC ya Cancelada.
+- Jobs de notificación de Cheques y de pagos programados: excluyen items de una OC Cancelada.
+
+**Parte B — ocultar por defecto**:
+- `VentaService.ListarAsync`/`OrdenCompraService.ListarAsync`: cuando no se elige un Estado explícito, excluyen Cancelada (el `<select>` de Estado ya tenía "Cancelada" como opción — sigue disponible eligiéndola a mano).
+- `MovimientoCCLocalFiltro`/`MovimientoCCProveedorFiltro` ganan `IncluirCanceladas` (default `false`); `CCLocalService.ListarAsync`/`CCProveedorService.ListarMovimientosAsync` excluyen movimientos de origen cancelado salvo que se tilde el nuevo checkbox. Los saldos/totales (`ObtenerSaldoFiltradoAsync`, `ObtenerSaldoTotalAsync`) no se tocan — ya son correctos gracias a la Parte A, ocultar filas no cambia ningún número.
+
+**Hallazgo de QA (MH-019, corregido antes de deploy)**: el guard nuevo de `AcreditarAsync` cerraba la única salida de un cheque de OC cancelada, pero el Dashboard ("Cheques por vencer") y la Proyección Financiera (cheques + pagos programados) no lo excluían — hubiera quedado colgado para siempre en esos 2 informes. Corregido con el mismo filtro en los 3 lugares.
+
+**Impacto en capas**: Infrastructure (`OrdenCompraService.cs`, `ChequeService.cs`, `PagoOrdenCompraService.cs`, `VentaService.cs`, `DashboardService.cs`, `ProyeccionFinancieraService.cs`, `CCLocalService.cs`, `CCProveedorService.cs`), Application (`MovimientoCCLocalFiltro`/`MovimientoCCProveedorFiltro`), Web (`CCLocalController.cs`, `ProveedoresController.cs`, `CCLocal/Index.cshtml`, `Proveedores/CuentaCorriente.cshtml`). Sin migración EF.
+
 ## CR-66 — Fix: "Saldo actual del período filtrado" daba números sin sentido de negocio al filtrar por un mes con un ajuste puntual grande
 
 Reporte directo del cliente (02/09/2026): "Saldo actual del período filtrado $ -90.041.783,05 esta muy mal creo. hay que hacer un punto de partida con saldo 0."
@@ -957,6 +1055,13 @@ Pedido explícito del cliente, en paralelo al deploy de CR-44 (19/08/2026): "se 
 **Impacto en capas**: Application (`OrdenCompraInput.Fecha` nuevo, `IOrdenCompraService.RecibirAsync` con parámetro opcional nuevo), Infrastructure (`OrdenCompraService.CreateAsync`/`UpdateAsync`/`RecibirAsync`, helper privado `CalcularFecha` compartido), Web (`OrdenCompraFormViewModel.Fecha`, `OrdenesCompraController.MapInput`/`Edit` GET/`Recibir`, `OrdenesCompra/Create.cshtml` — input de fecha junto al selector de Proveedor, `OrdenesCompra/Details.cshtml` — SweetAlert de fecha en "Marcar recibida"). **Sin migración EF** (ambas columnas ya existían en el esquema desde el sprint original, solo se dejó de hardcodear `DateTime.UtcNow`).
 
 ## Historial de ajustes
+- 2026-09-03 — CR-73: ver sección completa "CR-73 — 'Pagos con tarjeta' pasa a llamarse 'Ingresos'" más arriba. Cierra la decisión abierta que CR-71 había dejado pendiente. Solo label de menú + título de pantalla; URL, controller, servicio y DTOs sin renombrar. Ícono del menú cambiado de tarjeta a uno de ingresos. Sin migración EF.
+- 2026-09-03 — CR-72: ver sección completa "CR-72 — Renombres en Gastos/Gasto recurrente + reorden visual de Gastos/Create" más arriba. "Gestionar plantillas de gasto recurrente" → "Nuevo gasto recurrente" (mismo destino); "Cargar desde plantilla" → "Seleccionar gasto recurrente"; `Gastos/Create` reordenado en 3 cards (Seleccionar gasto recurrente / Datos del gasto / Formas de pago) sin tocar ids ni JS. Solo Web, sin migración EF.
+- 2026-09-03 — CR-71: ver sección completa "CR-71 — 'Pagos con tarjeta' pasa a listar todos los pagos de ventas" más arriba. Se retira el filtro fijo por Tarjeta de crédito de CR-59; la pantalla suma filtro y columna "Forma de pago" y "solo pendientes" queda cubierto por el filtro de Estado ya existente. Solo pagos de Ventas (pagos a proveedores fuera de alcance, confirmado con el cliente). Sin renombrar controller/ruta/menú. Sin migración EF.
+- 2026-09-02 — CR-70: ver sección completa "CR-70 — Gasto con varias líneas de pago" más arriba. `GastoPago` nueva entidad (mismo patrón que PagoVenta/PagoOrdenCompra), `Gasto.FormaPago` retirado. Migración con backfill (cada Gasto existente pasa a tener 1 línea idéntica a como estaba). Un solo movimiento de Egreso por gasto (sin cambios respecto de hoy). **Implementado y deployado a producción** — cliente pidió saltear el gate de presupuesto explícitamente; migración aplicada contra producción con backup previo de `Gastos` y backfill verificado (503/503 filas, montos idénticos).
+- 2026-09-02 — CR-69: ver sección completa "CR-69 — Edición inline (on-demand, AJAX) de la nota de un pago desde Ventas/Details" más arriba. Click-to-edit sobre la nota de cada pago, guarda solo al perder el foco, sin recargar la pantalla. Sin migración EF (reutiliza `PagoVenta.Nota` de CR-68). Deployado.
+- 2026-09-02 — CR-68: ver sección completa "CR-68 — Nota opcional al registrar un pago de Venta" más arriba. `PagoVenta.Nota` (texto libre, nunca en comprobantes), disponible al confirmar la Venta y al registrar un pago posterior. 1 migración EF sin backfill. Deployado.
+- 2026-09-02 — CR-67: ver sección completa "CR-67 — Ventas/Compras/pagos cancelados ocultos de informes por defecto + integridad de Cuenta Corriente de Proveedores al cancelar OC" más arriba. Cierra los 3 gaps de la auditoría de infraestructura del mismo día (contramovimiento faltante, cheque acreditable sobre OC cancelada, jobs sin filtrar). Ventas/OC canceladas ocultas por defecto de los listados (filtro explícito para verlas); movimientos de CC Local/Proveedores de origen cancelado ocultos del ledger (checkbox "Mostrar cancelados"). QA encontró MH-019 (Dashboard/Proyección Financiera no excluían cheques de OC cancelada) — corregido antes de deploy. Sin migración EF.
 - 2026-09-02 — CR-66: ver sección completa "CR-66 — Fix: 'Saldo actual del período filtrado' daba números sin sentido de negocio..." más arriba. El -$90M de agosto era matemáticamente correcto (arrastraba el Ajuste de apertura de $96,98M posteado el 10/08) pero semánticamente sin sentido — `ObtenerSaldoFiltradoAsync` pasa de sumar dentro de la ventana a calcular el saldo real acumulado hasta `FechaHasta`, ignorando `Tipo`/`FechaDesde`. Sin migración EF.
 - 2026-09-02 — CR-65: ver sección completa "CR-65 — Fix: cancelar una Venta con pago pendiente reversaba dinero que nunca entró a Caja" más arriba. Mismo caso que CR-64 (Venta #694). `CancelarAsync` reversaba `venta.Total` completo sin importar cuánto se posteó realmente — corregido a sumar solo los pagos no-Pendiente. Corrección de datos: contramovimiento de Ingreso $318.999,56 para neutralizar el Egreso erróneo #1201, sin editar el ledger. Sin migración EF.
 - 2026-09-02 — CR-64: ver sección completa "CR-64 — Fix: cancelar una Venta con pago pendiente dejaba un pago 'colgado' que revertía la cancelación" más arriba. Reporte directo sobre Venta #694. Fix en `CancelarAsync` (soft-delete de pagos Pendiente al cancelar) + `EliminarPagoAsync` (guard: no tocar Estado si la Venta ya es Cancelada). Corrección de datos aplicada sobre Venta #694 en producción. Sin migración EF.

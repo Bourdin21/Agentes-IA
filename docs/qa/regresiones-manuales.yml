@@ -26,7 +26,7 @@
 
 version: 1
 proyecto: ShowroomGriffin
-ultima_actualizacion: 2026-08-28
+ultima_actualizacion: 2026-09-03
 
 regresiones:
 
@@ -1967,6 +1967,125 @@ regresiones:
       - "Click en cada encabezado ordenable de /GastosRecurrentes y confirmar que el orden resultante corresponde a esa columna (o que el encabezado no es clickeable)."
       - "Confirmar que el filtro por Nombre y la paginacion siguen funcionando despues del cambio."
     nota_generalizacion: "Tercera aparicion del mismo mecanismo en el estudio (CRM-003, MH-015, MH-018) y la segunda dentro de marihogar. La regla preventiva de MH-015 sigue vigente y hay que aplicarla EN EL MOMENTO DE CLONAR un DataTable server-side, no despues: si al clon se le agregan columnas que el molde no tenia, cada columna nueva o entra al switch de SortColumn del service o sale con orderable:false. Observacion colateral de la misma familia: la vista tampoco declara 'searching: false' pese a que GastoRecurrenteService.ListarAsync ignora request.SearchValue (usa el filtro dedicado #filtroNombre) — el cuadro de busqueda global de DataTables queda inerte. Ese segundo punto es heredado tal cual de Marcas/Index.cshtml (mismo comportamiento hoy en produccion), no introducido por CR-62; se documenta aca para que se corrija junto si se toca la vista."
+
+  - id: MH-019
+    modulo: "Dashboard (card 'Cheques por vencer') + Proyeccion financiera (M17) — DashboardService.ObtenerChequesPorVencerAsync y ProyeccionFinancieraService.ObtenerAsync"
+    titulo: "Al cancelar una OC que tiene un pago programado con cheque, el cheque queda Pendiente para siempre (CR-67 le bloquea la acreditacion) y sigue sumando en la card 'Cheques por vencer' del Dashboard y en 'Cheques por vencer' / 'Pagos de compra programados' de la Proyeccion financiera: plata que ya no se va a pagar nunca, y sin ninguna forma de sacarla desde la UI"
+    severidad: major
+    reproducido_en: "marihogar - master (working tree), CR-67 (2026-09-02). Hallado por QA por revision de codigo durante el QA de CR-67, contrastando los consumidores de EstadoCheque.Pendiente / EstadoPagoOrdenCompra.Pendiente contra los 2 que CR-67 si arreglo (los jobs de notificacion). NO reproducible con los datos actuales de marihogar_dev: la base de dev tiene 0 OrdenesCompra en estado Cancelada (verificado por QA con consulta de solo lectura). No verificado en navegador (MCP de Playwright declarado en .mcp.json pero no expuesto en la sesion)."
+    pasos:
+      - "Crear una Orden de Compra y confirmarla (estado Confirmada, que es un estado pagable y a la vez cancelable)."
+      - "Registrar un pago programado con metodo Cheque, con FechaVencimiento dentro de los proximos 30 dias. Queda PagoOrdenCompra.Estado=Pendiente y Cheque.Estado=Pendiente."
+      - "Cancelar la Orden de Compra (motivo obligatorio)."
+      - "Ir al Dashboard y mirar la card 'Cheques por vencer'. Ir despues a Proyeccion financiera y mirar 'Cheques por vencer' y 'Pagos de compra programados'."
+    sintoma: "El monto del cheque de la OC ya cancelada sigue contando en la card 'Cheques por vencer' del Dashboard y en los dos informativos de la Proyeccion financiera. Ademas el cheque sigue apareciendo en el listado /Cheques. Como CR-67 agrego el guard de OC Cancelada en ChequeService.AcreditarAsync, ese cheque tampoco se puede acreditar nunca mas: queda Pendiente de forma permanente y el numero equivocado no se puede limpiar desde ninguna pantalla."
+    expectativa: "Un cheque cuyo PagoOrdenCompra pertenece a una OrdenCompra en estado Cancelada no debe contar en ningun total ni informe (pedido explicito del cliente en CR-67: las compras y pagos a proveedores cancelados no se muestran en ningun informe). Mismo criterio que ya aplican los 2 jobs de notificacion despues de CR-67 y que ya aplica el calculo de SaldoPendienteOrdenesCompra de la propia Proyeccion (que si acota a OCs Confirmada/Recibida)."
+    causa_raiz: "CR-67 (Parte A) decidio deliberadamente NO tocar los PagoOrdenCompra en estado Pendiente que tienen un Cheque asociado al cancelar la OC (caso (b) del foreach de OrdenCompraService.CancelarAsync: el cheque es un documento fisico real y no se hace desaparecer solo). Esa decision es razonable, pero deja vivo un PagoOrdenCompra Pendiente + Cheque Pendiente colgando de una OC Cancelada, y CR-67 solo agrego el filtro de OC Cancelada en 2 de los 5 lugares que consumen ese estado: ChequeService.ObtenerYMarcarVencidosNoNotificadosAsync y PagoOrdenCompraService.ObtenerYMarcarPagosVencidosNoNotificadosAsync. Quedaron sin filtrar: (1) DashboardService.ObtenerChequesPorVencerAsync, (2) el bloque de cheques de ProyeccionFinancieraService.ObtenerAsync, (3) el bloque pagosCompraProgramados de ProyeccionFinancieraService.ObtenerAsync. El origen del under-scoping esta documentado: la propia auditoria de infraestructura del 2026-09-02, en GAP-3, afirma que 'ProyeccionFinancieraService no esta afectado (ya acota a OCs Confirmada/Recibida)' — eso es cierto SOLO para el calculo de saldoOc (ocsPendientes), pero NO para las otras dos consultas del MISMO metodo, que filtran por estado del cheque/pago sin mirar el estado de la OC. CR-67 heredo esa afirmacion sin re-verificarla."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/DashboardService.cs
+        motivo: "ObtenerChequesPorVencerAsync: agregar al Where la exclusion de cheques cuya OC este Cancelada, con la misma forma ya validada en ChequeService.ObtenerYMarcarVencidosNoNotificadosAsync (c.PagoOrdenCompra.OrdenCompra.Estado != EstadoOrdenCompra.Cancelada). Atencion: ese metodo ya hace Include(c => c.PagoOrdenCompra) pero NO ThenInclude(p => p.OrdenCompra); hay que agregarlo."
+      - path: MariHogar.Infrastructure/Services/ProyeccionFinancieraService.cs
+        motivo: "Dos consultas del mismo metodo ObtenerAsync: (1) el bloque 'cheques' (Estado==Pendiente && FechaVencimiento<=horizonte) y (2) el bloque 'pagosCompraProgramados' (Estado==Pendiente && FechaPagoTentativa<=horizonte). En ambos, excluir los que cuelgan de una OC Cancelada. No tocar ocsPendientes, que ya acota bien a Confirmada/Recibida."
+      - path: MariHogar.Infrastructure/Services/ChequeService.cs
+        motivo: "OPCIONAL, decision del cliente (no es parte del defecto numerico): ChequeService.ListarAsync tampoco excluye cheques de OCs Canceladas del listado /Cheques. Si se quiere alinear con el pedido literal del cliente ('no figuren en ningun lado'), agregar ahi el mismo criterio con un checkbox 'Mostrar cancelados', igual que CR-67 hizo en los 2 ledgers de Cuenta Corriente. Si se prefiere que el cheque fisico siga siendo visible (coherente con la decision (b) de CR-67 de no hacerlo desaparecer), dejarlo como esta y documentarlo."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "GET /Dashboard (card 'Cheques por vencer') y GET /ProyeccionFinanciera. Chequeo estatico equivalente: grep de 'EstadoCheque.Pendiente' y 'EstadoPagoOrdenCompra.Pendiente' en MariHogar.Infrastructure/Services/ y confirmar que TODA consulta que los use tambien filtre por el estado de la OrdenCompra."
+      condicion_falla: "Existe al menos un Cheque con Estado=Pendiente (o un PagoOrdenCompra con Estado=Pendiente y FechaPagoTentativa no nula) cuyo PagoOrdenCompra.OrdenCompra.Estado == Cancelada, y su monto aparece sumado en la card del Dashboard o en la Proyeccion financiera."
+    criterio_aceptacion:
+      - "Con una OC Cancelada que tiene un pago programado con cheque, la card 'Cheques por vencer' del Dashboard no cuenta ese cheque ni su monto."
+      - "La Proyeccion financiera no cuenta ese cheque en 'Cheques por vencer' ni ese pago en 'Pagos de compra programados'."
+      - "Sin regresion: un cheque Pendiente de una OC Confirmada o Recibida sigue contando exactamente igual que hoy en las 3 consultas."
+      - "Sin regresion en SaldoPendienteOrdenesCompra (ocsPendientes), que ya excluia las Canceladas y no se toca."
+    pruebas_minimas:
+      - "OC Confirmada + pago programado con cheque -> cancelar la OC -> Dashboard y Proyeccion financiera no muestran ese monto."
+      - "OC Confirmada + pago programado con cheque SIN cancelar -> Dashboard y Proyeccion siguen mostrando el monto (control de no regresion)."
+      - "OC Recibida con cheque Pendiente -> sigue contando (control de no regresion)."
+    nota_generalizacion: "Patron: cuando un CR agrega un guard de estado (aca 'la OC esta Cancelada') a un flujo, hay que barrer TODOS los consumidores del estado que quedo huerfano, no solo los que motivaron el reporte. La forma barata de hacerlo es un grep del enum involucrado (EstadoCheque.Pendiente / EstadoPagoOrdenCompra.Pendiente) y revisar consulta por consulta. Riesgo agravante especifico de este caso: el guard nuevo de AcreditarAsync convierte el dato inconsistente en PERMANENTE — antes del guard, el usuario podia acreditar el cheque y sacarlo de 'Pendiente' (mal por otro motivo, pero al menos se limpiaba); despues del guard no hay ninguna transicion de salida, asi que el numero equivocado se queda para siempre. Cada vez que se agrega un guard que cierra la ultima transicion de salida de un estado, verificar que no quede ninguna entidad atrapada en ese estado alimentando totales."
+
+  - id: MH-020
+    modulo: "Ventas / Cancelacion (VentaService.CancelarAsync, EliminarPagoAsync) — reportado por el cliente sobre Venta #694 en produccion"
+    titulo: "Cancelar una Venta no daba de baja el PagoVenta que seguia Pendiente (nunca posteado en CC Local), y el reversal de la venta cancelada reversaba el Total nominal en vez de solo lo efectivamente cobrado — ademas, eliminar ese pago colgado hacia recalcular el Estado de la Venta y la sacaba de Cancelada"
+    severidad: critical
+    reproducido_en: "marihogar - produccion, Venta #694 (reportado por el cliente 2026-09-02). Reproducido con datos reales via consulta de solo lectura contra produccion antes de corregir."
+    pasos:
+      - "Crear una Venta con un pago con tarjeta de credito (queda PagoVenta.EstadoAcreditacion = Pendiente, sin movimiento en CC Local todavia)."
+      - "Cancelar la Venta (motivo obligatorio) SIN haber acreditado el pago primero."
+      - "Entrar al detalle de la Venta cancelada: el pago sigue figurando Pendiente. Eliminar ese pago desde el detalle."
+      - "Mirar el Estado de la Venta despues de eliminar el pago, y mirar Cuenta corriente del local para ver que movimiento quedo posteado por la cancelacion."
+    sintoma: "(1) El pago Pendiente de una Venta cancelada segui existiendo y editable, pese a que la venta ya estaba anulada. (2) Eliminar ese pago recalculaba el Estado de la Venta a partir de los pagos restantes SIN chequear que la Venta ya estuviera Cancelada, dejandola en un estado incoherente (una venta cancelada que 'vuelve' a Pendiente solo por tocar un dato del pago, sin haber cambiado nada de la venta en si). (3) CancelarAsync posteaba un Egreso de reversion por el venta.Total completo, aunque ese pago jamas hubiera llegado a acreditarse ni a postear un Ingreso real — reversaba plata que el sistema nunca habia registrado como cobrada."
+    expectativa: "Al cancelar una Venta con pagos asociados: los pagos aun Pendientes (nunca posteados) se dan de baja junto con la venta, sin generar movimiento (nada que reversar); el Egreso de reversion en CC Local es exactamente la suma de los pagos que SI llegaron a postear un Ingreso real (EstadoAcreditacion != Pendiente), nunca el Total nominal de la venta; y ninguna accion posterior sobre un pago de una venta ya Cancelada debe modificar el Estado de esa Venta."
+    causa_raiz: "CancelarAsync nunca incluia ni tocaba la coleccion Pagos de la Venta al cancelar — el pago Pendiente quedaba huerfano, vivo y editable. EliminarPagoAsync recalculaba Venta.Estado desde los pagos remanentes sin ningun guard de 'la venta ya esta Cancelada, no tocar su Estado'. Y el reversal de CC Local usaba venta.Total (el monto nominal de la venta) en vez de sumar solo los PagoVenta con EstadoAcreditacion != Pendiente (los que realmente llegaron a postear un Ingreso)."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/VentaService.cs
+        motivo: "CancelarAsync: Include(v => v.Pagos); dentro de la misma transaccion, soft-delete de todo PagoVenta con EstadoAcreditacion == Pendiente (nada que reversar, nunca se posteo). El Egreso de reversion en CC Local pasa a calcularse como venta.Pagos.Where(p => p.EstadoAcreditacion != Pendiente).Sum(p => p.Monto) en vez de venta.Total — y si esa suma da 0, no se postea ningun movimiento. EliminarPagoAsync: guard if (pago.Venta.Estado != EstadoVenta.Cancelada) antes de recalcular el Estado de la Venta; si ya esta Cancelada, el Estado queda intacto pase lo que pase con el pago."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-02"
+      por: "Joaquin (directo, investigacion + fix sobre reporte real del cliente con evidencia concreta — Venta #694)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/VentaService.cs
+          motivo: "CancelarAsync (soft-delete de pagos Pendiente + reversal acotado a lo posteado) y EliminarPagoAsync (guard de Venta Cancelada) — ver detalle arriba."
+      build: "dotnet build MariHogar.Web/MariHogar.Web.csproj -> 0 Errores."
+      correccion_datos_produccion: "Venta #694: Estado vuelto a Cancelada (habia quedado Pendiente por el bug de EliminarPagoAsync); movimiento erroneo #1201 de CC Local (Egreso $318.999,56 por venta.Total completo) NO editado ni borrado — se poste un contramovimiento nuevo (misma OrigenTipo/OrigenId) que lo neutraliza, respetando el principio de ledger inmutable."
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "Cancelar una Venta con un PagoVenta Pendiente sin acreditar; revisar CC Local y el Estado de la Venta despues de eliminar ese pago desde el detalle."
+      condicion_falla: "Un PagoVenta Pendiente sobrevive a la cancelacion de su Venta y sigue siendo editable/eliminable; eliminarlo cambia Venta.Estado; o el Egreso de reversion en CC Local es distinto de la suma de los pagos que realmente llegaron a Acreditado antes de cancelar."
+    criterio_aceptacion:
+      - "Cancelar una Venta con pago Pendiente sin acreditar da de baja ese pago y NO postea ningun movimiento de reversion (nunca hubo Ingreso que reversar)."
+      - "Cancelar una Venta con pago ya Acreditado postea un Egreso de reversion exactamente por el monto de ese pago, nunca por venta.Total si difiere (ej. venta con descuento aplicado despues, o pago parcial)."
+      - "Ninguna accion sobre un pago de una Venta ya Cancelada (editar nota, eliminar) cambia el Estado de esa Venta."
+    pruebas_minimas:
+      - "Venta con pago Pendiente (tarjeta sin acreditar) -> cancelar -> el pago desaparece del detalle, sin movimiento nuevo en CC Local."
+      - "Venta con pago ya Acreditado -> cancelar -> CC Local muestra un Egreso exactamente por ese monto."
+      - "Venta cancelada con pago (de cualquier estado) -> intentar eliminar ese pago -> la Venta sigue Cancelada."
+    nota_generalizacion: "Mismo mecanismo mirado desde el lado de Compras: ver MH-019 y CR-67 (OrdenCompraService.CancelarAsync replica exactamente este patron — pagos Pendiente sin cheque se dan de baja, pagos Pagado se reversan con contramovimiento). Regla general para cualquier comprobante con maquina de estados + pagos asociados (Venta, OrdenCompra, y cualquier entidad futura del mismo tipo): al cancelar, (a) los pagos aun no posteados se dan de baja sin generar movimiento, (b) los pagos ya posteados se reversan por un CONTRAMOVIMIENTO nuevo — nunca editando ni borrando el movimiento original (ledger inmutable) —, (c) el monto reversado es la suma de lo efectivamente posteado, nunca el Total nominal del comprobante, y (d) ninguna operacion posterior sobre un pago de un comprobante ya en estado terminal debe recalcular el estado del comprobante. Formalizado como regla nueva en `32-estandares-qa-implementador.instructions.md`."
+
+  - id: MH-021
+    modulo: "Ventas / Compras — acreditacion o confirmacion manual de un pago con fecha diferida (VentaService.AcreditarPagoAsync, PagoOrdenCompraService.ConfirmarPagoAsync)"
+    titulo: "La fecha de acreditacion/pago efectiva se posteaba en Cuenta Corriente con la fecha SUGERIDA cargada al registrar el pago (ej. la fecha estimada de liquidacion de una tarjeta a 6 cuotas), nunca con la fecha real en que el Administrador confirmo la accion — reportado por el cliente sobre las Ventas #687 y #681 en produccion"
+    severidad: major
+    reproducido_en: "marihogar - produccion, Ventas #687 y #681 (reportado por el cliente 2026-09-02, con fechas y montos exactos). 5 filas con discrepancia real confirmada via AuditLog (distinguidas de otras 151 filas historicas sin registro de AuditLog, que son datos migrados anteriores a esta funcionalidad y no son bug)."
+    pasos:
+      - "Registrar un pago con tarjeta de credito a varias cuotas en una Venta (FechaAcreditacionEfectiva se carga con una fecha sugerida a futuro, segun la cantidad de cuotas)."
+      - "Semanas despues, el Administrador entra a /PagosTarjeta (hoy 'Ingresos') y marca ese pago como Acreditado, en una fecha distinta a la sugerida originalmente (lo habitual: se acredita cuando se revisa el resumen bancario real, no exactamente el dia estimado al vender)."
+      - "Mirar el movimiento de Ingreso que quedo posteado en Cuenta corriente del local para ese pago."
+    sintoma: "El Ingreso quedaba posteado con la fecha SUGERIDA original (cargada semanas o meses antes, al momento de la venta), no con la fecha real en que el Administrador efectivamente confirmo la acreditacion — el periodo contable del ingreso no coincidia nunca con el momento real de la accion que lo genero."
+    expectativa: "Al confirmar manualmente la acreditacion/pago de un PagoVenta o PagoOrdenCompra, la fecha efectiva (FechaAcreditacionEfectiva / FechaPagoTentativa) se pisa con la fecha real de HOY (Argentina) en el momento exacto de la confirmacion, y el movimiento de Cuenta Corriente se postea con esa fecha real — la fecha sugerida cargada al registrar el pago es solo un punto de partida, no el valor final."
+    causa_raiz: "FechaAcreditacionEfectiva/FechaPagoTentativa se cargaban una unica vez, al registrar el pago, como una fecha SUGERIDA — y nunca se volvian a tocar en el momento de la confirmacion manual real. El criterio de negocio original (usar FechaAcreditacionEfectiva en vez de UtcNow al postear el movimiento) era correcto, pero faltaba actualizar ese campo al momento real de la accion antes de usarlo."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/VentaService.cs
+        motivo: "AcreditarPagoAsync: pago.FechaAcreditacionEfectiva = HorarioArgentino.Ahora.Date; inmediatamente antes de postear el movimiento de Ingreso en CC Local."
+      - path: MariHogar.Infrastructure/Services/PagoOrdenCompraService.cs
+        motivo: "ConfirmarPagoAsync: mismo fix simetrico — pago.FechaPagoTentativa = HorarioArgentino.Ahora.Date; antes de postear el movimiento en CC Proveedores. Aplicado sin que el cliente lo pidiera explicitamente para Compras — mismo principio enunciado por el cliente aplicaba identico de ese lado."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-02"
+      por: "Joaquin (directo, investigacion + fix sobre reporte real del cliente con evidencia concreta — Ventas #687/#681)"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/VentaService.cs
+          motivo: "AcreditarPagoAsync pisa FechaAcreditacionEfectiva con la fecha real de la accion."
+        - path: MariHogar.Infrastructure/Services/PagoOrdenCompraService.cs
+          motivo: "ConfirmarPagoAsync pisa FechaPagoTentativa con la fecha real de la accion (fix simetrico, no reportado, encontrado por el mismo principio)."
+      build: "dotnet build MariHogar.Web/MariHogar.Web.csproj -> 0 Errores."
+      correccion_datos_produccion: "5 filas de PagoVenta con discrepancia real confirmada por AuditLog corregidas retroactivamente (FechaAcreditacionEfectiva del pago + Fecha del movimiento de CC Local ya posteado, ambos ajustados a la fecha real de acreditacion tomada del AuditLog). Las otras 151 filas sin registro en AuditLog (datos migrados, anteriores a esta funcionalidad) NO se tocaron — no son bug, son historicos sin trazabilidad de cuando se confirmaron de verdad."
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "Comparar PagoVenta.FechaAcreditacionEfectiva contra el Timestamp real del AuditLog de la fila que cambio EstadoAcreditacion a Acreditado, para pagos con AuditLog disponible."
+      condicion_falla: "FechaAcreditacionEfectiva (o FechaPagoTentativa en PagoOrdenCompra) queda igual a la fecha sugerida original despues de una confirmacion manual, en vez de actualizarse a la fecha real de esa confirmacion."
+    criterio_aceptacion:
+      - "Acreditar un PagoVenta hoy postea el Ingreso en CC Local con la fecha de hoy, sin importar que fecha sugerida tenia el pago al registrarse."
+      - "Confirmar un PagoOrdenCompra hoy postea el movimiento en CC Proveedores con la fecha de hoy, mismo criterio."
+    pruebas_minimas:
+      - "Registrar un pago con fecha sugerida a futuro -> acreditarlo/confirmarlo HOY -> el movimiento de Cuenta Corriente queda fechado hoy, no en la fecha sugerida original."
+    nota_generalizacion: "Regla general para cualquier flujo de confirmacion diferida (un dato se registra con una fecha 'sugerida' en el momento de la carga inicial, y se confirma de verdad en otro momento posterior, por otro usuario o rol): el campo de fecha efectiva debe pisarse con la fecha real de la confirmacion en el momento exacto en que esa confirmacion ocurre — nunca conservar la fecha sugerida original una vez que la accion real ya sucedio. Formalizado como regla nueva en `32-estandares-qa-implementador.instructions.md`."
 
   - id: CRM-015
     modulo: "Matriz de modulos MVP/FULL — generador del borrador de propuesta (Application/Services/PropuestaMvpFullService.cs, helper Minuscula)"
