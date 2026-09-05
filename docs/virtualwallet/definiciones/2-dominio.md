@@ -93,6 +93,31 @@ Plan de financiacion en cuotas (tipico de tarjeta).
 (`MontoTotal - montoCuota * (N-1)`), de modo que la suma de los movimientos cierre exactamente
 contra `MontoTotal`. Ej.: $100 en 3 cuotas -> 33,33 + 33,33 + 33,34.
 
+### `PlanReserva : SoftDestroyable` (2026-09-04)
+
+Plan de reserva de un mes: cuanta plata se decide apartar, por categoria/subcategoria, para cubrir
+el gasto del mes siguiente. Medido **siempre en dolares** (`MontoUsd`): la serie en pesos esta
+distorsionada por inflacion y no sirve para estimar contra la historia.
+
+- `Anio`, `Mes` (mes objetivo), `CotizacionUsada` (oficial venta al momento de guardar), `UsuarioId`.
+- Un plan por `(UsuarioId, Anio, Mes)`. El indice **no es unico** a proposito: el soft delete
+  dejaria filas viejas con la misma clave y un unique rechazaria recrear el plan.
+
+**Invariante central**: el plan **no genera movimientos, no toca saldos y no entra en ningun total
+de gastos** de ninguna pantalla. Es un plan persistido y nada mas. Si generara movimientos, la
+estimacion del mes siguiente (mediana de los 6 meses cerrados) estaria promediando su propia
+reserva y el numero se realimentaria a si mismo.
+
+### `PlanReservaLinea : SoftDestroyable` (2026-09-04)
+
+Linea de un `PlanReserva`. `PlanReservaId`, `CategoriaId`, `SubCategoriaId?`, `MontoSugeridoUsd`
+(lo que propuso el sistema) y `MontoReservaUsd` (lo que decidio el usuario, que es el numero que
+manda). Se guardan los dos para poder distinguirlos despues.
+
+- `SubCategoriaId == null` **NO** significa "toda la categoria": es el bucket
+  **"(sin subcategoria)"** de esa categoria — el gasto real cargado sin subcategoria (14% de los
+  egresos historicos). Mismo criterio que `DashboardController.ConstruirEgresosSubcategoria`.
+
 ### `AuditLog`
 
 Registro inmutable de cambios:

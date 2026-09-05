@@ -18,12 +18,19 @@ Capa de contratos. **No tiene logica ejecutable significativa**: solo interfaces
 | `IEmailService` | `EmailService` (SMTP) | Envia emails. Configurado por `SmtpSettings`. |
 | `IErrorNotifier` | `ErrorNotifier` | Notifica errores no controlados (email + log). |
 | `INotificationService` | `NotificationService` | CRUD de `Notification` in-app. |
+| `ISaldoTarjetaService` | `SaldoTarjetaService` | Saldo real de deuda de tarjeta (ultimo cierre importado por tarjeta, neteado de pagos posteriores) y totales consolidados. **Extraido de `DashboardController` el 2026-09-04** — eran metodos privados y "Proyeccion y reserva" necesitaba el mismo numero. Movido tal cual: incluye la regla de que un pago en dolares NO reduce el saldo en pesos (son sub-saldos independientes del resumen). |
+| `IPlanReservaService` | `PlanReservaService` | Calcula y persiste el plan de reserva mensual (pantalla "Proyeccion y reserva"). Expone tambien la constante unica `NombreCategoriaOlvidata`. |
 
 ### DTOs
 
 - `ServiceResult<T>`: wrapper de resultado con `Success`, `Errors`, `Value`. **Convencion**: los servicios devuelven `ServiceResult` cuando hay logica de negocio, no excepciones.
 - `DataTableDtos`: contrato server-side de DataTables (`DataTablesRequest`, `DataTablesResponse<T>`).
 - `NotificationDtos`: DTOs de notificaciones para JSON polling.
+- `PlanReservaDtos`: `PlanReservaDto` (resultado completo del calculo del mes, con los totales y
+  la capacidad de pago como propiedades derivadas), `PlanReservaFilaDto` (una fila:
+  categoria+subcategoria con mediana, promedio, meses con gasto, comprometido, sugerido y
+  reserva), `PlanReservaLineaInputDto` (lo que vuelve del formulario), `SaldoTarjetaCuentaDto` y
+  `TotalesDeudaTarjetaDto` (contrato de `ISaldoTarjetaService`).
 - `ImportacionResumenDtos`: DTOs del flujo de importacion. Incluye `ResultadoImportacionResumen` con contador `CuotasReutilizadas` (renombrado desde `CuotasActualizadas`).
 
 ## VirtualWallet.Infrastructure
@@ -46,6 +53,12 @@ Orden cronologico:
 4. `AddDescripcionOriginalToMovimiento`
 5. `AddEsPagoTarjetaToMovimiento` (esta en una sub-carpeta `Mig/`; revisar si conviene moverla a `Migrations/`)
 6. `ConstrainDescripcionOriginalLength`
+7. `AddSaldoInicialToCuenta`
+8. `AddResumenTarjeta`
+9. `AddTipoTarjetaToMovimiento`
+10. `AddPlanReserva` (2026-09-04) — crea `PlanesReserva` y `PlanReservaLineas`. Solo tablas nuevas,
+    no altera ninguna existente. **Generada, no aplicada a produccion**; se aplica con el script
+    idempotente `Data/Migrations/Scripts/AddPlanReserva.sql`.
 
 Para produccion, se generan scripts SQL idempotentes en `Data/Migrations/Scripts/*.sql`.
 
@@ -112,6 +125,12 @@ varios meses y la cuota se muestra como activa/vigente mas tiempo del que corres
 - `EmailService` + `SmtpSettings`: envio SMTP con plantillas simples; usado por `ErrorNotifier` y notificaciones de cuenta.
 - `DatabaseHealthCheck` y `SmtpHealthCheck`: registrados en `/health` y `/health/ready`. **Requieren autorizacion** (no anonymous).
 - `ExportService`: usa QuestPDF (License Community fijada en `Program.cs`).
+- `SaldoTarjetaService`: deuda real de tarjeta, compartido entre `DashboardController` y
+  `PlanReservaService`. **Fuente unica** de ese numero: no duplicar el calculo en pantallas nuevas.
+- `PlanReservaService`: plan de reserva mensual. Reglas: *comprometido* (cuotas `Pendiente` con
+  fecha en el mes objetivo, dato cierto) y *estimado* (mediana de los 6 meses cerrados sobre
+  `MontoUsd`, **excluyendo las cuotas** para no contarlas dos veces) nunca se mezclan; la mediana
+  cuenta 0 en los meses sin gasto; la ventana nunca incluye el mes en curso, que es parcial.
 
 ### Repositorio generico
 

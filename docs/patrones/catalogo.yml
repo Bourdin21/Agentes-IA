@@ -25,7 +25,7 @@
 # en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
 
 version: 1
-ultima_actualizacion: 2026-09-03
+ultima_actualizacion: 2026-09-04
 
 patrones:
 
@@ -776,3 +776,46 @@ patrones:
       permanente del modo manual es que ningun aumento general lo alcanza, asi que el patron tiene
       que venir acompanado de VISIBILIDAD de lo que falta cargar (badge de faltantes, fila propia
       en el reporte de diagnostico), no de automatismo — automatizarlo seria volver al problema.
+
+  - id: PAT-022
+    nombre: "Plan de reserva mensual estimado por mediana historica dolarizada"
+    categoria: financiero
+    descripcion: >
+      Pantalla que planifica el gasto del mes siguiente separando COMPROMETIDO (obligaciones ya
+      cargadas como registros con fecha futura y estado pendiente: cuotas, vencimientos) de
+      ESTIMADO (mediana de los N meses cerrados de historia), y persiste la decision del usuario
+      como un plan que NO genera movimientos ni toca saldos. Guarda el valor sugerido y el elegido
+      por separado, y calcula la plata libre resultante para amortizar deuda.
+    cuando_usar: >
+      Cualquier modulo que tenga que proyectar gasto futuro a partir de historia propia:
+      presupuesto mensual por rubro, plan de compras, provision de gastos fijos, reserva de caja.
+      Especialmente cuando parte de ese gasto futuro YA existe como dato en la base y no hay que
+      estimarlo.
+    proyecto_origen: virtualwallet (Proyeccion y reserva, 2026-09-04)
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: virtualwallet
+        path: "VirtualWallet.Infrastructure/Services/PlanReservaService.cs"
+        motivo: "Calculo completo: ventana de meses cerrados, mediana contando ceros, comprometido vs estimado, upsert del plan"
+        pendiente_verificar: false
+      - proyecto: virtualwallet
+        path: "VirtualWallet.Domain/Entities/PlanReserva.cs + PlanReservaLinea.cs"
+        motivo: "Plan cabecera/detalle que persiste sugerido y elegido por separado"
+        pendiente_verificar: false
+      - proyecto: virtualwallet
+        path: "VirtualWallet.Web/Views/Proyeccion/Index.cshtml + _BloqueReserva.cshtml"
+        motivo: "Grilla editable con mascara de importe, totales en vivo y ordenamiento numerico sobre la columna de input"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      Cuatro decisiones que hacen la diferencia entre que el numero sirva o no, y que conviene
+      copiar enteras: (1) el plan NO genera movimientos — si los generara, la estimacion del mes
+      siguiente estaria promediando su propia reserva y el numero se realimenta solo; (2) la
+      mediana se calcula sobre TODOS los meses de la ventana contando 0 en los meses sin gasto, no
+      solo sobre los meses con gasto: promediar solo los meses con actividad sobreestima fuerte lo
+      estacional (un gasto que ocurrio 2 veces en 6 meses pasa a parecer mensual); (3) lo
+      comprometido se EXCLUYE de la serie historica que alimenta la mediana, o se cuenta dos veces;
+      (4) mostrar siempre "meses con gasto (de N)" junto a la mediana — sin ese contexto una fila
+      estacional se lee como un gasto mensual. En un pais con inflacion alta, la serie tiene que
+      medirse en moneda dura (aca `MontoUsd`): la serie en pesos no es comparable en el tiempo y la
+      proyeccion sale sin sentido.

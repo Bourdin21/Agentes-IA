@@ -1,7 +1,7 @@
 # 5 - Implementador (memoria acumulativa)
 
 ## Proyecto: VirtualWallet
-## Ultima actualizacion: 2026-08-16
+## Ultima actualizacion: 2026-09-04
 
 ## Definiciones vigentes
 
@@ -36,7 +36,103 @@
 - Sin migracion EF nueva en esta etapa — pendiente la ejecucion del script idempotente `ConstrainDescripcionOriginalLength.sql` en produccion (ver Proximos pasos).
 
 ### Migraciones EF generadas
-Ninguna a lo largo de todo este historial (todas las features anteriores reutilizaron columnas existentes, principalmente `Movimiento.DescripcionOriginal`/`EsPagoTarjeta`). Queda pendiente en producción la ejecución del script idempotente `ConstrainDescripcionOriginalLength.sql` (generado en una etapa previa a este archivo, ver Riesgos).
+Hasta 2026-08-16 ninguna (todas las features de esa epoca reutilizaron columnas existentes, principalmente `Movimiento.DescripcionOriginal`/`EsPagoTarjeta`). Despues aparecieron `AddSaldoInicialToCuenta`, `AddResumenTarjeta` y `AddTipoTarjetaToMovimiento`, y en 2026-09-04:
+
+- **`20260905003154_AddPlanReserva`** (Proyeccion y reserva) — crea `PlanesReserva` y `PlanReservaLineas`. **Solo agrega tablas nuevas**: no toca `Movimientos`, `Categorias` ni ninguna tabla existente, asi que es reversible sin perdida de datos. Script idempotente en `VirtualWallet.Infrastructure/Data/Migrations/Scripts/AddPlanReserva.sql`. **Generada pero NO aplicada a produccion** (la aplica el dueño en el deploy).
+
+Queda pendiente en producción la ejecución del script idempotente `ConstrainDescripcionOriginalLength.sql` (generado en una etapa previa a este archivo, ver Riesgos).
+
+### Etapa 2026-09-04 — Pantalla "Proyeccion y reserva"
+
+Pantalla nueva que planifica el mes siguiente: plan de reserva por categoria/subcategoria medido
+en **dolares**, mas la plata que queda libre para atacar la deuda de tarjeta. Primera migracion EF
+del proyecto que crea tablas propias.
+
+**Reutilizacion (escaneo previo):** `docs/patrones/catalogo.yml` (13 patrones) y los
+`5-implementador.md` de los 32 proyectos no tienen nada equivalente — VirtualWallet es el unico
+proyecto de la vertical de finanzas personales; los matches de "mediana" son estimacion PERT de
+presupuestos. Se reuso **codigo interno del propio proyecto**: el criterio de bucket
+"(sin subcategoria)" de `DashboardController.ConstruirEgresosSubcategoria`,
+`ICotizacionService.ObtenerCotizacionOficialVentaParaFecha` y el calculo de saldo real de deuda de
+tarjeta, que se **extrajo** del controller a un servicio compartido (ver abajo). Patron nuevo
+agregado al catalogo: **PAT-022**.
+
+**Domain (2 entidades nuevas, ninguna existente modificada):**
+- `PlanReserva` : `SoftDestroyable` — `Anio`, `Mes`, `CotizacionUsada`, `UsuarioId`, `Lineas`.
+- `PlanReservaLinea` : `SoftDestroyable` — `PlanReservaId`, `CategoriaId`, `SubCategoriaId?`,
+  `MontoSugeridoUsd`, `MontoReservaUsd`. `SubCategoriaId == null` **no** significa "toda la
+  categoria": es el bucket "(sin subcategoria)", mismo criterio que el dashboard.
+- **El plan no genera movimientos ni toca saldos**, y no entra en ningun total de gastos. Si los
+  generara, la mediana del mes siguiente estaria promediando su propia reserva.
+
+**Application:** `IPlanReservaService` (+ la constante unica `NombreCategoriaOlvidata`),
+`ISaldoTarjetaService`, `PlanReservaDtos.cs` (`PlanReservaDto`, `PlanReservaFilaDto`,
+`PlanReservaLineaInputDto`, `SaldoTarjetaCuentaDto`, `TotalesDeudaTarjetaDto`).
+
+**Infrastructure:** `PlanReservaService` (todo el calculo), `SaldoTarjetaService`, DbSets +
+Fluent API de las dos entidades nuevas, registro en `DependencyInjection`, migracion
+`AddPlanReserva` + script SQL idempotente.
+
+**Web:** `ProyeccionController` (`Index` GET / `Guardar` POST), `ProyeccionReservaViewModel`,
+`Views/Proyeccion/Index.cshtml` + `_BloqueReserva.cshtml`, item de sidebar, `.ov-monto` agregada a
+`site.css` (regla de importes sin salto de linea del design system, que el proyecto no tenia).
+
+**Refactor acotado — `ObtenerSaldosRealesPorCuentaAsync` sale de `DashboardController`:**
+era privado del controller y la pantalla nueva necesitaba exactamente la misma deuda. Se movio
+**tal cual**, sin cambiar ninguna regla, a `SaldoTarjetaService` junto con
+`CalcularTotalesRealesDeudaTarjetaAsync`; el controller ahora los consume por DI. La unica
+diferencia de forma es que la tupla con nombres paso a ser `SaldoTarjetaCuentaDto` (mismos nombres
+de miembro, mismos call sites). Se preservo la logica fina de que **un pago en dolares no reduce
+el saldo en pesos** (son sub-saldos independientes del resumen). `ObtenerDeudaPorTarjetaAsync`
+quedo en el controller: no la necesita nadie mas.
+
+**Reglas de calculo implementadas:**
+- *Comprometido* = `CuotaId != null` + `Estado = Pendiente` + `Fecha` en el mes objetivo +
+  `Tipo = Egreso` + `EsPagoTarjeta = false`, sumando `MontoUsd`. Dato cierto, no se estima.
+- *Estimado* = **mediana** de los 6 meses cerrados, sobre egresos `Realizado`, sin pagos de
+  tarjeta y **excluyendo `CuotaId != null`** (si no se excluyeran, cada cuota se contaria dos
+  veces: una en comprometido y otra en la historia).
+- La mediana se calcula sobre los 6 meses **completos, contando 0 en los meses sin gasto**.
+- Ventana: los 6 meses cerrados anteriores al mes objetivo, **nunca el mes en curso** (parcial).
+  Formalmente `ultimoMesCerrado = min(mesObjetivo - 1, mesActual - 1)`, lo que para el caso por
+  defecto (planificar el mes siguiente) da exactamente los 6 meses cerrados previos.
+- Sugerido = mediana + comprometido, **editable**; se persisten los dos numeros para poder
+  distinguir despues que propuso el sistema y que decidio la persona.
+- Capacidad de pago = ingreso mediano de la misma ventana menos la reserva total. Si es <= 0 se
+  avisa y **no** se calculan meses para cancelar (no se divide por cero ni se muestra "infinito").
+- Separacion Personal/Olvidata por **nombre de categoria**, en una constante unica
+  (`IPlanReservaService.NombreCategoriaOlvidata = "Gastos Olvidata"`), con fallback: si la
+  categoria no existe, todo cae en Personal y **la vista lo avisa** (nunca se pierde un importe).
+
+**Decisiones tomadas donde el brief dejaba margen** (ver tambien Riesgos R17-R20):
+1. **Esporadicas con cuotas comprometidas.** El brief dice "reserva sugerida 0" para filas con
+   gasto en <= 2 de 6 meses, y tambien "sugerida = mediana + comprometido". Con 6 meses la mediana
+   de una fila esporadica ya da 0 por definicion, asi que lo que se pone en 0 es **la parte
+   estimada**; el comprometido entra igual, porque es dato cierto y ponerlo en 0 haria desaparecer
+   una cuota que se va a pagar si o si. El badge "esporadico" solo se muestra si hubo gasto en 1-2
+   meses: una fila que existe **solo** por una cuota no tiene historia, y el badge ahi confundiria.
+2. **Selector de mes/año** ademas del default (mes siguiente): sin el no habia forma de reabrir un
+   plan ya guardado. La ventana historica se recalcula coherentemente para el mes elegido.
+3. **Lineas guardadas que ya no aparecen en el calculo** (la categoria dejo de tener gasto) se
+   siguen mostrando, o guardar de nuevo las borraria en silencio.
+4. **Lineas con categoria/subcategoria no disponible** (borrada, o id manipulado en el formulario)
+   se **descartan e informan** en el mensaje de exito, en vez de abortar el guardado: abortar
+   dejaba la pantalla imposible de guardar sin forma de sacar esa fila desde la UI.
+5. **Sin DataTables server-side ni buscador en las dos grillas**, contra la regla general de
+   listados: las filas **son** el formulario, y una fila sacada del DOM por un filtro o por
+   paginado no se postea — el usuario perderia esa reserva sin enterarse. Se conservan
+   ordenamiento asc/desc por valor numerico en todas las columnas de importe (incluida la columna
+   editable, con un `orderDataType` que lee el valor **desenmascarado** del input).
+6. **Contadores de movimientos sin `MontoUsd`** (egresos e ingresos por separado) con aviso en
+   pantalla: la cobertura ~100% esta verificada para egresos, no para ingresos, y un ingreso sin
+   dolarizar hunde el ingreso mediano y hace parecer que no hay margen cuando si lo hay.
+
+**Mascara de importes (design system):** los inputs de reserva siguen el patron exacto de
+`Movimientos/Create.cshtml` — campo visible con `data-money-mask` **sin `name`** + hidden espejo
+`data-money-hidden` que es lo unico que se postea, en invariante. Ningun script lee el campo
+enmascarado con `parseFloat`: los totales en vivo usan `window.moneyMask.aNumero`. Los totales se
+recalculan tocando **solo los nodos de total** (REG-008: nunca re-renderizar el `tbody`, que
+destruiria el input enfocado).
 
 ### Etapa 2026-08-31 — cierre de auditoria QA (16 hallazgos) + Data Protection persistente
 
@@ -111,6 +207,28 @@ miles no pueda absorberse en silencio, con fallback a `es-AR` para valores tipea
   de este proyecto. Confirmar en el proximo deploy que `DataProtection-Keys/` sobrevive en el
   servidor (ver "Proximos pasos pendientes").
 
+- **R14** (heredado del analisis): la separacion Personal/Olvidata por **nombre** de categoria se
+  rompe si se renombra "Gastos Olvidata" — asumido explicitamente por el dueño. Mitigacion
+  implementada: constante unica, comparacion case-insensitive con trim, fallback a Personal y
+  aviso visible en pantalla cuando la categoria no aparece. Nunca se pierde un importe: el bloque
+  Olvidata queda vacio y todo se muestra junto en Personal.
+- **R15** (heredado): movimiento Id 4649 ("TRANSFERENCIA DEUDA...", $13.741) sigue en categoria
+  Pago Tarjeta **sin** el flag `EsPagoTarjeta`, asi que **hoy se cuenta como egreso** e infla la
+  mediana de esa categoria en esta pantalla. Se corrige recategorizandolo, no por codigo.
+- **R17 (2026-09-04)**: la mediana se calcula sobre `MontoUsd` y los movimientos sin ese dato
+  cuentan como **0**. La pantalla ahora muestra cuantos son (egresos e ingresos por separado),
+  pero no los corrige ni los estima.
+- **R18 (2026-09-04)**: el indice `(UsuarioId, Anio, Mes)` de `PlanesReserva` **no es unico** a
+  proposito (el soft delete dejaria filas viejas con la misma clave). Dos POST estrictamente
+  concurrentes del mismo mes podrian crear dos planes activos; `ObtenerPlanAsync` tomaria el
+  primero. Riesgo teorico en una app de un solo usuario por plan, no mitigado.
+- **R19 (2026-09-04)**: guardar dos veces una linea cuya version anterior quedo soft-deleted crea
+  una fila nueva en vez de reactivar la vieja (comportamiento normal del soft delete del
+  proyecto). No afecta a lo que se lee, si al volumen de la tabla en el largo plazo.
+- **R20 (2026-09-04)**: `ObtenerPlanAsync` trae a memoria los egresos de 6 meses y los agrupa en
+  C# (no en SQL), igual que hace hoy el dashboard. Al volumen actual (3.621 egresos en 71 meses,
+  ~300 filas por ventana) es irrelevante; no escala a un multi-tenant grande.
+
 ### Proximos pasos pendientes
 - QA manual end-to-end de importación con PDFs reales Mastercard y Visa, incluyendo un PDF Visa con consumos en USD (para cerrar R9).
 - Visto bueno de stakeholder sobre R5 (reintegros como Ingreso+EsPagoTarjeta=true en reportes historicos).
@@ -129,7 +247,19 @@ miles no pueda absorberse en silencio, con fallback a `es-AR` para valores tipea
 - **QA manual de portada vs ResumenGeneral**: con al menos un movimiento `Pendiente` en el mes,
   los totales de `Home/Index` y de `Dashboard/ResumenGeneral` deben coincidir para el mismo periodo.
 
+- **Aplicar en produccion el script `AddPlanReserva.sql`** (idempotente, solo crea 2 tablas
+  nuevas) — queda a cargo del dueño en el deploy; la migracion NO se aplico desde este entorno.
+- **QA manual de "Proyeccion y reserva"**: verificar que el sugerido de una fila con cuota
+  comprometida coincide con el `MontoUsd` de la cuota pendiente de ese mes, que editar y guardar
+  persiste el numero del usuario (y no la sugerencia), que reabrir la pantalla lo muestra con el
+  badge "guardado", y que el plan **no** aparece en ningun total de `Home/Index` ni de
+  `Dashboard/ResumenGeneral`.
+- **Regresion de deuda de tarjeta**: los numeros de deuda de `Dashboard/ResumenGeneral` deben
+  quedar identicos tras la extraccion de `ObtenerSaldosRealesPorCuentaAsync` al servicio (fue un
+  movimiento literal, pero toca una pantalla en produccion).
+
 ## Historial de ajustes
+- 2026-09-04: pantalla "Proyeccion y reserva" — 2 entidades nuevas (`PlanReserva`, `PlanReservaLinea`), migracion `AddPlanReserva` (generada, no aplicada), 2 servicios nuevos (`PlanReservaService`, `SaldoTarjetaService`), controller y vistas nuevos, y extraccion sin cambio de comportamiento del calculo de saldo real de deuda de tarjeta desde `DashboardController`.
 - 2026-08-31: cierre completo de la auditoria QA (16 hallazgos, de bloqueante a bajo) + Data Protection persistente en disco. Sin migracion EF. Desviacion de alcance deliberada en LP-003 (se agrego el binder invariante y se tocaron los hidden de `Preview.cshtml`, ambos excluidos del pedido original) porque el fix acotado habria introducido una corrupcion silenciosa x100 al guardar — medicion y justificacion en la etapa correspondiente.
 - 2026-07-23 (mergeado desde memoria local del proyecto): importación de resúmenes de tarjeta — reintegros (M2/M5/M7), ajustes de flujo (cuenta/fecha/USD), reescritura completa del parser Visa contra PDF real, importes en dos columnas ARS/USD + filtros de Movimientos + KPIs de dashboard. 4 partes, sin migración EF en ninguna.
 - 2026-05-11: feature Dolar Histórico — `ICotizacionService`/`CotizacionService` nuevos, `DolarController`, vista de historial, integración de cotización en alta/edición de movimientos.

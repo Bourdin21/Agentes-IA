@@ -48,6 +48,25 @@ Reglas clave (ya implementadas):
 - Movimientos con `CuotaId != null` no permiten edit/delete individual (los gestiona la cuota).
 - Endpoints AJAX: `Autocomplete` (descripciones recientes), `GetSubCategorias`, `CambiarEstado`.
 
+### `ProyeccionController` (2026-09-04)
+
+Pantalla "Proyeccion y reserva". `Index(anio?, mes?)` (por defecto el **mes siguiente**) y
+`Guardar(ProyeccionReservaFormViewModel)`. **Toda la logica de calculo vive en
+`IPlanReservaService`**: el controller solo resuelve el periodo, arma el ViewModel y procesa el
+POST. No confia en ningun total calculado en el navegador — al guardar solo viajan las lineas.
+
+Particularidades de la vista (`Views/Proyeccion/Index.cshtml` + `_BloqueReserva.cshtml`):
+- Dos bloques totalizados aparte, Personal y Olvidata, que postean al **mismo** array `Lineas[]`
+  (el segundo bloque arranca en el indice donde termino el primero).
+- Los inputs de reserva usan la mascara de moneda del proyecto (`data-money-mask` + hidden espejo
+  `data-money-hidden`, patron de `Movimientos/Create.cshtml`): el campo visible no tiene `name` y
+  lo que se postea es el hidden, en cultura invariante.
+- **Excepcion documentada a la regla de listados**: las dos grillas usan DataTables con paginado y
+  buscador **desactivados**. Las filas son el formulario; una fila sacada del DOM por un filtro o
+  por paginado no se postea y el usuario perderia esa reserva sin enterarse. El ordenamiento
+  numerico asc/desc si esta en todas las columnas de importe, incluida la editable (lee el valor
+  desenmascarado del input via `orderDataType`).
+
 ### `ImportacionController`
 
 - `Preview(IFormFile pdf, string banco, string marca)`: invoca importer en modo preview.
@@ -75,6 +94,9 @@ Convenciones de vistas:
 - Botones de accion peligrosa abren modal SweetAlert antes de POST.
 - Iconos: Bootstrap Icons (`<i class="bi bi-...">`).
 - CSS de marca: `wwwroot/css/olvidata-theme.css` define paleta y tipografia. `site.css` extiende.
+- `.ov-monto` (en `site.css`, agregada 2026-09-04): `white-space: nowrap` obligatorio en toda celda
+  o span que muestre un importe, para que el signo no quede en una linea y el numero en la
+  siguiente (regla del design system del estudio).
 
 ## ViewModels (`Models/*`)
 
@@ -88,6 +110,7 @@ Convenciones de vistas:
 | `EvolucionTendenciasViewModel` | `Dashboard/EvolucionTendencias` |
 | `DashboardViewModel` | (legacy / shared bits) |
 | `ImportarResumenViewModel` | `Importacion/Preview`, `Importacion/Resultado`, `Importacion/Resumen` |
+| `ProyeccionReservaViewModel` (+ `ProyeccionReservaFormViewModel`, `ProyeccionReservaLineaViewModel`) | `Proyeccion/Index` |
 | `UserViewModels` | `Users/*`, `Admin/Index` |
 | `ErrorViewModel` | `Shared/Error` |
 
