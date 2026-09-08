@@ -1141,3 +1141,117 @@ se vea prolija es justamente lo que no hay que hacer.
 `Facturas_Deducciones_Y_CompraConCosto` y `MovimientoStock_MovimientoRevertido`, en ese orden.
 Antes del deploy sigue vigente **RT23**: re-verificar `SELECT COUNT(*) FROM FacturasVenta` en
 produccion (ultima verificacion: 0, el 2026-09-08 17:24).
+
+---
+
+## Iteracion v18.2 — D-01 bajo concurrencia (doble clic) + D-12 (2026-09-08)
+
+QA re-verifico la v18.1: **D-02 y D-03 cerrados**, backfill correcto, y el discriminador de D-03
+confirmado (probo que una compra **sin** costo sigue siendo anulable, que es justo lo que se perdia
+con `EgresoId != null`). Pero **D-01 seguia bloqueante**.
+
+### Por que D-01 seguia abierto
+
+La correccion de v18.1 dejo la idempotencia como un `AnyAsync(MovimientoRevertidoId == mov.Id)`
+**fuera y antes de la transaccion**: un *check-then-act* de manual. Cerraba el camino secuencial
+(4 POST uno detras de otro: el 1.º anula, los otros 3 rebotan) pero **no el doble clic**, que es
+justamente el caso que le da nombre al defecto. QA reprodujo dos POST simultaneos posteando **dos**
+contramovimientos, 3 de 3 veces; con 6 en paralelo salieron 3.
+
+Y el daño era **peor de caracterizar que antes**:
+
+| Paso | `StockActual` | Ledger |
+|---|---|---|
+| Compra de 10 cabezas | 82 | 82 |
+| doble clic en "Anular" | **72** | **62** |
+
+*Lost update* sobre la columna desnormalizada: las dos transacciones leyeron 82 y las dos
+escribieron 72, pero **las dos filas de movimiento persistieron**. `StockActual` quedaba en el
+numero plausible —el que el usuario ve— asi que la perdida de stock **ya no era visible en la UI**:
+solo aparecia auditando el ledger contra la columna. La v18.1 empeoro la deteccion del sintoma
+mientras creia arreglarlo.
+
+### Las tres defensas, en orden
+
+1. **Indice UNICO en `MovimientoStock.MovimientoRevertidoId`** (migracion
+   `MovimientoStock_ContramovimientoUnico`). Es la unica garantia que **no depende del timing**:
+   a lo sumo un contramovimiento por movimiento revertido, se crucen como se crucen las
+   transacciones. MySQL admite multiples NULL en un indice unico, asi que los movimientos que no
+   revierten nada —altas de compra, muertes, nacimientos, compensaciones, ajustes y ventas, la
+   enorme mayoria— no se ven afectados.
+2. **Lectura bloqueante del `Grupo`** (`SELECT ... FOR UPDATE`, ST1) como **primera sentencia de la
+   transaccion**. Serializa cualquier par de operaciones concurrentes sobre el mismo grupo, que es
+   lo que cierra el *lost update* sobre `StockActual` — un problema **mas general que esta
+   pantalla**: lo tenia cualquier par de operaciones concurrentes sobre el mismo grupo.
+3. **Re-chequeo de idempotencia ya con el lock tomado**, dentro de la transaccion, para que el caso
+   normal devuelva un mensaje claro en vez de hacer fallar una constraint.
+
+Si aun asi dos transacciones se cruzan, la `DbUpdateException` de violacion de unicidad se traduce
+al **mismo** `ServiceResult` de error que devuelve el chequeo (`EsViolacionDeUnicidad`, ER_DUP_ENTRY
+= 1062 buscado por reflexion para no atar Infrastructure a `MySql.Data`, con el texto como
+respaldo). El usuario ve el mismo mensaje, nunca un 500.
+
+**Ademas se movio el chequeo de stock suficiente adentro de la transaccion**: ahora se valida con el
+valor fresco leido bajo lock, no con uno leido antes de que nadie tomara el lock.
+
+### D-12 (baja) — no ofrecer una accion que no se puede hacer
+
+`Egresos/Index` mostraba el boton "Anular" en el egreso vinculado a una compra, aunque el servidor
+lo rechaza desde D-02. Ahora ese egreso muestra un badge **"Compra de hacienda"** con el tooltip que
+explica que hay que anular la compra desde Stock. La consulta que alimenta la vista
+(`IEgresoService.GetIdsVinculadosACompraAsync`) es **la misma** que usa el bloqueo de
+`AnularAsync`, para que vista y servidor no puedan discrepar.
+
+### Migracion — `20260908213828_MovimientoStock_ContramovimientoUnico`
+
+**Tercera migracion, aditiva.** MySQL no permite dropear un indice que sostiene una foreign key
+(errno 1553), y esta columna tiene la self-FK creada en `MovimientoStock_MovimientoRevertido`. El
+scaffolding genero solo `DropIndex` + `CreateIndex`, que **falla en MySQL**; se reescribio como
+`DropForeignKey` → `DropIndex` → `CreateIndex(unique)` → `AddForeignKey`, y el `Down` simetrico.
+
+### Verificacion
+
+| Item | Estado | Evidencia |
+|---|---|---|
+| **D-01 — 2 POST REALMENTE en paralelo** | **OK** | `Promise.all` desde Node (sin el proxy del navegador, para que nada los serialice): **1 exito, 1 rechazo**, ambos HTTP 302, ningun 500 |
+| **D-01 — 6 POST en paralelo** | **OK** | **1 exito, 5 rechazos** con `Esta compra ya fue anulada. No se puede anular dos veces.` |
+| **Ledger == `StockActual`** despues del ataque | **OK** | Los 5 grupos coinciden. El experimento de QA (82 → 72/62) ahora da **72/72** |
+| Duplicados de contramovimiento | **OK — 0 filas** | `GROUP BY MovimientoRevertidoId HAVING COUNT(*)>1` |
+| Cada compra atacada tiene **un** contramovimiento | **OK** | mov 54 → 55; mov 56 → 57 |
+| Indice unico realmente unico | **OK** | `SHOW INDEX`: `Non_unique: 0`, con **18** filas NULL conviviendo |
+| **El indice no rompe los movimientos con NULL** | **OK** | Nacimiento, Muerte, Ajuste, Compra sin costo, Compensacion y Venta (factura): las 6 altas OK |
+| **D-12** boton oculto en el vinculado | **OK** | 0 formularios `Anular` + badge "Compra de hacienda" |
+| **D-12** el egreso comun conserva su boton | **OK** | 1 formulario `Anular` |
+| **D-02** el servidor sigue rechazando | **OK** | POST directo → mismo mensaje de siempre |
+| **D-03** reversion sin boton | **OK** | 0 formularios en esa fila |
+| **PF88** compra con costo | **OK** | Stock, egreso y contramovimiento de caja |
+| **PF85** compra sin costo | **OK** | `Compra anulada. Se revirtieron 3 unidad(es)...` |
+| **MH-020** egreso comun | **OK** | Contramovimiento; **0** acreditados borrados hoy |
+| Invariante `Neto − Deducciones + IVA = Total` | **OK — 0 desvios** | |
+| Egresos vinculados dados de baja sin compra anulada | **OK — 0** | |
+| Build de `Ganaderia.slnx` | **OK** | 0 errores, 8 warnings preexistentes |
+| `ganaderia_dev` en el baseline | **OK** | `diff` pre/post identico; ledger == `StockActual` tras el restore |
+
+### Leccion
+
+Un chequeo de unicidad en codigo, fuera de la transaccion, no es una garantia de unicidad: es una
+optimizacion para el caso feliz. La garantia la da la base. Las dos primeras vueltas de D-01
+trataron el sintoma (primero el texto, despues el estado) sin atacar la clase del bug, que era
+*check-then-act*. Y el segundo intento **escondio** el daño en vez de mostrarlo, porque el lost
+update dejaba la columna en un numero creible.
+
+### Estado de deploy
+
+**NO DEPLOYADO Y NO COMMITEADO.** Quedan **tres** migraciones pendientes, en este orden:
+1. `20260908200801_Facturas_Deducciones_Y_CompraConCosto`
+2. `20260908210815_MovimientoStock_MovimientoRevertido`
+3. `20260908213828_MovimientoStock_ContramovimientoUnico`
+
+RT23 sigue vigente: re-verificar `SELECT COUNT(*) FROM FacturasVenta` en produccion antes de aplicar
+la primera (ultima verificacion: 0, el 2026-09-08 17:24).
+
+### Estado de deploy de v18 (cierre)
+
+**DEPLOYADO A PRODUCCION el 2026-09-08.** Las tres migraciones aplicadas en orden y el codigo publicado en el mismo deploy. RT23 re-verificado minutos antes (`FacturasVenta` = 0), y verificacion post-deploy contra produccion en verde: esquema viejo eliminado, esquema nuevo presente, 4 semillas del catalogo cargadas, indice unico con `NON_UNIQUE = 0`, y los dos invariantes de control (contramovimientos duplicados, `StockActual` vs ledger) en 0 filas.
+
+Sin backup previo, con el riesgo advertido y aceptado por el usuario. Queda abierto —y ya son dos meses— el pendiente de instalar `mysqldump` en el entorno de deploy y programar backups periodicos: la proxima migracion destructiva sobre una tabla con datos **no** deberia correrse en estas condiciones.

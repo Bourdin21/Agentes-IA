@@ -1,6 +1,6 @@
 # QA — Sistema de Gestión Ganadera
 
-Versión: **v4** (v1 inicial, v2 iteración v11, v3 iteración v17, **v4 iteración v18**)
+Versión: **v4** (v1 inicial, v2 iteración v11, v3 iteración v17, **v4 iteración v18** — cierre con veredicto APTO, §14)
 Agente: `6 - qa`
 Entradas (última iteración, v17):
 - `1-analista-funcional.md` v13 (§3.9, §3.10, §4.8, §8.1, PF67–PF77, PV19–PV23, R29–R31)
@@ -766,18 +766,18 @@ Nota: una factura **anulada** conserva su `TotalDeducciones` de cabecera mientra
 - [x] Auto-fix KOI-010 aplicado y verificado.
 - [x] Base de dev devuelta al baseline exacto.
 - [x] Sin commit y sin deploy (pedido explícito).
-- [ ] **D-01 (doble anulación de compra) — BLOQUEANTE. Corregido para el camino secuencial; SIGUE ABIERTO bajo POST concurrentes (doble clic). Ver §12.4.**
+- [x] **D-01 (doble anulación de compra) — CORREGIDO y re-verificado bajo ráfagas de 2/6/15/30 POST concurrentes (§13.2).**
 - [x] **D-02 (R34: anular egreso vinculado) — CORREGIDO y re-verificado (§12.2).**
 - [x] **D-03 (anular la reversión de una factura) — CORREGIDO y re-verificado (§12.3).**
-- [ ] **D-11 (centavo de redondeo) — decisión del usuario, pendiente.**
+- [ ] D-11 (centavo de redondeo) — decisión del usuario, pendiente. **No bloqueante.**
 - [ ] D-04/D-05 (redondeo de `MontoIva` y de `Subtotal`) — pendiente, no bloqueante.
 - [ ] D-06 a D-10 — pendientes, cosméticos/deuda.
 - [ ] **RT23: re-verificar `SELECT COUNT(*) FROM FacturasVenta` en producción el día del deploy.**
 - [ ] Revisión del implementador sobre el auto-fix KOI-010 antes del merge.
 
-## 11. Veredicto
+## 11. Veredicto (de la primera pasada — superado por §14)
 
-**NO APTO PARA DEPLOY.**
+**En ese momento: NO APTO PARA DEPLOY.**
 
 La **funcionalidad nueva de v18 es correcta y está completa**: los 22 criterios de aceptación pasan end-to-end contra la app real. El snapshot de deducciones es genuinamente inmutable (PF82 verificado cambiando el catálogo en vivo), la transacción de la compra con costo es **atómica de verdad** (PF86: forzado el fallo, no quedó ni una fila), y no hay ninguna regresión sobre v17, la caja, el stock ni el gráfico de IVA. La extracción del JS compartido está bien hecha y las dos pantallas lo consumen sin divergir.
 
@@ -793,7 +793,7 @@ En un sistema **en producción** cuyo dato más sensible es el conteo de cabezas
 
 Con esos tres corregidos y re-verificados, y con D-11 decidido, v18 queda apto. El resto de los hallazgos (D-04 a D-10) no bloquea.
 
-> **Actualización (misma jornada): los tres fueron corregidos y re-verificados. D-02 y D-03 quedaron cerrados; D-01 sigue abierto bajo concurrencia y mantiene el NO APTO. Ver §12.**
+> **Actualización (misma jornada): los tres fueron corregidos. D-02 y D-03 cerrados en §12; D-01 y D-12 cerrados en §13. VEREDICTO FINAL: APTO PARA DEPLOY — ver §14.**
 
 ---
 
@@ -881,9 +881,9 @@ A raíz de esta corrección conviene dejar dos chequeos permanentes:
 
 **D-13 (INFORMATIVO)** — existe **1 movimiento de caja en estado `Acreditado` con `DeletedAt` seteado** (2026-07-02), de la era v11, anterior a la adopción de MH-020 (ledger inmutable con contramovimiento). Es dato viejo, **no una regresión de esta entrega**: se registra y **no se toca**. Si en algún momento se hace una limpieza histórica, es el candidato.
 
-### 12.9 Veredicto tras la re-verificación
+### 12.9 Veredicto tras la re-verificación (superado por §14)
 
-**SIGUE NO APTO PARA DEPLOY**, por un único defecto: **D-01 bajo concurrencia**.
+**En ese momento: SIGUE NO APTO PARA DEPLOY**, por un único defecto: **D-01 bajo concurrencia**.
 
 Dos de los tres bloqueantes están **genuinamente cerrados**: D-02 y D-03 resisten el POST directo saltando la UI, la decisión "bloquear, no cascadear" está bien implementada en servidor y no rompió la anulación de egresos comunes, y el backfill hace que los datos viejos no revivan el defecto. Los tres flujos que el implementador cortó de más (`RegistrarMuerteAsync`, `CompensarAsync`, `RegistrarAjusteAsync`) funcionan end-to-end en navegador, no sólo compilan. El cambio de base a Subtotal quedó intacto.
 
@@ -892,3 +892,129 @@ D-01 se cerró para el 80% de los caminos reales pero **no para el que le da nom
 Es un fix chico —un índice único sobre `MovimientoRevertidoId`, que además es semánticamente lo correcto— pero es cambio de estrategia de concurrencia y de esquema (tercera migración), así que no se auto-fixeó.
 
 Con D-01 cerrado y re-verificado bajo POST concurrentes, v18 queda **apto**, con D-11 (el centavo de redondeo) pendiente de decisión del usuario y D-04 a D-13 como deuda no bloqueante.
+
+---
+
+## 13. Re-verificación final — D-01 y D-12 corregidos (2026-09-08, misma jornada)
+
+Tercera migración `20260908213828_MovimientoStock_ContramovimientoUnico` (índice único sobre `MovimientoRevertidoId`) + `SELECT ... FOR UPDATE` sobre el `Grupo` como primera sentencia de la transacción + re-chequeo de idempotencia bajo lock + traducción de `ER_DUP_ENTRY` (1062) al mismo `ServiceResult`. D-12: badge "Compra de hacienda" en lugar del botón, alimentado por la misma consulta que usa el bloqueo del servidor.
+
+Build: **0 errores**, 9 warnings preexistentes.
+
+### 13.1 Migración — aplica y revierte limpio
+
+El riesgo señalado era el errno 1553 de MySQL: no se puede dropear un índice que sostiene una FK. La migración fue reescrita como `DropForeignKey` → `DropIndex` → `CreateIndex(unique)` → `AddForeignKey`, con `Down` simétrico. **Probado de verdad, no sólo compilado:**
+
+| Paso | Resultado |
+|---|---|
+| `dotnet ef database update 20260908210815_...MovimientoRevertido` (**Down**) | **"Done."** sin errores. Índice pasa a `Non_unique = 1`, **la FK sobrevive**, `mov 26 → MovimientoRevertidoId = 25` intacto, `MAX(Id) = 28` sin cambios. |
+| `dotnet ef database update` (**Up** de vuelta) | **"Done."** sin errores. Índice vuelve a `Non_unique = 0`. |
+
+Sin errno 1553 en ninguna de las dos direcciones.
+
+### 13.2 D-01 — CORREGIDO. Ataque de concurrencia propio, con presión creciente
+
+Método propio, POST simultáneos disparados desde el navegador autenticado contra `/Stock/AnularCompra/{id}`, una compra nueva de 10 cabezas por tanda, verificando **en base**:
+
+| Ráfaga | Contramovimientos posteados | Duplicados | 500s |
+|---|---|---|---|
+| 2 POST simultáneos (el doble clic) | **1** | 0 | 0 |
+| 6 POST simultáneos | **1** | 0 | 0 |
+| 15 POST simultáneos | **1** | 0 | 0 |
+| 30 POST simultáneos | **1** | 0 | 0 |
+
+En la ráfaga de 30 el rate limiter de la app devolvió **429** a 25 requests — comportamiento correcto, no un error. En las cuatro tandas: **exactamente un contramovimiento por compra**, `GROUP BY MovimientoRevertidoId HAVING COUNT(*) > 1` → **0 filas**, y **0 excepciones no manejadas en el log de la app**.
+
+**Réplica exacta del experimento que fallaba**, sobre baseline limpio:
+
+| Paso | Antes del fix | Ahora |
+|---|---|---|
+| Estado inicial | 72 / 72 | 72 / 72 |
+| Compra de 10 cabezas | 82 / 82 | 82 / 82 |
+| **2 POST simultáneos** | **72 / 62** ❌ | **72 / 72** ✅ |
+
+El *lost update* sobre `StockActual` está cerrado: el `FOR UPDATE` serializa el read-modify-write, así que ya no queda el escenario en que la columna desnormalizada muestra el número plausible mientras el ledger dice otra cosa. La observación que hizo apuntar el fix al lugar correcto queda **resuelta en las dos puntas**: no hay segundo contramovimiento (índice único) y no hay lectura sucia de `StockActual` (lock de fila).
+
+### 13.3 El índice único no rompe los NULL
+
+MySQL admite múltiples NULL en un índice único, pero era el riesgo obvio: si algo hubiera atado el índice a NOT NULL, se caían **todos** los movimientos que no son contramovimientos. Verificado con seis altas consecutivas en navegador — justo los flujos que más veces se rompieron en esta entrega:
+
+| # | Flujo | Resultado | Stock Lote 1 |
+|---|---|---|---|
+| 1 | Nacimiento | **PASS** | 72 → 76 |
+| 2 | Muerte | **PASS** | 76 → 74 |
+| 3 | Ajuste (`StockReal = 80`) | **PASS** | 74 → 80 |
+| 4 | Compra **sin costo** | **PASS** | 80 → 86 |
+| 5 | Compensación inter-categoría | **PASS** | 86 → 89 (vaquillonas 44 → 41) |
+| 6 | Venta (factura) | **PASS** | 89 → 84 |
+
+Seis filas con `MovimientoRevertidoId` NULL conviviendo bajo el índice único, 0 errores.
+
+### 13.4 D-12 — CORREGIDO, y no se come el flujo normal
+
+| Egreso | Botón "Anular" | Badge | Correcto |
+|---|---|---|---|
+| **Vinculado** a una compra de hacienda | **no** | **"Compra de hacienda"** con tooltip a Stock | ✅ |
+| **Común** (no vinculado) | **sí** | no | ✅ |
+
+El badge no se comió el flujo normal: el egreso común conserva su botón y su anulación funciona (`"Egreso anulado. 1 pago(s) ya acreditado(s) se revirtieron con un contramovimiento en caja."`). Vista y servidor usan la misma consulta, así que no pueden discrepar.
+
+### 13.5 Regresión
+
+| Caso | Resultado |
+|---|---|
+| **D-02** POST directo `/Egresos/Anular/{vinculado}` | **PASS** — bloqueado, remite a Stock. |
+| **D-03** POST directo sobre la reversión de una factura (mov 12) | **PASS** — bloqueado; mov 12 con **0** contramovimientos. |
+| **Backfill** POST directo sobre mov 25 (anulado pre-migración) | **PASS** — sigue con **1** contramovimiento, no se re-anuló. |
+| **PF85** compra sin costo, anulable | **PASS** |
+| **PF88** compra con costo | **PASS** — mov 46 con 1 contramovimiento, egreso 17 de baja, caja original (47) **intacta** + contramovimiento (50). MH-020. |
+| Anulación de **egreso común** | **PASS** — egreso 18 de baja, caja 48 intacta + contramovimiento 49. |
+| Anulación de **factura de venta** | **PASS** |
+| **Base de deducciones = Subtotal** | **PASS — intacta** pese a que el fix tocó `StockService` y `EgresoService`: rótulo "sobre el Subtotal", neto 130.803.120,00, IVA **13.734.327,60**, deducciones 3.191.444,89, Total 141.346.002,71. |
+| Errores JS en navegador | **0** |
+
+### 13.6 Invariantes — 7/7 en 0 desvíos
+
+| Invariante | Desvíos |
+|---|---|
+| `Subtotal − MontoDescuento − TotalDeducciones + MontoIva = Total` | **0** |
+| `TotalDeducciones` = Σ líneas (facturas activas) | **0** |
+| `Subtotal − MontoDescuento + MontoIva = Importe` en `Egresos` | **0** |
+| Σ `EgresoPagos` = `Egreso.Importe` (activos) | **0** |
+| Movimiento de compra vivo con egreso de baja y sin contramovimiento | **0** |
+| **Contramovimientos duplicados** (`HAVING COUNT(*) > 1`) | **0** |
+| **`Grupo.StockActual` vs. ledger** (los 5 grupos) | **0** |
+
+### 13.7 Nota de método
+
+Durante esta corrida uno de mis propios scripts de prueba anuló por error el egreso 13 del baseline (una fila preexistente, no de QA). Se detectó en el `diff` de cierre y se restauró; el `diff` final contra el baseline da **0 diferencias**. Lo registro porque es exactamente el tipo de contaminación que el baseline + `diff` existe para atrapar.
+
+## 14. VEREDICTO FINAL v18
+
+# **APTO PARA DEPLOY**
+
+Levanto el NO APTO. Los cuatro defectos que lo sostenían están cerrados y **re-verificados con método propio**, no confiando en el reporte del implementador:
+
+- **D-01** — cerrado en las dos puntas. Mi ataque de concurrencia con presión creciente (2 / 6 / 15 / 30 POST simultáneos) da **exactamente un contramovimiento** en las cuatro tandas, 0 duplicados y 0 excepciones. El experimento que antes daba 72/62 ahora da **72/72**. El índice único es la garantía que no depende del timing; el `FOR UPDATE` cierra el lost update. El índice no rompe los NULL: los seis flujos de movimiento funcionan end-to-end.
+- **D-02** — cerrado. El POST directo saltando la UI se rechaza y la compra sigue anulable.
+- **D-03** — cerrado. El discriminador `Tipo == Compra && FacturaVentaId == null` es correcto: bloquea la reversión de factura y **no** rompe la compra sin costo.
+- **D-12** — cerrado, sin comerse el flujo normal del egreso común.
+
+La migración **aplica y revierte limpio en ambas direcciones**, sin el errno 1553 que era el riesgo real.
+
+La funcionalidad de v18 sigue completa y correcta: 22/22 criterios, snapshot inmutable, transacción atómica, MH-020 respetado, base de deducciones = Subtotal intacta, 7/7 invariantes en 0 desvíos.
+
+### Condiciones para el día del deploy
+
+1. **RT23 — bloqueante, verificar primero.** Correr `SELECT COUNT(*) FROM FacturasVenta` en producción **antes** de aplicar nada. Si devuelve algo distinto de 0, **FRENAR**: hay que convertir los valores de `IIBB`/`OtrasPercepciones` en filas de `FacturaVentaDeducciones` antes de los `DropColumn`. El `Down()` recrea esas columnas **en 0**: el rollback no recupera datos.
+2. **Tres migraciones, en este orden exacto:**
+   1. `20260908200801_Facturas_Deducciones_Y_CompraConCosto`
+   2. `20260908210815_MovimientoStock_MovimientoRevertido` (trae el backfill del marcador de texto al estado nuevo)
+   3. `20260908213828_MovimientoStock_ContramovimientoUnico`
+3. **Backup de producción antes de la migración 1** — es la única destructiva de las tres.
+4. **Post-deploy, correr los dos invariantes de control** contra producción: contramovimientos duplicados (`HAVING COUNT(*) > 1` → 0 filas) y `Grupo.StockActual` vs. ledger por grupo (→ 0 desvíos). Son los que detectan la clase de corrupción que se cerró en esta entrega; conviene dejarlos como chequeo periódico.
+5. **Avisarle al usuario dos cosas de negocio**, o van a parecer errores: (a) **R33** — cambiar un porcentaje del catálogo **no** modifica las facturas ya emitidas, es deliberado; (b) **D-11** — el total puede quedar **$ 0,01** por debajo del comprobante del consignatario, porque los tres porcentajes caen en medio centavo exacto y el papel del consignatario redondea de forma internamente inconsistente. Decisión pendiente del usuario, **no bloquea**.
+
+### Pendientes no bloqueantes
+
+D-04 y D-05 (redondeo asimétrico de `MontoIva` y de `Subtotal` cabecera vs. líneas — conviene cerrarlos junto con la decisión de D-11, porque tocan el mismo eje), D-06 a D-10, y **D-13** (el movimiento de caja `Acreditado` con `DeletedAt` de la era v11, dato viejo, registrado y no tocado).
