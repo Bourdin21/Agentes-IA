@@ -574,6 +574,131 @@ En `IFacturaVentaService` (o interfaz nueva `IFacturaVentaSugerenciasService` si
 
 ---
 
+## 8.3 Diseño v4 — Descuento comercial pre-impuestos + gráfico de IVA compras/ventas
+
+A partir del análisis funcional **v13** (§3.9, §3.10, §4.8, §8.1).
+
+### Escaneo de reutilización cross-proyecto (obligatorio, tarea 0)
+
+| Qué se buscó | Dónde apareció | Decisión |
+|---|---|---|
+| Descuento **global** por comprobante | `ShowroomGriffin/2-disenador-funcional.md` §3.3 (`Descuento %` + línea "Descuento ( 0 %): $ 0" entre Subtotal y Total) y `5-implementador.md` (`total = subtotal - model.DescuentoMonto`, recálculo JS en vivo) | Se **reutiliza el layout** (fila de descuento intercalada entre Subtotal y Total, recálculo en vivo). **No** se reutiliza la mecánica: allí el descuento es sólo importe y se aplica al final, sin impuestos de por medio. |
+| Descuento **por ítem** | `la-platense` (`ItemVenta.Descuento`/`Recargo` como importes) y `vinosefue` (`PedidoItem.DescuentoPorcentajeCosto`, sólo %) | **Descartado**: el análisis v13 P3:A definió descuento global por comprobante. Se toma sí el aprendizaje de `la-platense/5-implementador.md` §216 ("no quedó claro si Descuento es monto o porcentaje"): acá se persisten **los dos** campos, y la autoridad es el importe. |
+| Doble campo **% ↔ importe** sincronizado | **Este mismo proyecto**: `Facturas/Create.cshtml` (`impState`, v13) y `Egresos/Create.cshtml` (`ivaDriver`, v15) | **Reutilización directa**. El descuento entra como un grupo más del driver existente. |
+| Gráfico Chart.js barras + línea | **Este mismo proyecto**: `Dashboard/TableroAnual.cshtml` (`chartMensual`: 2 barras + línea de neto) | **Reutilización directa**: el gráfico de IVA es un clon con otras series. La advertencia de `koi/5-implementador.md` (Chart.js con colores viejos al togglear tema sin reload) **no aplica**: ganaderia no tiene toggle de tema. |
+
+**Conclusión:** no se importa código de otros repositorios; el patrón exacto ya está resuelto y probado dentro de ganaderia. El aporte externo es el layout de ShowroomGriffin y una lección de modelado de la-platense.
+
+### 8.3.1 `Facturas/Create` (y edición) — card "Descuento, impuestos y percepciones"
+
+```
+┌─ Descuento, impuestos y percepciones ───────────────────────────────┐
+│  Subtotal                                          1.000.000,00     │
+│                                                                      │
+│  Descuento %  [ 10,00 ]   Descuento $ [ 100.000,00 ]                │
+│               sobre Subtotal                    [ Sin descuento ]   │
+│                                                                      │
+│  Neto gravado                                        900.000,00     │
+│                                                                      │
+│  IVA %  [ 21,00 ]   IVA $ [ 189.000,00 ]                            │
+│         sobre Neto gravado      [0%] [10,5%] [21%] [27%]            │
+│  Ingresos Brutos % [ 3,00 ]  $ [ 32.670,00 ]  sobre Neto + IVA      │
+│  Otras percepciones % [     ]  $ [        ]   sobre Neto + IVA      │
+│  ──────────────────────────────────────────────────────────────     │
+│  Total                                             1.121.670,00     │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**Mecánica (extensión mínima del driver existente).** El array `impGrupos` pasa de `['iva','iibb','percep']` a `['desc','iva','iibb','percep']` y `impState` gana la clave `desc` (`'pct'` por defecto). La **única** función que cambia es `base(grupo)`:
+
+```js
+const neto = () => subtotal - num(montoDe('desc'));
+base('desc')            -> subtotal
+base('iva')             -> neto()
+base('iibb'|'percep')   -> neto() + num(montoDe('iva'))
+Total                    = neto() + montoIva + montoIibb + montoPercep
+```
+
+Como el descuento es el primer elemento del array, queda resuelto antes que los impuestos en la misma pasada de `recalcImpuestos()`, y toda la cascada existente (editar un ítem → `recalcSubtotal` → `recalcImpuestos` → `actualizarResumenIngresos`) sigue funcionando sin tocarse. Esto materializa P4:A: **el descuento baja la base de IVA, IIBB y percepciones a la vez**, con un solo punto de cambio.
+
+- **"Sin descuento"**: botón que pone ambos campos en 0 y `impState.desc = 'pct'`. Estado inicial de toda factura nueva (el descuento es opcional, PF70).
+- **"Neto gravado"** es una línea calculada, no un input. Sólo se muestra cuando hay descuento > 0, para no ensuciar el caso normal.
+- **Validación en vivo**: si `MontoDescuento >= Subtotal`, ambos inputs toman `is-invalid`, el Total muestra "El descuento no puede dejar el total en cero" y el submit se bloquea. El servidor repite el chequeo (PV20).
+
+### 8.3.2 `Egresos/Create` — misma card, versión reducida
+
+Idéntica estructura sin IIBB ni percepciones: `Subtotal → Descuento (% / $) → Neto gravado → IVA (% / $) → Importe total`. El total en vivo sigue escribiéndose en el hidden `#ImporteTotal` (que no postea; el servidor lo recalcula) y la grilla de pagos sigue validando contra él con **tolerancia cero** (RD6/S31 — divergencia deliberada respecto de la tolerancia de $0,01 de los ingresos de factura, ya documentada).
+
+### 8.3.3 Reajuste de ingresos al editar (R1 del usuario)
+
+Hoy `actualizarResumenIngresos(total)` ya muestra en verde/rojo si los ingresos cierran contra el Total. v4 agrega **dos** cosas y no cambia nada más:
+
+1. Junto al mensaje rojo, botón **"Reajustar al nuevo total"**: redistribuye **proporcionalmente** a los importes actuales (`nuevo_i = viejo_i × total_nuevo / total_viejo`), **conservando las fechas de vencimiento**, con el ajuste de centavos en la última fila — misma mecánica de cierre que ya usa `btnGenerarSugerido` (que reparte parejo). Proporcional y no parejo porque conserva el patrón que el usuario armó a mano (S39; era la pregunta abierta menor del análisis y queda resuelta acá).
+2. Al enviar una edición cuyo total cambió, confirmación previa SweetAlert2: *"El total pasó de $X a $Y. Los ingresos suman $Z (diferencia $D). ¿Continuar?"* — el "aviso previo" pedido. No se reajusta nunca en silencio (R29).
+
+No existe caso mixto: `PuedeEditarAsync` ya impide editar la factura si algún ingreso está Acreditado o Rechazado, así que todos los ingresos editables son Pendientes. El servidor sigue siendo la autoridad y rechaza si no cierran (PV22).
+
+### 8.3.4 `Dashboard/TableroAnual` — card "IVA de compras y ventas"
+
+Nueva card debajo del gráfico de flujo existente, **clon estructural de `chartMensual`**:
+
+- `chartIva`: 12 barras verdes (**IVA ventas**), 12 rojas (**IVA compras**), línea azul de **saldo IVA** (`ventas − compras`).
+- KPI nuevo en la fila superior: **"Saldo IVA del período"**, color según signo, respetando el filtro Año (+ Mes).
+- Tabla de desglose mes a mes debajo, mismo patrón que la tabla de flujo.
+- **Rótulo obligatorio en la card** (R30/R31), no en un tooltip: *"Base devengado: se imputa por la fecha del comprobante, no por la fecha de cobro o pago — a diferencia del gráfico de arriba, que es caja. Informativo: no es un Libro IVA (no contempla notas de crédito ni percepciones)."*
+
+### 8.3.5 ViewModels y DTOs (delta)
+
+- `FacturaVentaCreateVm` += `PorcentajeDescuento` `[Range(0, 99.99)]`, `MontoDescuento` `[Range(0, double.MaxValue)]`.
+- `EgresoCreateVm` += los mismos dos campos; `Total => Subtotal - MontoDescuento + MontoIva`.
+- `FacturaVentaCreateInput` y `EgresoCreateInput` (records) += `PorcentajeDescuento`, `MontoDescuento`.
+- `TableroAnualMesDto` += `IvaVentas`, `IvaCompras`, `SaldoIva => IvaVentas - IvaCompras`.
+- `TableroAnualKpisDto` += `SaldoIvaPeriodo`.
+
+### 8.3.6 Contratos de servicio (delta)
+
+`IDashboardService.GetTableroAnualAsync` **no cambia de firma**. Su implementación agrega dos consultas independientes de caja: `FacturaVenta` no anuladas agrupadas por `Fecha.Month` (Σ `MontoIva`) y `Egreso` no anulados agrupados igual. `IFacturaVentaService` e `IEgresoService` tampoco cambian de firma: sólo crecen sus records de input.
+
+### Aclaraciones v4.1 (bordes que la v4 no cubria, detectados en implementacion)
+
+- **Estado inicial del driver en modo edicion.** §8.3.1 define `impState.desc = 'pct'` para el alta, pero no dice nada de reabrir un comprobante que ya tiene descuento. Ahi debe arrancar en **`'monto'`**: si arrancara en `'pct'`, recalcularia el importe desde un porcentaje redondeado a 4 decimales y podria correrlo unos centavos sin que el usuario toque nada — exactamente lo que RD14 quiere evitar (el importe es la autoridad, el % es derivado).
+- **El mensaje rojo de desvio tambien aparece en el alta.** §8.3.3 dice "junto al mensaje rojo, boton Reajustar", lo que leido literal pone el boton tambien en el alta. La condicion correcta es **mensaje rojo Y modo edicion** (RD13/PD15).
+
+### Riesgos de diseño v4
+
+- **RD12** El descuento entra en la base de **todos** los impuestos. Cualquier punto que hoy recomponga totales fuera de la card (PDF del comprobante, `Details`, sumatorias de los listados) debe leer el total **persistido**, no recalcularlo — si recalcula, va a ignorar el descuento.
+- **RD13** `Facturas` **no tiene `Edit.cshtml` propio**: la edición reusa `Create.cshtml`. El botón "Reajustar al nuevo total" y la confirmación de cambio de total deben condicionarse a un flag de modo edición en el ViewModel, o el alta va a mostrar un botón que no significa nada.
+- **RD14** El % derivado de un importe (`monto / subtotal × 100`) puede dar decimales largos. Se persiste redondeado a 4 decimales, igual que los impuestos, y **la autoridad es el importe** (el % es informativo/derivado). Precisión: `decimal(18,4)` para porcentajes, `decimal(18,2)` para montos.
+- **RD15** Facturas y egresos históricos deben quedar en descuento **0, no NULL**, para que sumatorias, PDF y detalle no cambien de comportamiento (PF70).
+- **RD16** El gráfico de IVA lee comprobantes, no caja: un mes con facturas emitidas y sin cobrar igual muestra IVA. Es correcto — y es exactamente lo que se malinterpreta si falta el rótulo de §8.3.4.
+
+### Pruebas de diseño v4
+
+- **PD13** `base()` sigue siendo la única función que decide sobre qué base se aplica cada impuesto; el descuento no duplica la fórmula en ningún otro lado del JS.
+- **PD14** Descuento ≥ Subtotal: bloqueado en cliente **y** rechazado ante un POST directo que saltee la UI.
+- **PD15** El botón de reajuste y la confirmación de cambio de total **no** aparecen en el alta, sólo en edición (RD13).
+- **PD16** `GetTableroAnualAsync` no consulta `MovimientosCaja` para las series de IVA (devengado, no caja).
+- **PD17** Los `value=` de descuento se emiten con `CultureInfo.InvariantCulture` (LP-003, ya corregido en v13 para el resto de los decimales de estas pantallas).
+
+### Historias de usuario v4
+
+- **HU-D1** — Como Productor, quiero cargar un descuento en una factura de venta indistintamente en % o en importe, para no tener que hacer la cuenta a mano según cómo me lo pasó el comprador.
+  *Criterios:* escribir el % completa el importe y viceversa; el último campo tocado manda; ambos se persisten; el detalle muestra los dos.
+- **HU-D2** — Como Productor, quiero que el IVA y las percepciones se calculen sobre el total ya descontado, para que la factura refleje lo que realmente voy a cobrar.
+  *Criterios:* con Subtotal 1.000.000 y descuento 10%, IVA 21% da 189.000 e IIBB 3% da 32.670 sobre 1.089.000; Total 1.121.670 (PF67, PF69).
+- **HU-D3** — Como Productor, quiero que el descuento sea opcional, para que las facturas sin descuento sigan cargándose exactamente igual que antes.
+  *Criterios:* el formulario abre con descuento en 0; una factura sin descuento da los mismos totales que antes de v4 (PF70).
+- **HU-D4** — Como Productor, quiero que el sistema no me deje dejar el total en cero con un descuento, para no emitir un comprobante sin valor por error de tipeo.
+  *Criterios:* descuento ≥ subtotal, % fuera de [0,100) o valores negativos quedan bloqueados en cliente y servidor (PV19–PV21).
+- **HU-D5** — Como Productor, quiero cargar un descuento también en las compras a proveedor, para registrar la bonificación que me hace el proveedor antes del IVA.
+  *Criterios:* Subtotal 100.000 con 5% da neto 95.000, IVA 19.950 e Importe 114.950; los pagos deben sumar 114.950 (PF71, PV23).
+- **HU-D6** — Como Productor, quiero que al editar una factura y cambiar el total el sistema me avise y me ofrezca reajustar las cuotas, para no tener que recalcularlas una por una ni descubrir el desvío recién al guardar.
+  *Criterios:* aviso previo con total viejo, total nuevo y diferencia; botón que redistribuye proporcionalmente conservando vencimientos; nunca reajusta solo; el servidor bloquea si no cierran (PF72, PV22).
+- **HU-D7** — Como Productor, quiero ver en el Tablero Anual cuánto IVA generaron mis ventas y cuánto mis compras mes a mes, para anticipar mi posición de IVA antes de que me la informe el contador.
+  *Criterios:* dos barras por mes más línea de saldo; imputación por fecha de comprobante (una factura de marzo cobrada en mayo suma en marzo); excluye anulados; muestra sólo el IVA de la factura, no el de los pagos; KPI de saldo del período; rótulo visible de base devengado y de "no es un Libro IVA" (PF73–PF76).
+
+---
+
 ## 9. Trazabilidad a requisitos
 
 | Requisito (v10) | Pantalla | Servicio | ViewModel |
@@ -616,6 +741,7 @@ En `IFacturaVentaService` (o interfaz nueva `IFacturaVentaSugerenciasService` si
 - [ ] **(v3)** Select2 reemplaza `<datalist>` en `Egresos/Create` (Concepto), sin código muerto del widget viejo.
 - [ ] **(v3)** Select2 aplicado a `Motivo` en `Facturas/Create`, con endpoint `SugerenciasMotivoAsync` simétrico a `SugerenciasDetalleAsync`.
 - [ ] **(v3)** Riesgos RD9–RD11 y pruebas PD11–PD12 agregados al plan.
+- [ ] **(v4)** Riesgos RD12–RD16 y pruebas PD13–PD17 agregados al plan; escaneo de reutilización cross-proyecto documentado (§8.3).
 
 ---
 
@@ -634,3 +760,4 @@ Entregar a los próximos agentes:
 - **v1** — Primera consolidación del diseño funcional a partir del análisis funcional v10. Define pantallas, ViewModels, contratos de servicios, requerimientos de datos, riesgos de diseño y pruebas de diseño. Listo para handoff al agente arquitecto.
 - **v2** — A partir del análisis funcional v11 (proyecto `ganaderia - emo` únicamente): rediseño del módulo Egresos con pagos múltiples (`EgresoPago`), grilla dinámica en el alta, ciclo Pendiente→Acreditado de cheque diferido vía extensión del job diario existente, y acciones de rechazo/regularización (`IEgresoPagoService`) simétricas a `ICuotaService`. Se alinea la nomenclatura del documento a la del código real (`Egreso`, no `Gasto`). Agregados RD6–RD8, PD8–PD10.
 - **v3** — A partir del análisis funcional v12 (proyecto `ganaderia - emo` únicamente, §8.1/§8.2): autocomplete de Concepto (Egresos) migra de `<datalist>` a **Select2**; `Motivo` de Factura de venta pasa de enum cerrado a texto libre con autocomplete Select2, nuevo contrato `IFacturaVentaService.SugerenciasMotivoAsync` simétrico a `SugerenciasDetalleAsync`. Agregados RD9–RD11, PD11–PD12.
+- **v4** — A partir del análisis funcional v13 (§8.3): **descuento comercial opcional** en Facturas de venta y Egresos, cargable en % o importe, aplicado sobre el Subtotal para dar un **neto gravado** sobre el que se calculan todos los impuestos (IVA, IIBB y percepciones en ventas; IVA en egresos) — resuelto extendiendo el driver `impState` ya existente con un grupo `desc` y cambiando **una sola función** (`base()`). **Reajuste proporcional de ingresos** al editar una factura cuyo total cambia, con aviso previo (resuelve la pregunta abierta S39: proporcional, no parejo). **Gráfico de IVA compras vs. ventas** en el Tablero Anual, clon estructural de `chartMensual`, base devengado por fecha de comprobante, con rótulo explícito de base contable y de "no es un Libro IVA". Escaneo de reutilización cross-proyecto: layout tomado de ShowroomGriffin, lección de modelado de la-platense, mecánica reutilizada del propio proyecto (v13/v15). Agregados RD12–RD16, PD13–PD17, HU-D1–HU-D7.

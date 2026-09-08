@@ -735,8 +735,124 @@ protected override void Up(MigrationBuilder migrationBuilder)
 
 ---
 
+## 17. Arquitectura v4 — Descuento comercial pre-impuestos + serie de IVA en el Tablero Anual
+
+Sobre el diseño funcional **v4** (§8.3 de `2-disenador-funcional.md`) y el análisis **v13**. Grounded en el código real de `ganaderia - emo` al 2026-09-06 (post v16), no en el plan original.
+
+### Escaneo de reutilización cross-proyecto (tarea 0)
+
+| Componente buscado | Dónde | Decisión |
+|---|---|---|
+| Modelo de impuestos **por comprobante** (`Subtotal` / `MontoIva` / `MontoIIBB` / `Total`) | `marihogar` (`3-arquitecto-mvc.md` §332, `5-implementador.md` §657 CR-1) | **Mismo modelo, mismo criterio** (`Total` autoritativo, no se recalcula al leer). **Corrección de atribución (v4.1):** el préstamo va al revés de lo que decía la primera redacción de esta tabla — marihogar §657 dice explícitamente que su bloque de impuestos es *"patrón copiado del bloque de impuestos de `FacturaVenta.cs` de `ganaderia - emo`"*. El criterio se confirma, pero **ganaderia es el proyecto de origen**, no el receptor. Corolario: marihogar tiene hoy el mismo modelo de 4 campos por comprobante y es **candidato natural a recibir este mismo descuento** si el cliente lo pide. |
+| Descuento como columna | `la-platense/3-arquitecto-mvc.md` (`ItemVenta.descuento/recargo`, `Proveedor.porcentajeDescuento`) | **No aplica**: es descuento por línea y por proveedor. Acá es global por comprobante (P3:A). |
+| Migración de datos financieros en producción | `vinosefue/3-arquitecto-mvc.md` §74 (script SQL idempotente + backup obligatorio) | **Riesgo mucho menor acá**: no se muta ningún dato existente, sólo se agregan dos columnas `NOT NULL DEFAULT 0`. No requiere el protocolo de backfill de v2 (RT9). |
+| Gráfico de posición de IVA | — | **No existe en ningún proyecto del historial.** Componente nuevo, pero construido como clon del `chartMensual` propio. |
+
+**Conclusión:** no se importa código externo. El criterio de "total autoritativo" ya es de este proyecto (marihogar lo tomó de acá), y se apoya todo en la infraestructura ya probada de este mismo repositorio.
+
+### 17.1 Domain
+
+`FacturaVenta` y `Egreso` suman **dos columnas cada uno**, con la convención de precisión ya vigente en `AppDbContext` (porcentajes `HasPrecision(9,4)`, montos `HasPrecision(18,2)` — **corrige el `18,4` que había estimado el diseño**, que no era la convención del proyecto):
+
+```csharp
+/// <summary>Descuento comercial opcional. % e importe editables (la autoridad es el importe).</summary>
+public decimal PorcentajeDescuento { get; set; }   // HasPrecision(9, 4)
+public decimal MontoDescuento { get; set; }        // HasPrecision(18, 2)
+
+/// <summary>Base imponible real: Subtotal - MontoDescuento. No se persiste.</summary>
+public decimal NetoGravado => Subtotal - MontoDescuento;
+```
+
+`NetoGravado` es propiedad calculada y **debe ignorarse explícitamente** en la configuración (`e.Ignore(p => p.NetoGravado)` en ambos `modelBuilder.Entity<>`), o EF Core intenta mapearla como columna. Se agrega igual (en vez de repetir la resta en cada vista/PDF) porque es la fórmula que RD12 quiere en un solo lugar.
+
+Semántica que se preserva sin cambios:
+- `FacturaVenta.Total` sigue siendo **el total persistido y autoritativo**, ahora `NetoGravado + MontoIva + MontoIIBB + MontoOtrasPercepciones`.
+- `Egreso.Importe` sigue siendo **el TOTAL** (nombre histórico, ver v15), ahora `NetoGravado + MontoIva`.
+- Anulación = soft delete (`SoftDestroyable` + filtro global): las series de IVA no necesitan filtrar anulados a mano, el query filter ya los excluye. **No usar `IgnoreQueryFilters()` en las consultas nuevas** — es el modo exacto de romper PF75.
+
+### 17.2 Application
+
+- `FacturaVentaCreateInput` y `EgresoCreateInput` (records posicionales) += `PorcentajeDescuento`, `MontoDescuento`. Al ser posicionales, el compilador marca todos los call sites: son **los controllers únicamente** (alta y edición), lo cual es la garantía barata de que no queda ninguno sin actualizar.
+- `TableroAnualMesDto` += `IvaVentas`, `IvaCompras`, y `SaldoIva => IvaVentas - IvaCompras` (mismo patrón que el `Neto` que ya tiene).
+- `TableroAnualKpisDto` += `SaldoIvaPeriodo`.
+- **Ninguna interfaz cambia de firma.**
+
+### 17.3 Infrastructure
+
+**`FacturaVentaService`** — dos puntos de cambio, ya localizados en el código actual:
+
+- Líneas 61 y 150 (`CreateAsync` y `EditAsync`) calculan hoy `total = Math.Round(subtotal + MontoIva + MontoIIBB + MontoOtrasPercepciones, 2)`. Pasan a `total = Math.Round(subtotal - input.MontoDescuento + ..., 2)`. **El total ya se calcula en servidor** (el cliente nunca lo postea), así que el descuento entra por la puerta correcta sin cambiar el contrato de confianza.
+- El validador de tuplas `(nombre, pct, monto)` (~línea 382) suma la entrada `("Descuento", input.PorcentajeDescuento, input.MontoDescuento)` y agrega la única regla propia: `MontoDescuento < subtotal` (PV20) y `PorcentajeDescuento < 100` (PV19).
+- `ValidarIngresos` (~línea 404) **no cambia**: sigue comparando contra `total`, que ahora ya viene descontado. La tolerancia de $0,01 por ingreso se mantiene.
+
+**`EgresoService`** — `importe = Math.Round(subtotal - montoDescuento + montoIva, 2)`; la validación de pagos sigue contra `importe` con **tolerancia cero** (divergencia deliberada respecto de facturas, ya documentada en v15).
+
+**`DashboardService.GetTableroAnualAsync`** — dos consultas nuevas, independientes de `MovimientosCaja` (PD16):
+
+```csharp
+var ivaVentas = await _db.FacturasVenta
+    .Where(f => f.Fecha >= inicioAnio && f.Fecha <= finAnio)
+    .Select(f => new { f.Fecha, f.MontoIva }).ToListAsync();
+var ivaCompras = await _db.Egresos
+    .Where(e => e.Fecha >= inicioAnio && e.Fecha <= finAnio)
+    .Select(e => new { e.Fecha, e.MontoIva }).ToListAsync();
+```
+
+Se agrupan en memoria por `Fecha.Month` dentro del `Enumerable.Range(1,12)` que ya arma `meses` — mismo patrón que `movsAnio`, y evita `GROUP BY MONTH()` traducido por el proveedor Oracle de MySQL. Volumen esperado: cientos de filas por año, no justifica optimizar. El KPI `SaldoIvaPeriodo` se calcula sobre el período filtrado (año, o mes si está seleccionado), consistente con `TotalIngresos`/`TotalEgresos`.
+
+### 17.4 Web
+
+- `FacturaVentaCreateVm` y `EgresoCreateVm` += los dos campos con `[Range]`; `FacturaVentaCreateVm` += `bool EsEdicion` (RD13 — `Facturas` no tiene `Edit.cshtml`, la edición reusa `Create.cshtml`).
+- `Facturas/Create.cshtml`: card renombrada, fila de descuento, línea "Neto gravado", `impGrupos` con `'desc'` al frente, `base()` reescrita, botón "Sin descuento", bloque de reajuste condicionado a `EsEdicion`. **LP-003**: los `value=` de los dos campos nuevos van por el `Func<decimal,string> num` invariante que ya existe en la vista.
+- `Egresos/Create.cshtml`: misma card reducida; el hidden `#ImporteTotal` (sin `name`, no postea) refleja el nuevo total.
+- `Facturas/Details.cshtml` y `Egresos/Details.cshtml`: muestran la fila de descuento **sólo si `MontoDescuento > 0`**, y leen `Total`/`Importe` persistidos (RD12). **Corrección (v4.1):** la primera redacción listaba también "el PDF del comprobante" entre los consumidores a adaptar — **ese PDF no existe**: el comprobante es un archivo que el usuario *sube* (`ComprobanteFacturaVenta`/`ComprobanteEgreso`), y `ExportService` es genérico del template. Los únicos consumidores reales son ambos `Index` (sumatorias) y ambos `Details`, que ya leían los totales persistidos.
+- `Dashboard/TableroAnual.cshtml`: card `chartIva` clonada de `chartMensual`, KPI de saldo, tabla de desglose y el rótulo de base contable.
+
+### 17.5 Migración EF
+
+**Una sola migración**, `Comprobantes_DescuentoComercial`, escrita a mano (EF scaffolding en este proyecto ya generó operaciones destructivas tres veces — ver v13/v14/v15):
+
+```sql
+ALTER TABLE FacturasVenta
+  ADD COLUMN PorcentajeDescuento decimal(9,4)  NOT NULL DEFAULT 0,
+  ADD COLUMN MontoDescuento      decimal(18,2) NOT NULL DEFAULT 0;
+ALTER TABLE Egresos
+  ADD COLUMN PorcentajeDescuento decimal(9,4)  NOT NULL DEFAULT 0,
+  ADD COLUMN MontoDescuento      decimal(18,2) NOT NULL DEFAULT 0;
+```
+
+Sin backfill: `DEFAULT 0` deja el histórico con la semántica correcta (sin descuento) y `Total`/`Importe` siguen cuadrando exactamente contra sus componentes (PF70, RD15). `Down` = `DropColumn` ×4, sin pérdida de datos previos a v4. **No requiere** el protocolo de 3 fases de RT9 ni el script idempotente de vinosefue: no toca una sola fila existente.
+
+### 17.6 Riesgos técnicos v4
+
+- **RT17** `NetoGravado` es propiedad calculada: si falta el `Ignore` en `AppDbContext`, EF Core la toma como columna y la migración scaffoldeada intenta crearla. Verificar el snapshot generado antes de aplicar.
+- **RT18** El descuento cambia la base de tres impuestos a la vez. Todo consumidor que recomponga totales fuera del servicio (`Details`, sumatorias de listados, tablero) debe leer `Total`/`Importe` persistidos. Criterio propio del proyecto, heredado después por `marihogar`.
+- **RT19** `MontoDescuento` es la autoridad y `PorcentajeDescuento` es derivado: si la UI manda un % que no cuadra con el importe (POST fuera del formulario), el servidor usa el **importe** y no intenta reconciliar. Documentarlo en el resumen XML de la entidad para que no se "arregle" después.
+- **RT20** La serie de IVA no debe usar `IgnoreQueryFilters()`: el filtro global de soft delete es lo que implementa "excluye anulados" (PF75). Es un error de una sola palabra con consecuencia silenciosa.
+- **RT21** Los records de input son posicionales: agregar parámetros al medio rompe cualquier construcción por posición. Agregar los dos campos **inmediatamente después de `Subtotal`/antes de los impuestos** y verificar que compile en los cuatro call sites (alta y edición × factura y egreso).
+
+### 17.7 Estrategia de pruebas
+
+- **Unit / servicio**: PF67–PF71 (aritmética de descuento en venta y egreso), PV19–PV23 (validaciones en servidor, incluido POST directo que saltea la UI).
+- **Integración / datos**: tras la migración, verificar `SELECT COUNT(*) FROM FacturasVenta WHERE ROUND(Subtotal - MontoDescuento + MontoIva + MontoIIBB + MontoOtrasPercepciones, 2) <> ROUND(Total, 2)` = 0, y su equivalente en `Egresos` — mismo chequeo de invariante que ya se corre desde v15.
+- **UI**: PF72 (aviso + reajuste), PF73–PF76 (series del gráfico, devengado, anulados, saldo), PF77 (desglose en detalles), PD13–PD17.
+
+### 17.8 Checklist adicional v4
+
+- [ ] `Ignore(NetoGravado)` presente en ambas entidades y verificado contra el snapshot de la migración (RT17).
+- [ ] Migración escrita a mano y revisada: 4 `AddColumn` con `defaultValue: 0m`, ningún `RenameColumn`, ningún `DropTable`.
+- [ ] Invariante `Subtotal - Descuento + impuestos = Total` en 0 desvíos, en dev y en producción post-deploy.
+- [ ] Series de IVA sin `IgnoreQueryFilters()` (RT20).
+- [ ] Rótulo de base devengado y "no es un Libro IVA" visible en la card, no en tooltip.
+- [ ] Botón de reajuste ausente en el alta (RD13/PD15).
+- [ ] `value=` de descuento con `CultureInfo.InvariantCulture` (LP-003).
+
+---
+
 ## 16. Historial de versiones
 
 - **v1** — Primera consolidación arquitectónica sobre el blankproject real. Reutiliza `SoftDestroyable`, `ServiceResult`, `IRepository<T>`, `AppDbContext` con query filter global de soft delete, `NotificationService` y convenciones de enums con `HasConversion<int>`. Define estructura de carpetas, dos migraciones EF separadas, estrategia de correlativo con tabla contador + transacción, job diario vía `IHostedService`, almacenamiento local de comprobantes servido por controller autenticado, riesgos técnicos RT1–RT8 y pruebas arquitectónicas PA1–PA6. Deja 3 preguntas abiertas para el diseñador funcional.
 - **v2** — Diseño técnico de pagos múltiples de Egreso (§13), grounded en el código real de `ganaderia - emo` (no en el plan v1 pre-implementación). Nueva entidad `EgresoPago` + enum `EstadoPagoEgreso`; `MovimientoCaja.EgresoId` reemplazado por `EgresoPagoId`; nuevo servicio `IEgresoPagoService` calcado de `ICuotaService`; extensión de `AcreditacionCuotasHostedService` (no se crea un segundo job). Punto crítico: migración EF con **backfill de datos de producción** en 3 fases (RT9), con validación obligatoria contra copia de producción antes del deploy real. Riesgos RT9–RT12.
 - **v3** — Diseño técnico de autocomplete Select2 (§15): `FacturaVenta.Motivo` pasa de enum (`MotivoVenta`, eliminado) a texto libre, con migración de backfill de menor riesgo que v2 (RT13, mapeo 1:1 sin ambigüedad). Nuevo `IFacturaVentaService.SugerenciasMotivoAsync` simétrico a `IEgresoService.SugerenciasDetalleAsync`. Se retira el `<datalist>` nativo de Egresos y se unifica el widget de autocomplete en un único script JS reutilizable (`ov-autocomplete-select2.js`) para ambas pantallas.
+- **v4** — Diseño técnico del descuento comercial pre-impuestos y de la serie de IVA del Tablero Anual (§17), sobre el código real post-v16. Dos columnas por comprobante (`PorcentajeDescuento` 9,4 + `MontoDescuento` 18,2 — se corrige el 18,4 que había estimado el diseño, que no era la convención del proyecto) más `NetoGravado` calculado con `Ignore` explícito. `Total`/`Importe` siguen calculándose **en servidor** (dos líneas por servicio), así que el descuento no cambia el contrato de confianza con el cliente. Serie de IVA por consulta directa a `FacturasVenta`/`Egresos` agrupada en memoria (devengado, sin tocar `MovimientosCaja`), apoyándose en el filtro global de soft delete para excluir anulados. Una única migración `Comprobantes_DescuentoComercial` con `DEFAULT 0` y **sin backfill** — no muta ninguna fila existente, por lo que no requiere el protocolo de 3 fases de RT9. Riesgos RT17–RT21. Escaneo cross-proyecto: criterio de "total autoritativo" tomado de `marihogar`; descuento por línea de `la-platense` descartado; protocolo de migración de `vinosefue` evaluado y no necesario.
+- **v4.1** — Dos correcciones de la v4 detectadas por el implementador al contrastar §17 contra el código y los docs reales: (1) el escaneo de reutilización atribuía a `marihogar` el origen del criterio "total autoritativo", cuando `marihogar/5-implementador.md` §657 dice que ese bloque de impuestos fue copiado **de `ganaderia`** — la dirección del préstamo estaba invertida, y corregirla importa porque define a qué proyecto se mira como referencia la próxima vez (corolario: marihogar es candidato natural a recibir este mismo descuento); (2) §17.4 listaba "el PDF del comprobante" entre los consumidores a adaptar, y **ese PDF no existe** en este proyecto (el comprobante es un archivo que el usuario sube). Ningún cambio de decisión técnica.

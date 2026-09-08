@@ -1,12 +1,13 @@
 # QA — Sistema de Gestión Ganadera
 
-Versión: **v1**
+Versión: **v3** (v1 inicial, v2 iteración v11, **v3 iteración v17**)
 Agente: `6 - qa`
-Entradas:
-- `1-analista-funcional.md` v10
-- `2-disenador-funcional.md` v1
-- `5-implementador.md` (cambios y evidencia previa)
-- `docs/qa/regresiones-manuales.yml` (catálogo cross-proyecto)
+Entradas (última iteración, v17):
+- `1-analista-funcional.md` v13 (§3.9, §3.10, §4.8, §8.1, PF67–PF77, PV19–PV23, R29–R31)
+- `2-disenador-funcional.md` v4 (§8.3, PD13–PD17, RD12–RD16)
+- `3-arquitecto-mvc.md` v4 §17 (RT17–RT21)
+- `5-implementador.md` iteración v17 (cambios y evidencia)
+- `docs/qa/regresiones-manuales.yml` (catálogo cross-proyecto, 63 ítems)
 
 Build base: ✅ OK previo al inicio de QA.
 
@@ -326,3 +327,228 @@ Se investigó con Playwright headless contra la app real (`https://localhost:720
 ### 12.4 Lección de proceso
 
 Ambos bugs son consistentes con el hueco de cobertura que la propia iteración v11 dejó documentado en §11: JS ejecutado dentro del navegador (clicks reales, popups nativos) no se puede validar simulando únicamente el POST HTTP final. Para futuras iteraciones con JS de UI no trivial (grillas dinámicas, autocomplete, etc.), correr un smoke test real con Playwright (o equivalente) antes de cerrar QA, no sólo revisión estática + binding por HTTP directo.
+
+---
+
+# Iteración v17 — Descuento comercial pre-impuestos + serie de IVA en el Tablero Anual (2026-09-07)
+
+Entradas: `1-analista-funcional.md` v13 (§3.9, §3.10, §4.8, §8.1, R29–R31, PF67–PF77, PV19–PV23), `2-disenador-funcional.md` v4 (§8.3, RD12–RD16, PD13–PD17, HU-D1–HU-D7), `3-arquitecto-mvc.md` v4 §17 (RT17–RT21), `5-implementador.md` iteración v17. Catálogo cross-proyecto `docs/qa/regresiones-manuales.yml`.
+
+Repositorio: `C:\Sistemas\ganaderia - emo`, rama `main`, **working tree sin commitear y sin deployar**. Build previo: `dotnet build Ganaderia.slnx -c Debug` → **Compilación correcta, 0 Errores** (8 warnings, todos preexistentes: NU1902 MailKit/MimeKit).
+
+## 0. Método de verificación
+
+**El servidor MCP `playwright` NO estuvo disponible en esta sesión** (`.mcp.json` lo declara en `C:/Sistemas/Agentes-IA`, pero las herramientas `mcp__playwright__*` no se expusieron). Se declaró explícitamente y se cayó al camino equivalente previsto en `33-verificacion-automatizada-qa.instructions.md`: **navegador real conducido por script Playwright local** (`npm i playwright` + `npx playwright install chromium`, Chrome Headless Shell 153), contra la app corriendo en `https://localhost:7200` (perfil `https`, `ASPNETCORE_ENVIRONMENT=Development`) y MySQL `ganaderia_dev`, con sesión autenticada como el SuperUsuario seed.
+
+**Nada se dio por verificado por lectura de código.** Cada PF/PV/PD se ejecutó contra la app corriendo y se contrastó contra MySQL. Se re-verificaron de forma independiente todas las pruebas que el implementador reportó como pasadas.
+
+Se tomó un **baseline completo de la base antes de empezar** (facturas, egresos, grupos, saldo de caja, ledger de stock) y se verificó al cerrar que la base quedó **restaurada al baseline exacto** (`diff` sin diferencias).
+
+## 1. Alcance funcional validado
+
+- Descuento comercial opcional (% ↔ importe sincronizados) en Facturas de venta y Egresos, aplicado sobre el Subtotal para dar un **neto gravado** base de todos los impuestos.
+- Reajuste proporcional de ingresos al editar una factura cuyo total cambia, con aviso previo (R29).
+- Gráfico de **IVA de compras vs. ventas** en el Tablero Anual, base **devengado por fecha de comprobante**, con línea de saldo y KPI de saldo del período.
+- Regresión transversal: comprobantes sin descuento, anulaciones, caja, stock desnormalizado, listados y el gráfico de flujo de caja preexistente.
+
+## 2. Cobertura por criterio de aceptación (PASS/FAIL/BLOCKED)
+
+| Prueba | Resultado | Evidencia |
+|---|---|---|
+| **PF67** Venta Subtotal 1.000.000, desc 10% → neto 900.000, IVA 21% 189.000, Total 1.089.000 | **PASS** | Navegador real: `neto 900.000,00`, `montoIva 189000.00`, `total 1.089.000,00`. |
+| **PF68** Mismo descuento como importe (100.000) completa el % en 10 y da resultado idéntico | **PASS** | Cargado `MontoDescuento=100000` → `pctDesc` pasa a `10` solo; Total idéntico 1.121.670,00 (con IIBB 3%). Simétrico verificado. |
+| **PF69** Desc 10% + IIBB 3% → IIBB sobre 1.089.000 = 32.670, Total 1.121.670 | **PASS** | UI y persistencia MySQL: `MontoIIBB 32670.00`, `Total 1121670.00`. |
+| **PF70** Sin descuento: totales idénticos a los previos a v17 | **PASS** | `diff` baseline↔final de las 5 facturas y 8 egresos preexistentes: **0 diferencias**. `Details/1` no muestra filas Descuento/Neto gravado. |
+| **PF71** Egreso Subtotal 100.000, desc 5%, IVA 21% → Importe 114.950; pagos suman 114.950 | **PASS** | UI en vivo `Total del egreso $ 114.950,00`; persistido `Importe 114950.00`, pago 114950.00. |
+| **PF72** Editar factura con ingresos, aplicar descuento: avisa el cambio y reajusta | **PASS** (tras GAN-005/GAN-006) | Total 1.210.000 → 1.089.000; aviso "no coincide… diferencia $ 121.000,00"; botón reajusta 605.000→**544.500 ×2** proporcional conservando vencimientos; SweetAlert2 "El total pasó de $ 1.210.000,00 a $ 1.089.000,00…"; persistido 1.089.000 con ingresos 544.500 ×2. |
+| **PF73** Serie IVA ventas/compras = suma de `MontoIva` por mes de comprobante | **PASS** | Chart.js: ventas `mar 189.000`, `may 16.170.000`; compras `abr 19.950`. Idéntico a la consulta SQL de control. |
+| **PF74** Factura emitida en un mes y cobrada en otro suma en el mes de **emisión** | **PASS** | Factura del **15/03/2026** con ingreso venciendo el **07/09/2026**: el IVA aparece en **Marzo** y septiembre queda en 0. |
+| **PF75** Factura anulada deja de sumar en el gráfico | **PASS** | Anulación real por UI: la barra de marzo pasó de **189.000 → 0**. Confirmado además con las anuladas preexistentes (FV5 mayo 2.835.000 y EG8 sept 21.000 nunca aparecen). RT20 cerrado en vivo. |
+| **PF76** Línea de saldo = ventas − compras; KPI = saldo del período filtrado | **PASS** | Línea `mar 189.000`, `abr −19.950`, `may 16.170.000`. KPI: año 2026 → `$ 16.339.050,00 a pagar`; mes 3 → `189.000 a pagar`; mes 4 → `−19.950 **a favor**`; mes 5 → `16.170.000`. |
+| **PF77** Detalle de venta y de egreso muestran Subtotal, Descuento (% e importe), Neto gravado, IVA, Total | **PASS** | Venta: `Subtotal 1.000.000,00 / Descuento −$100.000,00 (10%) / Neto gravado 900.000,00 / IVA 189.000,00 (21%) / IIBB 32.670,00 (3%) / Total 1.121.670,00`. Egreso: `Subtotal 100.000,00 / Descuento −$5.000,00 (5%) / Neto gravado 95.000,00 / IVA 19.950,00 (21%) / Importe`. |
+| **PV19** % fuera de [0,100): bloqueado | **PASS** | Cliente: `is-invalid` + mensaje. **POST directo**: rechazado (`0 a 99,99`) con 100 y con 150. |
+| **PV20** Importe ≥ Subtotal: bloqueado | **PASS** | Cliente: `descuentoError` visible. **POST directo**: *"El descuento (1.000.000,00) no puede ser mayor o igual al Subtotal (1.000.000,00): dejaria el total en cero."* |
+| **PV21** Descuento negativo (% o importe): bloqueado | **PASS (servidor)** / **defecto menor en cliente** | **POST directo** rechazado en ambos casos. Pero el validador **en vivo** no marca el negativo: con −10% la card calcula neto 1.100.000 y Total 1.331.000 sin `is-invalid` ni mensaje (ver BUG-G-011). |
+| **PV22** Edición con ingresos que no suman el nuevo total: bloqueada por el servidor aunque se ignore el aviso | **PASS** | Aceptando el SweetAlert2, el servidor igual rechaza: *"La suma de los ingresos (1.089.000,00) no coincide con el Total de la factura (968.000,00)."* |
+| **PV23** Egreso cuyos pagos suman el Subtotal sin descontar: bloqueado | **PASS** | Pago 121.000 sobre total 114.950 → *"La suma de los pagos (121.000,00) debe ser exactamente igual al total del egreso (114.950,00, subtotal - descuento + IVA)."* UI: `Restante −6.050,00 (excede el total)`. |
+| **PD13** `base()` única función que decide la base de cada impuesto | **PASS** | Auditoría del JS: `impGrupos = ['desc','iva','iibb','percep']`, un solo `base(grupo)`; la fórmula del descuento no está duplicada. Verificado en vivo: tocar el descuento recalcula IVA, IIBB y percepciones en una sola pasada. |
+| **PD14** Descuento ≥ Subtotal bloqueado en cliente **y** ante POST directo | **PASS** | Ambos caminos verificados (ver PV20). |
+| **PD15** Botón de reajuste y confirmación **sólo** en edición | **PASS** | Alta: `btnReajustarIngresos` y `TotalOriginal` **ausentes**, `ES_EDICION=false`. Edición: ambos presentes, `ES_EDICION=true`. El gate Razor (`@if (Model.EsEdicion)`) y el gate JS coinciden. |
+| **PD16** `GetTableroAnualAsync` no consulta `MovimientosCaja` para las series de IVA | **PASS** | Código + prueba viva: un egreso con **comprobante de abril** y **pago acreditado en septiembre** aparece en IVA compras en **abril** y en el gráfico de caja en **septiembre**. Las dos bases son independientes. |
+| **PD17 / LP-003** `value=` de descuento con `InvariantCulture` | **PASS** | HTML servido: `value="10.0000"`, `value="100000.00"`, `TotalOriginal value="1121670.00"`. Ningún decimal con coma. |
+
+**23/23 criterios PASS.** PV21 pasa por el servidor (que es la autoridad) con un defecto menor de UI documentado aparte.
+
+## 3. Cobertura de máquina de estados
+
+No hay máquina de estados nueva en v17. Se recorrieron las transiciones tocadas por el descuento:
+
+| Transición | Resultado |
+|---|---|
+| Factura: alta → editable (ingresos Pendientes) | PASS |
+| Factura: edición que cambia el total → aviso + reajuste + guardado | PASS (PF72) |
+| Factura: edición con ingresos descuadrados → **rechazada** | PASS (PV22) |
+| Factura con algún ingreso Acreditado/Rechazado → **no editable** (redirige a Details) | PASS — las 4 facturas preexistentes redirigen a `Details`, no se puede forzar la edición |
+| Factura: activa → anulada (reversión de stock, cancelación de ingresos, contramovimientos) | PASS |
+| Egreso: alta con pagos que cierran → creado | PASS (PF71) |
+| Egreso: alta con pagos que no cierran → **rechazado** (tolerancia cero) | PASS (PV23) |
+| Egreso: activo → anulado (baja de pagos + contramovimiento de caja) | PASS (MH-020) |
+
+## 4. Cobertura del catálogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
+
+Catálogo recorrido completo (63 ítems tras esta sesión). Se ejecutaron los aplicables al sistema bajo prueba mapeando módulos equivalentes.
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| REG-001, REG-002 | no | N/A | Variantes/RowVersion; ganadería no tiene variantes ni token de concurrencia en Grupo. |
+| REG-003, REG-005, REG-007 | sí (autocomplete) | **PASS** | Select2 de Motivo (Facturas) y Concepto (Egresos) devuelven y cargan valores nuevos; sin errores de consola. |
+| REG-004 | sí (máquina de estados) | **PASS** | Ver §3: transiciones de Factura y Egreso recorridas. |
+| REG-006 | parcial | **PASS** | Plazo sugerido (30/60/90) genera la cantidad correcta de ingresos. |
+| REG-008 | sí (foco en input de importe) | **PASS** | Tipeo en `.importe` e `.js-importe-pago` no re-renderiza el `tbody`; el foco se mantiene (verificado en navegador real, hueco que v11 había dejado abierto). |
+| REG-009 | no | N/A | No hay cascada Categoría→Subgrupo. |
+| REG-010 | sí (sidebar/roles) | **PASS** | Auditoría/Usuarios/Sistema sólo bajo SUPER USUARIO. |
+| KOI-001 | sí (btn-swal fuera del form) | **PASS** | Los botones de anulación de Factura y Egreso están **dentro** de su `<form asp-action="Anular">`; ambos ejecutan realmente (verificado: anulación efectiva en base). |
+| KOI-002, KOI-003 | no | N/A | No hay Estado de Resultados ni rol Inversor. |
+| KOI-004 | no | N/A | No hay cierre de período. |
+| KOI-005, KOI-006 | sí (links de sidebar a controllers inexistentes) | **PASS** | Smoke de las 18 pantallas: **todos 200**, ningún link del sidebar da 404. |
+| DN-001, DN-002 | sí (listados) | **PASS** | `/Facturas`, `/Egresos`, `/Ingresos`, `/Caja`, `/Stock/Historial`, `/Audit` responden 200 con datos; sin 500. |
+| GAN-001 | sí | **PASS** | Guard de "al menos un pago" vigente (regresión de v11). |
+| GAN-002 | sí | N/A (informativo) | Backfill de v11, no tocado por v17. |
+| GAN-003 | sí (grilla dinámica de pagos) | **PASS** | `<template id="filaPagoTemplate">` sigue funcionando: agregar/quitar filas reindexa `Pagos[i]` correctamente. |
+| GAN-004 | sí (autocomplete Concepto) | **PASS** | Migrado a Select2 en v12; el desplegable puebla y permite valor nuevo. |
+| VSF-001, VSF-002 | no | N/A | No hay CompraProveedor. |
+| CRM-* | no | N/A | Proyecto CRM/bot, sin equivalente. |
+| MH-001 | sí (500 en listado de movimientos de stock) | **PASS** | `/Stock/Historial` y `/Stock/Movimientos?grupoId=1` → 200 con datos. |
+| MH-002 | sí (enum serializado) | **PASS** | Badges de tipo de movimiento se renderizan por nombre. |
+| MH-003 | no | N/A | No hay cheques de OC con fecha de emisión. |
+| MH-004 | sí (desglose de caja) | **PASS** | Tabla de flujo mensual cuadra con SQL: total $ 92.923.300,00 = suma de los 12 meses. |
+| MH-005, MH-006 | no | N/A | No hay remito ni link público. |
+| MH-007 | no | N/A | No hay ajuste de apertura. |
+| MH-008 | no | N/A | |
+| MH-009 | sí (fechas/UTC en listados) | **PASS** | Fechas de comprobante correctas en listados y detalles (15/03/2026, 10/04/2026 sin corrimiento de día). |
+| MH-010 | sí (evento `input` en campos de plata) | **PASS** | Ganadería usa `<input type="number">` nativo, no maskMoney; todos los recálculos se disparan con `input`. Verificado en vivo. |
+| MH-011, MH-012, MH-013 | no | N/A | No hay facturación AFIP ni notas de crédito. |
+| SG-001 | sí (grilla que postea numéricos vacíos contra tipos de valor) | **PASS** | Quitar filas y postear no rompe el binding; los campos vacíos no generan 500. |
+| LP-001 | no | N/A | No hay clasificación ABC. |
+| ELV-001 | sí (controllers sin `[Authorize]`) | **PASS** | Sin sesión, `GET /` responde **302** al login; las 18 pantallas exigen autenticación. |
+| ELV-002 | sí (asimetría Create/Update) | **PASS** | `EditAsync` de Factura aplica **las mismas** validaciones de descuento e ingresos que `CreateAsync` (verificado por POST directo: PV20 y PV22 se disparan también en la edición). |
+| **LP-003** | **sí** | **FAIL → corregido** | Mitad de SALIDA ya estaba resuelta (helper `num`). **La mitad de ENTRADA no**: ver **GAN-005**, auto-fix aplicado. |
+| LIP-001 | sí (errores de service invisibles) | **PASS** | Los `ServiceResult.CreateError` se muestran en el `validation-summary-errors` de ambas pantallas (capturados literalmente en PV20/PV22/PV23). |
+| LP-004 | no | N/A | No hay filtros persistidos en sesión. |
+| LP-005 | sí (pantalla de sólo lectura desactualizada) | **PASS** | `Details` de venta y egreso leen el total **persistido** y muestran el desglose de descuento (RD12/RT18). |
+| MH-014, MH-015, MH-018 | no | N/A | No hay pagos con tarjeta ni gastos recurrentes. |
+| MH-016, MH-017 | sí (edición inline de stock) | **PASS** | No hay edición inline en `/Stock`; sin reasignación de tokens. |
+| MH-019 | sí (cheque huérfano al cancelar) | **PASS** | Anular un egreso da de baja **todos** sus pagos, incluidos los Pendientes. |
+| **MH-020** | **sí** | **PASS** | Anular egreso con pago **acreditado**: se postea contramovimiento `Reversion anulacion Egreso #11` (EsIngreso=1, +114.950,00) y el saldo de caja vuelve **exactamente** al baseline 93.038.250,00. No se borra el original: queda la traza. |
+| MH-021 | sí (fecha efectiva vs sugerida) | **PASS** | El movimiento de caja se postea con la `FechaEfectiva` del pago (07/09/2026), no con la fecha del comprobante (10/04/2026). |
+| CRM-015, CRM-016 | no | N/A | |
+| **GAN-005** | **sí (nuevo)** | **FAIL → corregido** | Alta en catálogo + auto-fix. |
+| **GAN-006** | **sí (nuevo)** | **FAIL → corregido** | Alta en catálogo + auto-fix. |
+
+## 5. Defectos detectados
+
+### GAN-005 — blocker, **preexistente (NO es regresión de v17)**, **corregido**
+
+Los `<input type="number">` de las **filas de colección** (`Items[i].KilosTotales`, `Items[i].PrecioPorKilo`, `Ingresos[i].Importe`, `Pagos[i].Importe`) se escriben a mano con `name="..."` en vez de `asp-for`, así que el tag helper **no emite para ellos el marcador `<input name="__Invariant">`**. Con `UseRequestLocalization(es-AR)` fijo en `Program.cs` y **sin** model binder invariante propio, el binder los parsea en es-AR, donde el punto es **separador de miles**. Como un `type=number` postea siempre en formato invariante, `"1121670.00"` entra al servidor como **112.167.000** (×100).
+
+Impacto real: **"Generar sugerido" + "Emitir factura" fallaba siempre** (el JS escribe con `toFixed(2)`, o sea siempre con punto). El usuario recibía *"La suma de los ingresos (112.167.000,00) no coincide con el Total de la factura (1.121.670,00)"* — un mensaje que parece de negocio y esconde un error de parseo. Sólo se podía guardar tipeando importes sin decimales. Lo mismo en Egresos con pagos decimales, y al re-guardar una edición.
+
+Byte-idéntico en `HEAD` (`git show HEAD:.../Create.cshtml`) y `Program.cs` no fue tocado por v17 → **preexistente desde v13**. Pero **v17 lo agrava**: el botón "Reajustar al nuevo total" (PF72, la feature estrella de la iteración) escribe con `toFixed(2)` en esos mismos inputs, así que PF72 era **inejecutable** antes del fix.
+
+### GAN-006 — blocker, **preexistente (NO es regresión de v17)**, **corregido**
+
+Abrir `Facturas/Edit/{id}` y pulsar "Guardar cambios" **sin tocar nada** no enviaba nunca el formulario: jquery-validate devolvía tres `"Please enter a multiple of 0.01."` sobre `PorcentajeIva` (`value="21.0000"`), `PorcentajeIIBB` (`3.0000`) y `PorcentajeOtrasPercepciones` (`0.0000`). Las columnas son `decimal(9,4)` y el input declaraba `step="0.01"`: la regla `step` rechaza valores con más decimales que el step. La validación **nativa** del navegador daba válida; el bloqueo lo ponía jquery-validate. Sólo se manifiesta al **reabrir** un registro persistido, nunca en el alta — por eso nunca se detectó. `PorcentajeDescuento` (v17) se salvaba de casualidad porque su driver arranca en modo `'monto'` y reescribe el `.value` a 2 decimales al cargar.
+
+Con GAN-005 y GAN-006 juntos, **la edición de facturas estaba 100 % muerta** en producción.
+
+### BUG-G-011 — minor, **abierto (no corregido)**
+
+El validador **en vivo** del descuento sólo chequea `MontoDescuento >= Subtotal`; **no chequea el negativo**. Con `PorcentajeDescuento = -10` la card muestra `Neto gravado 1.100.000,00` y `Total 1.331.000,00` sin `is-invalid` ni mensaje: el descuento negativo se comporta como un **recargo** en pantalla.
+
+No se corrigió a propósito: el servidor rechaza correctamente (PV21 PASS por POST directo) y el `min="0"` + `[Range(0, 99.99)]` bloquean el submit, así que **no hay riesgo de dato corrupto**; es sólo una ayuda visual que miente durante la carga. Tocar `descuentoInvalido()` cambia el comportamiento de la validación en vivo de una pantalla de plata, y eso excede el mandato de auto-fix. **Fix propuesto**: extender `descuentoInvalido()` para incluir `montoDe('desc') < 0 || pct < 0`, reutilizando el mismo `descuentoError`.
+
+### Observación menor (no es defecto)
+
+En `Egresos/Create`, la línea "Suma de pagos: 0.00" se formatea con punto decimal en lugar del `$ 0,00` en es-AR que usa el resto de la pantalla. Cosmético.
+
+## 6. Auto-fixes aplicados
+
+| id | Archivos | Cambio | Resultado post-parche |
+|---|---|---|---|
+| **GAN-005** | `Ganaderia.Web/Views/Facturas/Create.cshtml`, `Ganaderia.Web/Views/Egresos/Create.cshtml` | Listener `submit` en fase de captura que, antes de enviar, emite un `<input type="hidden" name="__Invariant" value="{campo}">` por cada `input[type=number][name]` de las grillas (`#tblItems`, `#tblIngresos`, `input.js-importe-pago`). Se hace en el submit y no en el markup porque las filas se agregan/quitan/**reindexan** por JS; se limpian los marcadores previos en cada pasada. | "Generar sugerido" + emitir **funciona**; egreso con pago 114.950,00 persiste correcto; re-guardar una edición sin cambios es **idempotente**; PF72 pasa end-to-end. |
+| **GAN-006** | idem | `step="0.01"` → `step="0.0001"` en los 4 inputs de porcentaje de Facturas y los 2 de Egresos, alineando la restricción de UI con la precisión real `decimal(9,4)`. No cambia el valor renderizado ni la precisión persistida. | `jQuery(form).validate().form()` sobre la edición recién cargada devuelve `errorList` **vacío**; PV19/PV20/PV21 siguen bloqueados en cliente y por POST directo. |
+
+Ambos ítems fueron **dados de alta en `docs/qa/regresiones-manuales.yml`** (el catálogo pasa de 61 a 63 ítems, YAML validado) con causa raíz, `archivos_fix`, `deteccion_qa`, criterios de aceptación, pruebas mínimas y `nota_generalizacion` para el resto del baseline.
+
+Los auto-fixes **no introducen lógica de negocio**: son la mitad de entrada del round-trip de cultura que LP-003 ya tenía catalogada, y una restricción de UI alineada al dominio. No tocan servicios, dominio, esquema ni migraciones, y **no modifican ningún dato ya registrado** (verificado: `diff` baseline↔final sin diferencias).
+
+## 7. Invariantes de datos (todas en 0 desvíos)
+
+```sql
+-- 0 desvíos, antes y después de todas las pruebas
+SELECT COUNT(*) FROM FacturasVenta
+ WHERE ROUND(Subtotal-MontoDescuento+MontoIva+MontoIIBB+MontoOtrasPercepciones,2) <> ROUND(Total,2);
+SELECT COUNT(*) FROM Egresos
+ WHERE ROUND(Subtotal-MontoDescuento+MontoIva,2) <> ROUND(Importe,2);
+```
+
+- **`Grupo.StockActual` == ledger de `MovimientosStock`** en los 4 grupos activos, antes y después (incluida una venta y su anulación): `Lote 1 80=80`, `Lote bajo 0=0`, `Lote vaquillonas 48=48`, `Grupo A 0=0`.
+- **Saldo de caja** restaurado exactamente al baseline: `93.038.250,00`.
+- **RT17**: `NetoGravado` **no existe** como columna en `information_schema` — el `Ignore()` funciona.
+- Migración `20260907123702_Comprobantes_DescuentoComercial` aplicada en `ganaderia_dev`: 4 `AddColumn` con `DEFAULT 0`, sin backfill, histórico intacto (RD15/PF70).
+- **Base restaurada al baseline exacto** al cerrar: todos los datos de prueba eliminados, contador de factura devuelto a 5.
+
+## 8. Riesgos de liberación y mitigaciones
+
+| Riesgo | Severidad | Mitigación |
+|---|---|---|
+| GAN-005 y GAN-006 son **preexistentes y están hoy en producción**: la edición de facturas está muerta y "Generar sugerido" no permite emitir | **blocker** | Corregidos en el working tree. **Deben ir en el mismo deploy que v17.** Verificar en producción, apenas se deploye, un alta con "Generar sugerido" y una edición re-guardada sin cambios. |
+| El fix de GAN-005 cambia la cultura de parseo de 4 campos de plata de las dos pantallas principales | major | Verificado end-to-end e **idempotente** (re-guardado sin cambios no altera un centavo). Aun así conviene que el implementador lo revise antes del merge, y valorar si corresponde la solución de fondo (un `InvariantDecimalModelBinderProvider` global, como La Platense) en vez de la puntual por vista. |
+| BUG-G-011: el descuento negativo se ve como recargo durante la carga | minor | El servidor lo rechaza siempre; no hay riesgo de dato. Fix propuesto en §5. |
+| Invariante de comprobantes **en producción** post-deploy | major | Pendiente: correr las 2 queries de §7 contra producción después del deploy. En dev dan 0. |
+| El acumulado sin deployar es de **8 iteraciones** (v13→v17, §12 del implementador) | major | El deploy no es incremental: hay que aplicar código + migraciones en el orden documentado, con backup previo. |
+| R30/R31: dos bases contables en la misma pantalla | minor | Mitigado: el rótulo de devengado y el "no es un Libro IVA" están en el `card-body`, no en un tooltip. Verificado en el HTML servido. |
+| Ausencia de pruebas automatizadas (unit/integration) | minor | Deuda técnica conocida y aceptada por política del proyecto. |
+
+## 9. Pruebas mínimas ejecutadas
+
+- **PF67–PF77** (11) y **PV19–PV23** (5) y **PD13–PD17** (5): **21/21 ejecutadas end-to-end contra la app corriendo**, todas PASS.
+- **Smoke de las 18 pantallas** (33 URLs, incluidas las no tocadas): **todas 200**, sin errores de consola.
+- **Regresión de anulación**: factura (reversión de stock, cancelación de ingresos) y egreso (baja de pagos + contramovimiento MH-020, saldo restaurado al centavo).
+- **Regresión del gráfico de flujo de caja** preexistente: sus 3 series cuadran exactamente con el SQL de control; **no** se contaminó con la serie devengada.
+- **Regresión del bug de v15** corregido por el implementador en `Egresos/Create.cshtml`: **confirmada end-to-end** — cambiar el subtotal ahora actualiza en vivo el IVA, el "Total del egreso" ($ 121.000,00) y el "Restante por asignar", que antes quedaban en 0.
+- **Auditoría del patrón de listeners mal anidados en todas las vistas**: sólo 5 vistas del proyecto tienen JS no trivial (`Facturas/Create`, `Egresos/Create`, `Dashboard/TableroAnual`, `Audit/Index`, `Shared/_Layout`). **Ninguna reincidencia**: todos los `addEventListener` están a nivel de IIFE con bootstrap correcto y sin funciones huérfanas. Único hallazgo inocuo: en `Egresos/Create` un listener `input` sobre el hidden `#ImporteTotal` nunca se dispara (los cambios programáticos de `.value` no emiten `input`), pero es código muerto, no un bug: `recalcularTotal()` llama a `actualizarSuma()` explícitamente.
+- `dotnet build Ganaderia.slnx -c Debug` tras los auto-fixes → **Compilación correcta, 0 Errores**, sin warnings nuevos.
+
+## 10. Checklist de salida para merge (v17)
+
+- [x] Build OK (Debug), 0 errores, antes y después de los auto-fixes.
+- [x] PF67–PF77, PV19–PV23, PD13–PD17 ejecutadas end-to-end en navegador real (21/21 PASS).
+- [x] PF70 (no regresión) probado por `diff` de datos, no por inspección visual: 0 diferencias.
+- [x] Invariantes de comprobantes en 0 desvíos en `FacturasVenta` y `Egresos`.
+- [x] `Grupo.StockActual` == ledger de `MovimientosStock` en todos los grupos.
+- [x] Saldo de caja restaurado al baseline tras anulaciones (MH-020 verificado con contramovimiento real).
+- [x] Gráfico de flujo de caja preexistente sin contaminar (PD16 probado con un caso de abril/septiembre).
+- [x] RT20/PF75 verificado anulando una factura real, no por lectura de código.
+- [x] RT17 verificado contra `information_schema`.
+- [x] PD15 verificado en el HTML de alta y de edición.
+- [x] LP-003/PD17 verificado sobre el HTML servido de factura y egreso con descuento.
+- [x] Smoke de las 18 pantallas: 200 OK.
+- [x] Auditoría del patrón de listeners en todas las vistas: sin reincidencias.
+- [x] GAN-005 y GAN-006 dados de alta en el catálogo cross-proyecto con fix documentado.
+- [x] Base de dev restaurada al baseline exacto; sin filas de prueba.
+- [x] Sin commit y sin deploy (pedido explícito).
+- [ ] Revisión del implementador sobre los 2 auto-fixes de QA antes del merge — **pendiente**.
+- [ ] Decisión de arquitectura: ¿`InvariantDecimalModelBinderProvider` global en vez del fix por vista? — **pendiente**.
+- [ ] BUG-G-011 (descuento negativo en el validador en vivo) — **pendiente**, no bloqueante.
+- [ ] Invariantes contra producción post-deploy — **pendiente**, responsabilidad del despliegue.
+
+## 11. Veredicto
+
+**APTO PARA DEPLOY, condicionado a que los dos auto-fixes de QA (GAN-005 y GAN-006) viajen en el mismo deploy y sean revisados por el implementador antes del merge.**
+
+La funcionalidad de v17 es **correcta y está completa**: los 21 criterios de aceptación pasan end-to-end contra la app real, la aritmética del descuento cuadra hasta el centavo tanto en pantalla como en MySQL, la serie de IVA es genuinamente devengada (probado con un comprobante de un mes cobrado en otro), las anuladas quedan fuera (probado anulando en vivo), y **no hay ninguna regresión** sobre los comprobantes sin descuento, la caja, el stock ni el gráfico de flujo preexistente.
+
+Los dos blockers encontrados **no los introdujo v17**: son de v13 y estaban en producción sin detectar, porque ambos sólo se manifiestan al **reabrir** un comprobante guardado o al usar "Generar sugerido" — dos caminos que ningún ciclo de QA anterior había recorrido en un navegador real. La lección de proceso de v11 §12.4 (el POST HTTP directo no sustituye al clic real) se repitió: el implementador verificó v17 por POST construido a mano, y ese camino **evita justamente** los dos bugs, porque un POST armado a mano no arrastra ni los `value=` de 4 decimales ni la ausencia del marcador `__Invariant`.
+
+Sin esos dos fixes, v17 sería **NO APTO**: su feature principal (PF72, el reajuste de ingresos al editar) es inalcanzable, porque la pantalla de edición no se puede guardar.

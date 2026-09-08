@@ -1,8 +1,8 @@
 # 4 - Presupuestador — Proyecto KOI
 
 > Memoria acumulativa del agente presupuestador.
-> Etapa: Presupuesto inicial (Etapa 1). Estado: CERRADO (pendiente de aprobación del cliente). Presupuesto del módulo E2-02 (Fichador) en §16 — CERRADO. Presupuesto del Sprint UX/UI Inversor + fixes en §17 — CERRADO, USD 185, pendiente de aprobación para pasar a Implementación.
-> Fecha: 2026-06-11. Última actualización: 2026-08-12 — §17 Sprint UX/UI Inversor + fixes. Inputs: definiciones 1 (§12), 2 (§11) y 3 (§9) aprobadas.
+> Etapa: Presupuesto inicial (Etapa 1). Estado: CERRADO (pendiente de aprobación del cliente). Presupuesto del módulo E2-02 (Fichador) en §16 — CERRADO. Presupuesto del Sprint UX/UI Inversor + fixes en §17 — CERRADO, USD 185. Presupuesto de Mi Inversión (pesos) en §18 — CERRADO, USD 12, pendiente de aprobación para pasar a Implementación.
+> Fecha: 2026-06-11. Última actualización: 2026-08-13 — §18 Mi Inversión: dividendos/recupero en pesos. Inputs: definiciones 1 (§13), 2 (§12) y 3 (§10) aprobadas.
 > Política de facturación vigente (27-presupuesto-parametros, Junio 2026): **USD por módulo = M × $16.80** (M/2.5 × 1.20 × $35). Las horas PERT con contingencia son techo interno, no base de precio. Tasa USD 35/h sobre horas reales con contingencia temporal 20 %.
 
 ## 1. Introducción y contexto de relevamiento
@@ -302,3 +302,87 @@ Comparable más cercano en el dataset: vinosefue "compras al proveedor" (8 ítem
 ### 17.10 Pruebas mínimas requeridas
 
 - Ver criterios de aceptación por ítem en `1-analista-funcional.md` §12.3 — son la base de las pruebas funcionales de este sprint.
+
+---
+
+## 18. Presupuesto — Mi Inversión: dividendos y recupero en pesos (Agosto 2026)
+
+### 18.1 Contexto y Paso 0
+
+Ítem único, Merge sobre sistema propio ya entregado. Ancla en "Modificación sobre módulo existente / agregar regla de negocio" (27-presupuesto-parametros, 1–2h) — 2 campos nuevos en un DTO ya existente, cálculo derivado de datos ya existentes, 2 cards en una vista ya existente. No hay entidad ni pantalla nueva.
+
+### 18.2 Estimación
+
+| Ítem | Referencia | O | M | P | PERT | Riesgo | Cont. | Hs finales | USD (M×16.80) |
+|---|---|---|---|---|---|---|---|---|---|
+| Dividendos/Recupero en pesos en Mi Inversión (DTO + cálculo + 2 cards) | Agregar regla de negocio 1–2h | 0.5 | 0.7 | 1.3 | 0.73 | Bajo | 8% | 0.79 | 11.76 |
+
+### 18.3 Cierre numérico
+
+- **USD 12** (redondeado). Horas facturables = 0.7/2.5×1.20 = 0.34h — muy por debajo del piso de 4h: **Tokens IA no aplica**.
+- Sin impacto en plan de mantenimiento (sin tablas nuevas).
+
+### 18.4 Riesgos y supuestos
+
+- Validado contra datos reales de producción antes de presupuestar: las 264 liquidaciones "Pagada" existentes tienen TC cargado, así que el cálculo es aplicable de punta a punta sin casos borde pendientes.
+- Expectativa ya gestionada con el cliente (ver Arquitectura §10.5): el número en pesos va a salir muy similar al de dólares con los datos actuales — no es un defecto de la implementación.
+
+### 18.5 Condiciones comerciales
+
+100% a la entrega (monto mínimo, no amerita split 50/50).
+
+---
+
+## 19. Presupuesto — Sprint de correcciones y catálogo real (Agosto 2026)
+
+### 19.1 Contexto y Paso 0
+
+6 ítems sobre el sistema en producción. Merge sobre sistema propio ya entregado → precio de lista, sin descuento de expansión agresiva. Anclajes: "Ajuste puntual" y "Modificación sobre módulo existente" (27-presupuesto-parametros) para los ítems 1, 2 y 6; "Migración de datos" (sin referencia comparable directa, riesgo alto declarado, mismo criterio que el módulo 14 de Etapa 1) para el ítem 4; "Agregar regla de negocio" con drivers de cálculo financiero para los ítems 3 y 5.
+
+### 19.2 Tabla de estimación
+
+| # | Ítem | Referencia | O | M | P | PERT | Riesgo | Cont. | Hs finales | USD (M×16.80) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | FromName del remitente de correos | Ajuste puntual (mínimo) | 0.15 | 0.2 | 0.35 | 0.21 | Bajo | 8% | 0.23 | 3.36 |
+| 2 | Mi Inversión — recupero acumulado + gráfico de evolución | Nuevo reporte/tablero 1.5–2h | 1.4 | 2.0 | 3.5 | 2.15 | Bajo | 8% | 2.32 | 33.60 |
+| 3 | Editar meses cerrados + recálculo de liquidaciones pendientes + auditoría | Regla de negocio con cálculo financiero + auditoría | 2.4 | 3.5 | 6.0 | 3.73 | **Alto** | 25% | 4.66 | 58.80 |
+| 4 | Catálogo real de rubros + remapeo de 373 gastos históricos | Migración de datos (sin comparable directo) | 2.8 | 4.0 | 7.0 | 4.30 | **Alto** | 25% | 5.38 | 67.20 |
+| 5 | Importación de Excel recurrente (actualizar en vez de omitir) | Modificación sobre módulo existente | 1.7 | 2.5 | 4.3 | 2.67 | Medio | 15% | 3.07 | 42.00 |
+| 6 | Reparto General — orden por año/mes | Ajuste puntual (idéntico a fix ya hecho) | 0.2 | 0.3 | 0.5 | 0.32 | Bajo | 8% | 0.34 | 5.04 |
+| | **Totales** | | | **12.5** | | **13.38** | | | **16.00** | **210.00** |
+
+### 19.3 Autocorrección y sanity check
+
+- Ítems 1, 2 y 6 anclados en sus filas de referencia sin desvío. Ítem 6 se estima igual que el fix de orden ya ejecutado en Historial de Resultados (mismo código, misma solución) — coherente con el histórico inmediato.
+- Ítems 3 y 4 son los únicos de riesgo Alto del lote y concentran el 60 % del precio: uno toca el cálculo de liquidaciones (plata de inversores), el otro migra datos financieros históricos ya conciliados. La contingencia del 25 % está aplicada solo a esos dos ítems, no al total (evita inflar el lote entero por el riesgo de dos ítems).
+- Sanity check: el lote (12.5 h M) es comparable en magnitud al sprint de 9 ítems de §17 (8.8 h M) pero con más peso por ítem — razonable, porque acá dos ítems son de migración/cálculo y no de UI.
+
+### 19.4 Cierre numérico
+
+- **Paso A:** USD 210.00 — 6.0 h facturables (12.5/2.5×1.20) — techo interno 16.00 h PERT+contingencia.
+- **Paso B:** sin ajuste. **Tokens IA aplica** (6.0 h facturables ≥ piso de 4 h): 210 × 0.25 = 52.50.
+- **Número a comunicar: USD 263** (210 desarrollo + 53 tokens IA). Sin impacto en el plan de mantenimiento (sin tablas nuevas).
+
+### 19.5 Tabla para el cliente
+
+| Área funcional | USD |
+|---|---:|
+| Remitente de los correos del sistema | 3 |
+| Mi Inversión — evolución del recupero mes a mes | 34 |
+| Corrección de meses ya cerrados | 59 |
+| Carga del catálogo real de rubros y gastos | 67 |
+| Importación de Excel recurrente | 42 |
+| Orden de los períodos en Reparto General | 5 |
+| Uso de infraestructura IA (tokens) | 53 |
+| **Total** | **263** |
+
+### 19.6 Riesgos, supuestos y dependencias
+
+- **Ítem 4 no puede ejecutarse sin dos cosas del cliente**: (a) revisión del mapeo de los subgrupos sin equivalencia clara (ver Arquitectura §11.5, filas marcadas ⚠️), y (b) ventana para hacer backup de producción antes de correr la migración.
+- **Ítem 5 queda parcialmente bloqueado**: la funcionalidad se puede construir, pero no se puede probar de punta a punta sin los archivos Excel reales, que hoy no están en ningún lado (ni repo ni memoria del proyecto). Se implementa contra la plantilla que el propio sistema genera.
+- Ítem 3 revierte una decisión de diseño previa (D-04/P-A04) por pedido explícito del cliente — documentado en Análisis §14.1.
+- Supuesto del ítem 2 a validar: el recupero acumulado cuenta solo liquidaciones Pagada, no todas las de meses cerrados.
+
+### 19.7 Condiciones comerciales
+
+50 % al inicio / 50 % a la entrega. Los ítems 1 y 6 (correcciones menores, USD 8 combinados) pueden entregarse por adelantado sin esperar el resto del lote si el cliente los necesita ya.

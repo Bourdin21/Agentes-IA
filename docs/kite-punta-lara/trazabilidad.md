@@ -341,3 +341,30 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - **Verificacion contra datos reales** (`localhost:8000/pronostico`, los 4 dias, sin mocks): se recorrieron las **14 horas de hoy una por una** comparando el tooltip contra su flag. Las 12 de sol no dicen nada; 06 dice "antes del amanecer (07:07)" y 19 dice "despues del atardecer (18:35)", y se comprobo ademas que el lado que declaran es coherente con los horarios de sol reales. **Ninguna hora publicada queda descrita como algo que no es.** Las tres filas de la semana tienen tantos hits como horas trae su dia y el rango de sol correcto de cada fecha; el rotulo "Luz" ya no existe en ninguna.
 - 18 suites de regresion sin errores. `astro check` 0 errores, build limpio. Lighthouse: **accesibilidad 100**, best practices 100, SEO 100 sin auditorias imperfectas; performance 87. Mobile 390 sin desborde y sin huecos de texto.
 - Riesgos/supuestos: sin novedades. Sigue pendiente solo el deploy (falta `scripts/deploy.sh` + `.env.deploy.example`, nada probado contra DonWeb).
+
+### 2026-09-02 - implementador-astro-front - vigesimoprimera pasada: la costa estimada decide si se navega
+- Pedido de Joaquin: *"mostrar siempre el viento estimado en costa para hacer los calculos de si se navega o no se navega"*. `estadoDeHora` miraba **siempre** el pronostico, incluso en horas ya transcurridas que tenian lectura.
+- **El caso real, no hipotetico:** a las 06:00 el modelo daba 11,7 kt y en la costa hubo **15,8 con rafagas a 18,5**. Con rango 16-28 el sitio pintaba esa hora como no navegable **teniendo el dato en la mano**, cuando por la regla de "al limite" entraba.
+- **La regla no cambio** (rango, al limite por rafaga, offshore que cortocircuita): cambio de que numeros se alimenta. Todo sale de un unico `vientoDeDecision(hora)` → `{viento, rafaga, origen}`, asi que el estado, el color de la barra, las rachas, el veredicto y el tooltip se mueven juntos **por construccion** y no por disciplina.
+- **Decision pedida, y el porque:** si hay `vientoMedidoSpotNudos` pero falta `rafagaMedidaSpotNudos`, se cae **entero al pronostico**. La alternativa —usar el sostenido medido y renunciar a "al limite" por no tener la rafaga— dejaria a una hora ya pasada **mas restrictiva que la misma hora antes de que pasara**, que es exactamente el absurdo que el backend evito agregando el campo. No tenia sentido reintroducirlo por la puerta de atras en el caso parcial. Ademas garantiza lo que se pidio: viento y rafaga **siempre del mismo origen**.
+- **Ripple que hubo que seguir, y uno que no:**
+  - **Pico de la racha** → cambiado. Si no, el veredicto podia decir *"se navega, pico 11,7 kt"* con un rango que arranca en 16: un numero contradiciendo la frase que lo acompaña.
+  - **Pico del `aria-label`** → cambiado. Lo detecte verificando: decia "Pico 20 nudos" mientras el veredicto decia "pico 19 kt", construidos sobre fuentes distintas.
+  - **Despegue** → **no cambia y no habia que tocarlo**: es una resta entre rafaga y sostenido a los que se les descuenta la misma constante, asi que da identico con la lectura cruda o con la corregida. Quedo escrito en el contrato para que nadie lo "arregle" despues.
+  - Badges, `desdeAhora` y el recorte por reloj no dependen de los valores de viento; sin cambios.
+- **Si se marca en pantalla: si, y hace falta.** La **altura de la barra sigue siendo el pronostico**, asi que una hora con barra corta puede quedar pintada de verde porque en la costa hubo mas viento — sin atribucion eso se lee como un error de la pantalla. El tooltip dice *"Decidido con el viento estimado en la costa, no con el pronostico"*, **solo cuando decide la costa** (el pronostico es el caso esperado; anunciarlo en cada hora seria ruido), y el `aria-label` de la hora lo repite. **No** se marca con color: el vocabulario ya carga seis significados y el unico recurso libre chocaria con el atenuado de "hora que ya paso".
+- **Sigue sin presentarse como medicion.** `vientoMedidoSpotNudos` es la lectura del pilote menos una constante y no hay sensor en Punta Lara. Que la inferencia ahora ademas **decida** pide mas cuidado al contarlo, no menos: el texto dice "estimado en la costa" y nunca "medido".
+- **Verificacion con datos reales** (`localhost:8000/pronostico`, dia 2026-09-05, 14 horas): la atribucion aparece exactamente en 06, 07, 08 y 09 —las unicas con el par completo de costa— y en ninguna otra. Ninguna hora queda descrita como algo que no es. El dia real esta todo offshore, que ademas confirma que el viento de tierra sigue cortocircuitando antes de que importe la fuente.
+- **Verificacion del cambio de estado**, con el caso textual del brief y ocho mas, todos correctos:
+
+  | hora | pronostico | costa | estado | por que |
+  |---|---|---|---|---|
+  | 06 | 11,7 / 16,5 | 15,8 / 18,5 | **limite** | el caso del brief: con el pronostico era "no" |
+  | 07 | 12,1 / 18,9 | 14,7 / 17,0 | no | la costa tampoco alcanza: sin falsos positivos |
+  | 08 | 20,0 / 24,0 | 9,0 / 11,0 | **no** | la costa **empeora** lo que prometia el modelo |
+  | 09 | 8,0 / 10,0 | 19,0 / 23,0 | **navegable** | |
+  | 10 | 20,0 / 24,0 | 9,0 / **sin rafaga** | navegable | **par incompleto → cae entero a pronostico** |
+  | 12 | 20,0 / 24,0 | 22,0 / 26,0 + offshore | offshore | el viento de tierra sigue mandando |
+
+- 19 suites de regresion sin errores. `astro check` 0 errores, build limpio. Lighthouse: **accesibilidad 100**, best practices 100, SEO 100 sin auditorias imperfectas; performance 87.
+- Riesgos/supuestos: sin novedades. Sigue pendiente solo el deploy (falta `scripts/deploy.sh` + `.env.deploy.example`, nada probado contra DonWeb).

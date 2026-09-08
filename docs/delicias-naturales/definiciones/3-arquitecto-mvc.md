@@ -314,5 +314,84 @@ Prerequisitos para avanzar a la etapa de presupuesto:
 
 ---
 
+# ITERACION 3: Editar Pago (ex "Ajuste directo de un Pago")
+
+## Estado: DEPLOYADO A PRODUCCION (2026-09-07) — iteracion cerrada
+
+## 0. Resultado del escaneo de reutilizacion cross-proyecto
+- `docs/*/definiciones/{3-arquitecto-mvc,5-implementador}.md`: no hay un componente identico ("editar pago con reversion+alta") ya construido en otro proyecto, pero SI hay un patron arquitectonico directamente trasladable: **marihogar** (`VentaService.CancelarAsync`/`EliminarPagoAsync`) y **ganaderia** (`EgresoService.AnularAsync`, `EgresoPagoService`) implementan la logica de reversion de movimientos financieros **en un Service dedicado**, nunca en el Controller — arquitectura por capas real (Domain/Application/Infrastructure/Web separados).
+- **Decision de arquitectura:** delicias-naturales es un monolito MVC5/EF6 SIN esa separacion formal (no hay proyectos Domain/Application/Infrastructure, solo carpetas logicas — ver "Nota de arquitectura base" arriba). Controllers como `PagosController`/`VentasController`/`FacturasController` hoy tienen la logica de negocio directamente en el Controller (viola la regla global "logica de negocio en Services", pero es el patron establecido en TODO el modulo de Ventas/Pagos/Facturas de este proyecto). Ya existe, sin embargo, un `Services/` folder usado por otros modulos (`StockService`, `SolicitudIngresoStockService`, `RecetaService`). **Se decide crear `Services/PagoService.cs`** para esta feature — es la logica nueva mas compleja que va a tener `PagosController` hasta ahora (reversion + alta atomica, reutilizada 2 veces), y es el punto exacto donde alinear el proyecto con el patron cross-proyecto (PagoService ~ VentaService/EgresoPagoService) sin tener que refactorizar TODO el controller de una vez.
+- **Alcance del refactor, acotado a proposito:** `PagoService` va a exponer 2 metodos extraidos, verbatim (sin cambiar su logica), de lo que hoy vive inline en `PagosController`:
+  - `ReversarPago(Pago pago)` — el bloque de reversion que hoy esta duplicado conceptualmente entre `EliminarPago` y (lo que seria) el ajuste: buscar/eliminar `MovimientoCaja` y `MovimientoCuentaCorriente` vinculados.
+  - `RegistrarPagoInterno(Venta venta, decimal monto, MetodoPago metodoPago, DateTime fecha, string usuarioId, string observacion, int? pagoAnteriorId)` — el bloque de alta que hoy esta en `RegistrarPago` (validaciones de sobrepago/SaldoFavor, creacion de `Pago`+`MovimientoCaja`+`MovimientoCuentaCorriente` segun corresponda).
+  - `EliminarPago`/`RegistrarPago` (Controller, ya existentes) se refactorizan para LLAMAR a estos metodos en vez de duplicar la logica — mismo comportamiento, codigo compartido real, no una copia paralela para el caso nuevo. `EditarPago` (nuevo) los invoca en secuencia.
+  - Fuera de alcance: extraer TODO `PagosController` a Services (permisos, guardas de estado de Venta, manejo de `TempData`/`Json` quedan en el Controller, como en el resto del proyecto).
+
+## 1. Mapa de componentes
+| Componente | Tipo | Accion |
+|---|---|---|
+| `Services/PagoService.cs` | Nuevo | `ReversarPago`, `RegistrarPagoInterno`, `EditarPago` (orquesta los 2 anteriores + guardas) |
+| `Controllers/PagosController.cs` | Modificado | Nueva accion `EditarPago` (thin, delega a `PagoService`); `RegistrarPago`/`EliminarPago` refactorizados para usar `PagoService`; **se elimina** `ActualizarFechaPago` |
+| `Models/Pago.cs` | Modificado | + `UsuarioId` (string?, FK `AspNetUsers`), `Observacion` (string?), `PagoAnteriorId` (int?, self-FK) |
+| `Models/MovimientoCaja.cs` | Modificado | + `PagoId` (int?, FK `pagos.Id`) — cierra el riesgo #1 de Diseño |
+| Migracion EF | Nueva | `AddCamposEdicionAPago` (o 2 migraciones separadas, ver seccion 3) |
+| `Views/Ventas/Details.cshtml` / `Edit.cshtml` | Modificado | Boton unico "Editar pago" (reemplaza "Editar fecha"); modal; render de cadena de pagos reemplazados |
+| `Scripts/js/ventas.js` o script inline | Modificado | Handler del modal, AJAX a `EditarPago`, se retira el handler de `editarFechaPago` |
+
+## 2. Desglose por capa
+
+### Datos (Models + Migrations)
+- `Pago`: 3 columnas nuevas, todas nullable — no rompe los ~15.000+ pagos historicos.
+- `MovimientoCaja`: 1 columna nueva `PagoId` (int?, nullable) — tambien sin impacto en historicos (quedan `NULL`, la busqueda por `VentaId+Monto` se mantiene como fallback exclusivamente para movimientos con `PagoId == null`).
+- `RegistrarPagoInterno` (nuevo, dentro de `PagoService`) setea `MovimientoCaja.PagoId = pago.Id` en toda alta nueva a partir de esta iteracion (incluye pagos creados por `RegistrarPago` normal, no solo por `EditarPago`) — asi el fix cubre TODOS los pagos nuevos, no solo los editados.
+- Migracion EF: **2 ADD COLUMN nullable**, sin backfill de datos, sin default value. Riesgo bajo.
+
+### Negocio (Services)
+- `PagoService.ReversarPago(Pago pago)`:
+  1. Buscar `MovimientoCaja` por `PagoId == pago.Id` (nuevo, exacto); si no hay ninguno con esa FK (pago historico anterior a la migracion), fallback a la busqueda actual por `VentaId+Monto+no eliminado` (comportamiento preexistente, sin cambios).
+  2. Soft-delete el/los movimiento(s) de caja encontrados.
+  3. Soft-delete todos los `MovimientoCuentaCorriente` con `PagoId == pago.Id` (esto YA es exacto hoy, `MovimientoCuentaCorriente.PagoId` existe desde antes).
+- `PagoService.RegistrarPagoInterno(...)`: el cuerpo de `RegistrarPago` extraido tal cual (mismas validaciones de sobrepago/SaldoFavor), parametrizado para aceptar `UsuarioId`/`Observacion`/`PagoAnteriorId` opcionales (null en el alta normal via `RegistrarPago`, seteados en el alta via `EditarPago`).
+- `PagoService.EditarPago(pagoId, nuevaFecha, nuevoMonto, nuevoMetodoPago, motivo, usuarioId)`:
+  1. Cargar el pago viejo (`Include(Venta)`); si no existe, esta eliminado, o ya fue reemplazado (`db.Pagos.Any(p => p.PagoAnteriorId == pagoId)`) → excepcion de negocio explicita.
+  2. `ReversarPago(pagoViejo)`.
+  3. Soft-delete `pagoViejo`.
+  4. `RegistrarPagoInterno(venta, nuevoMonto, nuevoMetodoPago, nuevaFecha, usuarioId, motivo, pagoAnteriorId: pagoId)` — la relectura de `montoRestante`/`saldoDisponible` ocurre DENTRO de este metodo, ya sobre el estado post-reversion.
+- `PagosController.EditarPago` (Web): `[Authorize(Roles = "Administrador,Vendedor")]`, `[HttpPost]`, abre `lock (_registrarPagoLock)` + `using (var tx = db.Database.BeginTransaction())` (mismo patron que las acciones existentes) y llama a `PagoService.EditarPago(...)` adentro; traduce excepciones de negocio a la respuesta JSON `{ mensaje, tipoMensaje }` ya estandar del controller.
+- `RegistrarPago`/`EliminarPago` (Web, refactorizados): pasan a llamar `PagoService.RegistrarPagoInterno`/`PagoService.ReversarPago` respectivamente, conservando el resto de su cuerpo (guardas de estado de Venta, lock, transaccion, JSON) sin cambios de comportamiento.
+
+### Presentacion (Web)
+- `Views/Ventas/Details.cshtml`/`Edit.cshtml`: quitar boton+JS de "Editar fecha"; agregar boton "Editar pago" + modal (Fecha/Monto/Metodo/Motivo) sobre cada fila de pago vigente (no reemplazado); render de la cadena de pagos (`PagoAnteriorId`) tachados con tooltip de motivo.
+- ViewModel de pagos de la Venta (proyeccion usada en la vista, hoy inline en el controller de Ventas o en un ViewModel dedicado — verificar en Implementacion): agregar `Observacion`, nombre de usuario editor, y el pago enlazado (`PagoAnteriorId` resuelto a objeto o al menos a Id+datos minimos para el tooltip).
+
+## 3. Cambios de datos y migraciones
+| # | Migracion | Tabla | Operacion | Riesgo |
+|---|---|---|---|---|
+| 1 | `AddCamposEdicionAPago` | `pagos` | `AddColumn("UsuarioId", string, nullable)`, `AddColumn("Observacion", string, nullable)`, `AddColumn("PagoAnteriorId", int, nullable)` + FK a `pagos.Id` (self) y a `AspNetUsers.Id` | Bajo — todas nullable, sin backfill |
+| 2 | `AddPagoIdAMovimientoCaja` | `movimientoscaja` | `AddColumn("PagoId", int, nullable)` + FK a `pagos.Id` | Bajo — nullable, sin backfill; los movimientos historicos quedan `NULL` y siguen resolviendose por el fallback `VentaId+Monto` |
+
+Ambas se pueden aplicar como una sola migracion EF si el Implementador lo prefiere (mismo commit, mismo riesgo) — se separan aca solo para dejar explicito que son 2 tablas distintas.
+
+## 4. Riesgos tecnicos
+| # | Riesgo | Probabilidad | Impacto | Mitigacion |
+|---|---|---|---|---|
+| T1 | Refactorizar `RegistrarPago`/`EliminarPago` para llamar a `PagoService` en vez de su logica inline puede introducir una regresion sutil en codigo YA hardeneado este mismo ciclo (`_registrarPagoLock`, fixes de cuenta corriente) | Media | Alto (es codigo financiero en produccion, ya tuvo 2 incidentes reales este ciclo — venta 9444 y la carrera de `montoRestante`) | Extraer el codigo LITERAL (copy-paste a un metodo, no reescribir "mejorandolo" de paso) y correr los mismos escenarios que ya se verificaron manualmente para `RegistrarPago`/`EliminarPago` en QA antes de dar por cerrado el refactor |
+| T2 | El lock `_registrarPagoLock` debe envolver **todo** `EditarPago` (reversion + alta), no solo la llamada a `RegistrarPagoInterno` — si el Controller abre el lock DESPUES de `ReversarPago`, se reintroduce la carrera que motivo el lock originalmente | Baja si se sigue el diseño; Alta si se omite | Alto | El lock se abre en el Controller ANTES de llamar a `PagoService.EditarPago` completo (reversion+alta adentro), igual que ya lo hace `RegistrarPago` hoy |
+| T3 | `MovimientoCaja.PagoId` nuevo requiere que `RegistrarPagoInterno` lo setee en TODA alta (no solo en ediciones) para que el fallback por Monto deje de ser necesario con el tiempo — si se omite en algun call site nuevo a futuro, el problema persiste silenciosamente | Baja | Medio | Centralizado en un unico metodo (`RegistrarPagoInterno`) que es el UNICO lugar donde se crea un `Pago`+`MovimientoCaja` de aca en adelante — no hay otro call site que pueda "olvidarlo" |
+| T4 | Migracion EF con 2 FKs nuevas (self-FK en `pagos`, FK en `movimientoscaja`) sobre tablas con miles de filas historicas en produccion (MySQL, EF6, provider ya conocido como fragil con operaciones complejas) | Baja (son ADD COLUMN simples, no joins ni recalculos) | Medio si falla en produccion | Probar la migracion contra una copia/dump de produccion antes de aplicarla en vivo (mismo criterio ya usado en otras migraciones de este proyecto este ciclo) |
+| T5 | Impacto en otros lugares que leen `Pago` y no conocen los campos nuevos (regla `26-checklists` #6, LP-002): `PagosController.Index`/`ListarPagos`/`ExportarExcel`, Dashboard, y cualquier reporte que ya liste pagos, deben decidir si muestran o no `Observacion`/el vinculo de edicion — al menos no deben romperse por los campos nuevos | Media (facil de olvidar un listado) | Bajo (visual, no funcional) | Grep de todos los usos de `Pago` en Controllers/Views antes de cerrar Implementacion; si se decide no mostrarlo en algun listado, dejarlo explicito como pendiente en `trazabilidad.md` (no un olvido silencioso) |
+
+## 5. Estrategia de pruebas funcionales
+1. **Regresion de lo existente** (critico dado T1): `RegistrarPago` normal (todos los metodos de pago incluido SaldoFavor con sobrepago/subpago) y `EliminarPago` (con y sin movimiento de cuenta corriente asociado) deben comportarse EXACTAMENTE igual que hoy despues del refactor a `PagoService`.
+2. **HU1/HU6/HU7 (`EditarPago`)**: editar solo fecha, solo monto, solo metodo, y combinaciones, verificando en cada caso: pago viejo soft-deleted, pago nuevo con `PagoAnteriorId` correcto, `MovimientoCaja` referenciando el pago nuevo via `PagoId`, `MovimientoCuentaCorriente` reversado/recreado si aplicaba.
+3. **HU2**: UI muestra la cadena completa (probar 2+ ediciones sucesivas sobre el mismo pago original).
+4. **HU3**: intento sin motivo (UI y request directo) rechazado.
+5. **HU4**: editar un pago de una Venta Facturada no dispara cambios en `Factura`/`ProductosVenta`/`Venta.Estado`.
+6. **HU5**: intento de editar un pago ya reemplazado (via UI oculta el boton; via request directo al Controller) rechazado con error explicito.
+7. **Concurrencia (T2)**: 2 requests simultaneas de `EditarPago`/`RegistrarPago` sobre la misma venta no deben poder leer el mismo `montoRestante` "viejo" (mismo test que ya se penso para el lock original).
+8. **Caso SaldoFavor cruzado**: editar el Metodo de un pago normal HACIA SaldoFavor (debe validar `saldoDisponible`) y editar un pago SaldoFavor HACIA otro metodo (debe re-acreditar el debito original).
+9. **Migracion**: aplicar contra copia de produccion, verificar que pagos/movimientos historicos siguen visibles y sin cambios de valor tras la migracion (solo columnas nuevas en `NULL`).
+
 ## Historial de ajustes
 - 2026-06-XX: Creacion. Arquitectura iteracion 2 modulo Solicitudes de Ingreso de Stock. Diseno aprobado, gate de presupuesto OK.
+- 2026-09-07: Arquitectura iteracion 3 "Editar Pago" — se decide extraer `Services/PagoService.cs` (alineado con el patron cross-proyecto VentaService/EgresoPagoService de marihogar/ganaderia, refactor acotado: solo la logica de reversion+alta de Pago, no todo el Controller). Se decide ademas agregar `MovimientoCaja.PagoId` (cierra el riesgo #1 marcado en Diseño, ahora mas relevante porque toda edicion de pago pasa por reversion). 2 migraciones EF (o 1 combinada), 5 riesgos tecnicos identificados (T1 regresion por refactor es el de mayor cuidado), estrategia de pruebas de 9 puntos. Gate de presupuesto habilitado.

@@ -2,7 +2,7 @@
 
 > Memoria acumulativa del agente arquitecto.
 > Etapa: Arquitectura. Estado: ✅ Etapa 1 cerrada. Módulo E2-02 (Fichador) arquitecturado en §8 — contrato real de API confirmado (§8.8), gate de Implementación habilitado (cliente entregó ApiKey/IdEmpresa + documentación). Sprint UX/UI Inversor + fixes arquitecturado en §9.
-> Fecha: 2026-06-11. Última actualización: 2026-08-12 — §9 Sprint UX/UI Inversor + fixes (incluye diagnóstico del bug de puntos "Wang"). Inputs: 1-analista-funcional.md §12 + 2-disenador-funcional.md §11.
+> Fecha: 2026-06-11. Última actualización: 2026-08-13 — §10 Mi Inversión: dividendos/recupero en pesos. Inputs: 1-analista-funcional.md §13 + 2-disenador-funcional.md §12.
 
 ## 1. Alcance resumido
 
@@ -251,3 +251,274 @@ Verificación post-fix (ya validada manualmente contra producción antes de este
 - [x] Fix de Wang confirmado como bug de código, no de datos — sin riesgo para liquidaciones históricas.
 - [x] Notificaciones: reutiliza 100% servicios existentes, sin entidades nuevas.
 - [x] Regla de CSS global identificada y su documentación en Agentes-IA especificada.
+
+---
+
+## 10. Arquitectura — Mi Inversión: dividendos y recupero en pesos (Agosto 2026)
+
+### 10.0 Escaneo de reutilización
+
+Sin match — cálculo puntual, no hay componente equivalente en otro proyecto.
+
+### 10.1 Application
+
+`KoiDumplings.Application/DTOs/InversionesDtos.cs`, `MiInversionDto` — agregar:
+```csharp
+public decimal  DividendosPesos    { get; set; }   // suma Neto pagadas
+public decimal? RecuperoPesosPorc  { get; set; }   // Σ (Neto_i / (CapitalAportadoUsd × TipoCambio_i)) × 100, solo liquidaciones con TC
+```
+Sin cambios en `MiInversionFilaDto` (el historial por fila no cambia).
+
+### 10.2 Infrastructure
+
+`InversionesService.ObtenerMiInversionAsync` (`InversionesService.cs:247-299`): junto al cálculo existente de `dividendosUsd`, agregar:
+```csharp
+var pagadas = liquidaciones.Where(l => l.Estado == EstadoLiquidacion.Pagada).ToList();
+
+var dividendosPesos = pagadas.Sum(l => l.Neto);
+
+var conTc = pagadas.Where(l => l.TipoCambio is > 0).ToList();
+decimal? recuperoPesosPorc = inversor.CapitalAportadoUsd > 0 && conTc.Count > 0
+    ? Math.Round(conTc.Sum(l => l.Neto / (inversor.CapitalAportadoUsd * l.TipoCambio!.Value)) * 100, 2)
+    : null;
+```
+- `dividendosPesos` no depende de TC — suma directa de `Neto`, disponible siempre que haya liquidaciones pagadas.
+- `recuperoPesosPorc` es `null` solo si no hay ninguna liquidación pagada con TC cargado (hoy no ocurre en producción — 264/264 tienen TC — pero se contempla el caso).
+- Sin cambios en `AsignacionesVigentesAsync` ni en ningún otro método — el fix del bug de Wang (§9.2) no se toca ni se relaciona con este cambio.
+
+### 10.3 Domain / Migraciones EF
+
+Ninguna — todos los campos usados (`Neto`, `TipoCambio`, `CapitalAportadoUsd`) ya existen en el modelo.
+
+### 10.4 Web
+
+`Views/MiInversion/Index.cshtml` — 2 cards nuevas junto a las 3 existentes, según Diseño §12.1. Sin cambios de controller (`MiInversionController` ya pasa el `MiInversionDto` completo a la vista).
+
+### 10.5 Riesgos
+
+- El valor de `RecuperoPesosPorc` va a salir prácticamente igual a `RecuperoPorc` (USD) con los datos actuales — riesgo de que el cliente lo perciba como "no hace nada" al verlo en pantalla. Ya fue explicitado y aceptado en Análisis §13.2 — no es un riesgo técnico, es una expectativa a gestionar en la entrega.
+
+### 10.6 Gate de aprobación para presupuesto
+
+- [x] Sin migración EF.
+- [x] Fórmula validada contra datos reales de producción antes de definir la arquitectura.
+- [x] Sin impacto en el cálculo de liquidaciones/cierre de período — solo lectura, nuevo cálculo derivado.
+
+---
+
+## 11. Arquitectura — Sprint de correcciones y catálogo real (Agosto 2026)
+
+### 11.1 Migraciones EF
+
+**Ninguna.** Ningún ítem agrega entidades ni columnas. El ítem 4 es migración de **datos** (script SQL sobre producción), no de esquema.
+
+### 11.2 Ítem 1 — FromName
+
+`appsettings.Production.json` → `Olvidata_Email.Smtp.FromName` = `"KOI Dumplings"`. Archivo gitignored (contiene credenciales) → no se commitea, se publica directo con el deploy. Sin cambio de código.
+
+### 11.3 Ítem 2 — Recupero acumulado + gráfico
+
+- **Application**: `MiInversionFilaDto` agrega `RecuperoAcumuladoPorc` (decimal?).
+- **Infrastructure** (`InversionesService.ObtenerMiInversionAsync`): el historial hoy se arma con un `Select` sobre la lista ordenada descendente. Para el acumulado hay que recorrer **ascendente** llevando un running total y después presentar descendente. Solo se acumulan liquidaciones `Pagada` con `NetoUsd` (mismo criterio que el KPI agregado, ver supuesto en Análisis §14.1).
+- **Web**: columna nueva en la tabla + `<canvas>` con Chart.js (línea), alimentado desde el mismo modelo (no hace falta endpoint AJAX nuevo — el historial ya viaja completo a la vista).
+
+### 11.4 Ítem 3 — Editar períodos cerrados
+
+- **Infrastructure** (`EstadoResultadosService`): se quitan los dos guards de período cerrado — línea ~105 (`GuardarVentas`) y ~134 (`GuardarConceptoGastoAsync`). **NO se toca** el guard de línea ~227 (`ConfirmarCierre`: "El periodo ya esta cerrado") — cerrar dos veces sigue prohibido.
+- Método nuevo `RecalcularLiquidacionesPendientesAsync(periodoId, userId)`, invocado después de cada guardado exitoso sobre un período cerrado:
+  - Recalcula `UtilidadPorPunto = MontoRepartir / 100` con el nuevo `ResultadoEjercicio` (o el `MontoAjuste` si el cierre tenía ajuste manual — respetar el valor ajustado, no pisarlo con el resultado crudo).
+  - Para cada `Liquidacion` del período con `Estado == Pendiente`: recalcula `Bruto = PuntosAplicados × UtilidadPorPunto`, `Neto = Bruto − Consumos`, `NetoUsd = Neto ÷ TipoCambio`. **No toca las `Pagada`.**
+  - Devuelve el detalle (cuántas recalculadas, cuántas omitidas por estar pagadas, con nombres) para que el Controller lo muestre.
+  - Reutiliza la misma fórmula que `ConfirmarCierre` — extraerla a un helper privado compartido para no tener dos implementaciones del cálculo que puedan divergir.
+- **Auditoría**: registrar en la tabla `auditlogs` (ya existente) cada edición sobre un período cerrado: usuario, fecha/hora, período, subgrupo/campo, valor anterior → valor nuevo. Es requisito del Análisis, no opcional.
+- **Riesgo declarado**: un período cerrado editado deja el `ResultadoEjercicio` distinto del que se usó para generar las liquidaciones ya **pagadas** — esa inconsistencia es intencional y aceptada (decisión del cliente), pero debe quedar visible en pantalla, no silenciosa.
+
+### 11.5 Ítem 4 — Catálogo real + remapeo de históricos (RIESGO ALTO)
+
+**Orden de ejecución obligatorio:**
+1. **Backup de la base de producción** antes de tocar nada.
+2. Snapshot de verificación: total de gastos por período (`SELECT PeriodoMensualId, SUM(ImporteManual) FROM conceptosgasto GROUP BY 1`) — guardado para comparar después.
+3. Alta de los 8 rubros y ~40 subgrupos del PDF.
+4. Remapeo de los 373 `conceptosgasto` históricos: `UPDATE conceptosgasto SET SubgrupoId = <nuevo> WHERE SubgrupoId = <viejo>`.
+5. Baja lógica (`DeletedAt`) de los subgrupos genéricos ya remapeados.
+6. **Verificación**: re-ejecutar la query del paso 2 y confirmar que los totales por período son idénticos. Si algún total cambió, revertir con el backup.
+
+**Mapeo propuesto (requiere revisión del cliente antes de ejecutar):**
+
+| Subgrupo actual | → Nuevo | Nota |
+|---|---|---|
+| CMV | Costo Mercadería Vendida / **Mercadería KOI** | ⚠️ El genérico agrupa lo que ahora se abre en 4 (Mercadería KOI, Barriles, Verdulería, Bebidas) — todo el histórico cae en "Mercadería KOI" salvo que el cliente prefiera otro criterio |
+| Regalías (3 %) | Fee de Franquicia / Regalías (3 %) | directo, sigue calculado |
+| Canon (2,5 %) | Fee de Franquicia / Cánon de publicidad (2,5 %) | directo, sigue calculado |
+| Sueldos y Jornales | Sueldos y CCSS / Sueldos | directo |
+| Cargas Sociales | Sueldos y CCSS / Cargas Sociales | directo |
+| Honorarios | Servicios / **Contador** | ⚠️ a confirmar |
+| Luz / Gas / Internet / Agua | Servicios / (mismos nombres) | directo |
+| Alquiler del local | Alquiler / Alquiler | directo |
+| Expensas | Alquiler / Alquiler | ⚠️ sin equivalente en el PDF — se fusiona con Alquiler |
+| Mantenimiento | Gastos Varios / Mantenimiento y Reparaciones | directo |
+| Publicidad | Impuestos / Publicidad y Propaganda | ⚠️ agrupación rara del Excel del cliente, pero es la suya |
+| Otros gastos | Gastos Varios / **Almacén** | ⚠️ sin equivalente claro — a confirmar |
+| Comisiones Tarjetas (5 %) | Servicios / Comisiones Tarjetas / Merc Pago | ⚠️ **cambia de calculado a manual** |
+| IIBB (3,5 %) | Impuestos / Ingresos Brutos | ⚠️ **cambia de calculado a manual** |
+| Débitos/Créditos (1,2 %) | Impuestos / Imp a los débitos y créditos | ⚠️ **cambia de calculado a manual** |
+| Tasa Municipal (1 %) | Impuestos / Tasa Insp. Seg e Hig municipal | ⚠️ **cambia de calculado a manual** |
+| Previsión I (1 %) | Previsión y Reservas / Fondo de juicios laborales (1 %) | sigue calculado |
+| Previsión II (1 %) | Previsión y Reservas / Reposición maquinaria (1 %) | sigue calculado |
+
+Los subgrupos nuevos sin equivalente histórico (Barriles, Verdulería, Bebidas, Sindicato, Aceite, Cristalería, Insumos Barra, Papelería, Limpieza, Fletes, Pastillas Horno, Alarma, Software de Ventas, Máquina AQA, Sanitización, Fumigación, Seguro, Reservas Online, Mantenimiento Cta Bancaria, Comisiones PedidosYa/Rappi, IVA, Anticipo Ganancias, Ocupación Esp Público, Serv Urbanos, Recolección Basura) se crean vacíos: aplican de acá en adelante.
+
+**Cambio de `TipoConcepto` de calculado a Manual** (Comisiones, IIBB, Débitos/Créditos, Tasa Municipal): ojo — los `conceptosgasto` históricos de esos subgrupos guardaron el importe calculado en su momento. Al pasarlos a Manual, ese importe queda como valor manual fijo (correcto: preserva el histórico). Los meses nuevos se cargan a mano.
+
+### 11.6 Ítem 5 — Importación recurrente
+
+`ImportacionInicialService`: hoy cada bloque hace "si ya existe → advertencia + `continue`". Se agrega un flag `actualizarExistentes` (bool) al DTO de entrada que, cuando viene en `true`, en vez de saltear hace `UPDATE` de la fila existente. Aplica a los 6 bloques (períodos, ventas, conceptos de gasto, inversores, asignaciones, liquidaciones). El resultado pasa de dos listas (errores/advertencias) a distinguir también los actualizados.
+- Si el período que se actualiza está **cerrado**, invocar el mismo `RecalcularLiquidacionesPendientesAsync` del ítem 3 — no puede haber dos caminos distintos para el mismo efecto.
+- Sin cambios de esquema.
+
+### 11.7 Ítem 6 — Orden Reparto General
+
+Solo vista (`Views/RepartoGeneral/Index.cshtml`), idéntico al fix ya aplicado en `EstadoResultados/Anual.cshtml`. Sin cambios de código C#.
+
+### 11.8 Gate de aprobación
+
+- [x] Sin migración EF en ningún ítem.
+- [x] Ítem 4 con procedimiento de backup + verificación definido, y mapeo explícito para revisión del cliente.
+- [x] Ítem 3 con la fórmula de recálculo compartida con `ConfirmarCierre` (no se duplica lógica de cálculo financiero).
+- [x] Ítem 5 reutiliza el recálculo del ítem 3 en vez de implementar el suyo.
+
+---
+
+## 12. Arquitectura — Módulo E2-01 "Integración Ayres POS" (Fase 6, Septiembre 2026)
+
+Entrada: `1-analista-funcional.md` §15 (R-A01 resuelto, P-A08 confirmado) y `2-disenador-funcional.md` §14 aprobado.
+
+### 12.1 Mapa por capa
+
+| Capa | Archivo | Rol |
+|---|---|---|
+| **Domain** | — | **Sin cambios. Sin migración EF.** Las ventas se escriben en `VentasMensuales`, que ya existe |
+| **Application** | `DTOs/AyresDtos.cs` | `VentasPeriodoAyresDto`, `PreviewVentasAyresDto` |
+| | `Interfaces/IAyresService.cs` | `ObtenerVentasPeriodoAsync`, `ProbarConexionAsync` |
+| | `Exceptions/AyresIndisponibleException.cs` | Mismo criterio que `QuickPassIndisponibleException` |
+| | `Settings/FeatureFlags.cs` | **+ `public bool IntegracionAyres { get; set; } = false;`** — primer flag real del scaffold |
+| **Infrastructure** | `Services/AyresSettings.cs` | POCO: `BaseUrl`, `Email`, `Pass`, `IdSucursal`, `TimeoutSeconds`, `DiasPorConsulta` (default 10), `MapeoCanales` |
+| | `Services/AyresTokenCache.cs` | **Singleton.** Adaptado de `marihogar/AfipTokenCache.cs` |
+| | `Services/AyresService.cs` | **Scoped.** Login, chunking, agregación, mapeo de canales |
+| | `DependencyInjection.cs` | Cliente nombrado `"Ayres"` + registros |
+| **Web** | `Controllers/EstadoResultadosController.cs` | `PreviewAyres`, `AplicarAyres` |
+| | `Controllers/SystemController.cs` | **Se elimina `DiagnosticoAyres`**; se agrega `ProbarAyres` sobre `IAyresService` (HU-A08) |
+| | `Models/EstadoResultadosViewModels.cs` | `ErMensualViewModel.AyresHabilitado` |
+| | `Views/EstadoResultados/Mensual.cshtml` | Botón + modal de preview |
+| **Config** | `appsettings.json` (versionado) | Sección `Ayres` **con credenciales vacías** + `Features.IntegracionAyres` |
+| | `appsettings.Production.json` (gitignored) | Ya cargada con las credenciales reales |
+
+### 12.2 Ciclo de vida en DI (crítico)
+
+```
+services.Configure<AyresSettings>(configuration.GetSection("Ayres"));
+services.AddHttpClient("Ayres", (sp, client) => {
+    var s = sp.GetRequiredService<IOptions<AyresSettings>>().Value;
+    client.BaseAddress = new Uri(s.BaseUrl);
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+    client.Timeout = TimeSpan.FromSeconds(s.TimeoutSeconds);
+});
+services.AddSingleton<AyresTokenCache>();     // ← Singleton: el token sobrevive entre requests
+services.AddScoped<IAyresService, AyresService>();
+```
+
+**`AyresTokenCache` DEBE ser Singleton y `AyresService` Scoped.** Registrarlos al revés hace que el token se pierda en cada request y se dispare un login por llamada — 4 logins por mes importado en vez de 1. Es el error clásico del patrón y no da error visible, solo tráfico y latencia de más.
+
+**Sin `BaseAddress` con puerto omitido:** la URL es `http://koi.ayresit.com:8520` y el puerto es parte de la config, no del código.
+
+### 12.3 Token: vigencia real, no asumida
+
+Se porta el criterio de `AfipTokenCache` (PAT-006):
+- La vigencia sale de **`content.aliveTime` que devuelve Ayres** (3599 s hoy), nunca de una constante.
+- **Margen de seguridad de 60 s**: se considera vencido antes del vencimiento real, para no arrancar un chunk con un token que muere a mitad.
+- `SemaphoreSlim(1,1)` + doble chequeo dentro del lock: dos requests concurrentes no disparan dos logins.
+- `Invalidar()` ante un `UNAUTHORIZED_ACCESS` recibido con token que localmente creíamos vigente → un solo re-login y reintento. **Máximo un reintento**, para no entrar en bucle si la credencial cambió de verdad.
+
+### 12.4 Chunking y agregación
+
+```
+rango del mes → tramos de DiasPorConsulta (10) días
+  para cada tramo:
+      GET /ventas?fechaContableDesde=yyyy-MM-dd&fechaContableHasta=yyyy-MM-dd
+      acumular en el agregador
+      DESCARTAR el detalle del tramo
+  devolver el agregado
+```
+
+- **Secuencial, no en paralelo.** Son 3-4 llamadas contra el servidor del local; el paralelismo no compensa el riesgo de golpearlo.
+- **Se acumula y se descarta**: nunca se sostienen en memoria las ~1.062 ventas del mes con sus `items[]` (R-A03).
+- **Si un tramo falla, se propaga y no se aplica nada.** La agregación vive en memoria, así que no hay estado parcial que limpiar (HU-A05).
+- Fechas: se envían `yyyy-MM-dd`; **se parsean de vuelta con `"dd/MM/yyyy"` y `CultureInfo.InvariantCulture`**, formato explícito. Nunca `DateTime.Parse` por cultura del servidor.
+
+### 12.5 Contrato de deserialización
+
+El sobre viene anidado y es la trampa principal:
+
+```
+content: { fechas: {...}, cantidad: int, ventas: [ { venta: { ... } } ] }
+                                                    ^^^^^ nivel extra
+```
+
+DTO espejo con `[JsonPropertyName]` explícito en cada campo. **No confiar en el naming policy**: un campo mal mapeado devuelve 0 silenciosamente y el preview mostraría un total incorrecto sin ningún error.
+
+Campos consumidos: `facturaMontoTotal`, `cantidadConsumidores`, `sectorTipo`, `items[].cantidad`, `fechaContable`, `estado`.
+
+**`estado` (R-A04):** se lee y se expone en el agregado el conteo por estado. En agosto el total cerró al centavo contra la carga manual, así que aparentemente no hay anuladas que descontar — pero **queda instrumentado**: si aparece un estado distinto de `'C'`, el preview lo informa en vez de sumarlo sin criterio. Decisión de qué hacer con ellas: recién cuando aparezcan.
+
+### 12.6 Mapeo de canales (P-A08 confirmado)
+
+`ME` → Salón · `PE` → Pedidos · `MO` → Mostrador. **En configuración, no en código**:
+
+```json
+"MapeoCanales": { "ME": "Salon", "PE": "Pedidos", "MO": "Mostrador" }
+```
+
+Un `sectorTipo` ausente del diccionario no rompe ni se descarta: suma a `Otros` y el preview lo muestra con advertencia (HU-A07). Cambiar el mapeo no requiere redeploy.
+
+Los importes van al lado **A** (`VentasASalon`, `VentasAPedidos`, `VentasAMostrador`), consistente con cómo está cargada la historia. El lado B queda en 0 y **no se pisa** si tuviera algo.
+
+### 12.7 Mapeo de errores
+
+| Origen | Excepción | Mensaje al usuario |
+|---|---|---|
+| `SocketException`, `HttpRequestException`, timeout | `AyresIndisponibleException` | "No se pudo conectar con Ayres. El período quedó sin cambios." **Se loguea el detalle técnico** (D-A01: si Ayres cambia de IP el síntoma es WSAEACCES y hay que poder diagnosticarlo rápido) |
+| `resultCode = UNAUTHORIZED_ACCESS` tras reintento | `AyresIndisponibleException` con flag de credenciales | "Ayres rechazó las credenciales. Revisá la configuración." |
+| `resultCode` distinto de `SUCCESS` | `AyresIndisponibleException` | Se propaga `resultDescription` |
+
+`GlobalExceptionHandler` ya devuelve JSON para AJAX: se aprovecha, no se duplica manejo.
+
+### 12.8 Escritura: reutilizar, no duplicar
+
+`AplicarAyres` **no escribe directo** en `VentasMensuales`. Llama a `_erService.GuardarVentasAsync(...)`, el mismo método del guardado manual. Consecuencias:
+- El recálculo de porcentuales sale gratis (`GuardarVentasAsync` ya llama a `RecalcularInternamente`).
+- La validación de período cerrado ya está adentro: doble barrera con la del controller.
+- Los overrides manuales de conceptos porcentuales (Etapa 19) se respetan solos.
+- **Cero lógica financiera nueva.** Si mañana cambia la regla de cierre, cambia en un solo lugar.
+
+`AplicarAyres` devuelve **la misma forma JSON que `GuardarVentas`**, para que el cliente reutilice el repintado existente sin JS nuevo de actualización.
+
+### 12.9 Seguridad
+
+- Ambas acciones: `[HttpPost]`, `[ValidateAntiForgeryToken]`, policy `SoloAdministrador`. **Verificar que los atributos queden pegados al método correcto** (incidente del 2026-09-08 con `TestEmail`).
+- Las credenciales **solo** en `appsettings.Production.json` (gitignored). En el `appsettings.json` versionado la sección va con valores vacíos.
+- El token **nunca** se devuelve al cliente ni se loguea.
+- `ProbarConexionAsync` informa si conecta, sin exponer el token.
+- **R-A02 sigue abierto** (HTTP sin TLS): documentado, no resoluble desde este código.
+
+### 12.10 Checklist de gate
+
+- [x] Sin cambios en Domain · sin migración EF
+- [x] Sin lógica financiera nueva: la escritura reutiliza `GuardarVentasAsync`
+- [x] Ciclos de vida de DI explicitados (el error de Singleton/Scoped documentado)
+- [x] Cache de token portado de un patrón con implementación en producción (PAT-006)
+- [x] Chunking secuencial con descarte de detalle (R-A03)
+- [x] Fechas con formato y cultura explícitos
+- [x] Mapeo de canales configurable, con degradación a "Otros"
+- [x] Feature flag para apagar el módulo sin redeploy
+- [x] Diagnóstico temporal marcado para eliminación
+- [ ] **Presupuesto: SALTEADO por decisión del dueño del estudio (2026-09-08)**

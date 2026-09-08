@@ -2164,3 +2164,171 @@ regresiones:
       - "ModulosMvpDelRubroAsync('Comercio o alquiler de maquinaria') devuelve los modulos imprescindibles de Retail (Id=2), no los de Id=4."
       - "ModulosMvpDelRubroAsync('Alquiler de maquinaria') sigue devolviendo los modulos de Id=4 sin cambios."
     nota_generalizacion: "Segunda instancia del mismo patron raiz que CRM-007/CRM-010: un diccionario de mapeo entre vocabularios (ClaveRubro / nombre de dialogo del bot / nombre de IndustriaCatalogo) tenia un valor nunca verificado contra datos reales. Cuando se migra o refactoriza un diccionario de mapeo de este tipo (RubroHelpers.cs concentra 3 vocabularios distintos), conviene validar CADA valor contra la matriz real de datos (ModuloCatalogoIndustrias, campanas outbound existentes), no solo la mecanica de acceso (ClaveRubro vs Nombre)."
+
+  - id: GAN-005
+    modulo: "Facturas de venta / Egresos - grillas de coleccion (Items[i], Ingresos[i], Pagos[i]) con input type=number y cultura es-AR fija"
+    titulo: "Los inputs numericos de las FILAS de coleccion se parsean con la cultura del request (es-AR) porque el tag helper no emite para ellos el marcador __Invariant: un valor invariante como 1121670.00 entra al servidor como 112.167.000 (x100)"
+    severidad: blocker
+    reproducido_en: "ganaderia - emo, main (working tree v17 sin commitear), ganaderia_dev, 2026-09-07, reproducido por navegador real (Playwright) contra la app corriendo"
+    pasos:
+      - "App con cultura fija es-AR (UseRequestLocalization en Program.cs) y SIN model binder invariante propio."
+      - "Ir a Facturas de venta -> Nueva. Cargar un item (1000 kilos x 1000) y los impuestos."
+      - "Presionar 'Generar sugerido' para que el JS complete los ingresos (escribe con toFixed(2), o sea SIEMPRE con punto decimal)."
+      - "Presionar 'Emitir factura'."
+      - "Variante Egresos: Egresos -> Nuevo, subtotal 100000, IVA 21%, y un pago cuyo importe tenga decimales."
+      - "Variante edicion: abrir Facturas/Edit/{id} de una factura editable y presionar 'Guardar cambios' sin tocar nada."
+    sintoma: "El alta se rechaza con 'La suma de los ingresos (112.167.000,00) no coincide con el Total de la factura (1.121.670,00).' El numero del mensaje es exactamente 100x el valor tipeado. Como 'Generar sugerido' y 'Reajustar al nuevo total' escriben SIEMPRE con toFixed(2), el flujo recomendado por la propia UI falla siempre; solo se puede guardar tipeando importes sin punto decimal. En edicion, reabrir y re-guardar sin tocar nada tambien falla."
+    expectativa: "Un input type=number postea SIEMPRE en formato invariante por especificacion HTML; el servidor debe parsearlo como invariante. 'Generar sugerido' + guardar tiene que funcionar, y re-guardar una edicion sin cambios tiene que ser idempotente."
+    causa_raiz: "ASP.NET Core resuelve el round-trip de cultura emitiendo un input hidden name=__Invariant value=NombreDelCampo por cada campo renderizado con el tag helper asp-for sobre un input type=number/date; el value provider usa ese marcador para parsear ese campo con InvariantCulture en vez de la cultura del request. Los campos ESCALARES de estas vistas usan asp-for y por eso funcionan bien (PorcentajeDescuento, MontoDescuento, PorcentajeIva, MontoIva, Subtotal). Pero las filas de coleccion estan escritas a mano con name=Items[@i].KilosTotales / name=Ingresos[@i].Importe / name=@(prefix).Importe (necesario porque las filas se agregan, quitan y reindexan por JS), asi que NO reciben el marcador y caen en el parseo es-AR, donde el punto es separador de MILES. Es la mitad de ENTRADA del mismo round-trip que LP-003 documenta del lado de la SALIDA; ganaderia ya tenia resuelta la salida (helper num con InvariantCulture) pero no la entrada, y no tiene el InvariantDecimalModelBinderProvider que si tiene La Platense."
+    capa: Web
+    archivos_fix:
+      - path: Ganaderia.Web/Views/Facturas/Create.cshtml
+        motivo: "Agregar un listener de submit en fase de captura que, antes de enviar, recorre los input[type=number][name] de #tblItems y #tblIngresos y appendea al form un input hidden name=__Invariant value={nombre del campo} por cada uno. Se hace en el submit y no en el markup porque las filas se agregan/quitan/reindexan por JS; se limpian los marcadores previos en cada pasada para que no se dupliquen."
+      - path: Ganaderia.Web/Views/Egresos/Create.cshtml
+        motivo: "Mismo listener sobre input.js-importe-pago[name] (las filas de _FilaPago.cshtml)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /Facturas/Create y /Egresos/Create; comparar la lista de input[type=number][name] contra la lista de input[name='__Invariant'] del form"
+      condicion_falla: "Existe algun input[type=number] con name (tipicamente los de indice de coleccion: Items[0].*, Ingresos[0].*, Pagos[0].*) que no tenga un input[name='__Invariant'] con ese mismo nombre como value."
+    criterio_aceptacion:
+      - "En Facturas/Create, 'Generar sugerido' seguido de 'Emitir factura' crea la factura sin el error de suma de ingresos."
+      - "En Egresos/Create, un pago con importe decimal (114950.00) se acepta y persiste como 114950.00, no como 11.495.000."
+      - "Abrir Facturas/Edit/{id} y guardar sin tocar nada es idempotente: ningun importe cambia en la base."
+      - "El boton 'Reajustar al nuevo total' (v17/PF72) produce importes que el servidor acepta."
+    pruebas_minimas:
+      - "Alta de factura con descuento 10% sobre subtotal 1.000.000 + IVA 21% + IIBB 3%: total 1.121.670,00 con el ingreso generado por 'Generar sugerido'."
+      - "Alta de egreso subtotal 100.000, descuento 5%, IVA 21%, un pago de 114.950,00 -> persiste Importe 114.950,00."
+      - "Editar esa factura y re-guardar sin cambios -> los importes en base quedan identicos."
+      - "Regresion: los comprobantes preexistentes (sin descuento) no cambian ningun importe."
+    nota_generalizacion: "Aplica a CUALQUIER proyecto del baseline que (a) fije una cultura con coma decimal (es-AR/es-ES/pt-BR) via UseRequestLocalization, (b) NO registre un model binder invariante propio, y (c) tenga grillas dinamicas cuyos inputs se nombren a mano con indice en vez de asp-for. La combinacion es facil de pasar por alto porque los campos escalares de la MISMA pantalla funcionan perfecto (tienen su __Invariant) y porque la validacion dura del servidor rechaza el valor corrupto con un mensaje que parece un error de negocio ('la suma no coincide') y no de parseo. Ojo: falla RUIDOSA cuando hay una validacion de suma que la ataja, pero seria una corrupcion SILENCIOSA x100 en cualquier campo decimal de coleccion que no tenga una validacion cruzada."
+    fix_aplicado:
+      fecha: "2026-09-07"
+      por: "QA (auto-fix durante el ciclo de QA de la iteracion v17 de ganaderia)"
+      resultado: "aplicado"
+      archivos:
+        - path: Ganaderia.Web/Views/Facturas/Create.cshtml
+          motivo: "listener submit en fase de captura que emite los marcadores __Invariant para #tblItems y #tblIngresos."
+        - path: Ganaderia.Web/Views/Egresos/Create.cshtml
+          motivo: "idem para input.js-importe-pago."
+      build: "dotnet build Ganaderia.slnx -c Debug -> Compilacion correcta, 0 Errores."
+      verificacion: "Verificado por navegador real (Playwright) contra ganaderia_dev: antes del fix, 'Generar sugerido' + Emitir factura fallaba con 'La suma de los ingresos (112.167.000,00) no coincide...'; despues del fix la factura se crea (Total 1.121.670,00 persistido). Egreso con pago 114.950,00 persiste correcto. Abrir Facturas/Edit/{id} y re-guardar sin tocar nada quedo idempotente (Subtotal 1.000.000,00 / Total 1.210.000,00 / ingresos 605.000,00 x2 sin cambios). PF72 (reajuste proporcional) pasa end-to-end. Invariantes de comprobantes en 0 desvios y base restaurada al baseline exacto."
+
+  - id: GAN-006
+    modulo: "Facturas de venta / Egresos - inputs de porcentaje de impuestos (step del input vs precision decimal(9,4) de la columna)"
+    titulo: "Editar una factura existente es imposible: jquery-validate bloquea el submit con 'Please enter a multiple of 0.01' porque los % se renderizan con 4 decimales (21.0000) contra un step 0.01"
+    severidad: blocker
+    reproducido_en: "ganaderia - emo, main (working tree v17 sin commitear), ganaderia_dev, 2026-09-07, reproducido por navegador real (Playwright)"
+    pasos:
+      - "Tener una factura de venta editable (ningun ingreso Acreditado ni Rechazado) con IVA cargado."
+      - "Abrir Facturas/Edit/{id}."
+      - "Presionar 'Guardar cambios' sin modificar absolutamente nada."
+    sintoma: "El submit no se envia nunca. Aparecen tres mensajes 'Please enter a multiple of 0.01.' (en ingles, del bundle de jquery-validate) sobre PorcentajeIva, PorcentajeIIBB y PorcentajeOtrasPercepciones. La validacion nativa del navegador (input.validity) da valida; el bloqueo lo pone jquery-validate. La unica salida es retipear a mano los tres porcentajes."
+    expectativa: "Reabrir una factura editable y guardarla sin cambios tiene que funcionar y ser idempotente."
+    causa_raiz: "Las columnas de porcentaje son decimal(9,4) (convencion del proyecto), asi que el ViewModel trae 21.0000 y el tag helper asp-for lo renderiza con su escala completa: value=21.0000. El input declara step=0.01. La regla step de jquery-validate rechaza cualquier valor con mas decimales que el step, aunque 21.0000 sea aritmeticamente un multiplo exacto de 0.01. En el ALTA no se nota porque los campos arrancan en 0 o los completa el driver JS con 2 decimales; solo aparece al REABRIR un registro persistido. El campo PorcentajeDescuento de v17 se salva de casualidad porque su driver arranca en modo monto y reescribe el .value a 2 decimales al cargar."
+    capa: Web
+    archivos_fix:
+      - path: Ganaderia.Web/Views/Facturas/Create.cshtml
+        motivo: "Alinear el step del input con la precision real de la columna: step=0.0001 en PorcentajeDescuento, PorcentajeIva, PorcentajeIIBB y PorcentajeOtrasPercepciones (decimal(9,4)). No se toca el valor renderizado ni la precision persistida, solo la restriccion declarada en la UI, que estaba mas estricta que el dominio."
+      - path: Ganaderia.Web/Views/Egresos/Create.cshtml
+        motivo: "idem en PorcentajeDescuento y PorcentajeIva."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /Facturas/Edit/{id} de una factura editable con impuestos cargados; ejecutar jQuery(form).validate().form() y leer errorList"
+      condicion_falla: "errorList no vacio sobre campos que el usuario no toco, tipicamente con el mensaje 'Please enter a multiple of ...'; o bien: existe un input[type=number] cuyo value tiene mas decimales que los que permite su propio step."
+    criterio_aceptacion:
+      - "Abrir Facturas/Edit/{id} y presionar 'Guardar cambios' sin tocar nada guarda correctamente y no cambia ningun importe."
+      - "jQuery(form).validate().form() sobre la edicion recien cargada devuelve errorList vacio."
+      - "Sigue siendo posible cargar porcentajes con 2 decimales (21,5) en el alta y en la edicion."
+    pruebas_minimas:
+      - "Edit de una factura con IVA 21% + IIBB 3%: guardar sin cambios -> Details, importes identicos en base."
+      - "Regresion: alta normal de factura con IVA 21% sigue funcionando."
+      - "Regresion: PV19 (descuento >= 100%) y PV20 (descuento >= subtotal) siguen bloqueados en cliente y servidor."
+    nota_generalizacion: "Patron general: cuando la columna es decimal(p,S) y el input declara step con MENOS decimales que S, cualquier pantalla de EDICION queda bloqueada por jquery-validate apenas el valor persistido se renderiza con su escala completa. Se detecta solo reabriendo un registro guardado, nunca en el alta. Regla: el step del input tiene que ser <= la precision de la columna (o el value debe renderizarse redondeado al step). Revisar en todo proyecto que use decimal(x,4) para porcentajes junto a step=0.01."
+    fix_aplicado:
+      fecha: "2026-09-07"
+      por: "QA (auto-fix durante el ciclo de QA de la iteracion v17 de ganaderia)"
+      resultado: "aplicado"
+      archivos:
+        - path: Ganaderia.Web/Views/Facturas/Create.cshtml
+          motivo: "step 0.01 -> 0.0001 en los 4 inputs de porcentaje."
+        - path: Ganaderia.Web/Views/Egresos/Create.cshtml
+          motivo: "step 0.01 -> 0.0001 en los 2 inputs de porcentaje."
+      build: "dotnet build Ganaderia.slnx -c Debug -> Compilacion correcta, 0 Errores."
+      verificacion: "Verificado por navegador real (Playwright): antes del fix, jQuery(form).validate().form() sobre Facturas/Edit/{id} devolvia 3 errores 'Please enter a multiple of 0.01' y el submit no salia nunca; despues del fix devuelve errorList vacio y el re-guardado sin cambios es idempotente. PV19/PV20/PV21 siguen bloqueados en cliente y por POST directo."
+
+  - id: DN-003
+    modulo: "Pagos / reversion de un pago (PagoService.ReversarPago) â€” al introducir una FK directa MovimientoCaja.PagoId sobre un esquema con filas historicas"
+    titulo: "El fallback heuristico (VentaId + Monto) no se acoto a las filas SIN FK: revertir un pago historico puede soft-deletear el movimiento de caja de un pago NUEVO del mismo importe en la misma venta"
+    severidad: major
+    reproducido_en: "delicias-naturales - checkpoint-20260826-auditoria-autosave, working tree de la iteracion 3 'Editar Pago' (2026-09-07), detectado por revision estatica contra la especificacion de Arquitectura"
+    pasos:
+      - "Partir de una base con pagos historicos anteriores a la migracion que agrega la FK (MovimientoCaja.PagoId = NULL en esos movimientos)."
+      - "Sobre una venta que YA tiene un pago historico de $X, registrar un pago NUEVO por el mismo importe $X (el nuevo si graba MovimientoCaja.PagoId)."
+      - "Eliminar o Editar el pago HISTORICO (el que no tiene FK)."
+      - "Mirar que MovimientoCaja quedo con DeletedAt seteado."
+    sintoma: "Se da de baja el movimiento de caja del pago NUEVO (el que tiene FK) en vez del movimiento huerfano del pago historico. El pago nuevo queda vivo pero sin su ingreso en caja: el arqueo de la caja chica baja $X sin que se haya eliminado ningun pago vigente, y el movimiento del pago historico sigue sumando."
+    expectativa: "La reversion busca primero por la FK exacta (m.PagoId == pago.Id). Si no encuentra nada, el fallback por VentaId + Monto se limita EXCLUSIVAMENTE a los movimientos que no tienen FK (m.PagoId == null), que son los unicos que pueden pertenecer a un pago historico."
+    causa_raiz: "Al migrar de una busqueda heuristica a una FK exacta, el fallback se conservo tal cual estaba (OrigenMovimiento + OrigenId + Monto + no eliminado) sin agregarle la condicion que lo hace mutuamente excluyente con el camino de la FK. Arquitectura lo habia especificado ('la busqueda por VentaId+Monto se mantiene como fallback exclusivamente para movimientos con PagoId == null') pero la implementacion omitio ese filtro. Mientras TODOS los movimientos son historicos el bug no se ve; aparece recien cuando conviven filas con y sin FK, o sea a partir del primer pago nuevo posterior al deploy."
+    capa: Application
+    archivos_fix:
+      - path: Services/PagoService.cs
+        motivo: "ReversarPago: agregar 'm.PagoId == null' como primera condicion del FirstOrDefault del fallback, para que nunca pueda elegir un movimiento que ya pertenece a otro pago conocido."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "Metodo de reversion que primero busca por FK y despues cae a un fallback heuristico (aca PagoService.ReversarPago)."
+      condicion_falla: "El predicado del fallback no incluye una condicion que excluya las filas que SI tienen la FK seteada (IS NULL sobre la columna nueva)."
+    criterio_aceptacion:
+      - "Revertir un pago con FK toca unicamente el movimiento cuya FK apunta a ese pago."
+      - "Revertir un pago historico (sin FK) nunca toca un movimiento que tenga la FK seteada, aunque coincida venta e importe."
+      - "Una venta con dos pagos del mismo importe (uno historico, uno nuevo) sobrevive a la baja de cualquiera de los dos sin descuadrar la caja."
+    pruebas_minimas:
+      - "Venta con pago historico $1000 (movimiento sin FK) + pago nuevo $1000 (movimiento con FK). Eliminar el historico -> se da de baja el movimiento sin FK; el del pago nuevo sigue activo."
+      - "Editar el pago nuevo -> se da de baja solo su propio movimiento; el historico queda intacto."
+      - "Regresion: eliminar un pago de una venta que solo tiene pagos historicos sigue funcionando por el fallback."
+    nota_generalizacion: "Regla general para CUALQUIER migracion que introduce una FK directa para reemplazar una busqueda heuristica sobre datos historicos (el patron 'FK nueva + fallback por atributos'): los dos caminos tienen que ser MUTUAMENTE EXCLUYENTES, y la forma de garantizarlo es acotar el fallback a las filas donde la FK nueva es NULL. Si no, durante todo el periodo de convivencia (que puede durar anios) el fallback puede secuestrar filas que ya pertenecen a un duenio conocido. Aplica igual en marihogar, ganaderia y la-platense, que tienen el mismo patron de movimientos financieros con origen polimorfico (OrigenTipo + OrigenId)."
+    fix_aplicado:
+      fecha: "2026-09-07"
+      por: "QA (auto-fix durante el ciclo de QA de la iteracion 3 'Editar Pago' de delicias-naturales)"
+      resultado: "aplicado"
+      archivos:
+        - path: Services/PagoService.cs
+          motivo: "fallback acotado con 'm.PagoId == null', alineado con la especificacion de Arquitectura seccion 2."
+      build: "MSBuild DeliciasNaturales.sln /t:Rebuild /p:MvcBuildViews=true -> EXITCODE 0, 0 Errores, 35 warnings preexistentes."
+      verificacion: "Revision estatica del predicado + build limpio. NO verificado por navegador: el servidor MCP de Playwright no estaba disponible en la sesion. Pendiente la prueba manual de las 3 pruebas minimas en el entorno con datos historicos."
+
+  - id: DN-004
+    modulo: "Pagos / Editar un pago ya posteado (PagoService.EditarPago + RegistrarPagoInterno) â€” interaccion con el modulo de Caja"
+    titulo: "Editar un pago (incluso solo la fecha) exige una caja chica ABIERTA y mueve el movimiento de caja desde la caja original â€” posiblemente ya CERRADA â€” a la caja abierta de hoy, alterando el arqueo de un cierre pasado"
+    severidad: major
+    reproducido_en: "delicias-naturales - checkpoint-20260826-auditoria-autosave, working tree de la iteracion 3 'Editar Pago' (2026-09-07), detectado por revision estatica. NO corregido."
+    pasos:
+      - "Registrar un pago en una venta con la caja chica abierta; el MovimientoCaja queda asociado a esa caja."
+      - "Cerrar la caja chica del dia (Cajas -> Cerrar). Queda EstadoCaja.Cerrada con su arqueo."
+      - "Al dia siguiente (o con la caja cerrada), entrar al detalle de la venta y presionar 'Editar pago' para corregir SOLO la fecha, con un motivo."
+      - "Variante A: sin ninguna caja chica abierta -> mirar el mensaje de error."
+      - "Variante B: con la caja chica de HOY abierta -> confirmar la edicion y despues abrir el detalle de la caja YA CERRADA del dia original."
+    sintoma: "Variante A: la edicion se rechaza con 'No hay una caja chica abierta para registrar el ingreso.' â€” un mensaje que no tiene nada que ver con corregir un typo de fecha, y que deja al usuario sin forma de hacerlo. Variante B: el movimiento original se da de baja logica dentro de la caja ya cerrada (su saldo recalculado deja de coincidir con el arqueo del cierre) y el movimiento nuevo se agrega a la caja abierta de HOY, pero fechado con la fecha del pago (que puede ser de semanas atras). Dos cajas quedan mal: la vieja de menos, la nueva de mas."
+    expectativa: "Corregir el dato de un pago no deberia reescribir el arqueo de una caja ya cerrada. El criterio de PAT-020/MH-020 es reversar por CONTRAMOVIMIENTO (un egreso nuevo en la caja vigente que neutraliza el ingreso original) en vez de dar de baja el movimiento original â€” el ledger de caja queda inmutable y el impacto cae siempre en el periodo abierto. Y una edicion que no cambia el importe no deberia depender de que haya una caja abierta."
+    causa_raiz: "PagoService.ReversarPago revierte haciendo soft-delete del MovimientoCaja original (criterio heredado literalmente de PagosController.EliminarPago), sin mirar el EstadoCaja de la caja a la que pertenece; y PagoService.RegistrarPagoInterno exige incondicionalmente una caja chica Abierta para dar de alta el pago corregido. La feature declara seguir 'ledger inmutable' (PAT-023), pero eso solo se cumple a nivel de la fila Pago (soft-delete + pago nuevo enlazado): a nivel de MovimientoCaja / MovimientoCuentaCorriente el movimiento original SI se borra, que es exactamente lo que la regla (b) de la nota de generalizacion de MH-020 prohibe. El efecto existia de antes en EliminarPago, pero la iteracion 3 lo amplia a TODA edicion de pago porque elimina el camino liviano ActualizarFechaPago (que solo hacia UPDATE de la fecha del pago y del movimiento, sin tocar cajas)."
+    capa: Application
+    archivos_fix:
+      - path: Services/PagoService.cs
+        motivo: "PENDIENTE â€” decision de negocio. Opcion A (alineada con MH-020/PAT-020): ReversarPago postea un contramovimiento de Egreso en la caja chica abierta en vez de soft-deletear el MovimientoCaja original. Opcion B (acotada): si la caja del movimiento original esta Abierta, mantener el soft-delete actual; si esta Cerrada, postear contramovimiento. Requiere aprobacion del duenio del estudio: cambia como se ve el arqueo historico."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "POST /Pagos/EditarPago sobre un pago cuyo MovimientoCaja pertenece a una Caja con Estado = Cerrada; comparar el saldo recalculado de esa caja (Cajas/Details, suma de MontoDecorado de movimientos no eliminados) antes y despues."
+      condicion_falla: "El saldo recalculado de una caja YA CERRADA cambia como consecuencia de editar o eliminar un pago; o la edicion falla con 'No hay una caja chica abierta' cuando el importe del pago no cambio."
+    criterio_aceptacion:
+      - "Editar solo la fecha de un pago no cambia el saldo de ninguna caja cerrada."
+      - "Editar un pago con la caja chica cerrada no falla con un error de caja (o, si la decision es exigir caja abierta, el mensaje lo explica en terminos de la edicion, no del ingreso)."
+      - "El impacto neto en caja de una edicion que baja el monto de $X a $Y es exactamente -($X - $Y) sobre el periodo ABIERTO, sin retocar periodos cerrados."
+    pruebas_minimas:
+      - "Pago en caja cerrada -> editar solo fecha -> el arqueo de la caja cerrada queda identico."
+      - "Sin caja chica abierta -> editar solo fecha -> resultado esperado segun la decision que se tome."
+      - "Editar el monto de $1000 a $400 -> la caja vigente refleja -$600 neto, la caja original no cambia."
+    nota_generalizacion: "Es la contracara de MH-020 regla (b) ('los pagos ya posteados se reversan por un CONTRAMOVIMIENTO nuevo â€” nunca editando ni borrando el movimiento original') mirada desde la EDICION en vez de la cancelacion. Aplica a todo proyecto del estudio que tenga (a) movimientos financieros agrupados en un contenedor con estado terminal (caja diaria, periodo contable, cierre mensual) y (b) una operacion de correccion que reversa el movimiento original. Regla: reversar SIEMPRE por contramovimiento en el periodo abierto; el soft-delete del movimiento original solo es aceptable si se puede garantizar que su periodo sigue abierto. Ojo tambien con la mitad simetrica: exigir un contenedor ABIERTO para poder corregir un dato que no mueve plata (una fecha) convierte una correccion trivial en una operacion bloqueada."
+

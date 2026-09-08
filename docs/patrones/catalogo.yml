@@ -25,7 +25,7 @@
 # en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
 
 version: 1
-ultima_actualizacion: 2026-09-04
+ultima_actualizacion: 2026-09-08
 
 patrones:
 
@@ -307,20 +307,37 @@ patrones:
       historicos. No aplica a sincronizacion contra una API externa (ver FabaImportService en
       labipac para ese caso).
     proyecto_origen: la-platense (Etapa 3, migracion de catalogo)
-    proyectos_que_lo_usan: []
+    proyectos_que_lo_usan:
+      - koi
     archivos_referencia:
+      - proyecto: koi
+        path: "KoiDumplings.Infrastructure/Services/Importacion/ImportacionExcelKoiService.cs"
+        motivo: "REFERENCIA VIVA del patron (2026-09-07). Import recurrente por archivo: una sola ProcesarAsync(stream, opciones, persistir, userId) para preview y confirmacion, staging en %TEMP% con token validado como Guid, IgnoreQueryFilters() en todo matcheo para revivir soft-deleted, y campos que el usuario administra a mano (cantidad de comensales, desglose por canal) que el import nunca pisa"
+        pendiente_verificar: false
+      - proyecto: koi
+        path: "KoiDumplings.Web/Controllers/EstadoResultadosController.cs (PreviewAyres / AplicarAyres)"
+        motivo: "VARIANTE SIN STAGING del patron (2026-09-08, integracion Ayres POS): la fuente no es un archivo subido sino una API externa, asi que al confirmar se RE-CONSULTA la API en vez de releer un staging. Se manda el total previsualizado en la confirmacion y, si la reconsulta difiere, se pide confirmar de nuevo con los numeros nuevos en lugar de escribir algo que el usuario no vio. La escritura no duplica logica: llama al mismo metodo del guardado manual"
+        pendiente_verificar: false
+      - proyecto: koi
+        path: "KoiDumplings.Infrastructure/Services/Importacion/EstadoResultadosExcelParser.cs"
+        motivo: "Separacion util a copiar: el parser del archivo es una clase pura sin EF, asi se valida contra los archivos reales del cliente con un harness aislado que solo referencia ClosedXML, sin levantar la app ni la base"
+        pendiente_verificar: false
+      - proyecto: koi
+        path: "KoiDumplings.Web/Controllers/ImportacionInicialController.cs + Views/ImportacionInicial/Index.cshtml"
+        motivo: "Coordinacion HTTP y pantalla: RequestSizeLimit/RequestFormLimits elevados, paso 1 Analizar (no escribe) y paso 2 Confirmar por token, preview con altas/actualizaciones/omitidas + excepciones + diferencias contra la base"
+        pendiente_verificar: false
       - proyecto: la-platense
-        path: "FerreteriaLaPlatense.Application/Interfaces/ICatalogoMigracionService.cs (REMOVIDO — ver nota)"
+        path: "FerreteriaLaPlatense.Application/Interfaces/ICatalogoMigracionService.cs (BORRADO del working tree — solo en historial de git)"
         motivo: "Contrato completo del patron (previsualizar / obtener preview / listar excepciones / exportar / confirmar)"
-        pendiente_verificar: true
+        pendiente_verificar: false
       - proyecto: la-platense
-        path: "FerreteriaLaPlatense.Infrastructure/Services/CatalogoMigracionService.cs (REMOVIDO — ver nota)"
+        path: "FerreteriaLaPlatense.Infrastructure/Services/CatalogoMigracionService.cs (BORRADO del working tree — solo en historial de git)"
         motivo: "Implementacion: staging por token validado como Guid, lectura ClosedXML por nombre de columna, upsert por lotes, excepciones"
-        pendiente_verificar: true
+        pendiente_verificar: false
       - proyecto: la-platense
-        path: "FerreteriaLaPlatense.Web/Controllers/MigracionCatalogoController.cs (REMOVIDO — ver nota)"
+        path: "FerreteriaLaPlatense.Web/Controllers/MigracionCatalogoController.cs (BORRADO del working tree — solo en historial de git)"
         motivo: "Coordinacion HTTP: limite de request elevado, sesion de revision de excepciones, confirmar"
-        pendiente_verificar: true
+        pendiente_verificar: false
       - proyecto: marihogar
         path: "tools/ImportarHistorico/Program.cs"
         motivo: "Precedente batch (consola de un solo uso) del mismo problema: ClosedXML + escribir entidades directo sin pasar por los Services de negocio"
@@ -353,6 +370,20 @@ patrones:
       preview->confirmar sigue vigente para cualquier import RECURRENTE por archivo (ej. futura
       importacion de listas de precios de proveedor) — para la-platense especificamente, la
       referencia viva de ese caso ya no existe en el working tree, solo en el historial de git.
+      VERIFICADO 2026-09-07 (koi, Etapa 16): confirmado que los 3 archivos de la-platense
+      efectivamente NO estan en C:\Sistemas\Ferreteria La Platense (flags pendiente_verificar
+      bajados a false). El caso recurrente se implemento en koi (importacion mensual del Estado de
+      Resultados nativo del cliente) y esos archivos pasan a ser la referencia viva del patron.
+      Dos aprendizajes que koi agrega y conviene copiar:
+      (6) separar el PARSER del archivo del servicio que escribe: si el parser es una clase pura sin
+      EF, se valida contra los archivos reales del cliente con un harness que solo referencia
+      ClosedXML — sin levantar la app ni tocar la base, que es justo lo que el implementador no
+      puede hacer por su propia regla de no correr smoke tests;
+      (7) el preview tiene que mostrar las DIFERENCIAS, no solo los contadores: archivo contra si
+      mismo (totales que las propias formulas del cliente dejan afuera, celdas de importe escritas
+      como texto) y archivo contra la base (que valores se pisarian). Los archivos reales de un
+      cliente vienen con inconsistencias que no son bugs del import y que el usuario tiene que
+      decidir, no el sistema.
 
   - id: PAT-013
     nombre: "Stock arranca en cero + verificacion por conteo, priorizada por rotacion ABC"
@@ -819,3 +850,100 @@ patrones:
       estacional se lee como un gasto mensual. En un pais con inflacion alta, la serie tiene que
       medirse en moneda dura (aca `MontoUsd`): la serie en pesos no es comparable en el tiempo y la
       proyeccion sale sin sentido.
+
+  - id: PAT-023
+    nombre: "Editar un pago ya posteado: reversion + alta enlazada (variante de PAT-020)"
+    categoria: financiero
+    descripcion: >
+      Corregir monto/fecha/metodo de un pago ya registrado SIN hacer UPDATE de la fila: se
+      reversan los movimientos que ese pago genero (caja y cuenta corriente), el pago viejo
+      queda soft-deleted, y se crea un pago nuevo con los valores corregidos enlazado al viejo
+      por una self-FK `PagoAnteriorId`, con motivo obligatorio y usuario. Reversion y alta van
+      juntas bajo el MISMO lock/transaccion que usa el alta normal.
+    cuando_usar: >
+      Cualquier proyecto con pagos/cobros editables donde hoy la unica forma de corregir un
+      importe mal cargado es borrar y recargar a mano. Donde PAT-020 cubre la CANCELACION total
+      de un comprobante, este cubre la CORRECCION puntual de un pago que sigue vigente.
+      Precondicion practica: que el movimiento de caja tenga FK directa al pago (no busqueda por
+      OrigenId+Monto, que elige mal cuando hay dos pagos del mismo importe en el mismo comprobante).
+    proyecto_origen: delicias-naturales (Editar Pago, iteracion 3, 2026-09-07 — a partir del incidente real de la venta 9444)
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: delicias-naturales
+        path: "Services/PagoService.cs"
+        motivo: "ReversarPago (FK exacta + fallback historico), RegistrarPagoInterno (alta con sobrepago/SaldoFavor) y EditarPago (orquesta reversion + alta)"
+        pendiente_verificar: false
+      - proyecto: delicias-naturales
+        path: "Controllers/PagosController.cs"
+        motivo: "Accion EditarPago: lock de proceso + transaccion unica envolviendo reversion Y alta; traduccion de PagoNegocioException a JSON"
+        pendiente_verificar: false
+      - proyecto: delicias-naturales
+        path: "Migrations/202609071405299_AddCamposEdicionPago.cs"
+        motivo: "Las 4 columnas nullable que habilitan el patron: Pago.UsuarioId/Observacion/PagoAnteriorId + MovimientoCaja.PagoId"
+        pendiente_verificar: false
+      - proyecto: delicias-naturales
+        path: "Views/Ventas/_TablaPagos.cshtml + ViewModels/PagoVentaViewModel.cs"
+        motivo: "Render de la cadena: pago reemplazado tachado con el motivo del que lo sustituyo, boton de editar solo en la fila vigente"
+        pendiente_verificar: false
+    dependencias: [PAT-020]
+    notas: >
+      Tres trampas que costaron tiempo y conviene copiar resueltas: (1) el guard "el comprobante
+      ya esta totalmente pagado" del alta normal BLOQUEA el caso principal del patron (corregir
+      hacia abajo un pago que genero credito por sobrepago: tras la reversion el saldo restante
+      queda en 0 y el alta se rechaza) — hay que hacerlo edit-aware, y ademas clampear el saldo
+      restante a 0 al calcular el excedente, porque si queda negativo el credito de cuenta
+      corriente se infla por encima del importe realmente pagado. (2) Entre la reversion y la
+      relectura del saldo hace falta un SaveChanges intermedio (dentro de la misma transaccion):
+      si el soft-delete se resuelve por interceptor en SaveChanges, hasta que no corra, las
+      propiedades calculadas en memoria siguen contando el pago viejo. (3) Todo pago reemplazado
+      queda soft-deleted, asi que cualquier papelera de reciclaje del sistema lo va a listar como
+      restaurable — restaurarlo DUPLICA el importe cobrado; hay que excluirlos del listado y
+      bloquear la restauracion por Id. El lock tiene que abrirse ANTES de la reversion, no entre
+      reversion y alta, o se reintroduce la carrera de lectura de saldo que motivo el lock.
+
+  - id: PAT-024
+    nombre: "Cache de token de API externa con vigencia informada por el servidor"
+    categoria: integracion
+    descripcion: >
+      Cache Singleton del token/ticket de una API externa que autentica por login con
+      expiracion. Cuatro decisiones que juntas son el patron: (1) la vigencia se toma de lo que
+      informa el SERVIDOR en la respuesta del login (expirationTime de AFIP, aliveTime de
+      Ayres), nunca de una constante asumida; (2) margen de seguridad antes del vencimiento
+      real, para no arrancar una operacion larga con un token que muere a la mitad;
+      (3) SemaphoreSlim(1,1) con RE-chequeo de validez DENTRO del lock, para que dos requests
+      concurrentes no disparen dos logins; (4) Invalidar() + UN SOLO reintento cuando el server
+      rechaza un token que localmente creiamos vigente.
+    cuando_usar: >
+      Cualquier integracion con una API externa que autentique por login con token de vida
+      corta y varias llamadas por operacion (chunking, lotes, reportes paginados). Si la API
+      usa headers estaticos sin expiracion (caso QuickPass) NO aplica: no hace falta cache.
+    proyecto_origen: >
+      marihogar (MariHogar.Infrastructure/Services/AfipTokenCache.cs, WSAA ticket de 12hs) —
+      antecedente conceptual en delicias-naturales. Extraido como patron propio el 2026-09-08
+      al reutilizarlo en koi para un caso que no tiene nada que ver con AFIP.
+    proyectos_que_lo_usan:
+      - koi (Ayres POS, E2-01, 2026-09-08)
+    archivos_referencia:
+      - proyecto: marihogar
+        path: "MariHogar.Infrastructure/Services/AfipTokenCache.cs"
+        motivo: "Implementacion original, en produccion. Cachea la tupla (Token, Sign) de WSAA con la expirationTime real que devuelve AFIP y margen de 10 minutos"
+        pendiente_verificar: false
+      - proyecto: koi
+        path: "KoiDumplings.Infrastructure/Services/AyresTokenCache.cs"
+        motivo: "Adaptacion a un unico token JWT con aliveTime en SEGUNDOS y margen de 60 s. Muestra la forma generica del patron: ObtenerAsync(loginFactory, ct) recibe el login como delegate, asi el cache no sabe nada del protocolo de la API"
+        pendiente_verificar: false
+      - proyecto: koi
+        path: "KoiDumplings.Infrastructure/DependencyInjection.cs"
+        motivo: "El registro que hace que el patron funcione: AddSingleton<AyresTokenCache>() + AddScoped<IAyresService>()"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      EL ERROR CLASICO, y no da error visible: registrar el cache como Scoped (o el servicio
+      como Singleton). El token se pierde entre requests y se dispara un login por llamada —
+      4 logins por mes importado en vez de 1 — sin ninguna excepcion ni log de error, solo
+      trafico y latencia de mas. Verificar SIEMPRE los ciclos de vida al registrar.
+      Segunda trampa: si el servidor no informa vigencia (campo ausente o <= 0), NO inventarle
+      una duracion — dejar el token vencido de entrada, que degrada a "un login por llamada"
+      (lento pero correcto) en vez de fallar con 401 a mitad de una operacion.
+      Tercera: el reintento tiene que ser UNO SOLO. Si la credencial cambio de verdad,
+      reintentar en bucle solo genera logins fallidos contra el servidor del tercero.

@@ -2,7 +2,7 @@
 
 > Memoria acumulativa del agente analista funcional.
 > Etapa: Discovery + Análisis + Sesión de definición + Cierre P-A01→P-A07. Estado: ✅ ANÁLISIS FUNCIONAL CERRADO (Etapa 1) — todas las hipótesis y preguntas respondidas · cascada a diseño, arquitectura y presupuesto habilitada. Módulo E2-02 (Fichador) con Análisis cerrado en §11 — Implementación bloqueada por token QuickPass pendiente.
-> Fecha: 2026-06-11. Última actualización: 2026-08-12 — Análisis funcional del sprint UX/UI Inversor + fixes cerrado (§12), cascada a Diseño/Arquitectura/Presupuesto disparada.
+> Fecha: 2026-06-11. Última actualización: 2026-08-13 — Análisis funcional de dividendos/recupero en pesos en Mi Inversión cerrado (§13), cascada a Diseño/Arquitectura/Presupuesto disparada.
 
 ## 1. Contexto del cliente
 
@@ -384,10 +384,54 @@ El cliente quiere que los **ingresos mensuales del período** (ventas A salón, 
 #### Pendientes bloqueantes
 | Pendiente | Responsable | Estado |
 |---|---|---|
-| Documentación/mapeo de endpoints API Ayres | Desarrollador → MaxiSistemas | ⏳ |
-| Decisión: Opción A (API) vs Opción B (MySQL directo) | Desarrollador + cliente | ⏳ |
-| Contraseña MySQL usuario `pop10` o `root` | Desarrollador → MaxiSistemas | ⏳ |
-| Acceso remoto al puerto 8510 o 3320 desde sistema web externo | Técnico de red del local | ⏳ |
+| Documentación/mapeo de endpoints API Ayres | Desarrollador → MaxiSistemas | ✅ **RESUELTO 2026-08-13** — documentación pública encontrada y analizada, ver §10.1.1 |
+| Decisión: Opción A (API) vs Opción B (MySQL directo) | Desarrollador + cliente | ✅ **RESUELTO** — Opción A (API REST). La documentación cubre los 9 KPIs pedidos; el acceso directo a MySQL queda descartado (rompía encapsulamiento y exigía credenciales que nunca llegaron) |
+| Contraseña MySQL usuario `pop10` o `root` | Desarrollador → MaxiSistemas | ❌ Ya no aplica (se descartó la Opción B) |
+| Credenciales de login de la API (email + password + idsucursal) | Cliente / MaxiSistemas | ⏳ **Nuevo bloqueante principal** |
+| Acceso de red al endpoint de la API desde el sistema web externo | Técnico de red del local | ⏳ — ver §10.1.1, se resuelve con el mismo gateway/túnel ya diseñado para las cámaras (E2-03) |
+
+---
+
+#### 10.1.1 Research de la API REST de Ayres (2026-08-13)
+
+Fuente: documentación oficial pública de **Ayres POP — App Servidor**, `https://ayresit.ar/documentacion/pos/api/index.html` (analizadas todas las secciones del índice + changelog).
+
+**Autenticación:** `POST http://{ENDPOINT}/login` con body JSON `{ email, pass, idsucursal }` (o `cod_cli`, uno de los dos, nunca ambos). Devuelve `content.tokenAccess` (JWT) y `content.aliveTime` (segundos de vigencia, ej. 3599 ≈ 1 hora). El token se envía luego como `Authorization: Bearer {token}`. **Diferencia clave contra QuickPass (E2-02):** acá el token EXPIRA (~1h) — hace falta lógica de renovación automática, no alcanza con una key estática en configuración.
+
+**Convención de respuestas:** todas devuelven `{ resultCode, resultDescription, content }`. Códigos: `SUCCESS`, `UNAUTHORIZED_ACCESS`, `INVALID_PARAMS`, `LONG_PARAMS`, `ERROR_INTERNO`.
+
+**Restricción crítica de todos los endpoints con rango de fechas: máximo 10 días por consulta** (formato `yyyy-MM-dd`). Para un mes completo hacen falta **3 o 4 llamadas encadenadas** y agregar del lado nuestro. Es el mismo patrón que ya se resolvió en el Fichador (QuickPass, límite de 31 días), pero más estricto.
+
+**Endpoint principal — `GET /ventas`** (`fechaContableDesde`, `fechaContableHasta`, `estado?`): devuelve **detalle venta por venta**, con los campos que importan para los KPIs:
+- `facturaMontoTotal` (decimal) — importe de la venta
+- `cantidadConsumidores` (int) — **cubiertos/comensales** (el dato que hoy se carga a mano)
+- `items[]` — array por artículo con `cantidad`, `precioUnitario`, `montoConIVA`
+- `sectorTipo` (string) — canal de venta (ej. `"ME"` = mostrador) → alimenta el desglose Salón/Delivery/Mostrador que hoy se carga a mano
+- `fechaContable`, `fechaHoraApertura`, `fechaHoraCierre`
+
+**Endpoint complementario — `GET /articulosvendidos`** (`fechaDesde`, `fechaHasta`): devuelve cantidades **ya agregadas por fecha + sectorTipo + artículo** (`cantidadPropia`, `cantidadEnCombo`, `montoConImpuestos`). Más liviano que recorrer los `items[]` de cada venta si solo se necesitan totales de unidades.
+
+**`GET /estadisticas/fullinvoicebydate`** (`from`, `to`): detalle fiscal comprobante por comprobante (cabecera + ítems + formas de cobro). **No sirve para totales** — es aún más granular; se descarta para este alcance.
+
+**No existe ningún endpoint de KPIs/agregados/resúmenes** (verificado contra el índice completo y el changelog): toda la agregación queda del lado del sistema KOI.
+
+**Mapeo de los 9 KPIs pedidos → todos obtenibles desde `GET /ventas`:**
+
+| KPI | Cálculo |
+|---|---|
+| Importe total de ventas | Σ `facturaMontoTotal` |
+| Ticket promedio | Σ `facturaMontoTotal` ÷ cantidad de ventas |
+| Cantidad de ventas | count de ventas |
+| Cantidad de ventas por día (promedio) | count ÷ días del período |
+| Ítems promedio por venta | Σ `items[].cantidad` ÷ count de ventas |
+| Total de ítems vendidos | Σ `items[].cantidad` (o vía `/articulosvendidos`) |
+| Promedio de cubiertos por día | Σ `cantidadConsumidores` ÷ días del período |
+| Total de cubiertos | Σ `cantidadConsumidores` |
+| Venta promedio por cubierto | Σ `facturaMontoTotal` ÷ Σ `cantidadConsumidores` |
+
+**Conclusión:** la API alcanza para automatizar **todo** lo que hoy el Administrador carga a mano en Indicadores de Venta y en el desglose por canal del Estado de Resultados — no hace falta pedirle a MaxiSistemas ningún endpoint nuevo (el borrador de mensaje que se había preparado para eso queda sin efecto).
+
+**Bloqueante que queda (el mismo de siempre, pero con solución ya diseñada):** la URL base es `http://{ENDPOINT}` — un endpoint por instalación, que corre en el servidor local del restaurante (puerto 8510 según el relevamiento original). El sistema KOI está hosteado afuera, así que necesita alcanzar esa API. **Se resuelve con exactamente la misma infraestructura ya diseñada para las cámaras (§10.3): el equipo 24/7 del local + Cloudflare Tunnel** — un solo túnel saliente puede exponer tanto el stream de las cámaras como la API de Ayres, sin abrir puertos en el router ni tocar la red aislada. Esto convierte dos bloqueantes de infraestructura separados en una sola pieza compartida.
 
 ---
 
@@ -495,15 +539,33 @@ RTSP es un protocolo pensado para clientes de escritorio/VLC, no para `<video>` 
 
 > Nota: con esta arquitectura, HikConnect (cuenta cloud) deja de ser un requisito — se puede dar de baja como dependencia si el cliente lo prefiere, o mantenerse en paralelo como respaldo. A confirmar con el cliente en la próxima ronda.
 
+#### Variante confirmada (2026-08-13): cámaras nuevas en la red normal del local, no en la LAN aislada
+
+El cliente decidió que las cámaras IP nuevas se conectan a la **red normal del local** (la que ya sale a internet), no a la LAN aislada de vigilancia donde está el NVR actual. Esto simplifica bastante el armado:
+
+- El gateway (MediaMTX + cloudflared) se instala en el mismo equipo 24/7 ya confirmado (§ arriba), pero ahora conectado a la red normal — **no hace falta ningún acceso a la LAN aislada** para este flujo.
+- Se destraba la dependencia de marca/modelo/IP/credenciales del NVR actual **para este alcance puntual** — esos datos siguen siendo necesarios solo si más adelante se quiere integrar también las cámaras existentes detrás del NVR (queda como variante separada, no bloqueante para avanzar con las cámaras nuevas).
+- Sigue aplicando todo lo demás ya definido: RTSP de la cámara → MediaMTX (HLS/WebRTC) → Cloudflare Tunnel → player nativo en P-11, sin exponer puertos en el router.
+- Nueva contrapartida a tener presente: la red normal del local pierde el aislamiento que tenía la red de vigilancia (si esa separación era una decisión de seguridad deliberada, el cliente debe confirmarla explícitamente — no es una regresión técnica, es una decisión de negocio que ya tomó).
+
+**Nuevos pendientes (reemplazan a los del NVR para esta variante):**
+
+| Campo | Estado |
+|---|---|
+| Marca/modelo de las cámaras IP nuevas a comprar (recomendado: cualquier cámara con RTSP/ONVIF estándar — Hikvision mantiene el mismo formato de URL ya investigado, pero no es excluyente) | ⏳ |
+| Cantidad de cámaras nuevas y ubicación en el local | ⏳ |
+| Confirmación de que el equipo 24/7 ya identificado está en la misma red donde van a conectarse las cámaras nuevas (debería ser así por default, pero a verificar) | ⏳ |
+| Decisión del cliente: ¿reemplaza a futuro las cámaras del NVR, o quedan ambos sistemas en paralelo (NVR aislado + cámaras nuevas en red normal)? | ⏳ |
+
 ---
 
 ### 10.4 Resumen de alcance y pendientes Etapa 2
 
 | Módulo | Necesidad cliente | Estado relevamiento | Bloqueante principal |
 |---|---|---|---|
-| **E2-01** Ventas Ayres | Carga automática de ventas desde POS | ✅ Relevado | Credenciales + decisión opción A/B |
+| **E2-01** Ventas Ayres | Carga automática de ventas desde POS | ✅ Relevado + **API documentada y analizada (2026-08-13, §10.1.1)** — los 9 KPIs pedidos son 100% obtenibles vía `GET /ventas`; opción MySQL directo descartada | Credenciales de login de la API + acceso de red (mismo túnel que E2-03) |
 | **E2-02** Fichador QuickPass | Pantalla de asistencia de empleados | ✅ Relevado — Análisis/Diseño/Arquitectura/Presupuesto cerrados (2026-08-10, ver §11 y `2-disenador-funcional.md`/`3-arquitecto-mvc.md`/`4-presupuestador.md`) | Token de API QuickPass |
-| **E2-03** Cámaras NVR/RTSP | Streaming nativo de cámaras vía NVR local | 🟡 Arquitectura de integración investigada (2026-08-10); hardware del gateway resuelto (equipo ya existente, sin costo adicional) — faltan datos puntuales del NVR | Marca/modelo, IP y credenciales admin del NVR |
+| **E2-03** Cámaras IP (red normal) | Streaming nativo de cámaras nuevas, en la red normal del local | 🟡 Arquitectura simplificada confirmada (2026-08-13): cámaras nuevas fuera de la LAN aislada, sin depender del NVR actual — falta elegir marca/modelo y cantidad de cámaras | Elección de cámaras a comprar |
 
 > **Condición para iniciar Etapa 2**: resolver los pendientes bloqueantes de al menos uno de los módulos para poder presupuestar y diseñar. Hasta entonces, la Etapa 2 queda en espera.
 
@@ -604,4 +666,228 @@ El relevamiento (§10.2) ya proponía "sin nuevas tablas, datos en tiempo real".
 - **Ítem 7**: el Admin elige un rol, ve la lista de usuarios de ese rol precargada, puede sacar a alguno puntual, tilda "correo"/"in-app"/ambos, envía — cada usuario que quedó en la lista recibe lo que corresponda según los checks tildados.
 - **Ítem 8/9**: la tabla de historial de Mi Inversión no reacciona a clicks de header; muestra Año y Mes como columnas separadas antes que el resto; no tiene columnas Puntos ni TC; el orden visual es año desc, mes desc dentro del año.
 - **Ítem 10**: ningún importe con signo "$"/"U$D" se corta en dos líneas al angostar la ventana, en ninguna pantalla del sistema.
+
+---
+
+## 13. Análisis funcional — Mi Inversión: dividendos y recupero en pesos (Agosto 2026)
+
+> Fecha: 2026-08-13. Estado: ✅ ANÁLISIS CERRADO. Pedido directo del dueño del estudio: agregar a Mi Inversión el desglose de dividendos cobrados y recupero también en pesos, no solo en dólares (hoy la pantalla solo muestra la valuación en USD).
+
+### 13.1 Investigación previa (evita implementar sobre un supuesto equivocado)
+
+Se investigó la hipótesis inicial de que liquidaciones "Pagada" sin conversión a USD (`NetoUsd` nulo) quedaban excluidas del cálculo actual — **descartada con datos reales**: las 264 liquidaciones "Pagada" en producción tienen `NetoUsd`/`TipoCambio` cargados sin excepción, así que hoy no hay dinero "invisible" en el cálculo existente.
+
+Segunda hipótesis evaluada (moneda real en la que se pagó cada liquidación, pesos vs. dólares en mano) — **el cliente confirmó explícitamente que NO es esto**, prefiere seguir con la idea original.
+
+### 13.2 Definición confirmada
+
+- **Dividendos cobrados (pesos)**: suma de `Neto` (pesos) de todas las liquidaciones `Pagada` del inversor — sin conversión, dato ya existente por liquidación.
+- **Recupero (pesos)**: suma, liquidación por liquidación, de `Neto ÷ (CapitalAportadoUsd × TipoCambio de esa liquidación) × 100`. Si alguna liquidación pagada no tuviera `TipoCambio` cargado (no ocurre hoy en producción, pero puede ocurrir a futuro), esa liquidación se excluye del cálculo de este % puntual, sin afectar el total de "Dividendos cobrados (pesos)" (que no depende de TC).
+- **Aclaración explícita ya dada al cliente y aceptada**: con los datos actuales, este número va a salir prácticamente idéntico al "Recupero (dólares)" ya existente (misma cuenta, mismo TC por liquidación) — no es un bug, es la naturaleza de la fórmula elegida. Queda igual como métrica preparada para cuando exista alguna liquidación sin conversión limpia.
+
+### 13.3 Alcance
+
+- Aplica a Mi Inversión (P-10), mismo criterio de visibilidad que hoy (Inversor ve la propia, Admin puede ver cualquiera).
+- No aplica a ninguna otra pantalla (Dashboard, Reparto General, etc.) — es puntual a Mi Inversión.
+- Sin migración EF — todos los datos necesarios (`Neto`, `TipoCambio`, `CapitalAportadoUsd`) ya existen.
+
+### 13.4 Criterios de aceptación
+
+- La pantalla Mi Inversión muestra, junto a "Dividendos cobrados" y "Recupero %" (USD, ya existentes), dos KPIs nuevos: "Dividendos cobrados (pesos)" y "Recupero (pesos)".
+- Los valores coinciden con la fórmula de §13.2, verificable a mano contra el historial de liquidaciones del propio inversor.
+- No cambia ningún valor de los KPIs en USD ya existentes.
+
+---
+
+## 14. Análisis funcional — Sprint de correcciones y catálogo real (Agosto 2026)
+
+> Fecha: 2026-08-13. Estado: ✅ ANÁLISIS CERRADO — 6 ítems. Tres definiciones ambiguas resueltas con el dueño del estudio antes de cerrar (rubros, edición de cerrados, diseño del recupero). Incluye **migración de datos sobre producción** (ítem 4), único ítem de riesgo alto del lote.
+
+### 14.1 Ítems
+
+**1. Nombre del remitente de los correos.** Hoy los mails del sistema salen con `FromName = "Koi Dumplings - Olvidata"` (`appsettings.Production.json`, sección `Olvidata_Email.Smtp`). Pasa a **"KOI Dumplings"** — sin la marca del proveedor, que no corresponde en un mail que reciben los inversores del cliente.
+
+**2. Mi Inversión — recupero mes a mes (corrección + ampliación de §13).** El recupero debe verse calculado sobre los valores de cada mes cerrado, cada uno con el TC de su propio mes. **Hallazgo:** eso ya ocurre a nivel dato — la columna "Renta" de cada fila del historial ES exactamente la contribución de recupero de ese mes (`NetoUsd ÷ CapitalAportadoUsd × 100`, y `NetoUsd` ya fue calculado con el TC del mes cerrado). Lo que falta no es el cálculo mensual sino **verlo acumulado y ver su progresión**. Decisión tomada: se agrega (a) columna "Recupero acumulado %" por fila del historial y (b) un gráfico de evolución del recupero acumulado. No se duplica la columna "Renta" con otro nombre — sería el mismo número dos veces.
+  - Supuesto explícito a validar con el cliente: el acumulado sigue contando **solo liquidaciones Pagada** (plata efectivamente recibida = recuperada), no todas las de meses cerrados. Hoy es indistinto en la práctica (264 de 265 liquidaciones están Pagada), pero es una definición de negocio, no técnica.
+
+**3. Editar estados de resultados de meses cerrados.** Hoy el sistema bloquea toda edición de un período cerrado (`EstadoResultadosService`, guards en `GuardarVentas` y `GuardarConceptoGastoAsync`). **Esto revierte una decisión explícita previa** (D-04 y P-A04 de la sesión de definición de junio: "el período no puede reabrirse" / "no hay mecanismo técnico de corrección post-cierre, se gestiona operativamente"). El cliente ahora necesita corregir errores de carga.
+  - Decisión tomada: el Admin puede editar ventas y gastos de un período cerrado. Al hacerlo, **se recalculan automáticamente las liquidaciones en estado Pendiente** de ese período; **las ya marcadas Pagada quedan intactas** y el sistema avisa en pantalla cuáles no se tocaron.
+  - Toda edición sobre un período cerrado queda auditada (quién, cuándo, qué valor cambió) — es plata de inversores reales, no puede quedar sin rastro.
+
+**4. Catálogo real de rubros y subgrupos.** El catálogo cargado hoy es el **genérico del seed inicial** (6 rubros: "Impuestos y Cargas", "Costo de Mercadería (CMV)", "Personal", "Servicios", "Alquileres", "Gastos Generales" / 21 subgrupos), no la estructura real del cliente. La estructura real está en `KoiDumplings/docs/Estado de Resultados KOI - Agosto.pdf` (agosto 2026): **8 rubros y ~40 subgrupos**:
+  | Rubro | Subgrupos |
+  |---|---|
+  | Costo Mercadería Vendida | Mercadería KOI, Barriles, Verdulería, Bebidas |
+  | Fee de Franquicia | Regalías (3 %), Cánon de publicidad (2,5 %) |
+  | Sueldos y CCSS | Sueldos, Cargas Sociales, Sindicato |
+  | Gastos Varios | Almacén, Aceite, Cristalería & Equipamiento, Insumos Barra / Hielo, Papelería & Descartables, Limpieza, Fletes y Transporte, Pastillas Horno Rational, Mantenimiento y Reparaciones |
+  | Alquiler | (sin subgrupos — importe directo) |
+  | Servicios | Luz, Gas, Internet, Agua, Alarma, Software de Ventas, Máquina AQA, Sanitización de Canillas, Fumigación, Contador, Seguro Integral de Comercio, Sistema de Reservas Online, Mantenimiento Cuenta Bancaria, Comisiones Tarjetas / Merc Pago, Comisiones PedidosYa / Rappi |
+  | Impuestos | IVA, Ingresos Brutos, Imp a los débitos y créditos, Anticipo de Ganancias, Publicidad y Propaganda, Tasa Insp. Seg e Hig municipal, Ocupación del Esp Público, Serv Urbanos Municipales, Recolección Basura (Esur) |
+  | Previsión y Reservas | Fondo de juicios laborales (1 %), Reposición maquinaria (1 %) |
+  - **Decisión tomada: reemplazar el catálogo Y remapear los 373 gastos históricos** a la estructura nueva donde haya equivalencia, para que toda la historia quede bajo una sola estructura. Es migración de datos sobre producción con valores ya conciliados al centavo → exige backup previo y verificación de que los totales por período no cambian (ver Arquitectura para el mapeo propuesto y los casos sin equivalencia clara).
+  - Cambio de tipo de concepto a definir en el mapeo: el PDF muestra Regalías (3 %), Cánon (2,5 %), Fondo de juicios (1 %) y Reposición maquinaria (1 %) como porcentajes (siguen calculados), pero IIBB, comisiones de tarjeta, débitos/créditos y tasa municipal aparecen como **importes cargados a mano**, no como % — hoy están configurados como calculados.
+
+**5. Importación de Excel recurrente.** El cliente va a seguir usando el Excel en paralelo y quiere poder importarlo cuando haga falta. **Hallazgo: la funcionalidad ya existe** (`ImportacionInicialController` con descarga de plantilla, validación previa e importación; pantalla visible solo para SuperUsuario) y **ya es idempotente** — al reimportar, todo lo que ya existe se omite con una advertencia (`"Período 2026/08 ya existe — se omitirá"`). La limitación real: **omite en vez de actualizar**, así que hoy no sirve para corregir un período ya importado, solo para agregar nuevos. Eso es lo que hay que resolver.
+  - **Los archivos Excel no están disponibles**: no hay ningún `.xlsx` en el repositorio ni en la memoria del proyecto. Los Excel originales se usaron en la migración de julio pero nunca quedaron versionados. Pendiente del cliente/dueño del estudio conseguirlos de nuevo.
+
+**6. Reparto General — orden de los meses.** La tabla ordena por el texto del período ("Agosto 2026"), o sea alfabéticamente por nombre de mes. Debe ordenar por año y después por número de mes, descendente. El formato visible del mes no cambia. **Es exactamente el mismo bug ya corregido en Historial de Resultados** (§ trazabilidad 2026-08-13) — misma causa, misma solución.
+
+### 14.2 Criterios de aceptación
+
+- **1**: un mail enviado por el sistema llega con remitente "KOI Dumplings".
+- **2**: en Mi Inversión, cada fila del historial muestra el recupero acumulado hasta ese mes, y un gráfico muestra la progresión; el acumulado del último mes coincide con el KPI de Recupero de arriba.
+- **3**: el Admin edita un gasto de un mes cerrado y el sistema lo guarda; las liquidaciones Pendientes de ese mes quedan recalculadas con el nuevo resultado; las Pagadas conservan sus importes originales y el sistema informa cuáles no tocó; queda registro de auditoría del cambio.
+- **4**: la pantalla de carga del estado de resultados muestra los 8 rubros y ~40 subgrupos del PDF; los 373 gastos históricos siguen sumando exactamente los mismos totales por período que antes de la migración (verificación obligatoria post-migración).
+- **5**: reimportar un Excel de un período ya cargado actualiza los valores en vez de omitirlos, informando qué se actualizó.
+- **6**: en Reparto General, agosto 2026 aparece antes que julio 2026, y 2026 antes que 2025.
+
+### 14.3 Riesgos
+
+- **Ítem 4 es el de mayor riesgo del lote**: toca datos financieros históricos ya validados contra los Excel fuente. Backup previo obligatorio y verificación de totales post-migración. El mapeo de los subgrupos genéricos sin equivalencia clara (Expensas, Otros gastos, Honorarios, y el "CMV" único que en la estructura nueva se abre en 4) debe revisarse con el cliente antes de ejecutarse.
+- **Ítem 3 revierte una decisión de diseño previa** (D-04/P-A04). Queda documentado que fue un pedido explícito posterior del cliente, no un descuido.
+
+
+---
+
+## 15. Discovery + Análisis — Módulo E2-01 "Integración Ayres POS" (Fase 6, Septiembre 2026)
+
+Reactivación del módulo E2-01, bloqueado desde 2026-08-13 por credenciales. El dueño del estudio aportó la credencial rotada el 2026-09-08 y **la API autentica**. Esta sección actualiza y en dos puntos **corrige** el research documental de §10.1.1, ahora que hay acceso a datos reales.
+
+### 15.1 Estado del bloqueo
+
+| Bloqueante de §10.1 | Estado 2026-09-08 |
+|---|---|
+| Documentación/mapeo de endpoints | ✅ Resuelto 2026-08-13 (§10.1.1) |
+| Credenciales de login de la API | ✅ **RESUELTO** — `POST /login` devuelve `200 SUCCESS` + `tokenAccess` (JWT) y `aliveTime: 3599`. La clave anterior ahora da `401`: fue rotada. El `ERROR_INTERNO` que se había atribuido a un bug de Ayres era eso. |
+| Acceso de red desde el sistema web externo | ⚠️ **CAMBIA LA PREMISA** — ver 15.2 |
+
+### 15.2 Corrección de premisa: la API es pública, NO hace falta el túnel
+
+§10.1.1 asumía que la API corre en el servidor local del restaurante y que el acceso se resolvería con el gateway + Cloudflare Tunnel compartido con las cámaras (E2-03). **Es falso para E2-01**: `koi.ayresit.com` resuelve a `190.245.226.181`, una IP pública, y responde desde internet sin ningún túnel. El endpoint real es `http://koi.ayresit.com:8520` (no el puerto 8510 del relevamiento original).
+
+**Consecuencia de alcance:** E2-01 deja de depender de la infraestructura de E2-03. Se desacoplan dos módulos que estaban atados y desaparece el costo de infraestructura que se le imputaba a E2-01.
+
+**Riesgo nuevo que lo reemplaza (R-A01, abierto):** el sistema KOI está hosteado en SmarterASP (shared hosting). Falta verificar que el servidor de producción pueda abrir conexiones **salientes al puerto 8520**, que no es estándar y suele estar filtrado en hosting compartido. **Es el único bloqueante técnico que queda y condiciona la viabilidad del módulo entero.** Debe resolverse ANTES de presupuestar: si el puerto está cerrado, el módulo vuelve a necesitar un proxy/túnel y el costo cambia.
+
+### 15.3 Corrección de premisa: forma real de la respuesta
+
+La respuesta viva difiere de lo que sugería la documentación. Mapeo real verificado:
+
+- El sobre es `content.{ fechas, cantidad, ventas[] }` y **cada elemento viene anidado bajo una clave `venta`**: `content.ventas[i].venta.facturaMontoTotal`. No es una lista plana.
+- Las fechas se **consultan** en `yyyy-MM-dd` pero **vuelven** en `dd/MM/yyyy`. Asimetría a contemplar en el parseo.
+- Campos de KPI confirmados sobre datos reales: `facturaMontoTotal`, `cantidadConsumidores`, `sectorTipo`, `items[].cantidad`, `fechaContable`.
+- Límite de 10 días confirmado: agosto 2026 requirió 4 llamadas encadenadas (1-10, 11-20, 21-30, 31).
+
+### 15.4 Validación contra datos reales — agosto 2026
+
+Prueba de concepto completa: se trajo agosto 2026 entero de Ayres y se comparó contra lo que el Administrador cargó a mano en ese período (hoy cerrado).
+
+| Concepto | Cargado a mano | Ayres (real) | Desvío |
+|---|---|---|---|
+| **Ventas totales** | 63.131.209,00 | **63.131.109,00** | **−100,00 (−0,0002 %)** |
+| Salón | 54.837.560,00 | `ME` 52.404.760,00 | +2.432.800 |
+| Pedidos | 8.293.549,00 | `PE` 8.293.849,00 | −300 |
+| Mostrador | 100,00 | `MO` 2.432.500,00 | −2.432.400 |
+| Comensales | 1.678 | 1.735 | −57 |
+| **Cantidad de ventas** | **2.000** | **1.062** | **+938 (+88 %)** |
+
+Otros KPIs reales de agosto: ticket promedio $59.445,49 · venta por cubierto $36.386,81 · ítems totales 5.924 · ítems por venta 5,58 · ventas por día 34,26.
+
+**Conclusión: el total cierra al centavo, el detalle no.** Tres hallazgos de calidad de dato, todos a favor de automatizar:
+
+1. **El desglose por canal es incorrecto.** El operador sumó Mostrador dentro de Salón (`ME + MO = 54.837.260` ≈ el Salón cargado) y dejó $100 simbólicos en Mostrador. El desglose Salón/Pedidos/Mostrador de los períodos históricos **no es confiable**, y es justamente el que alimenta los indicadores por canal.
+2. **La "Cantidad de ventas" está cargada casi al doble** (2.000 vs 1.062 reales). Impacta directo en el ticket promedio, que hoy se muestra subestimado ~47 %.
+3. La diferencia de $100 en el total es exactamente el valor simbólico puesto en Mostrador.
+
+**Corrección a §10.1.1:** ahí se documentó `sectorTipo "ME" = mostrador`. Los datos reales lo desmienten: `ME` son 812 ventas por $52,4 M (el grueso del restaurante) y existe un `MO` separado de 54 ventas por $2,4 M. El mapeo correcto es **`ME` = Salón (mesa), `PE` = Pedidos, `MO` = Mostrador**, y la conciliación aritmética de arriba lo confirma. Debe validarse con el cliente antes de escribirlo en código (P-A08).
+
+### 15.5 Alcance propuesto
+
+**Incluido:**
+- `IAyresService` + cliente HTTP tipado, con login y **renovación automática de token** (vence en 3599 s).
+- Chunking automático de rangos mayores a 10 días, con agregación del lado KOI.
+- Cálculo de los 9 KPIs de §10.1.1 + desglose por canal vía `sectorTipo`.
+- Acción "Traer ventas de Ayres" en el Estado de Resultados mensual, **con preview y confirmación explícita antes de escribir** — nunca escritura automática.
+- Solo períodos **abiertos**: los meses históricos no se tocan (regla vigente del proyecto).
+
+**Excluido:**
+- Sincronización automática o programada sin intervención humana.
+- Reescritura de los períodos históricos ya conciliados, incluida la corrección del desglose por canal detectada en 15.4 — es decisión del cliente, no del sistema.
+- Endpoints de Compras, Caja, Stock y Datos Maestros: fuera de alcance de esta fase.
+
+### 15.6 Criterios de aceptación (verificables)
+
+- **CA-1**: con el período abierto, el Admin pide traer las ventas de un mes y el sistema muestra un preview con totales, desglose por canal, comensales y cantidad de ventas, **sin haber escrito nada** todavía.
+- **CA-2**: al confirmar, el Estado de Resultados queda con esos valores y los conceptos porcentuales se recalculan solos.
+- **CA-3**: un mes completo se resuelve en varias llamadas de ≤ 10 días sin que el usuario tenga que saberlo.
+- **CA-4**: si el token vence a mitad de una importación, el sistema lo renueva y continúa sin error visible.
+- **CA-5**: sobre agosto 2026, el total traído es `63.131.109,00` (tolerancia $0) y la cantidad de ventas `1.062`.
+- **CA-6**: con la API caída o inalcanzable, la pantalla informa el problema y **el período queda intacto**.
+- **CA-7**: intentar traer ventas sobre un período cerrado se rechaza con mensaje claro.
+
+### 15.7 Preguntas abiertas
+
+| # | Pregunta | Destinatario | Estado |
+|---|---|---|---|
+| P-A08 | ¿Confirma el mapeo `ME`=Salón, `PE`=Pedidos, `MO`=Mostrador? | Cliente | ✅ **CONFIRMADO 2026-09-08** por el dueño del estudio. Se implementa así, igual configurable (un `sectorTipo` nuevo va a "Otros" y se advierte). |
+| P-A09 | El desglose por canal y la cantidad de ventas de los períodos históricos están mal cargados (15.4). ¿Se corrigen con datos de Ayres o se dejan como están? Los **totales** no cambian, así que no afecta repartos ya liquidados. | Cliente | ⏳ Abierta |
+| P-A10 | ¿La importación reemplaza siempre lo cargado, o solo completa lo que está en cero? | Cliente | ⏳ Abierta |
+| R-A01 | ¿El hosting de producción permite salida al puerto 8520? | Estudio (verificable) | ✅ **CERRADO 2026-09-08 — SÍ, habilitándolo en el panel. Ver 15.9 y 15.10. Módulo VIABLE.** |
+
+### 15.8 Riesgos
+
+- **R-A01 (RESUELTO — ver 15.10):** se habilitó la salida a `190.245.226.181:8520` desde el panel de hosting. El login real desde producción devuelve `200 SUCCESS` en 220 ms. Queda como **dependencia operativa**: la regla está atada a una IP fija; si Ayres cambia de servidor, la integración se corta y el síntoma será el mismo WSAEACCES.
+- **R-A02 (medio):** la API va por **HTTP plano, sin TLS**, y la credencial viaja en el body. Exposición a intercepción en tránsito. Debe plantearse a Ayres/MaxiSistemas; no lo resuelve el código de KOI.
+- **R-A03 (medio):** volumen — 1.062 ventas/mes con sus `items[]`. Conviene agregar por chunk y descartar el detalle en vez de sostener el mes entero en memoria.
+- **R-A04 (bajo):** el parámetro `estado` de la venta no se filtró en las pruebas. Hay que verificar si existen ventas anuladas que no deban sumar. El total cerró al centavo, así que probablemente no las haya en agosto, pero no está probado.
+
+### 15.9 R-A01 CERRADO — el hosting bloquea la salida al puerto 8520 (2026-09-08)
+
+Se resolvió el bloqueante de viabilidad con una sonda desplegada en producción (`System/DiagnosticoAyres`, solo SuperUsuario, temporal). **Resultado negativo: el módulo no es viable con la infraestructura actual.**
+
+| Destino desde el servidor de producción | Resultado |
+|---|---|
+| `koi.ayresit.com:8520` (Ayres) | ❌ `SocketException` WSAEACCES — *"access to a socket forbidden by its access permissions"* — en **60 ms** |
+| `api.argentinadatos.com:443` (HTTPS) | ✅ `200` en 723 ms |
+| `api.argentinadatos.com:80` (HTTP) | ✅ `200` en 502 ms |
+
+**Lectura:** los 60 ms descartan un problema de red o de firewall del lado de Ayres — un puerto filtrado en tránsito da timeout, no un rechazo inmediato. WSAEACCES es el sistema operativo negando el `connect()` por política local. Y como 80 y 443 sí salen, **SmarterASP no bloquea la salida: la restringe a puertos estándar** (whitelist). La misma API responde perfecto desde una máquina de escritorio, así que la credencial y el endpoint están bien: el problema es exclusivamente el puerto de salida desde el hosting.
+
+**Opciones para destrabarlo, en orden de conveniencia:**
+
+1. **Pedir a Ayres/MaxiSistemas que expongan la API en 443 con TLS** (ya tienen el nombre público `koi.ayresit.com`). **Es la mejor opción: resuelve R-A01 y R-A02 de una sola vez** — habilita la conexión y elimina el viaje de la credencial en texto plano. Costo de infraestructura para el estudio: cero. Depende de un tercero.
+2. **Pedir a SmarterASP que habilite la salida al 8520.** Improbable en un plan compartido, y aunque salga deja intacto R-A02 (sigue siendo HTTP plano).
+3. **Relay propio**: un proceso mínimo en un host que sí alcance el 8520, expuesto por 443. Nos independiza de terceros pero **agrega infraestructura, costo mensual y un punto de falla**, y hay que presupuestarlo aparte.
+4. **Cloudflare Tunnel**, la infraestructura ya diseñada para las cámaras (E2-03). Vuelve a atar E2-01 con E2-03 — justo lo que 15.2 había desacoplado — pero si E2-03 se ejecuta igual, el costo marginal es bajo.
+
+**Impacto en el flujo:** Diseño, Arquitectura y Presupuesto **quedan frenados**. La arquitectura del módulo depende de cuál de las cuatro opciones se tome (la 1 y la 2 no agregan componentes; la 3 y la 4 agregan infraestructura y cambian la cotización). Presupuestar antes de esa definición sería cotizar sobre un supuesto.
+
+**Nota:** el diagnóstico quedó desplegado y commiteado (`81e8928`) para poder re-verificar en un minuto cuando se resuelva el acceso. Debe eliminarse al cerrar el módulo.
+
+### 15.10 R-A01 RESUELTO — se habilita la salida por panel (2026-09-08)
+
+La conclusión de 15.9 ("depende de un tercero") era **incorrecta y quedó corregida el mismo día**: el panel de hosting de SmarterASP tiene una función **"Outgoing Port"** que habilita la salida del plan hacia una IP y puerto remotos concretos. La tabla estaba vacía, que es por qué solo salían los puertos habilitados por defecto.
+
+**Medición que aisló la causa** (agregando `portquiz.net`, que acepta conexiones en cualquier puerto, para separar "bloquean el puerto" de "bloquean el destino"):
+
+| Destino | Antes de la regla | Después de la regla |
+|---|---|---|
+| `koi.ayresit.com:8520` | ❌ WSAEACCES 68 ms | ✅ **`405`** (el GET de prueba contra `/login`, que solo acepta POST: la conexión llega) 434 ms |
+| `portquiz.net:8520` | ❌ WSAEACCES 2 ms | ❌ WSAEACCES 2 ms |
+| `portquiz.net:8080` | ✅ 200 | ✅ 200 |
+| `portquiz.net:3306` | ✅ 200 | ✅ 200 |
+| `:443` y `:80` | ✅ 200 | ✅ 200 |
+
+Los puertos 8080 y 3306 salían **desde el principio**: no era una whitelist de "puertos estándar" como se dedujo en 15.9, sino que el 8520 puntualmente no estaba habilitado. Y que `portquiz.net:8520` **siga fallando** después de la regla confirma que el permiso quedó correctamente acotado a **IP + puerto**, no al puerto en general.
+
+**Verificación funcional definitiva:** `POST /login` a Ayres **desde el servidor de producción** → `200 SUCCESS`, `tokenAccess` recibido, **220 ms**.
+
+**Regla cargada:** IP `190.245.226.181`, puerto `8520`.
+
+**Dependencia operativa nueva (D-A01):** la regla apunta a una **IP fija**. Si Ayres migra de servidor, la integración se corta sin aviso y el síntoma será exactamente este error. Debe quedar documentado en el manual de operación del módulo.
+
+**R-A02 sigue abierto:** la API continúa siendo `http://` sin TLS, con la credencial en el body. Habilitar el puerto nos destrabó sin depender de terceros, pero el pedido a Ayres de exponerla en 443 con certificado mantiene sentido por seguridad. **Deja de ser bloqueante y pasa a ser tema para el cliente.**
+
+**Estado del módulo: VIABLE.** Se levanta el freno sobre Diseño, Arquitectura y Presupuesto.
 

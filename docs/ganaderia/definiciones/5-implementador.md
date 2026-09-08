@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: ganaderia
-## Ultima actualizacion: 2026-07-23
+## Ultima actualizacion: 2026-09-07
 
 ## Contexto inicial
 
@@ -683,3 +683,200 @@ El cliente señalo que Grupos y Stock mostraban exactamente la misma tabla (Nomb
 - Se elimino `Views/Grupos/Index.cshtml`, que quedaba inalcanzable (vista muerta).
 
 Verificado en la app corriendo: el menu ya no muestra Grupos, `/Grupos` redirige 302 a `/Stock`, `/Grupos/Create` sigue accesible, y crear un grupo desde el boton nuevo devuelve `Location: /Stock` con el grupo persistido.
+
+---
+
+## Iteracion v17 — Descuento comercial pre-impuestos + serie de IVA en el Tablero Anual (2026-09-07)
+
+Fuentes: `1-analista-funcional.md` v13 (§3.9, §3.10, §4.8, §8.1, R29–R31, S38–S40, PF67–PF77, PV19–PV23), `2-disenador-funcional.md` v4 §8.3, `3-arquitecto-mvc.md` v4 §17. Etapa 4 (presupuesto) salteada por decision explicita del usuario. Repositorio: `C:\Sistemas\ganaderia - emo`.
+
+### 0. Escaneo de reutilizacion (tarea 0)
+
+| Buscado | Encontrado | Decision |
+|---|---|---|
+| Descuento **global** por comprobante | `ShowroomGriffin/5-implementador.md` (`total = subtotal - model.DescuentoMonto` + recalculo JS en vivo) | Se reutiliza el **layout** (fila de descuento entre Subtotal y Total, recalculo en vivo). No la mecanica: alli el descuento es solo importe y se aplica al final, sin impuestos de por medio. |
+| Descuento **por item** | `la-platense` (`ItemVenta.Descuento/Recargo`), `vinosefue` (`DescuentoPorcentajeCosto`) | Descartado: v13 P3:A definio descuento global por comprobante (S40). Se toma si la leccion de `la-platense` ("no quedo claro si Descuento es monto o porcentaje"): aca se persisten **los dos** y la autoridad es el importe. |
+| Modelo de impuestos por comprobante | `marihogar/5-implementador.md` §657 | **Hallazgo que corrige a la arquitectura**: marihogar dice explicitamente que su bloque de impuestos fue *"patron copiado del bloque de impuestos de `FacturaVenta.cs` de `ganaderia - emo`"*. O sea el flujo fue ganaderia → marihogar, no al reves como sugiere §17. Igual vale el criterio de "total autoritativo, no se recompone al leer", que alli se sostuvo. **Nota para el estudio: marihogar tiene hoy el mismo modelo de 4 campos por comprobante y es candidato natural a recibir este mismo descuento si el cliente lo pide.** |
+| Doble campo % ↔ importe sincronizado | **Este mismo repo**: `Facturas/Create.cshtml` (`impState`, v13) y `Egresos/Create.cshtml` (`ivaDriver`, v15) | Reutilizacion directa: el descuento entra como un grupo mas del driver existente. |
+| Grafico Chart.js barras + linea | **Este mismo repo**: `TableroAnual.cshtml` (`chartMensual`) | Reutilizacion directa; el de IVA es un clon con otras series. |
+| Grafico de **posicion de IVA** | Ninguno en los 36 proyectos de `docs/` | Componente nuevo. |
+| Leccion de `koi` (Chart.js con colores viejos al togglear tema sin reload) | `koi/5-implementador.md` §175 | **No aplica**: ganaderia no tiene toggle de tema. |
+
+**Conclusion: no se importo codigo de otro repositorio.** Todo el patron ya estaba resuelto y probado dentro de ganaderia.
+
+### 1. Plan de etapas ejecutado
+
+1. Domain: 2 columnas + `NetoGravado` calculado en `FacturaVenta` y `Egreso`.
+2. Infrastructure/`AppDbContext`: precision + `Ignore(NetoGravado)`.
+3. Application: `FacturaVentaCreateInput` / `EgresoCreateInput` += 2 params; `TableroAnualMesDto` += IVA; `TableroAnualKpisDto` += `SaldoIvaPeriodo`.
+4. Servicios: total/importe, validaciones, serie de IVA.
+5. Web: ViewModels, controllers, 5 vistas.
+6. Migracion `Comprobantes_DescuentoComercial` + aplicacion en dev.
+7. Verificacion: build, invariantes SQL, harness aritmetico, smoke HTTP autenticado.
+
+### 2. Cambios por capa
+
+**Domain**
+- `Entities/Ganaderia/FacturaVenta.cs` — `PorcentajeDescuento`, `MontoDescuento`, `NetoGravado => Subtotal - MontoDescuento`. Documentado en el resumen XML que **la autoridad es el importe** y que el % es derivado (RT19: si un POST manda un % que no cuadra, el servidor usa el importe y no reconcilia).
+- `Entities/Ganaderia/Egreso.cs` — lo mismo. `Subtotal` pasa de "neto gravado" a "bruto antes de descuento e IVA"; `Importe` sigue siendo el TOTAL (nombre historico de v15).
+
+**Application**
+- `Interfaces/Ganaderia/IFacturaVentaService.cs` — `FacturaVentaCreateInput` += `PorcentajeDescuento`, `MontoDescuento` (posicionales, **antes de los impuestos**, RT21).
+- `Interfaces/Ganaderia/ICajaEgresoServices.cs` — idem en `EgresoCreateInput`, inmediatamente despues de `Subtotal`.
+- `DTOs/Ganaderia/TableroAnualDtos.cs` — `TableroAnualMesDto` += `IvaVentas`, `IvaCompras`, `SaldoIva`; `TableroAnualKpisDto` += `SaldoIvaPeriodo`. Los nuevos parametros van **con valor por defecto** para no romper construcciones existentes.
+- **Ninguna interfaz cambio de firma**, como preveia §17.2.
+
+**Infrastructure**
+- `Data/AppDbContext.cs` — precision `9,4` / `18,2` en ambas entidades + `e.Ignore(p => p.NetoGravado)` en las dos (RT17).
+- `Services/Ganaderia/FacturaVentaService.cs` — `total = Math.Round(subtotal - input.MontoDescuento + MontoIva + MontoIIBB + MontoOtrasPercepciones, 2)` en `CreateAsync` y `EditAsync`; el validador de tuplas suma `("Descuento", ...)` y se agregan las dos reglas propias (PV19: `% < 100`; PV20: `MontoDescuento < subtotal`, comparando contra el subtotal **calculado desde los items**, no contra uno enviado por el cliente). `ValidarIngresos` no se toco: ya compara contra `total`, que ahora viene descontado.
+- `Services/Ganaderia/EgresoService.cs` — `importe = Subtotal - MontoDescuento + MontoIva`; validaciones de descuento simetricas; la suma de pagos sigue con **tolerancia cero** (divergencia deliberada de v15, no se relajo).
+- `Services/Ganaderia/DashboardService.cs` — dos consultas nuevas a `FacturasVenta` y `Egresos` por `Fecha` del comprobante, agrupadas en memoria dentro del `Enumerable.Range(1,12)` que ya existia. **Sin `IgnoreQueryFilters()`** (RT20/PF75) y **sin tocar `MovimientosCaja`** (PD16). `SaldoIvaPeriodo` respeta el filtro Año(+Mes) igual que `TotalIngresos`/`TotalEgresos`.
+
+**Web**
+- `Models/Ganaderia/FacturaViewModels.cs` — `PorcentajeDescuento` `[Range(0, 99.99)]`, `MontoDescuento` `[Range(0, max)]`, **`EsEdicion`** (RD13) y `TotalOriginal`.
+- `Models/Ganaderia/EgresoViewModels.cs` — los dos campos, `NetoGravado` y `Total => Subtotal - MontoDescuento + MontoIva`.
+- `Controllers/FacturasController.cs` — mapeo de los 2 campos; `Edit(GET)` setea `EsEdicion = true` + `TotalOriginal`; **`Create(POST)` fuerza `EsEdicion = false` y `Edit(POST)` fuerza `true`**, para que el modo lo decida el servidor y no un campo posteable.
+- `Controllers/EgresosController.cs` — mapeo de los 2 campos al record.
+- `Views/Facturas/Create.cshtml` — card renombrada "Descuento, impuestos y percepciones", fila de descuento, boton "Sin descuento", linea "Neto gravado" (visible solo con descuento > 0), validacion en vivo, driver extendido, bloque de reajuste + confirmacion SweetAlert2 condicionados a `EsEdicion`.
+- `Views/Egresos/Create.cshtml` — card reducida equivalente + **fix de un bug preexistente** (ver §5).
+- `Views/Facturas/Details.cshtml` y `Views/Egresos/Details.cshtml` — filas Descuento / Neto gravado solo si `MontoDescuento > 0`; `Total`/`Importe` se leen **persistidos** (RD12).
+- `Views/Dashboard/TableroAnual.cshtml` — KPI "Saldo IVA", card `chartIva` (clon de `chartMensual`), tabla de desglose y el rotulo de base devengado.
+
+### 3. El driver de impuestos: lo unico que cambio fue `base()`
+
+Se cumplio PD13 al pie. `impGrupos` paso de `['iva','iibb','percep']` a `['desc','iva','iibb','percep']`, `impState` gano `desc`, y la unica funcion reescrita es `base(grupo)`:
+
+- `base('desc')` devuelve `subtotal` (el descuento se calcula sobre el bruto).
+- `base('iva')` devuelve `neto()`, con `neto() = subtotal - montoDe('desc')`.
+- `base('iibb')` y `base('percep')` devuelven `neto() + montoDe('iva')`.
+
+Toda la cascada existente (editar item → `recalcSubtotal` → `recalcImpuestos` → `actualizarResumenIngresos`) sigue funcionando sin tocarse. Como `desc` es el primer elemento del array, queda resuelto antes que los impuestos en la misma pasada.
+
+### 4. Migracion EF — `20260907123702_Comprobantes_DescuentoComercial`
+
+Por primera vez en este proyecto **la migracion scaffoldeada salio correcta**: exactamente 4 `AddColumn` con `defaultValue: 0m` y 4 `DropColumn` en el `Down`, ningun `RenameColumn`, ningun `DropTable`, ningun backfill. Se reviso operacion por operacion antes de aplicar (v13/v14/v15 dejaron el antecedente de scaffolds destructivos) y solo se le agregaron comentarios con el rationale y las queries de invariante.
+
+`NetoGravado` **no aparece** como columna en la migracion, ni en el `.Designer`, ni en `AppDbContextModelSnapshot.cs`, ni en la tabla real de MySQL — el `Ignore()` funciono (RT17 cerrado con evidencia).
+
+Sin backfill a proposito: `DEFAULT 0` deja el historico con la semantica correcta y `Total`/`Importe` siguen cuadrando exactamente contra sus componentes (PF70, RD15). No requiere el protocolo de 3 fases de RT9 (v11) ni el `UPDATE` de v16: no muta una sola fila existente.
+
+**Aplicada en `ganaderia_dev`.** NO aplicada en produccion.
+
+### 5. Bug preexistente encontrado y corregido — `Egresos/Create.cshtml`
+
+Al reescribir el driver de IVA aparecio que, desde v15, en `Egresos/Create.cshtml` los `addEventListener` de subtotal / % IVA / $ IVA / presets **y la llamada inicial estaban escritos dentro del cuerpo de `recalcularTotal()`**, que ademas se invocaba a si misma al final. Como no habia ninguna llamada a nivel del IIFE, **la funcion nunca se ejecutaba**: el sync `% ↔ $` del IVA no funcionaba, el "Total del egreso" quedaba en `$ 0,00` y el hidden `#ImporteTotal` en `0`, con lo cual el indicador "Restante por asignar" de la grilla de pagos comparaba siempre contra 0. No rompia el alta (el total real lo calcula el servidor y la validacion dura tambien), pero la ayuda visual de la pantalla estaba muerta. Se saco todo al nivel correcto del IIFE. **Vale como caso de QA: la validacion server-side tapo el sintoma y por eso paso desapercibido una iteracion entera.**
+
+### 6. Evidencia
+
+**Build**
+- `dotnet build Ganaderia.slnx -c Debug` → **Compilacion correcta, 0 Errores**.
+- `dotnet build Ganaderia.slnx -c Release` → **Compilacion correcta, 0 Errores**.
+- Warnings: solo los preexistentes (`NU1902` MailKit/MimeKit y `CS0114` en `HomeController`). **Ningun warning nuevo.**
+- Un error de compilacion propio y corregido en el camino: `RZ1024` en `Facturas/Create.cshtml` — un `@if` con `<text>` dentro del `<script>` hacia que Razor parseara como markup los `<strong>`/`<br>` del mensaje de SweetAlert2. Se reemplazo por una constante JS `ES_EDICION`. **Regla nueva: no usar `<text>` para condicionar JS que contenga tags HTML dentro de strings.**
+
+**Migracion e invariantes en `ganaderia_dev` (todas en 0 desvios)**
+
+    SELECT COUNT(*) FROM FacturasVenta
+     WHERE ROUND(Subtotal - MontoDescuento + MontoIva + MontoIIBB + MontoOtrasPercepciones,2) <> ROUND(Total,2);   -- 0
+    SELECT COUNT(*) FROM Egresos
+     WHERE ROUND(Subtotal - MontoDescuento + MontoIva,2) <> ROUND(Importe,2);                                      -- 0
+
+Tambien verificado post-pruebas: stock desnormalizado == ledger en todos los grupos, y ninguna fila de prueba quedo en la base.
+
+**Aritmetica real (harness contra los servicios reales + MySQL, no la formula copiada)**
+
+| Caso | Esperado | Obtenido |
+|---|---|---|
+| PF67 venta — Subtotal 1.000.000, desc 10% → NetoGravado | 900.000,00 | 900.000,00 |
+| PF69 venta — IVA 21% + IIBB 3% sobre neto+IVA → **Total** | **1.121.670,00** | **1.121.670,00** |
+| PF69 — Total releido de MySQL | 1.121.670,00 | 1.121.670,00 |
+| PF71 egreso — Subtotal 100.000, desc 5%, IVA 21% → **Importe** | **114.950,00** | **114.950,00** |
+| PF71 — Importe releido de MySQL | 114.950,00 | 114.950,00 |
+| PV19/PV20 — descuento 100% / >= subtotal | rechazado | rechazado |
+| PV23 — pagos que ignoran el descuento (121.000) | rechazado | rechazado |
+
+**Smoke con la app corriendo (HTTPS, sesion autenticada)**
+- `200` en `/Facturas`, `/Facturas/Create`, `/Facturas/Details/{id}`, `/Facturas/Edit/{id}`, `/Egresos`, `/Egresos/Create`, `/Egresos/Details/{id}`, `/Dashboard`, `/Dashboard/TableroAnual`.
+- Alta real por POST del formulario con descuento 10% → `302 → /Facturas/Details/7`; el detalle muestra `Subtotal 1.000.000,00 / Descuento -100.000,00 (10%) / Neto gravado 900.000,00 / IVA 189.000,00 (21%) / IIBB 32.670,00 (3%) / Total 1.121.670,00` (PF77).
+- Alta real de egreso por POST con 5% → persistido `Importe = 114.950,00`, detalle con el desglose completo.
+- **PD15 verificado en el HTML servido**: en el alta, `btnReajustarIngresos` y `TotalOriginal` aparecen **0 veces** y `ES_EDICION = false`; en la edicion aparecen 1 vez cada uno y `ES_EDICION = true`.
+- **PV22 por POST directo** (saltea la UI): editar bajando el total sin tocar los ingresos → *"La suma de los ingresos (1.121.670,00) no coincide con el Total de la factura (997.040,00)"*.
+- **PV20 por POST directo**: descuento 1.000.000 sobre subtotal 1.000.000 → *"El descuento (1.000.000,00) no puede ser mayor o igual al Subtotal (1.000.000,00): dejaria el total en cero"*.
+- **PF73/PF74 (devengado)**: con la factura de prueba cargada, la serie del tablero dio `ivaVentas[septiembre] = 189000.00`, o sea el IVA se imputo por la fecha del comprobante.
+- **PF75 (anulados)**: tras anular esa factura, la misma serie volvio a `0` en septiembre — el filtro global de soft delete hace el trabajo, sin `IgnoreQueryFilters()`.
+- **LP-003**: los `value=` renderizados salen invariantes (`value="10.0000"`, `value="100000.00"`, `TotalOriginal value="1121670.00"`). Ademas ASP.NET Core emite su `<input name="__Invariant">` para estos campos, asi que el binding tambien parsea invariante.
+
+Todos los datos de prueba (factura y egreso) fueron eliminados fisicamente de `ganaderia_dev` al terminar.
+
+### 7. Decisiones tomadas por cuenta propia (no especificadas en §17/§8.3)
+
+1. **`impState.desc` arranca en `'monto'` al reabrir un comprobante con descuento cargado** (en el alta arranca en `'pct'`, como pide §8.3.1). Motivo: el % se persiste redondeado a 4 decimales; si el driver arrancara en `'pct'` recalcularia el importe desde ese % y podria correrlo unos centavos sin que el usuario toque nada, contradiciendo RD14/RT19 ("la autoridad es el importe"). Mismo criterio en `Egresos/Create`.
+2. **`EsEdicion` lo fuerza el controller en el POST**, no viaja como campo del formulario. Un flag posteable habria permitido que un re-render por error de validacion perdiera el bloque de reajuste, o que alguien lo falseara.
+3. **PV20 se valida contra el subtotal calculado desde los items**, no contra un subtotal recibido. El input de factura no trae `Subtotal` (se deriva de los items), asi que era la unica lectura consistente con "el total se calcula en servidor".
+4. **PV19 va como chequeo aparte del bucle de rangos.** El bucle generico admite `0..100` inclusive (correcto para IVA/IIBB/percepciones); el descuento necesita `< 100` estricto, asi que el tope propio quedo en una linea separada en vez de tocar la regla comun.
+5. **El KPI row del tablero paso de `col-xl-2` a `col-xl-3`.** Con el septimo KPI, seis columnas de `col-xl-2` ya no cerraban los 12 puntos de la grilla y la fila quedaba rota. Ahora son 4 + 3.
+6. **Los parametros nuevos de `TableroAnualMesDto` / `TableroAnualKpisDto` llevan valor por defecto**, para no obligar a tocar construcciones que no aportan IVA.
+7. **`ES_EDICION` como constante JS en vez de `@if` + `<text>`** — forzado por el `RZ1024` descripto arriba.
+
+### 8. Desvios respecto de §17 / §8.3, con motivo
+
+- **§17.4 menciona "el PDF del comprobante"** entre los consumidores que deben leer el total persistido. **Ese PDF no existe**: el "comprobante" de factura y egreso es un archivo que el usuario **sube** (`ComprobanteFacturaVenta` / `ComprobanteEgreso`), y `ExportService` (QuestPDF) es generico del template, no genera comprobantes de venta. No habia nada que adaptar. Los otros consumidores que si existen (`Facturas/Index`, `Egresos/Index`, sus filas de total y sus `Details`) ya leian `Total`/`Importe` persistidos, asi que RD12/RT18 quedaron cubiertos sin cambios adicionales.
+- **RD14 del diseño pedia `decimal(18,4)` para porcentajes**; se aplico `9,4`, que es lo que ya corrigio §17.1 y es la convencion real del proyecto.
+- **§8.3.1 dibuja "IVA sobre Neto gravado" e "IIBB sobre Neto + IVA"** como texto de ayuda; se escribio literal asi en la UI (antes decia "sobre Subtotal" / "sobre Subtotal + IVA").
+
+### 9. Cosas que quedaron mal en la especificacion (para el orquestador)
+
+1. **§17 atribuye a `marihogar` el origen del criterio de "total autoritativo"**, cuando `marihogar/5-implementador.md` §657 dice explicitamente que copio el bloque de impuestos **desde `ganaderia - emo`**. El criterio es correcto; la direccion del prestamo esta invertida. Vale corregirlo porque afecta a que proyecto se mira como referencia la proxima vez.
+2. **§17.4 asume un PDF de comprobante que este sistema no genera** (ver §8).
+3. **§8.3.3 dice "Junto al mensaje rojo, boton 'Reajustar al nuevo total'"**, sin aclarar que en el alta el mensaje rojo tambien aparece (cuando los ingresos todavia no cierran). Se resolvio condicionando el boton a `EsEdicion` **ademas** de al mensaje rojo, que es lo que pide RD13/PD15; si se hubiera implementado literal, el alta habria mostrado el boton.
+4. **Ni §17 ni §8.3 dicen que hacer con el `impState` inicial en modo edicion** (ver decision 1). Es el borde donde el modelo "% derivado + importe autoritativo" se puede romper solo.
+
+### 10. Pruebas minimas para QA
+
+- PF67/PF68: cargar el descuento como % y como importe; verificar que el otro campo se completa y que el resultado es identico.
+- PF69: Subtotal 1.000.000 + 10% + IVA 21% + IIBB 3% → Total **1.121.670,00**.
+- PF70: factura **sin** descuento → totales identicos a los de antes de v17 (no regresion).
+- PF71/PV23: egreso 100.000 + 5% + IVA 21% → Importe **114.950,00**; un pago de 121.000 (ignorando el descuento) debe rechazarse.
+- PF72: editar una factura con ingresos cargados, aplicar descuento, confirmar el aviso SweetAlert2 con total viejo/nuevo/diferencia y que el boton "Reajustar al nuevo total" redistribuye **proporcional** conservando vencimientos, con los centavos en la ultima fila.
+- PD15: confirmar que en el **alta** no aparecen ni el boton de reajuste ni el aviso.
+- PD14/PV19/PV20/PV21: descuento >= subtotal, % >= 100 y valores negativos, bloqueados en cliente **y** por POST directo.
+- PF73–PF76: en el Tablero Anual, cotejar la barra de IVA ventas de un mes contra la suma de `MontoIva` de las facturas de ese mes; una factura de marzo cobrada en mayo debe sumar en **marzo**; una factura anulada debe desaparecer; la linea de saldo y el KPI deben cuadrar.
+- PF77: el detalle de venta y el de egreso muestran Subtotal, Descuento (% e importe), Neto gravado, IVA y Total.
+- **Regresion del bug corregido**: en `Egresos/Create`, cambiar el subtotal debe actualizar en vivo el IVA, el "Total del egreso" y el "Restante por asignar" de la grilla de pagos.
+
+### 11. Checklist §17.8
+
+| Item | Estado | Evidencia |
+|---|---|---|
+| `Ignore(NetoGravado)` en ambas entidades, verificado contra el snapshot (RT17) | **OK** | `NetoGravado` no aparece en la migracion, el `.Designer`, `AppDbContextModelSnapshot.cs` ni en `SHOW COLUMNS` de MySQL |
+| Migracion a mano y revisada: 4 `AddColumn` con `defaultValue: 0m`, sin `RenameColumn`, sin `DropTable` | **OK** | Operaciones del archivo: 4 `AddColumn` + 4 `DropColumn`, nada mas |
+| Invariante `Subtotal - Descuento + impuestos = Total` en 0 desvios (dev) | **OK** | 0 en `FacturasVenta` y 0 en `Egresos`, antes y despues de aplicar |
+| Invariante en produccion post-deploy | **PENDIENTE** | No se deployo (pedido explicito). Queda para el deploy. |
+| Series de IVA sin `IgnoreQueryFilters()` (RT20) | **OK** | Codigo + PF75 verificado en vivo (la anulada dejo de sumar) |
+| Rotulo de devengado y "no es un Libro IVA" en la card, no en tooltip | **OK** | `alert alert-secondary` dentro del `card-body` de `chartIva` |
+| Boton de reajuste ausente en el alta (RD13/PD15) | **OK** | 0 ocurrencias en el HTML del alta, 1 en el de edicion |
+| `value=` de descuento con `CultureInfo.InvariantCulture` (LP-003) | **OK** | `value="10.0000"`, `value="100000.00"` en el HTML servido |
+
+### 12. Estado de deploy
+
+**DEPLOYADO A PRODUCCION el 2026-09-07** (`deploy-prod.ps1 -Force`: migracion + Web Deploy, 12 archivos actualizados, sitio 200 OK, `migrations list` contra Production sin pendientes).
+
+**Correccion importante sobre lo que decia esta seccion:** la lista de abajo se armo leyendo las notas de trazabilidad de v14/v15, que decian "re-deploy pendiente" y **habian quedado desactualizadas**. Verificado contra produccion (`/Stock/Ajuste` -> 302 con una ruta inexistente dando 404 como control, y `migrations list` mostrando `Grupo_StockActual_Desnormalizado` y `Egreso_IvaDiscriminado` ya aplicadas): **los puntos 1 a 7 ya estaban en produccion antes de este deploy**. Lo unico que se publico ahora fue el punto 8 mas los dos fixes criticos de QA. Leccion: el estado de deploy se verifica contra el servidor, no contra las notas del documento.
+
+Historial de lo acumulado hasta este deploy, en orden de dependencia:
+1. LP-003 (decimales) y MH-020 en Facturas.
+2. Stock desnormalizado + migracion `Grupo_StockActual_Desnormalizado`.
+3. `TipoMovimientoStock.Ajuste` + pantalla de ajuste.
+4. Data Protection persistente.
+5. IVA en egresos + migracion `Egreso_IvaDiscriminado`.
+6. MH-020 en Egresos.
+7. Fusion Grupos/Stock.
+8. **Descuento comercial + serie de IVA + migracion `Comprobantes_DescuentoComercial`** (esta iteracion).
+
+**Contenido real de este deploy (2026-09-07):**
+- Punto 8 completo (descuento comercial pre-impuestos en ventas y compras, reajuste proporcional de ingresos al editar, serie de IVA devengado en el Tablero Anual) + migracion `Comprobantes_DescuentoComercial`.
+- **GAN-005** (auto-fix de QA): marcadores `__Invariant` emitidos en el submit para los inputs de las grillas dinamicas, que se escriben con `name=` a mano y por eso no los emitia el tag helper. Sin esto el binder los parseaba en es-AR y `"1121670.00"` entraba como 112.167.000.
+- **GAN-006** (auto-fix de QA): `step` de los porcentajes alineado a `decimal(9,4)`; con `step="0.01"` jquery-validate bloqueaba en silencio el submit de la edicion.
+- Bug preexistente de v15 en `Egresos/Create.cshtml` (listeners del driver de IVA anidados dentro de `recalcularTotal()`, que nunca se ejecutaba).
+
+Los dos primeros eran **preexistentes de v13** y tenian la edicion de facturas inutilizable en produccion; viajaron en el mismo deploy, como exigia el veredicto condicionado de QA.

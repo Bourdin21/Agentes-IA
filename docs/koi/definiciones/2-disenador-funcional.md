@@ -2,7 +2,7 @@
 
 > Memoria acumulativa del agente diseñador funcional.
 > Etapa: Diseño funcional. Estado: ✅ ACTUALIZADO — P-A01→P-A07 incorporadas · ventas 4 campos · TC con selector cotización · preview editable · Reabierto eliminado. Módulo E2-02 (Fichador) diseñado en §10. Sprint UX/UI Inversor + fixes diseñado en §11.
-> Fecha: 2026-06-11. Última actualización: 2026-08-12 — §11 Sprint UX/UI Inversor + fixes (P-16 Mes actual, P-17 Notificaciones). Input: 1-analista-funcional.md §12 (Análisis cerrado).
+> Fecha: 2026-06-11. Última actualización: 2026-08-13 — §12 Mi Inversión: dividendos/recupero en pesos. Input: 1-analista-funcional.md §13 (Análisis cerrado).
 
 ## 1. Alcance funcional resumido
 
@@ -334,3 +334,188 @@ Año | Mes | Bruto | Consumos | Neto $ | Neto U$D | Renta | Estado | Fecha pago
 ### 11.9 Fix global — importes sin salto de línea
 
 Regla CSS nueva en `wwwroot/css/olvidata-theme.css` (design system compartido, no una vista puntual): las celdas de tabla que muestran un importe (`$`/`U$D` + número) deben tener `white-space: nowrap`. Aplicar sobre un selector reutilizable en todo el sistema — ej. clase `.ov-monto` a agregar en cada `<td>` de importe (patrón explícito, no un selector genérico por posición de columna, para no romper columnas de texto largo que sí deben poder wrappear). Alcance: todas las vistas con importes (`Dashboard`, `MiInversion`, `RepartoGeneral`, `EstadoResultados`, `Liquidaciones`, `Puntos`, `Fichador` si aplica). Ver Arquitectura §9.6 para la regla a documentar en Agentes-IA.
+
+---
+
+## 12. Diseño — Mi Inversión: dividendos y recupero en pesos (Agosto 2026)
+
+### 12.0 Escaneo de reutilización
+
+Sin match — es un cálculo puntual sobre datos ya existentes de KOI, no hay pantalla ni patrón equivalente en otro proyecto.
+
+### 12.1 Cards de KPI — reorganización
+
+`Views/MiInversion/Index.cshtml`, sección de cards (hoy: Capital aportado, Dividendos cobrados [USD], Recupero % [USD] con barra de progreso). Se agrega una segunda fila de cards, misma jerarquía visual pero con acento visual distinto (ej. badge "$"/"USD" en el título de cada card para diferenciar moneda de un vistazo):
+
+```
+[ Capital aportado USD ]  [ Dividendos cobrados U$D ]  [ Recupero U$D % + barra ]
+[ Dividendos cobrados $ ]  [ Recupero $ % ]
+```
+
+- La fila nueva NO duplica la barra de progreso (queda como número simple + badge de color, sin repetir el hito visual 25/50/75/100% que ya tiene la fila USD) — evita saturar la pantalla con dos barras que van a mostrar valores casi iguales (aclarado en Análisis §13.2).
+- Sin cambios en la tabla de historial (ítem 8/9 del sprint anterior) — los KPIs nuevos son solo del resumen superior, no tocan `#tablaHistorial`.
+
+### 12.2 ViewModel/DTO
+
+`MiInversionDto` (Application) agrega dos campos: `DividendosPesos` (decimal) y `RecuperoPesosPorc` (decimal?) — mismo patrón que los campos USD ya existentes, calculados en el service, sin tocar el historial por fila.
+
+---
+
+## 13. Diseño — Sprint de correcciones y catálogo real (Agosto 2026)
+
+### 13.1 Mi Inversión — recupero acumulado + gráfico (ítem 2)
+
+Tabla `#tablaHistorial`: se agrega **una** columna nueva, "Recupero acum.", después de la columna "Renta" existente.
+- No se agrega una columna "Recupero del mes": la columna "Renta" ya ES ese número (`NetoUsd ÷ Capital × 100` con el TC del mes cerrado). Duplicarla con otro nombre confundiría. Se evalúa cambiarle el tooltip/encabezado a "Renta (recupero del mes)" para que la relación quede explícita sin duplicar dato.
+- El acumulado se calcula cronológicamente ascendente (del mes más viejo al más nuevo) y se muestra en la tabla que está ordenada descendente — la primera fila (mes más reciente) muestra el acumulado total, que debe coincidir con el KPI de Recupero de arriba.
+
+Gráfico nuevo (Chart.js, ya usado en Dashboard) entre las cards de KPI y la tabla de historial:
+```
+[ Evolución del recupero ]
+ 100% ─────────────────────────── (línea de meta)
+      ╱
+   ╱        línea de recupero acumulado %, un punto por mes cerrado
+ 0% ─────────────────────────────
+      ene  feb  mar  abr  may ...
+```
+- Línea de meta al 100% (punteada) para que se lea de un vistazo cuánto falta para recuperar el capital.
+- Eje X: períodos en orden cronológico ascendente (al revés que la tabla, que va del más nuevo al más viejo — es lo natural en un gráfico de evolución).
+
+### 13.2 Editar meses cerrados (ítem 3)
+
+Pantalla `Views/EstadoResultados/Mensual.cshtml`, período con estado Cerrado:
+- Hoy los inputs/botones de edición existen igual pero el guardado falla con "El periodo esta cerrado". Ahora el guardado funciona, y se agrega contexto visual:
+  - Banner de advertencia permanente arriba: *"Este período está cerrado. Si modificás un valor, se van a recalcular las liquidaciones pendientes de este mes. Las liquidaciones ya pagadas no se modifican."*
+  - Confirmación SweetAlert2 antes de guardar cualquier cambio en un período cerrado (no en uno abierto — ahí el flujo sigue igual, sin fricción extra).
+  - Después de guardar: mensaje de resultado que informe cuántas liquidaciones se recalcularon y cuántas se dejaron intactas por estar pagadas, con el detalle de los inversores afectados.
+
+### 13.3 Catálogo de rubros (ítem 4)
+
+Sin cambios de pantalla — `Views/Configuracion/Rubros.cshtml` y `Subgrupos.cshtml` ya soportan el ABM. El cambio es de **datos**: el catálogo nuevo se carga por script/seed, no a mano.
+- La pantalla de carga del estado de resultados va a mostrar naturalmente la estructura nueva (se arma desde el catálogo).
+- Nota de diseño: "Alquiler" no tiene subgrupos en el PDF (es un importe directo del rubro). El modelo actual exige que todo importe cuelgue de un subgrupo → se crea un subgrupo único "Alquiler" dentro del rubro "Alquiler" para no romper el modelo, y la pantalla lo muestra como una sola línea (visualmente equivalente al PDF).
+
+### 13.4 Importación de Excel recurrente (ítem 5)
+
+`Views/ImportacionInicial/Index.cshtml`:
+- La pantalla pasa a llamarse **"Importación desde Excel"** (hoy "Importación histórica") — ya no es una operación de única vez.
+- Se agrega un check explícito: **"Actualizar los períodos que ya existan"** (por defecto desactivado, o sea el comportamiento actual de omitir). Con el check activado, un período ya cargado se actualiza en vez de omitirse.
+- El resultado de la importación debe distinguir tres estados por fila, no dos: *importado nuevo* / *actualizado* / *omitido*.
+- Advertencia visible cuando se activa el modo actualizar y hay períodos cerrados en el archivo — misma lógica de recálculo de liquidaciones que el ítem 3.
+
+### 13.5 Reparto General — orden (ítem 6)
+
+`Views/RepartoGeneral/Index.cshtml`, tabla `#tablaReparto`: `data-order="@($"{f.Anio}{f.Mes:D2}")"` en la celda de período (el DTO `RepartoFilaDto` ya expone `Anio`/`Mes`), `order: [[0,'desc']]` y `columnDefs: [{ type:'num', targets:0 }]`. El texto visible del período no cambia. Idéntico al fix ya aplicado en Historial de Resultados.
+
+---
+
+## 14. Diseño funcional — Módulo E2-01 "Integración Ayres POS" (Fase 6, Septiembre 2026)
+
+Entrada: `1-analista-funcional.md` §15 (Discovery + Análisis aprobados, R-A01 resuelto en §15.10). Decisión del dueño del estudio en el gate: **P-A10 = reemplazar siempre**, con preview y confirmación previa.
+
+### 14.0 Escaneo de reutilización (obligatorio)
+
+Se escanearon `docs/patrones/catalogo.yml` y los `2-disenador-funcional.md` / `5-implementador.md` de los 20+ proyectos del historial. **Tres coincidencias reales, las tres se reutilizan:**
+
+| Origen | Qué se toma | Decisión |
+|---|---|---|
+| **marihogar** — `MariHogar.Infrastructure/Services/AfipTokenCache.cs` (PAT-006) | Cache de token con vencimiento: Singleton + `SemaphoreSlim` para que dos requests concurrentes no disparen dos logins, doble chequeo dentro del lock, **vigencia tomada de la que informa el servidor y no de un valor fijo asumido**, margen de seguridad previo al vencimiento, e `Invalidar()` para forzar re-login cuando el server rechaza un token que localmente creíamos vigente. | **Reutilizar adaptando.** Es exactamente el problema de Ayres (`aliveTime: 3599`). Se adapta de `(Token, Sign)` de AFIP a un único `tokenAccess`. |
+| **KOI mismo** — `QuickPassService` + `QuickPassSettings` + `QuickPassIndisponibleException` (Etapa 12) | Convenciones internas ya establecidas para una API externa: cliente nombrado vía `IHttpClientFactory`, POCO de settings al estilo `SmtpSettings`, excepción de dominio propia para "el tercero no responde", y datos en vivo sin persistencia local. | **Reutilizar la estructura tal cual**, renombrando. Da consistencia dentro del proyecto y evita inventar un segundo estilo de integración. |
+| **PAT-012** — Importación con preview → confirmar | Separar *analizar* de *persistir* en una sola función con flag, y no pisar lo que el usuario administra a mano sin avisarlo. KOI ya es implementación de referencia del patrón (`ImportacionInicial`). | **Reutilizar el flujo de dos pasos**, sin el staging en disco: acá no hay archivo que guardar, se vuelve a consultar la API al confirmar. |
+
+**No se reutiliza** el chunking de QuickPass: aquel parte por 31 días y sobre un endpoint distinto; acá el límite es 10 días y la agregación es propia. Se escribe nuevo, pero siguiendo el mismo estilo.
+
+### 14.1 Flujo de pantalla
+
+Se suma a **P-03 Estado de Resultados mensual**, sin pantalla nueva.
+
+1. En la tarjeta "Ventas del mes", junto a los campos actuales, botón **"Traer de Ayres"** (`btn-outline-primary`, ícono `fa-cloud-arrow-down`). Visible **solo** si: rol Administrador o SuperUsuario, **período abierto**, y el módulo está configurado.
+2. Al pulsarlo: el botón pasa a estado ocupado ("Consultando Ayres…") y se dispara la consulta del mes completo. **No se escribe nada todavía.**
+3. Se abre un **modal de preview** con lo que Ayres devolvió, comparado contra lo que hay cargado:
+
+   | Concepto | En el sistema | En Ayres | |
+   |---|---|---|---|
+   | Ventas Salón | 54.837.560,00 | 52.404.760,00 | ▼ |
+   | Ventas Pedidos | 8.293.549,00 | 8.293.849,00 | ▲ |
+   | Ventas Mostrador | 100,00 | 2.432.500,00 | ▲ |
+   | Comensales | 1.678 | 1.735 | ▲ |
+   | Cantidad de ventas | 2.000 | 1.062 | ▼ |
+   | **Total** | **63.131.209,00** | **63.131.109,00** | ▼ |
+
+   Las filas que cambian se resaltan; las iguales se muestran en gris. Pie del modal: "Se consultaron N ventas entre el 01/09 y el 30/09".
+4. Botones: **"Aplicar"** (escribe y recalcula) y **"Cancelar"** (no toca nada).
+5. Al aplicar: se guardan las ventas por el mismo camino que el guardado manual —o sea que **los conceptos porcentuales se recalculan solos**— y la pantalla se refresca sin recargar, con el mismo repintado que ya usa "Guardar ventas".
+
+**Decisión de diseño:** al confirmar se **vuelve a consultar la API**, no se guarda el resultado del preview en sesión. Es una llamada más, pero evita aplicar números viejos si el preview quedó abierto un rato, y elimina el staging. Si el segundo resultado difiere del previsualizado, se avisa y se pide confirmar de nuevo.
+
+### 14.2 Reglas de validación y mensajes
+
+| Situación | Comportamiento |
+|---|---|
+| Período cerrado | El botón no se renderiza. El endpoint igual lo valida y responde "El período está cerrado." (defensa en profundidad, mismo criterio que el resto de P-03) |
+| Rol distinto de Admin/SuperUsuario | Botón oculto + policy `SoloAdministrador` en el endpoint |
+| Ayres no responde / puerto bloqueado / DNS | `AyresIndisponibleException` → SweetAlert2: "No se pudo conectar con Ayres. El período quedó sin cambios." **Nunca se escribe parcialmente** |
+| Credenciales rechazadas (`UNAUTHORIZED_ACCESS`) | "Ayres rechazó las credenciales. Revisá la configuración." — mensaje distinto del anterior: es un problema de configuración, no de red |
+| El mes no tiene ventas en Ayres | Preview informativo: "Ayres no devolvió ventas para este período." Sin botón Aplicar |
+| El token vence a mitad del chunking | Se renueva y se continúa. **Invisible para el usuario** |
+| Un chunk falla después de que otros salieron bien | Se aborta todo y no se aplica nada. La agregación es en memoria, así que no queda estado a medias |
+| Mes en curso (incompleto) | Se permite, con leyenda: "El mes todavía no terminó: el total es parcial." |
+
+### 14.3 ViewModels y contratos
+
+**Application** — `DTOs/AyresDtos.cs`:
+- `VentasPeriodoAyresDto`: `Anio`, `Mes`, `FechaDesde`, `FechaHasta`, `CantidadVentas`, `ImporteTotal`, `Comensales`, `ItemsTotales`, `VentasPorCanal` (`Dictionary<string,decimal>`), `TicketPromedio`, `VentaPorCubierto`, `ItemsPorVenta`, `VentasPorDia`.
+- `PreviewVentasAyresDto`: `Actual` (lo cargado) + `Nuevo` (lo de Ayres) + `HayDiferencias`.
+
+**Application** — `Interfaces/IAyresService.cs`:
+- `Task<VentasPeriodoAyresDto> ObtenerVentasPeriodoAsync(int anio, int mes, CancellationToken ct)`
+- `Task<bool> ProbarConexionAsync(CancellationToken ct)` (reemplaza el diagnóstico temporal `System/DiagnosticoAyres`, que se elimina)
+
+**Web** — `Models/EstadoResultadosViewModels.cs`: `ErMensualViewModel.AyresHabilitado` (bool, para renderizar o no el botón).
+
+**Web** — `EstadoResultadosController`:
+- `[HttpPost] PreviewAyres(int anio, int mes)` → JSON con el comparativo. **No escribe.**
+- `[HttpPost] AplicarAyres(int anio, int mes)` → reconsulta, escribe vía `GuardarVentasAsync` y devuelve el ER recalculado, con la misma forma que ya devuelve `GuardarVentas` (para reusar el repintado del cliente).
+
+Ambos con `[ValidateAntiForgeryToken]` y policy `SoloAdministrador`.
+
+**Mapeo de canales** (P-A08 ✅ **confirmado 2026-09-08**): `ME` → Salón, `PE` → Pedidos, `MO` → Mostrador. **Se diseña configurable**, no hardcodeado: si aparece un `sectorTipo` desconocido, su importe se suma a un canal "Otros" y **se muestra en el preview con una advertencia**, en vez de descartarlo en silencio o romper.
+
+### 14.4 Impacto por capa
+
+| Capa | Cambio |
+|---|---|
+| **Domain** | **Ninguno.** Sin entidades nuevas, sin migración: las ventas se escriben en `VentasMensuales`, que ya existe |
+| **Application** | `DTOs/AyresDtos.cs`, `Interfaces/IAyresService.cs`, `Exceptions/AyresIndisponibleException.cs` |
+| **Infrastructure** | `Services/AyresService.cs`, `Services/AyresSettings.cs`, `Services/AyresTokenCache.cs` (adaptado de marihogar), registro del cliente nombrado en `DependencyInjection.cs` |
+| **Web** | 2 acciones en `EstadoResultadosController`, botón + modal en `Views/EstadoResultados/Mensual.cshtml`, flag en el ViewModel. **Se elimina** `System/DiagnosticoAyres` |
+| **Config** | Sección `Ayres` ya cargada en `appsettings.Production.json` (gitignoreado). Falta la sección espejo **vacía** en el `appsettings.json` versionado, como se hizo con QuickPass |
+
+### 14.5 Riesgos de implementación
+
+- **El token vive 1 hora y un mes son 4 llamadas.** En la práctica no vence a mitad, pero el cache debe manejarlo igual: es el caso que el patrón de marihogar ya resuelve y no hay que reinventar.
+- **`AyresTokenCache` debe ser Singleton** y `AyresService` Scoped. Registrarlos al revés hace que el token se pierda entre requests y se loguee de más — es el error clásico de este patrón.
+- **No cargar el mes entero en memoria**: 1.062 ventas con sus `items[]`. Agregar por chunk y descartar el detalle.
+- **Fechas asimétricas**: se consulta `yyyy-MM-dd` y vuelve `dd/MM/yyyy`. Parsear con `CultureInfo.InvariantCulture` y formato explícito, nunca con el parseo por cultura del server.
+- **El sobre viene anidado** (`content.ventas[i].venta.*`): un DTO mal mapeado da cero sin error.
+- **D-A01**: la regla de firewall apunta a la IP fija `190.245.226.181`. Si Ayres migra, la integración se corta con WSAEACCES. El mensaje de error de red debe ser lo bastante explícito como para que ese diagnóstico no lleve otra vez dos horas.
+- **`estado` de la venta (R-A04)**: verificar en implementación si hay ventas anuladas que no deban sumar. En agosto el total cerró al centavo, así que probablemente no las haya, pero no está probado.
+
+### 14.6 Historias de usuario
+
+- **HU-A01** — Como Administrador, quiero traer las ventas del mes desde Ayres para no cargarlas a mano.
+  - CA: con el período abierto veo el botón "Traer de Ayres"; al pulsarlo obtengo un preview; **nada se escribe hasta que confirmo**.
+- **HU-A02** — Como Administrador, quiero ver qué va a cambiar antes de aplicar, para no pisar datos sin darme cuenta.
+  - CA: el modal muestra lado a lado lo cargado y lo de Ayres, resalta solo las filas que difieren, e informa cuántas ventas se leyeron y en qué rango.
+- **HU-A03** — Como Administrador, quiero que al aplicar se recalcule todo, para no tener que tocar nada más.
+  - CA: al confirmar, las ventas quedan guardadas, los conceptos porcentuales se recalculan solos y el resultado del ejercicio se actualiza sin recargar la página.
+- **HU-A04** — Como Administrador, quiero que un mes largo se resuelva solo, sin tener que pedirlo por tramos.
+  - CA: un mes de 31 días se resuelve en 4 llamadas encadenadas de ≤10 días y el usuario nunca ve esa mecánica.
+- **HU-A05** — Como Administrador, quiero que una caída de Ayres no me arruine el período.
+  - CA: con la API inalcanzable, el sistema avisa y el período queda **exactamente** como estaba; si falla un tramo intermedio, tampoco se aplica nada.
+- **HU-A06** — Como Administrador, quiero no poder romper un mes ya cerrado.
+  - CA: en un período cerrado el botón no aparece, y si igual se invoca el endpoint responde que está cerrado y no escribe.
+- **HU-A07** — Como Administrador, quiero enterarme si Ayres empieza a informar un canal que el sistema no conoce.
+  - CA: un `sectorTipo` no mapeado no se descarta ni rompe: su importe va a "Otros" y el preview lo advierte.
+- **HU-A08** — Como SuperUsuario, quiero comprobar la conexión con Ayres sin tocar un período.
+  - CA: desde Sistema puedo probar la conexión y obtener un resultado claro (conecta / credenciales rechazadas / inalcanzable) sin escribir ningún dato.

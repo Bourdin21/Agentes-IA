@@ -669,6 +669,36 @@ grises diciendo cosas distintas sobre la misma barra. Con linea y tooltip alcanz
 de crepusculo ES navegable y la barra verde no miente.
 
 
+**33. La navegabilidad de una hora pasada la decide la costa estimada, no el pronostico.**
+Textual de Joaquin: "mostrar siempre el viento estimado en costa para hacer los calculos de si se
+navega o no se navega". `estadoDeHora` miraba siempre `vientoNudos` incluso en horas ya
+transcurridas con lectura; la costa estimada solo se dibujaba y aparecia en el tooltip.
+Caso real: a las 06:00 el modelo daba 11,7 kt y en la costa hubo 15,8 con rafagas a 18,5. Con rango
+16-28 el sitio pintaba esa hora como no navegable TENIENDO EL DATO, cuando por "al limite" entraba.
+Misma familia del bug del reloj que el ya habia reportado.
+**La regla no cambio** (rango, al limite por rafaga, offshore que cortocircuita); cambio la fuente
+de los numeros, y vive en un solo lugar: `vientoDeDecision(hora)` devuelve `{viento, rafaga, origen}`.
+Por eso estado, color de barra, rachas, veredicto y tooltip se mueven juntos por construccion.
+**Viento y rafaga SIEMPRE del mismo origen.** Mezclar sostenido medido con rafaga pronosticada da un
+estado que no describe ninguna realidad. Si falta cualquiera de los dos valores de costa se cae
+ENTERO al pronostico. La alternativa —sostenido medido sin poder entrar al limite— dejaria una hora
+ya pasada MAS restrictiva que la misma hora antes de pasar, que es el absurdo que el backend evito
+agregando `rafagaMedidaSpotNudos`.
+Dos consumidores mas tuvieron que seguir la misma fuente o el grafico se contradecia solo: el
+**pico de la racha** (si no, "se navega, pico 11,7 kt" con rango desde 16) y el **pico del
+`aria-label`** (un lector de pantalla oiria un numero de otra fuente que el veredicto siguiente).
+**El despegue NO cambia**: es una resta entre rafaga y sostenido a los que se les descuenta la misma
+constante, asi que da identico con la lectura cruda o con la corregida. Se dejo escrito para que
+nadie lo "arregle" despues.
+**Se marca en pantalla, y hace falta.** La ALTURA de la barra sigue siendo el pronostico, asi que una
+barra corta puede quedar verde porque en la costa hubo mas viento; sin atribucion eso se lee como un
+error de la pantalla. El tooltip dice "Decidido con el viento estimado en la costa, no con el
+pronostico", solo cuando decide la costa, y el `aria-label` lo repite. No se marca con color: el
+vocabulario ya carga seis significados y el unico recurso libre chocaria con el atenuado de "ya paso".
+**Sigue sin ser una medicion.** Que la inferencia ahora DECIDA pide mas cuidado al contarlo, no
+menos: el texto dice "estimado en la costa" y nunca "medido".
+
+
 ## Historial de ajustes
 - 2026-09-01: Scaffold inicial del repo PHP creado en `C:\Sistemas\kite-punta-lara` (estructura de carpetas, composer, conexion a datos, mailer PAT-007 reutilizado, helper CSRF, migraciones SQL sin aplicar, config de umbrales/equipo con placeholders declarados explicitamente). `composer install` corrido y smoke test local exitoso (`GET /` responde 200, maneja el error de conexion sin datos configurados). Git inicializado, sin commits todavia.
 - 2026-09-02: Migraciones aplicadas contra MySQL local de desarrollo, `pdo_mysql` habilitado en el PHP local. Cambio de arquitectura a pedido del cliente: Presentacion pasa a Astro (repo `kite-punta-lara-front`, pendiente de generar con el agente astro-front), este repo pasa a exponer solo `GET /pronostico` como JSON. Implementada la Etapa 1 completa del backend: `CacheService`, `PronosticoService` (Open-Meteo), `ConsolidadorEstacionesService` (CARP funcionando de verdad — estacion Pilote Norden via `meteo.comisionriodelaplata.org`, requirio CA bundle propio y desactivar verificacion TLS solo para ese host por su certificado roto/TLS legacy, confirmado con Joaquin; SMN sigue bloqueado por Cloudflare), `MotorDeCalculoService`, `PronosticoController`. Verificado end-to-end con `curl` — respuesta real con viento en vivo, recomendacion de equipo y señales de birazon/sudestada funcionando.
@@ -692,3 +722,4 @@ de crepusculo ES navegable y la barra verde no miente.
 - 2026-09-02 (implementador-astro-front, decimoctava pasada - nueva base de comparacion en el panel de modelos): El backend paso a comparar el pronostico en las coordenadas del spot contra el equivalente estimado en la costa (Norden - 2,5 kt), en vez de modelo-en-Norden contra lectura cruda de Norden. El lado de referencia dejo de ser una medicion, asi que se reescribio todo el copy que decia 'lo que midio la estacion' / 'del viento medido' / 'la unica medicion real'; el primer parrafo del metodo afirmaba lo contrario de lo que ahora pasa y se rehizo entero. Se agregaron `compara`, `medicionEsEstimada` y `correccionEstacionNudos` al contrato: la frase de que se compara la manda el backend y la bandera decide el vocabulario, de modo que el dia que haya sensor en el spot el panel diga 'medido' sin tocar el copy. Se detecto probando el contrato recortado que el parrafo de la cadena era incondicional e imprimia 'se le restan — —'; se partio en dos versiones elegidas por dato. La serie arranco de nuevo (25 horas) y vuelve a 'Muestra inicial', verificado que se lee como estado y no como error. Ver decision 30.
 - 2026-09-02 (implementador-astro-front, decimonovena pasada - la ventana del dia la define la luz): Joaquin detecto que el sitio decia que se navega a las 21 sin luz a esa hora. El backend paso a filtrar las horas por amanecer/atardecer reales y `horas.length` bajo de 16 a 12, con largo variable segun la estacion. El front ya derivaba ancho, paso de rotulos y recorte por reloj del largo, asi que no hubo que tocar geometria: verificado con ventanas de 4, 12, 16 y 17 horas. Se agrego una linea chica bajo el titulo del grafico explicando el horario de luz, un item de luz en la tira de cada fila y la regla contada una vez en el encabezado de la semana; con `amanece`/`atardece` en `null` todo eso se esconde entero en vez de inventar un horario de sol. La ultima hora con luz se avisa en el tooltip y no con un color nuevo. Se corrigieron dos suites propias que tenian el indice 14 escrito a mano. Ver decision 31.
 - 2026-09-02 (implementador-astro-front, vigesima pasada - crepusculo: la ventana no es solo el sol): Correccion de la pasada anterior. Joaquin aporto que hay ~1 hora de luz util antes del amanecer y otra despues del atardecer, y que esas horas se navegan, asi que cortar exacto en el sol era conservador de mas. El backend publica ahora 14 horas (06-19) con las puntas marcadas por un flag `crepusculo` nuevo. Se corrigieron las cuatro afirmaciones que quedaron falsas: la linea de la card, el parrafo de la seccion, el aviso del tooltip (que decia 'ultima hora con luz - atardece 18:35' sobre las 19, contradiciendose solo) y el rotulo 'Luz' de las filas, que paso a 'Sol'. La distincion sale SIEMPRE del flag, nunca de recalcular el margen en el front, porque es calibrable en el backend. `ultimaHoraDeLuz()` se borro. Verificado contra los datos reales de los cuatro dias: las 14 horas de hoy descritas segun su flag, sin una sola discrepancia. Ver decision 32.
+- 2026-09-02 (implementador-astro-front, vigesimoprimera pasada - la costa estimada decide): Pedido de Joaquin: las horas ya pasadas tienen que juzgarse con el viento estimado en la costa y no con el pronostico. Se agrego `vientoDeDecision(hora)` en `navegabilidad.ts` como unico punto de origen de los numeros; la regla de navegabilidad no se toco. Viento y rafaga vienen siempre del mismo origen: sin `rafagaMedidaSpotNudos` se cae entero al pronostico, porque evaluar el rango sin poder entrar al limite dejaria la hora pasada mas restrictiva que antes de pasar. Tambien siguieron la fuente el pico de la racha y el del `aria-label`. El despegue no cambia (resta con la misma constante descontada de los dos lados). El tooltip atribuye el veredicto cuando decide la costa, porque la altura de la barra sigue siendo el pronostico y una barra corta puede quedar verde. Verificado contra datos reales y con el caso textual del brief. Ver decision 33.

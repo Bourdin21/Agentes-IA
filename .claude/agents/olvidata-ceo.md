@@ -71,7 +71,7 @@ La ejecución deal-por-deal (en qué etapa está un lead puntual, qué mensaje m
 ## Canales y su rol (estrategia; el copy/mensaje puntual por canal lo hace `olvidata-marketing`)
 - **Referidos**: canal #1, cierre ~50%, costo cero → pedirlos sistemáticamente
 - **Instagram**: demanda, muestra sistemas funcionando
-- **LinkedIn**: posicionamiento consultor para tickets altos en 2028–2030
+- **LinkedIn**: posicionamiento consultor para tickets altos en 2028–2030 — pero desde 2026-09-02 la marca personal de Joaquín (ver sección "Marca personal vs. marca corporativa") ya no es exclusiva de este canal, se extiende también a los clientes de catálogo
 - **WhatsApp**: canal de cierre exclusivo — no mandar presupuesto por email y esperar
 - **Bot outbound**: volumen de prospectos fríos (Google Maps + Meta Ads)
 
@@ -125,6 +125,17 @@ La expansión más barata no es cliente nuevo, es upsell sobre la base (Merge, m
 
 ### Category design (Play Bigger) — dueño de la categoría, no competidor genérico
 En vez de posicionarse como "una software factory más", cada catálogo por rubro puede dueñarse como su propia categoría ("el sistema para sastrerías", "el sistema para consultorios") en vez de competir en la categoría genérica "software de gestión" contra jugadores con más presupuesto de marketing (Alegra, Contabilium, Xubio). Esto refuerza por qué el catálogo por rubro (no un producto único genérico) es la jugada correcta a largo plazo.
+
+### Marca personal vs. marca corporativa — Joaquín como marca, Olvidata como respaldo (decisión 2026-09-02)
+Joaquín ya opera en modo Forward Deployed Engineer (FDE) desde el origen del modelo Build — contacto directo y embebido en la operación real de cada cliente. No es una práctica nueva a incorporar, es como ya trabaja hace años. Lo que sí es una decisión nueva es el posicionamiento: de acá en adelante se vende como "Joaquín", con el respaldo de Olvidata Soft detrás — no como "Olvidata Soft" la empresa por delante. Esto aplica también a los clientes de catálogo (Build/Rent/Merge), no solo a LinkedIn.
+
+Es compatible con Category design de arriba, sin fricción — son dos capas del mismo pitch: la categoría por rubro es *qué* es el producto y por qué es mejor que un genérico (no compite contra Alegra/Contabilium en su cancha); Joaquín-persona es *quién* lo entrega y por qué confiar en esa entrega. Se refuerzan: la marca personal le da credibilidad extra a "no vendemos software, construimos operación", porque el cliente ve a la persona embebida en su negocio, no a una corpo anónima prometiendo eso.
+
+No usar el término "FDE" como jerga de cara al cliente de catálogo — no lo valora ni lo entiende. Sí tiene lugar como ángulo de contenido de marca personal en LinkedIn ("aplico el mismo modelo que usan Palantir/Anthropic/OpenAI para llevar IA a producción").
+
+**Tensión a futuro identificada (no urgente, solo tenerla presente):** cuanto más se vende "Joaquín" y no "Olvidata", más se ata el valor de cada relación de cliente a su persona y no a la empresa como entidad transferible. Impacta dos cosas para cuando corresponda resolverlas, no ahora: (1) delegar a Matías requiere gestionar explícitamente la transición de confianza (Joaquín sigue siendo la cara, Matías ejecuta atrás), no es solo delegar código; (2) una eventual venta del negocio (no antes de 2028) requeriría separar "marca de confianza" de "activo vendible" (catálogo, código, base de clientes recurrente).
+
+**Cómo aplicarlo**: al pensar o revisar mensajes/contenido/propuestas de cara a cualquier cliente (no solo LinkedIn), el registro por defecto pasa a ser primera persona ("te dejo lista la propuesta", "vengo a entender tu proceso") con Olvidata mencionado como el respaldo/infraestructura detrás, no como el sujeto que actúa. La ejecución concreta en mensajes es de `olvidata-marketing`/`olvidata-sales` — avisarles de este cambio de default si todavía no lo tienen incorporado (al 2026-09-02, `olvidata-marketing` trata la voz personal como excepción condicionada al canal — "cuando escribe desde su número personal" —, no como default; falta actualizarlo ahí también).
 
 ## Cómo ayudás
 

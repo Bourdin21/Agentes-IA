@@ -148,6 +148,29 @@ Resumen tabular:
 
 ---
 
+### 3.9 Descuento comercial (v13)
+
+Descuento **opcional** a nivel comprobante (no por item), aplicado sobre el neto **antes** de calcular impuestos.
+
+- Se carga indistintamente como **porcentaje** o como **importe**; los dos campos se sincronizan (el que se toca ultimo manda), mismo patron que ya usan IVA / IIBB / Otras Percepciones.
+- **Neto gravado = Subtotal - Descuento**. Todos los impuestos se calculan sobre ese neto:
+  - IVA = % sobre Neto gravado.
+  - IIBB y Otras Percepciones = % sobre (Neto gravado + IVA) — el descuento tambien les baja la base.
+  - **Total = Neto gravado + IVA + IIBB + Otras Percepciones**.
+- Ejemplo de referencia: Subtotal 1.000.000, descuento 10% -> neto 900.000; IVA 21% = 189.000; IIBB 3% sobre 1.089.000 = 32.670; **Total 1.121.670**.
+- Es opcional: sin descuento cargado (0 / vacio) el comprobante se comporta exactamente igual que antes de v13.
+- **Tope**: el descuento no puede dejar el total en cero. Se valida `0 <= % < 100` y `0 <= importe < Subtotal`.
+- Los comprobantes historicos quedan con descuento 0 (no hay recalculo retroactivo).
+
+### 3.10 Reajuste de ingresos al editar (v13)
+
+Al editar una factura y cambiar su total (por descuento, ítems o impuestos), los ingresos ya cargados dejan de sumar el total.
+
+- El sistema **avisa antes de guardar**, indicando el total anterior, el nuevo y la diferencia.
+- Ofrece **reajustar los ingresos** para que vuelvan a cerrar contra el nuevo total; el usuario tambien puede ajustarlos a mano.
+- El servidor mantiene la validacion dura: si la suma no cierra (tolerancia $0,01 por ingreso), rechaza el guardado. El aviso es una ayuda de UI, no reemplaza la validacion.
+- Recordatorio de alcance: una factura solo es editable mientras **ningun** ingreso este Acreditado ni Rechazado.
+
 ## 4. Módulo Egresos — Compras a proveedor
 
 > **v11**: se reemplaza el modelo de "forma de pago única con acreditación inmediata" por **pagos múltiples por Egreso**. Motivo del cliente: una compra suele pagarse combinando uno o varios cheques diferidos (que no siempre cubren el importe total) más un pago compensatorio (efectivo/transferencia) por la diferencia.
@@ -209,6 +232,15 @@ Acción explícita sobre un Pago `Rechazado`. Dos variantes:
 - Afecta saldo de cuenta corriente y dashboard del mes en que cada pago se acredita.
 
 ---
+
+### 4.8 Descuento comercial en Egresos (v13)
+
+Mismo mecanismo que en ventas (§3.9), con la diferencia de que el Egreso no tiene IIBB ni Otras Percepciones:
+
+- Descuento opcional, en % o importe, sincronizados.
+- **Neto gravado = Subtotal - Descuento**; IVA = % sobre el neto gravado; **Importe (total) = Neto gravado + IVA**.
+- La suma de los Pagos del Egreso debe igualar ese total con descuento, con la **tolerancia cero** que ya regia (S31) — no se relaja.
+- Ejemplo: Subtotal 100.000, descuento 5% -> neto 95.000; IVA 21% = 19.950; **Importe 114.950**.
 
 ## 5. Módulo Stock
 
@@ -293,11 +325,23 @@ Lista cerrada de pares permitidos `(CategoríaOrigen → CategoríaDestino)`:
 
 ## 8. Dashboard
 
-- Vista **anual con desglose mensual**.
-- **Selector de año**: año actual y año anterior (comparativo).
-- Filtros por **Categoría** y por **Grupo**.
-- **Grupos dados de baja**: siguen apareciendo en los filtros de años anteriores y en los detalles históricos de Ventas / Movimientos de Caja donde participaron (visibilidad histórica completa). Se sugiere marcarlos visualmente como inactivos.
-- **Indicadores específicos**: a definir en **segunda etapa** (backlog fase 2, no bloquea v1).
+Desde la entrega de julio 2026 el dashboard esta **partido en dos pantallas** (ver `5-implementador.md`, iteracion v13):
+
+- **Dashboard** (`/Dashboard`) — control de **hacienda**, sin dinero: actividad por grupo del mes/año filtrado (nacimientos, muertes, compras, ventas), kilos vendidos, precio promedio ponderado por kg, stock al cierre, y el stock vivo actual con alerta de minimo. Desde v16 tambien concentra el ABM de Grupos (alta, edicion y baja), que antes vivia en una pantalla propia.
+- **Tablero Anual** (`/Dashboard/TableroAnual`) — control de **dinero**, en adelante el "dashboard economico": saldo de caja, ingresos y egresos del periodo, resultado neto, e ingresos / pagos de egreso pendientes. Filtros: año + mes opcional ("todos" = año completo). Grafico mensual de ingresos/egresos + linea de resultado neto.
+- **Grupos dados de baja**: siguen apareciendo en filtros de años anteriores y en detalles historicos donde participaron.
+
+### 8.1 Grafico de IVA compras vs. ventas (v13)
+
+Nuevo grafico en el **Tablero Anual**, para saber cuanto IVA genero el negocio y cuanto tiene a favor.
+
+- **Series**: IVA de ventas y IVA de compras por mes, mas una **linea de saldo** (IVA ventas - IVA compras). El saldo es el dato operativo: aproxima cuanto IVA habria que pagar (positivo) o queda a favor (negativo) en el mes.
+- **Base: devengado, por fecha del comprobante** — el IVA de una factura suma al mes en que se **emitio**, no al mes en que se cobra, y lo mismo para el egreso. Es lo que permite cruzarlo contra el Libro IVA.
+- **Alcance**: solo IVA. No incluye IIBB ni Otras Percepciones (son otro tributo y no tienen contrapartida en compras).
+- Excluye comprobantes anulados.
+- Cubre los 12 meses del año seleccionado, igual que el grafico existente. KPI adicional del periodo filtrado con el saldo de IVA.
+- **La pantalla debe aclarar la base**: el resto del Tablero Anual trabaja sobre plata efectivamente movida (caja) y este grafico sobre comprobantes emitidos. Sin ese rotulo, dos barras del mismo mes parecen comparables y no lo son.
+- **No es un Libro IVA**: es informativo. No contempla notas de credito (el sistema no las tiene) ni percepciones.
 
 ---
 
@@ -383,6 +427,9 @@ Lista cerrada de pares permitidos `(CategoríaOrigen → CategoríaDestino)`:
 - **R26** (v11) — El job diario pasa a procesar dos colecciones (Cuotas de venta y Pagos de Egreso); debe mantener idempotencia y notificación consolidada sin duplicar registros de `JobEjecucion`.
 - **R27** (v12) — Migración de `FacturaVenta.Motivo` de enum (`int`) a texto libre (`string`) sobre datos ya cargados en producción: el backfill debe preservar el valor original de cada factura histórica (mapeo `1→"Faena"`, `2→"Vacía"`, `3→"Enfermedad"`), no perderlo ni dejarlo `NULL`.
 - **R28** (v12) — Al eliminar el enum `MotivoVenta`, cualquier filtro/reporte futuro que hoy agrupe por esos 3 valores fijos deja de tener una lista cerrada para agrupar (motivo pasa a ser texto libre); no hay uso actual de ese tipo (verificado, `Motivo` no participa en Dashboard ni en ninguna regla de negocio), pero queda como consideración para diseño de reportes futuros.
+- **R29** (v13) — El reajuste de ingresos al editar una factura puede pisar una distribucion de cuotas que el usuario habia armado a mano. Mitigacion: nunca reajustar en silencio — avisar el desvio y que el usuario confirme.
+- **R30** (v13) — El Tablero Anual pasa a mostrar dos bases contables en una misma pantalla (caja para ingresos/egresos, devengado para el IVA). Sin rotulo explicito el usuario puede comparar barras que no hablan del mismo periodo.
+- **R31** (v13) — El grafico de IVA puede usarse como si fuera un Libro IVA. No lo es: no contempla notas de credito ni percepciones. Debe quedar claro en la pantalla que es informativo.
 
 ---
 
@@ -412,6 +459,9 @@ Lista cerrada de pares permitidos `(CategoríaOrigen → CategoríaDestino)`:
   - **S35** Select2 es la librería estándar del estudio para este tipo de widget (ya cargada globalmente en el layout de `ganaderia - emo`); no se introduce Selectize ni otra dependencia nueva.
   - **S36** El autocomplete de Motivo (Facturas de venta) reutiliza el mismo patrón de sugerencias que Concepto de Egreso: histórico distinct, normalizado (trim + case-insensitive), a nivel organización (no por usuario).
   - **S37** La conversión de `Motivo` a texto libre no afecta ninguna regla de negocio existente: se verificó que el valor de `Motivo` sólo se persiste y se muestra, sin participar en cálculos, filtros de Dashboard, ni condiciones de otros servicios.
+  - **S38** (v13) El descuento es **comercial** (bonificacion sobre el neto gravado del comprobante), no financiero por pronto pago posterior a la emision.
+  - **S39** (v13) El reajuste de ingresos redistribuye de forma **proporcional** a los importes ya cargados, con el ajuste de centavos en el ultimo — a confirmar en Diseño (ver §15).
+  - **S40** (v13) Un unico descuento global por comprobante; no se acumulan descuentos ni se guarda un motivo de descuento.
 
 ---
 
@@ -419,6 +469,7 @@ Lista cerrada de pares permitidos `(CategoríaOrigen → CategoríaDestino)`:
 
 1. Indicadores detallados del Dashboard — **confirmado**: pasa a **backlog fase 2**, no bloquea merge de v1.
 2. Capa de presentación — **confirmado**: **ASP.NET Core MVC (Controllers + Views)**. La indicación de "Razor Pages" del workspace se considera desactualizada.
+3. (v13) Reajuste de ingresos al editar: ¿redistribucion **proporcional** a los importes cargados (recomendada, conserva el patron que armo el usuario) o **pareja** en partes iguales? No bloquea: se define en Diseño.
 
 ### 15.1 Decisiones cerradas en v10
 
@@ -501,6 +552,17 @@ _Ninguna al cierre de v10. Todas las preguntas previas fueron cerradas o diferid
 - PF64 — (v12) Factura de venta: campo Motivo con autocomplete Select2 sugiere motivos previamente registrados en cualquier Factura de venta.
 - PF65 — (v12) Factura de venta: Motivo acepta un valor nuevo (no limitado a Faena/Vacía/Enfermedad).
 - PF66 — (v12) Facturas de venta históricas (pre-migración) muestran su Motivo original como texto (`Faena`/`Vacía`/`Enfermedad`) tras la migración, sin pérdida de dato.
+- PF67 — (v13) Venta: Subtotal 1.000.000 con descuento 10% -> neto gravado 900.000, IVA 21% = 189.000, Total 1.089.000 (sin IIBB ni percepciones).
+- PF68 — (v13) Venta: cargar el mismo descuento como importe (100.000) completa el porcentaje en 10 y da un resultado identico a PF67.
+- PF69 — (v13) Venta con descuento 10% + IIBB 3%: el IIBB se calcula sobre 1.089.000 (neto + IVA) = 32.670, Total 1.121.670.
+- PF70 — (v13) Venta sin descuento cargado: totales identicos a los previos a v13 (no hay regresion).
+- PF71 — (v13) Egreso: Subtotal 100.000 con descuento 5% e IVA 21% -> neto 95.000, IVA 19.950, Importe 114.950; los pagos deben sumar 114.950.
+- PF72 — (v13) Editar una factura con ingresos cargados y aplicar un descuento: el sistema avisa el cambio de total y el desvio, y permite reajustar los ingresos para que cierren.
+- PF73 — (v13) Tablero Anual: la serie IVA ventas de un mes equivale a la suma de `MontoIva` de las facturas emitidas ese mes, y la de compras a la de los egresos con fecha en ese mes.
+- PF74 — (v13) Una factura emitida en marzo y cobrada en mayo suma su IVA en **marzo** (devengado).
+- PF75 — (v13) Una factura anulada deja de sumar en el grafico de IVA.
+- PF76 — (v13) La linea de saldo del grafico equivale a IVA ventas menos IVA compras del mes, y el KPI al saldo del periodo filtrado.
+- PF77 — (v13) El detalle de venta y de egreso muestran Subtotal, Descuento (% e importe), Neto gravado, IVA y Total.
 
 ### Validaciones / borde
 - PV1 — Importes y kilos > 0.
@@ -521,6 +583,11 @@ _Ninguna al cierre de v10. Todas las preguntas previas fueron cerradas o diferid
 - PV16 — No regularizar/rechazar un Pago de Egreso que no sea de tipo Cheque, ni rechazar uno ya `Rechazado`.
 - PV17 — (v12) Motivo de Factura de venta vacío: bloqueado (campo obligatorio).
 - PV18 — (v12) Motivo de Factura de venta mayor a 200 caracteres: bloqueado.
+- PV19 — (v13) Descuento con porcentaje fuera de [0, 100): bloqueado.
+- PV20 — (v13) Descuento con importe mayor o igual al Subtotal: bloqueado (el total debe quedar > 0).
+- PV21 — (v13) Descuento negativo (% o importe): bloqueado.
+- PV22 — (v13) Guardar la edicion de una factura con ingresos que no suman el nuevo total: bloqueado por el servidor, aunque el aviso de UI se haya ignorado.
+- PV23 — (v13) Egreso cuyos pagos suman el Subtotal sin descontar (ignorando el descuento): bloqueado.
 
 ---
 
@@ -575,3 +642,4 @@ _Ninguna al cierre de v10. Todas las preguntas previas fueron cerradas o diferid
 - **v10** — Cierre de PA1–PA3: numeración correlativa única de Factura (`F-000123`), stock inicial como movimiento explícito tipo `Inicial`, visibilidad histórica completa de Grupos dados de baja en Dashboard y detalles históricos. Agregadas PF47–PF52.
 - **v11** — Pedido del cliente (proyecto `ganaderia - emo` únicamente): Egresos pasa de forma de pago única con acreditación inmediata a **pagos múltiples por Egreso** (nueva entidad `EgresoPago`), habilitando cheques diferidos con fecha de vencimiento propia + pago compensatorio, con validación de suma exacta contra el importe total. El cheque diferido replica el ciclo Pendiente→Acreditado del job diario ya usado para Cuotas de venta, y admite rechazo/regularización (Opción 3 a/b) simétricos a los de Cuota. No se agrega edición de Egreso. Agregadas PF53–PF61, PV13–PV16, riesgos R25–R26, supuestos S31–S34.
 - **v12** — Pedido del cliente (proyecto `ganaderia - emo` únicamente): el autocomplete de Concepto (Egresos) migra de `<datalist>` nativo a **Select2** (estándar UI del estudio, sin agregar dependencias nuevas). En Facturas de venta, `Motivo` deja de ser un enum cerrado y pasa a **texto libre con autocomplete Select2**, mismo patrón que Concepto de Egreso; los 3 valores históricos se preservan como datos migrados. Agregadas PF62–PF66, PV17–PV18, riesgos R27–R28, supuestos S35–S37.
+- **v13** — Pedido del cliente: (1) **descuento comercial opcional** en Facturas de venta y Egresos, cargable en % o importe, aplicado sobre el neto **antes** de los impuestos (el IVA —y en ventas tambien IIBB y percepciones— se calculan sobre el neto descontado); tope: no puede dejar el total en cero. (2) Al editar una factura cuyo total cambia, **reajuste de los ingresos con aviso previo**. (3) **Grafico de IVA compras vs. ventas** en el Tablero Anual, base **devengado** (fecha del comprobante, no del cobro), con linea de saldo IVA ventas - IVA compras. Agregadas PF67–PF77, PV19–PV23, riesgos R29–R31, supuestos S38–S40. Ademas se **reconcilio §8 (Dashboard)** con la realidad implementada en v13–v16 (split Dashboard/Tablero Anual, ABM de Grupos fusionado en Stock), que la memoria del analista todavia no reflejaba.

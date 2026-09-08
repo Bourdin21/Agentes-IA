@@ -224,7 +224,78 @@ Cambios adicionales identificados (a validar en Diseno, no implementar aqui):
 **B2B/B2C mixto** — la cartera de clientes de Delicias Naturales incluye tanto consumidores finales como empresas (S.A./S.R.L., ej. Antigal, Comunidad GH, El Modelo, Nutridiet, Le Bourguignon) con compras mayoristas recurrentes de montos altos.
 **Escala: mediano-grande** — cliente activo desde 2025 con 26 entidades y 19 controladores en produccion, integracion AFIP x5, ~500+ ventas/mes, facturacion mensual del orden de $85-90M ARS. Cliente historico del estudio con multiples entregas ya facturadas (Dashboard Ampliado, hotfixes, etc.) y capacidad de pago establecida — corresponde precio de lista / trato de cliente fiel al presupuestador, no descuento agresivo de cierre.
 
+## Sesion: Ajuste directo de un Pago
+
+### Origen del pedido
+Investigacion de un incidente real en produccion (venta 9444/remito 9324, cliente BUJANZI ZULMA ISABEL): un vendedor revirtio una venta ya Facturada a Ingresada (`CambiarEstadoIngresada`), saco 5 productos (uno de ellos ya facturado y pagado, $28.000) y volvio a Finalizar. La Factura A (AFIP aprobada, Nº 4353, $92.550,05) quedo desconectada de la realidad de la venta, y $28.000 de pagos quedaron sueltos sin ningun movimiento de cuenta corriente que los explicara. Al investigar por que no se pudo corregir prolijamente, se confirmo que `PagosController` no tiene ninguna accion para editar el monto de un pago ya cargado — el vendedor habia intentado resolverlo creando y borrando pagos por prueba y error (evidencia: 2 pagos de $92.550,05 creados y borrados el mismo dia con distinto metodo de pago). Se corrigio aparte, como fix preventivo puntual, el guard que faltaba en `CambiarEstadoIngresada` (bloquear el revert si la venta ya tiene una Factura aprobada). Esta sesion cubre el gap de fondo: dar una forma segura de corregir el monto de un pago ya registrado.
+
+### Estado actual confirmado por lectura de codigo
+- `PagosController` tiene `RegistrarPago` (crear, con lock `_registrarPagoLock` para la carrera de lectura de `montoRestante`/`saldoDisponible`, y logica de sobrepago→credito / SaldoFavor→debito en cuenta corriente), `EliminarPago` (soft-delete que SI revierte correctamente el `MovimientoCaja` y los `MovimientoCuentaCorriente` vinculados al pago — fix ya aplicado en una sesion anterior) y `ActualizarFechaPago` (solo cambia la fecha). **No existe ninguna accion de edicion de monto.**
+- El modelo `Pago` (`Models/Pago.cs`) no tiene `Usuario`/`UsuarioId` ni `Observacion` — a diferencia de `Venta`, que si registra que usuario hizo la ultima modificacion. Hoy no queda registrado ni quien ni por que se cargo un pago, mucho menos si se corrigio.
+- Ya existe un mecanismo de ajuste manual, pero es de otra naturaleza: `ClientesController.RegistrarAjusteCuentaCorriente` (solo Administrador) carga un movimiento de cuenta corriente (credito/debito, tipo AjusteManual, con observacion obligatoria) desconectado de cualquier Pago puntual — sirve para dejar saldo a favor/en contra de un cliente, no para corregir el monto de un pago ya asentado sobre una venta.
+- Patron cross-proyecto directamente aplicable: **PAT-020** (`docs/patrones/catalogo.yml`, formalizado como regla MH-020 en `32-estandares-qa-implementador.instructions.md`) — "ledger inmutable": un movimiento financiero ya posteado nunca se edita ni se borra en el sentido de reescribir su fila; se reversa con un contramovimiento y se registra uno nuevo correcto. Aplicado a este caso: "editar un pago" no deberia ser un UPDATE silencioso de `Pago.Monto` (que además dejaria corriendo desincronizados el `MovimientoCaja` y cualquier `MovimientoCuentaCorriente` ya generado por el monto viejo) — el diseño natural es reutilizar la logica ya correcta de `EliminarPago` (reversion de movimientos) + `RegistrarPago` (alta con las mismas validaciones de sobrepago/SaldoFavor) dentro de una unica accion transaccional, dejando trazabilidad de que hubo un ajuste (monto anterior, motivo, usuario, fecha).
+
+### 1. Alcance funcional (preliminar)
+**Incluido (hipotesis):**
+- Nueva accion `AjustarPago` (o equivalente) en `PagosController`: dado un `pagoId` y un `nuevoMonto` + motivo obligatorio, en una unica transaccion: reversa los movimientos (`MovimientoCaja`, `MovimientoCuentaCorriente`) del pago viejo igual que `EliminarPago`, marca el pago viejo como reemplazado (soft-delete, conservando el vinculo al nuevo), y crea un pago nuevo por el monto corregido re-ejecutando las mismas validaciones de `RegistrarPago` (lock de concurrencia, sobrepago→credito, SaldoFavor→debito).
+- Agregar a `Pago`: `UsuarioId` (quien registro/ajusto) y `Observacion` (motivo, obligatorio solo para el ajuste) — cierra el gap de auditoria detectado, y es un prerequisito real para poder mostrar "quien ajusto, cuando y por que" en pantalla.
+- Trazabilidad visible en la UI: el listado/detalle de pagos de una venta debe poder mostrar que un pago fue ajustado (referenciar el pago anterior reemplazado), no solo mostrar el pago nuevo como si fuera el original.
+- Guard de estado del comprobante (mismo criterio que MH-020 punto 4): si la Venta ya esta en un estado terminal para pagos (a definir cual aplica aca — hoy no hay un estado "Cancelada" para Venta, existen Ingresada/Finalizada/Facturada), el ajuste de un pago no debe disparar ningun recalculo automatico del estado de la Venta.
+
+**No incluido (CONFIRMADO 2026-09-07, no solo hipotesis):**
+- Reabrir o modificar la Factura/AFIP desde esta funcionalidad — "Editar pago" es independiente de la Nota de Credito fiscal (esa sigue siendo `FacturasController.Generar` con tipo Nota de Credito, feature ya existente, 100% manual).
+- Resolver retroactivamente la venta 9444 — **ya resuelta aparte, a mano**, fuera de este flujo formal (pagos corregidos + NC A Nº 0005-00000026 emitida y aprobada por AFIP, CAE 86361847162185, el mismo dia 2026-09-07).
+- Un historial de auditoria generico para TODAS las entidades del sistema — el alcance de `UsuarioId`/`Observacion` es puntual a `Pago` (que hoy no tiene nada), no un modulo de auditoria transversal.
+- **Gestion de devoluciones de punta a punta.** Joaquin pregunto explicitamente si "Editar pago" alcanza para gestionar devoluciones, y la respuesta es NO: esta feature solo reconcilia el monto/fecha/metodo de un pago ya cargado. Joaquin decidio explicitamente mantener el alcance acotado a esto y tratar la devolucion completa como un Discovery separado a futuro (ver seccion "Pendiente — Gestion de Devoluciones" mas abajo). Documentado aca para que quede claro que esta decision fue tomada con el gap conocido, no por descuido.
+
+### 2. Casos de uso principales (preliminar)
+- CU1 — Ajustar el monto de un pago existente, con motivo obligatorio, reversando y recreando de forma atomica.
+- CU2 — Ver en el detalle/listado de pagos de una venta que un pago fue ajustado (pago anterior + pago vigente enlazados).
+- CU3 — Los movimientos de caja/cuenta corriente quedan consistentes con el monto corregido (ni duplicados ni huerfanos) tras el ajuste.
+
+### 3. Criterios de aceptacion verificables (preliminar)
+- Dado un pago de $X sin movimientos de cuenta corriente asociados, ajustarlo a $Y dentro de la misma venta: el pago viejo queda soft-deleted, existe un pago nuevo por $Y, el `MovimientoCaja` refleja $Y (no $X ni ambos sumados), y el total pagado de la venta pasa a incluir $Y en lugar de $X.
+- Dado un pago que genero un credito en cuenta corriente por sobrepago, ajustarlo a un monto menor: el credito viejo se revierte y se recalcula el nuevo credito/debito segun corresponda con el monto ajustado (nunca queda el credito viejo sumado al nuevo).
+- Intentar ajustar sin motivo: rechazado con error funcional explicito, no persiste nada.
+- Intentar ajustar con un usuario sin el rol habilitado (ver P1 abajo): 403, nunca ejecuta el ajuste.
+- El historial de pagos de la venta permite reconocer visualmente que un pago fue ajustado y cual es su motivo.
+
+### 4. Impacto preliminar por capa
+- **Datos:** migracion EF — `Pago` gana `UsuarioId` (FK a `AspNetUsers`, nullable para no romper los ~15.000+ pagos historicos sin este dato) y `Observacion` (nullable); posible campo `PagoAnteriorId`/`PagoReemplazadoId` (self-FK nullable) para enlazar el pago nuevo con el que reemplaza, si el Diseñador confirma que la trazabilidad visual se resuelve asi (alternativa: guardar la referencia en la propia `Observacion` del pago nuevo, mas simple pero menos consultable).
+- **Negocio:** `PagosController.AjustarPago` (o el nombre que fije Diseño) reutilizando/refactorizando la logica ya existente de `EliminarPago` (reversion) y `RegistrarPago` (alta con validaciones), dentro del mismo lock de concurrencia (`_registrarPagoLock`) para evitar la misma carrera de `montoRestante`/`saldoDisponible` que ya se corrigio una vez.
+- **Presentacion:** boton/modal "Ajustar" en el listado de pagos de la Venta (junto a los ya existentes Editar fecha/Eliminar), con campo de motivo obligatorio; el listado debe reflejar visualmente el pago ajustado (referenciando al reemplazado).
+
+### 5. Riesgos y supuestos
+- Riesgo de concurrencia: un ajuste que corre en paralelo con `RegistrarPago` sobre la misma venta debe respetar el mismo lock ya existente — si se implementa como "reversar + crear" fuera de ese lock, se reintroduce la misma carrera que motivo `_registrarPagoLock` originalmente.
+- Riesgo de alcance: si se decide guardar el vinculo pago-viejo/pago-nuevo como entidad separada en vez de un campo simple, el costo sube — a resolver en Diseño, no aca.
+- Supuesto: el ajuste se limita a corregir el **monto**; cambiar el metodo de pago o la venta asociada de un pago ya cargado NO esta pedido y se asume fuera de alcance salvo que el cliente lo pida explicitamente.
+- Dependencia cruzada con la sesion "Cierre de Caja Diaria y Mensual" (mismo archivo, arriba): si ese modulo se construye antes, un ajuste retroactivo sobre un pago de un periodo ya cerrado/conciliado deberia advertir o bloquear — hoy no aplica (ese modulo no existe todavia), pero queda anotado para cuando ambas features convivan.
+
+### 6. Banderas tempranas
+- Migracion EF: **SI** — `UsuarioId` + `Observacion` (+ posible self-FK) en `Pago`.
+- Integracion externa: **NO**.
+- Maquina de estados: **NO nueva** (reutiliza el guard de estado de Venta ya existente; el "pago reemplazado" es un flag/relacion, no un estado con transiciones propias).
+
+### 7. Preguntas para el cliente — RESUELTAS (2026-09-07)
+
+**P1 — Que rol puede ajustar un pago?** → **Decidido: Opcion B** — Administrador y Vendedor, igual que `RegistrarPago`/`EliminarPago` hoy. (Recomendacion del analisis era Opcion A/solo Administrador por el riesgo de manipular cifras ya asentadas; Joaquin opto por mantener paridad con los permisos actuales de Pagos — riesgo residual aceptado conscientemente, ver riesgos en Diseno.)
+
+**P2 — Como se muestra el pago ajustado en pantalla?** → **Decidido: Opcion B** — el listado muestra ambos pagos (el viejo tachado/gris + el nuevo vigente), como mini-historial siempre visible sin necesidad de interaccion.
+
+**P3 — Hace falta un limite de tiempo para poder ajustar un pago?** → **Decidido: Opcion A** — sin limite, se puede ajustar un pago de cualquier antiguedad. Si el modulo de Cierre de Caja se construye a futuro, ahi correspondera bloquear el ajuste de un pago dentro de un periodo ya conciliado.
+
+### Condicion de paso a Diseno
+Analisis cerrado. Gate de Diseño **habilitado** — ver `2-disenador-funcional.md`, iteracion 3, diseño ya cerrado con estas 3 decisiones incorporadas.
+
+### Pendiente — Gestion de Devoluciones (Discovery futuro, fuera de alcance de esta feature)
+Al cerrar el diseño de "Editar pago", Joaquin pregunto si esto alcanza para gestionar devoluciones de producto sobre una venta ya Finalizada/Facturada. Respuesta: **no**, y ademas el fix preventivo aplicado sobre `CambiarEstadoIngresada` (bloquear el revert si hay Factura activa, ver incidente venta 9444 arriba) **dejo un gap nuevo**: hoy no existe NINGUNA via soportada para sacar un producto de una venta Finalizada/Facturada (antes se hacia, incorrectamente, revirtiendo a Ingresada — eso ahora esta bloqueado a proposito, sin alternativa). Una devolucion real necesita coordinar 3 partes que hoy son 3 acciones manuales separadas, sin ningun flujo que las conecte:
+1. **Producto**: sacar/reducir el item devuelto de la venta — sin via soportada hoy sobre una venta ya facturada.
+2. **Factura/AFIP**: emitir la Nota de Credito correspondiente — existe (`FacturasController.Generar`), pero 100% manual, sin ninguna ayuda para calcular que producto/monto acreditar.
+3. **Pago/dinero**: reconciliar lo que el cliente pago contra lo que ahora corresponde — con "Editar pago" (esta feature) se puede hacer a mano, pero alguien tiene que calcular el numero correcto cruzando venta+factura+pagos (exactamente lo que se hizo a mano para la venta 9444).
+Joaquin decidio explicitamente NO ampliar el alcance de esta feature y tratar esto como un Discovery separado a futuro: una accion nueva tipo "Registrar devolucion" sobre una Venta Facturada, que reciba el/los productos devueltos y orqueste automaticamente las 3 partes (generar la NC, calcular y aplicar el ajuste de pago/saldo a favor necesario, dejar el producto marcado como devuelto). No tiene fecha de inicio asignada.
+
 ## Historial de ajustes
 - Sesion Dashboard Ampliado: analisis cerrado, 5 items aprobados. Presupuesto USD 100 acordado (lista USD 125, descuento fidelidad USD 25). Documento cliente en repo del proyecto.
 - 2026-09-01: Discovery/analisis preliminar de "Cierre de Caja Diaria y Mensual" a partir de investigacion extensa de la diferencia de cierre de agosto 2026. 7 preguntas abiertas para el cliente (P1-P7) antes de poder cerrar el alcance — gate de Diseno NO habilitado todavia.
+- 2026-09-07: Discovery/analisis de "Ajuste directo de un Pago", a partir del incidente de la venta 9444 (Factura desconectada por reversion de estado sin guard). Patron PAT-020 (ledger inmutable) identificado como base de diseño. P1-P3 resueltas por Joaquin el mismo dia (Administrador+Vendedor, mostrar ambos pagos viejo/nuevo, sin limite de tiempo) — Analisis cerrado, gate de Diseno habilitado.
 

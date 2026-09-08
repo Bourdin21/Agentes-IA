@@ -114,6 +114,9 @@ Sanity check total: M promedio 2.1h/item vs batch anterior 2.0h/item. Ratio 1.05
 
 ---
 
+## Presupuesto SALTEADO — Iteracion "Editar Pago" (2026-09-07)
+Joaquin pidio avanzar directo a Implementacion sin presupuestar esta iteracion, tratandola explicitamente como **deuda tecnica interna** (no como feature facturable al cliente) — mismo criterio de excepcion de proceso ya usado en otros proyectos del estudio (ver `docs/vinosefue`, `docs/ganaderia` v17, `docs/kite-punta-lara`: "presupuesto salteado por pedido del cliente/usuario"). Arquitectura (iteracion 3, `3-arquitecto-mvc.md`) queda como el ultimo gate formal antes de Implementacion para esta iteracion. Sin costo/horas registradas para este item.
+
 ## Historial de ajustes
 - 2025-06-01: presupuesto inicial registrado
 - 2026-04-22: datos de modulos incorporados al dataset de calibracion Abril 2026
