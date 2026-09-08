@@ -118,7 +118,7 @@ Ratio = PERT base / mediana histórica base comparable. Umbral 0.85–1.15.
 - Hik-Connect: si Hikvision bloquea el embebido por iframe, se entrega la variante "abrir en pestaña dedicada" sin costo adicional (prevista en diseño).
 - Notificación por correo: la entregabilidad (spam, reputación de la casilla emisora) depende del servicio SMTP que provea el cliente; mitigada con correo de prueba, log de envíos y reenvío manual. El envío nunca bloquea el cierre del período.
 - Supuestos heredados del análisis: un solo local; reparto = Resultado Ejercicio del mes sin ajustes manuales; consumos como monto mensual por inversor; ventas B visibles discriminadas.
-- Integración Ayres POS: etapa 2, requiere relevamiento técnico de la BD antes de cotizar (referencia metodológica disponible: integración batch 15–18 h base, Energy Nutrition — sin cierre real).
+- Integración Ayres POS: etapa 2, requiere relevamiento técnico de la BD antes de cotizar. *(El ancla metodológica de 15–18 h que se citaba acá provenía de una estimación sin cierre real, dada de baja del dataset el 2026-09-08 — ver §20.)*
 
 ## 11. Pruebas mínimas requeridas
 
@@ -173,6 +173,8 @@ Esquema entregado ≈ 23 tablas → rango 16–30 → **Plan PREMIUM: USD 400/a�
 - 2026-08-10: presupuesto del módulo E2-02 "Fichador de empleados" (Etapa 2, post-entrega — ver §16). M 5.5 h, USD 92. Clasificado como Merge sobre sistema propio ya entregado: precio de lista, sin descuento de expansión agresiva (esa política es solo para Build inicial de cliente nuevo). Tokens IA no aplica (horas facturables 2.64 h, por debajo del piso de 4 h). Implementación bloqueada por token QuickPass pendiente — el presupuesto queda cerrado y aprobable igual.
 
 ---
+
+- 2026-09-08: **cierre de calibración del módulo E2-01 Ayres** (ver §20). Estimado por ancla 15–18 h (USD 315–378); **real ≈ 2,6 h (USD 44)** → desvío **−82 %/−86 %**. El ancla "integración batch 15–18 h" tenía marca de *sin cierre real*: este es el primer cierre que la toca, pero **no la reemplaza** — se propone desdoblarla en REST documentada (M 3–5 h) vs. batch contra base de datos (se mantiene 15–18 h, aún sin cierre). Advertencia elevada: las anclas del estudio asumen ejecución humana; recalibrarlas hacia abajo es decisión de negocio y debe pasar por `olvidata-ceo`.
 
 ## 16. Presupuesto — Módulo E2-02 "Fichador de empleados" (Etapa 2, post-entrega)
 
@@ -386,3 +388,72 @@ Comparable más cercano en el dataset: vinosefue "compras al proveedor" (8 ítem
 ### 19.7 Condiciones comerciales
 
 50 % al inicio / 50 % a la entrega. Los ítems 1 y 6 (correcciones menores, USD 8 combinados) pueden entregarse por adelantado sin esperar el resto del lote si el cliente los necesita ya.
+
+---
+
+## 20. Cierre de calibración — Módulo E2-01 "Integración Ayres POS" (2026-09-08)
+
+### 20.1 Qué había presupuestado (rectificación)
+
+Se registró primero que "no había estimado contra el cual medir". **Es incorrecto y queda rectificado.** Sí hay dos cifras en el presupuesto original, y ninguna es una cotización cerrada del módulo:
+
+| Origen | Cifra | Qué cubría |
+|---|---|---|
+| §6, ítem 6 — *"Indicadores de venta (Ayres, manual)"* | M **1,5 h** → **USD 25,20** | La carga **a mano** de los indicadores desde los totalizadores de Ayres. Es lo que el módulo nuevo **reemplaza**. |
+| §10, riesgos — ancla metodológica | **15–18 h base** | *"Integración batch, 15–18 h base"* — ancla heredada de una estimación **sin cierre real**, dada de baja del dataset el 2026-09-08 (ver 20.4). Era la única base de comparación disponible al momento de este cierre. |
+
+O sea: la integración estaba **declarada, anclada y explícitamente excluida** del precio ("etapa 2, se cotiza tras relevamiento"). El ancla de 15–18 h es la única base de comparación, y venía marcada como **sin cierre real** — este cierre es el primero que la valida.
+
+### 20.2 Presupuestado vs. real
+
+**Estimado según el ancla** (fórmula vigente `USD = M × 16,80`):
+
+| | M | Horas facturables (M×0,48) | USD lista | + Tokens IA 25 % |
+|---|---|---|---|---|
+| Piso del ancla | 15,0 h | 7,20 h | 252,00 | **315** |
+| Techo del ancla | 18,0 h | 8,64 h | 302,40 | **378** |
+
+**Real medido.** Base de medición: *timestamps de commits* de la sesión (evidencia, no estimación a posteriori) + duración informada por los subagentes. Arranque del flujo tras el commit `87c47d2` (13:43); entrega implementada en `612c623` (14:48); QA y Documentación cerradas ~16:20.
+
+| Concepto | Real |
+|---|---|
+| Duración total del flujo de 9 etapas | **≈ 2,6 h** |
+| — de las cuales, subagente implementador | 21,0 min |
+| — de las cuales, subagente QA | 23,5 min |
+| — resto (Discovery, Análisis, Diseño, Arquitectura, revisión, deploys, Documentación) | ≈ 1,9 h |
+| Horas facturables equivalentes (real × 0,48) | **1,25 h** |
+| USD por fórmula (2,6 × 16,80) | **USD 43,68 ≈ 44** |
+
+**Desvío: −82 % contra el piso del ancla, −86 % contra el techo.** El módulo se entregó en aproximadamente **1/6 del tiempo anclado**.
+
+**Detalle de pricing:** con el esfuerzo real, las horas facturables (1,25 h) quedan **por debajo del piso de 4 h**, así que **Tokens IA no aplicaría**. Con el esfuerzo estimado (7,2–8,64 h) sí aplicaba. El propio desvío cambia la estructura del precio, no solo su magnitud.
+
+### 20.3 Por qué el desvío es tan grande — y qué de esto es repetible
+
+**Repetible (reutilización real, no genérica):**
+- 3 de 3 coincidencias del escaneo se aplicaron. `AfipTokenCache` de marihogar resolvió el problema más delicado —token que vence, sin logins duplicados— sin escribirlo de cero.
+- La estructura de integración de QuickPass ya existía **en el mismo proyecto**: no hubo que decidir convenciones.
+- **Cero Domain, cero migración EF.** La escritura se delegó a `GuardarVentasAsync`, o sea que no se tocó lógica financiera.
+
+**No repetible / suerte:**
+- El ancla de 15–18 h describía una **integración batch contra una base de datos**, no un consumo REST documentado. La API de Ayres tiene documentación pública y un solo endpoint relevante. Comparar contra ella era, en parte, comparar contra otra cosa — motivo por el cual el ancla terminó dándose de baja.
+
+**Lo que sí consumió tiempo, y no era código:**
+- El diagnóstico de conectividad (puerto saliente) y una conclusión errónea del propio orquestador sobre la política del hosting: **un ciclo completo perdido**, resuelto por el dueño desde el panel.
+- Dos deploys perdidos rastreando un `400` causado por una placa de atributos cortada al insertar un método.
+
+### 20.4 Ajustes para próximas estimaciones
+
+1. **El ancla "integración batch 15–18 h" deja de estar sin cierre real, pero NO se puede bajar sin más.** Este cierre corresponde a una **API REST documentada con un endpoint**, no a una integración batch contra base de datos. Se propone **desdoblar el ancla**:
+   - *Integración REST documentada, 1–2 endpoints, sin persistencia nueva*: **M 3–5 h** (este cierre: 2,6 h real, con reutilización fuerte disponible).
+   - *Integración batch / base de datos de terceros*: se mantiene **15–18 h**, todavía sin cierre real.
+2. **Al estimar integraciones, el riesgo dominante no es el mapeo de endpoints sino conectividad y credenciales.** En este caso el módulo estuvo bloqueado 26 días por credenciales, y la conectividad saliente consumió más tiempo que escribir el cliente HTTP. **Sugerido: ítem de riesgo separado y explícito de "habilitación de acceso (red + credenciales)" en toda integración con un tercero**, en vez de diluirlo en la contingencia.
+3. **Los defectos de datos aparecen contra producción real, no en diseño.** Los dos hallazgos de peso —ventas anuladas que distorsionaban comensales y ticket promedio, y KOI-009— salieron recién al contrastar con datos reales. **Presupuestar explícitamente la verificación contra datos reales** en integraciones que alimentan cálculos financieros.
+4. **Advertencia metodológica de fondo (excede este módulo).** Las anclas históricas del estudio están construidas sobre **ejecución humana**, y este flujo se ejecuta con agentes. Si se sigue estimando con anclas humanas y ejecutando así, **todo presupuesto de este tipo va a quedar sobrestimado en un orden de magnitud**. Eso es una decisión de negocio, no de estimación: define si el desvío se captura como margen o se traslada al precio. **Corresponde elevarlo a `olvidata-ceo` antes de recalibrar las anclas hacia abajo** — bajarlas mecánicamente destruiría margen sin que el cliente lo haya pedido.
+
+### 20.5 Cifra a considerar si se factura el módulo
+
+- **Por fórmula sobre el real:** USD 44 (sin Tokens IA, por quedar bajo el piso de 4 h).
+- **Por el ancla presupuestada:** USD 315–378.
+- **Criterio del estudio aplicable:** "Merge sobre sistema propio ya entregado" → precio de lista, sin descuento de expansión (misma clasificación que E2-02 Fichador, §16).
+- **Recomendación:** **no facturar por el real.** El valor entregado no es proporcional al tiempo: el módulo elimina carga manual mensual y, verificado con datos, **corrige indicadores que hoy están mal** (ticket promedio mostrado a menos de la mitad del real). El desvío es margen del estudio por reutilización propia, no un ahorro que corresponda trasladar. Cifra sugerida a comunicar: **en el rango del ancla, USD 315**, decisión final del dueño.

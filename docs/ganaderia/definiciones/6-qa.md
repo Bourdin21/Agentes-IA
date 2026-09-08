@@ -1,6 +1,6 @@
 # QA — Sistema de Gestión Ganadera
 
-Versión: **v3** (v1 inicial, v2 iteración v11, **v3 iteración v17**)
+Versión: **v4** (v1 inicial, v2 iteración v11, v3 iteración v17, **v4 iteración v18**)
 Agente: `6 - qa`
 Entradas (última iteración, v17):
 - `1-analista-funcional.md` v13 (§3.9, §3.10, §4.8, §8.1, PF67–PF77, PV19–PV23, R29–R31)
@@ -552,3 +552,343 @@ La funcionalidad de v17 es **correcta y está completa**: los 21 criterios de ac
 Los dos blockers encontrados **no los introdujo v17**: son de v13 y estaban en producción sin detectar, porque ambos sólo se manifiestan al **reabrir** un comprobante guardado o al usar "Generar sugerido" — dos caminos que ningún ciclo de QA anterior había recorrido en un navegador real. La lección de proceso de v11 §12.4 (el POST HTTP directo no sustituye al clic real) se repitió: el implementador verificó v17 por POST construido a mano, y ese camino **evita justamente** los dos bugs, porque un POST armado a mano no arrastra ni los `value=` de 4 decimales ni la ausencia del marcador `__Invariant`.
 
 Sin esos dos fixes, v17 sería **NO APTO**: su feature principal (PF72, el reajuste de ingresos al editar) es inalcanzable, porque la pantalla de edición no se puede guardar.
+
+---
+
+# Iteración v18 — Deducciones de liquidación + compra de hacienda con costo (2026-09-08)
+
+**Última validación de reglas cross-proyecto: 2026-09-08.**
+
+Entradas: `1-analista-funcional.md` v14 (§3.11, §3.12, §5.9, PF78–PF88, PV24–PV28, R32–R34), `2-disenador-funcional.md` v5 (§8.4, PD18–PD21, RD17–RD20, HU-D8–HU-D12), `3-arquitecto-mvc.md` v5 §18 (RT22–RT26), `5-implementador.md` iteración v18. Catálogo cross-proyecto `docs/qa/regresiones-manuales.yml` (68 ítems).
+
+Repositorio: `C:\Sistemas\ganaderia - emo`, rama `main`, **working tree sin commitear y sin deployar**. Build previo y posterior al auto-fix: **Compilación correcta, 0 Errores**, 9 warnings **todos preexistentes** (4 NU1902 MailKit/MimeKit + CS0114 `HomeController.StatusCode`).
+
+## 0. Método de verificación
+
+**El servidor MCP `playwright` NO estuvo disponible en esta sesión** (las herramientas `mcp__playwright__*` no se expusieron; `ToolSearch` no las encontró). Se declaró explícitamente y se cayó al camino equivalente de `33-verificacion-automatizada-qa.instructions.md`: **navegador real conducido por script Playwright local** (`playwright 1.63.0-alpha`, Chromium headless) contra la app en `https://localhost:7200`, con sesión autenticada real.
+
+A diferencia de lo que reportó el implementador, **el Chromium de esta sesión sí abrió sockets contra `localhost` directamente** (probado: `https://localhost:7200` → 200). No hizo falta interceptar requests: transporte normal, navegador real, JS real.
+
+La app se compiló y corrió desde un directorio aparte (`%TEMP%/claude/qabuild`) para no chocar con el `bin/Debug` que suele tener bloqueado la sesión de debug de Visual Studio. No se mató ningún proceso del usuario.
+
+**Nada se dio por verificado por lectura de código.** Las 22 pruebas del implementador se **re-ejecutaron de forma independiente**. Baseline completo de la base al empezar; al cerrar, `diff` baseline vs. estado final = **0 diferencias** (base devuelta exacta, incluidos contadores de numeración y `UpdatedAt` del catálogo).
+
+## 1. Alcance funcional validado
+
+- Catálogo `ConceptoDeduccion` (ABM nuevo) + grilla de deducciones **precargada** en la factura, con importes ya calculados sobre el neto gravado; `IIBB`/`OtrasPercepciones` eliminados.
+- Fórmula v14: `Total = (Subtotal − Descuento) + IVA − Σ Deducciones`.
+- `Stock/Compra` con costo opcional que genera un egreso real con pagos, vinculado por `MovimientoStock.EgresoId` en una sola transacción.
+- KPI "Reinvertido en hacienda" en el Tablero Anual.
+- JS compartido `ov-costo-pagos.js` + `_FilaPago.cshtml` en `Shared/` consumidos por `Egresos/Create` y `Stock/Compra`.
+- Regresión transversal: v17 (descuento comercial, reajuste de ingresos, gráfico de IVA), caja, anulaciones, stock desnormalizado, listados.
+
+## 2. Cobertura por criterio de aceptación (PASS/FAIL/BLOCKED)
+
+| Prueba | Resultado | Evidencia (navegador real + MySQL) |
+|---|---|---|
+| **PF78** Subtotal 136.253.250, desc 4%, IVA 10,5% → neto 130.803.120,00 e IVA 13.734.327,60 | **PASS** | Los dos valores **exactos** de la liquidación real del consignatario. |
+| **PF79** Total = Neto + IVA − Σ deducciones, con desglose por concepto | **PASS con desvío de $ 0,01** (re-verificado con base = Subtotal) | Ver §2b. Con Guía Municipal 262.000: deducciones **3.191.444,89** y **Total 141.346.002,71**, persistido y con desglose por línea en Details. El objetivo acordado era 3.191.444,88 / **141.346.002,72**. |
+| **PF80** Importe fijo no se recalcula; la porcentual sí | **PASS** (re-verificado con base = Subtotal) | Cambiado el descuento de 4% a 10% (subtotal constante): las 3 porcentuales **no se movieron** (correcto: ahora dependen del subtotal, no del neto) y Guía Municipal quedó en 262.000 con su `%` **deshabilitado**. Con la base anterior se verificó además que bajando el subtotal las porcentuales sí recalculan y la fija no. |
+| **PF81** Grilla precargada al abrir el alta, sin escribir nada | **PASS** | 4 filas con nombre e importe ya resueltos desde el catálogo. |
+| **PF82 / RT24 / R33** Cambiar el % del catálogo NO altera facturas emitidas | **PASS** | Cambiado `Imp. Sellos` de 1,0500 a 5,0000 por la UI del ABM: las facturas emitidas quedaron **byte-idénticas** antes y después; una factura **nueva** sí precarga 5,0000. Lee el snapshot, no hace join al catálogo. |
+| **PF83** Sin deducciones, Total = Neto + IVA | **PASS** | Quitadas las 4 → Total 106.080.000,00 = 96.000.000 + 10.080.000. Sin regresión. |
+| **PF84** Compra con costo: stock + egreso vinculados, caja baja | **PASS** | Movimiento ↔ Egreso (2.762.500,61), pago acreditado, movimiento de caja creado. Stock 71→88. |
+| **PF85** Compra sin costo, igual que antes de v14 | **PASS** | Movimiento con `EgresoId` NULL, sin egreso ni caja. |
+| **PF86 / RT22** Atomicidad: pagos que no suman → no queda nada | **PASS** | Pagos 999.999 contra total 1.210.000: **todos los contadores idénticos** (MovStock 20, Egresos 14, EgresoPagos 18, MovCaja 43) y max(Id) sin avanzar. La validación corre **antes** de abrir la transacción. |
+| **PF87** KPI "Reinvertido en hacienda" suma solo compras de hacienda | **PASS** | 0,00 → 2.762.500,61 tras PF84. Un egreso común del mismo importe y la misma fecha **no** sumó. |
+| **PF88 / MH-020** Anular compra revierte stock y egreso con contramovimiento | **PASS** | El movimiento original **no se borra** (queda marcado `ANULADA:`), se crea contramovimiento `Ajuste −12`; egreso y pago dados de baja; el movimiento de caja original queda **intacto** y se crea su contramovimiento. Stock 88→76; saldo de caja **de vuelta al valor exacto** previo (76.857.549,39). |
+| **PV24** % de deducción fuera de [0,100) bloqueado | **PASS** | POST directo al servidor (saltando el JS): 150 y −5 rechazados con "0 a 99,9999". |
+| **PV25** Importe de deducción negativo bloqueado | **PASS** | POST directo: −500 rechazado con ">= 0". |
+| **PV26** Deducciones que dejan el Total ≤ 0 bloqueadas | **PASS** | POST directo con deducción 99.999.999: rechazado, sin fila creada. |
+| **PV27** Concepto sin nombre o con nombre duplicado bloqueado | **PASS** | "El nombre es obligatorio" / "Ya existe un concepto de deduccion llamado 'Derecho de Registro'." |
+| **PV28 / RD19** Compra con costo sin rubro o sin proveedor bloqueada | **PASS** | POST directo con rubro y proveedor vacíos: rechazado. Validación condicional en servidor, no por atributo. |
+| **PD18** Nombre de deducción como texto, nunca input editable | **PASS** | 0 inputs visibles en la celda del concepto (sólo hidden de snapshot). |
+| **PD19 / RD18** JS compartido, una sola copia | **PASS** | `ov-costo-pagos.js` y `Shared/_FilaPago.cshtml`: **1 archivo cada uno**, consumidos por las 2 pantallas. Diff normalizado contra el JS inline de v17: **sin cambio semántico**, sólo parametrización y null-guards. |
+| **PD20** Con el check de costo apagado no se emite ningún `Costo.*` | **PASS** | Bloque oculto y **0 campos habilitados**; al encender aparecen los 17 esperados; al apagar vuelven a 0. |
+| **PD21 / RD20** El POST fallido conserva las líneas del usuario | **PASS** | Quitadas 2 de 4 deducciones → validación falló → volvieron **exactamente** las 2 que el usuario tenía, no la precarga del catálogo. |
+| **PD21 (2.º caso)** Idem con otro error de validación | **PASS** | Repetido con error de Proveedor/Motivo: grilla conservada. |
+
+## 2b. Cambio en caliente — base de las deducciones porcentuales: Neto gravado → Subtotal
+
+Durante esta corrida el usuario revirtió **R32**: las deducciones porcentuales pasan a calcularse sobre el **Subtotal (importe bruto)**, como hace la liquidación real del consignatario. Se tocaron `Facturas/Create.cshtml` (`recalcDeducciones(subtotal)`, parámetro `baseCalculo`, rótulo "sobre el Subtotal") y la doc de `FacturaVentaDeduccion.Porcentaje`. No hubo cambio de servicio: el cliente manda los importes y el servidor valida rangos, mismo contrato que el IVA.
+
+**Se reconstruyó y reinició la app y se re-ejecutaron las pruebas dependientes de la base.**
+
+| Chequeo pedido | Resultado | Evidencia |
+|---|---|---|
+| Base = Subtotal en el sentido directo | **PASS** | Cambiando el descuento de 4% a 10% (subtotal constante) los importes de las 3 deducciones porcentuales **no se movieron**. Con la base anterior habrían bajado. |
+| Base = Subtotal en el **driver inverso** | **PASS** | Escrito el importe 1.362.532,50 en Derecho de Registro → `%` derivado **1,0000**. Sobre el neto habría dado 1,0417. |
+| **IVA no contaminado** | **PASS** | Con descuento 4% el IVA sigue dando **13.734.327,60** (10,5% del neto 130.803.120). 10,5% del subtotal habría dado 14.306.591,25. |
+| Línea de **importe fijo** estable | **PASS** | Guía Municipal quedó en 262.000,00 con su `%` deshabilitado ante cambios de subtotal y de descuento. |
+| Descuento sigue sobre el Subtotal | **PASS** | 4% de 136.253.250 = 5.450.130,00. |
+| Rótulo de la grilla | **PASS** | "(restan del total, sobre el Subtotal)". |
+| **Número objetivo 141.346.002,72** | **FAIL por $ 0,01** → ver **D-11** | Sistema: deducciones **3.191.444,89**, **Total 141.346.002,71**, persistido en base con invariante en 0. |
+
+**Causa raíz del centavo (D-11).** Las tres deducciones porcentuales caen **exactamente en medio centavo** sobre este subtotal:
+
+| Concepto | Valor exacto | Sistema (`Math.round`, half-up) | Liquidación del cliente |
+|---|---|---|---|
+| Derecho de Registro 0,350% | 476.886,**375** | 476.886,**38** | 476.886,**37** |
+| Imp. Sellos 1,050% | 1.430.659,**125** | 1.430.659,**13** | 1.430.659,**13** |
+| Ing. Brutos 0,750% | 1.021.899,**375** | 1.021.899,**38** | 1.021.899,**38** |
+
+El sistema redondea los tres medios centavos **hacia arriba**, de forma consistente. La liquidación del consignatario redondea **dos hacia arriba y uno hacia abajo**. No hay una regla única (half-up, half-down, half-to-even ni truncamiento) que reproduzca las tres líneas del comprobante: **el papel del consignatario es internamente inconsistente en el medio centavo**, o calcula sobre un intermedio con más precisión del que muestra.
+
+Es decir: el cambio de base **cumplió su objetivo** —cerró la brecha de 117.177,80 a 0,01— pero el número exacto 141.346.002,72 **no es alcanzable** con un redondeo consistente. Queda como decisión del usuario (§5, D-11).
+
+## 3. Regresión obligatoria (núcleo de facturación)
+
+| Caso | Resultado | Evidencia |
+|---|---|---|
+| Facturas **sin** deducciones: Total = Neto + IVA | **PASS** | PF83 + factura preexistente (1.000.000 + 21% = 1.210.000,00) sin cambio. |
+| **PF67** (v17) desc 10% sobre 1.000.000 → Total 1.089.000 | **PASS** | Idéntico a v17 con deducciones en 0. Sin regresión. |
+| **PF68** (v17) descuento como importe → % sincronizado, mismo total | **PASS** | Importe 100.000 → % pasa a 10 solo; Total 1.089.000,00. |
+| **PF69** (v17) — IIBB | **N/A por diseño** | `IIBB` eliminado en v14; su rol lo cubre el concepto "Ing. Brutos Nómina 42/12" del catálogo, verificado en PF79. |
+| **PF72** (v17) Reajuste de ingresos al editar, con el nuevo total | **PASS** | Agregar una deducción bajó el total a 1.085.850,00, apareció el aviso de desvío (3.150,00), "Reajustar" redistribuyó y el diálogo de confirmación de cambio de total guardó correctamente. `TotalDeducciones=3150.00` persistido. |
+| Anulación de factura: reversión de stock e ingresos | **PASS** | Stock devuelto correctamente, líneas de deducción dadas de baja, cabecera conserva su snapshot histórico. |
+| Anulación de egreso: contramovimiento de caja (MH-020) | **PASS** | Movimiento original **no se borra**; se crea contramovimiento de signo opuesto. Verificado en `Caja` y en MySQL. |
+| **`Egresos/Create` completo tras extraer el JS** | **PASS** | Sync % ↔ $ de descuento (5% ↔ 25.000) e IVA (21% ↔ 7.500 → 10%), total en vivo, presets de IVA, "Sin descuento", auto-importe de pagos (v17.1), agregar/quitar filas con reindexado correcto, toggle de fecha de vencimiento por cheque, re-render tras validación fallida con `descDriverInicial` en modo importe, y **alta end-to-end persistida** con decimales exactos. **0 errores JS.** |
+| Saldo de caja y listados con sumatorias | **PASS** | Saldo 76.857.549,39 coherente; `Facturas/Index` con columna **Deducciones** y total según filtro. |
+| Gráfico de IVA del Tablero Anual (lee `MontoIva`, no deducciones) | **PASS** | Serie de ventas de septiembre = 23.583.327,60 = suma exacta de `MontoIva` de las facturas **no anuladas** del mes. Las deducciones no participan. |
+| `Grupo.StockActual` consistente con el ledger | **PASS** | 0 desvíos en los 5 grupos, al inicio y al cierre. |
+| Smoke de todas las pantallas | **PASS** | 30 rutas reales **200 OK**, 0 errores JS, incluidos el ABM nuevo y `Stock/Compra`. (`/Grupos` → 302 a `/Stock`, correcto desde v16.) |
+
+## 4. Cobertura del catálogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
+
+68 ítems. **28 aplican** a v18; el resto es N/A (otros dominios) o no aplica (tecnologías ausentes: `RowVersion`, `maskMoney`, `moment.utc`, DataTables server-side, AFIP/ARCA, Select2 en las pantallas nuevas).
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| GAN-005 marcador `__Invariant` en filas de colección | sí | **PASS** | Round-trip exacto `2.500.000,55 → 262.500,06 → 2.762.500,61` y deducciones `476.886,38 / 1.430.659,13 / 1.021.899,38`. Cubre la grilla de deducciones y ambas grillas de pagos. |
+| GAN-006 `step` acorde a `decimal(9,4)` | sí | **PASS** | `step="0.0001"` en **todos** los porcentajes (deducciones, catálogo, factura, egreso, costo de compra). Ningún submit bloqueado en silencio. |
+| LP-003 decimales invariantes en `value=` | sí | **PASS** | Todos los `value=` de decimales pasan por el helper `num()` (invariante). |
+| **KOI-010 `toFixed()` en repintado AJAX vs. es-AR** | sí | **FAIL → AUTO-FIX APLICADO** | Ver §6. |
+| LP-005 campo que cambia de UNIDAD sin barrer superficies | sí | **PASS** | `IIBB`/`OtrasPercepciones` erradicados de código vivo (sólo comentarios e histórico de migraciones). Barridas Details, Index, Create, Edit. Sin PDF/export en el proyecto. |
+| MH-020 cancelar da de baja los pagos; reversal por contramovimiento | sí | **PASS** | PF88 + anulación de egreso. Un solo helper (`EgresoHelper`) para las dos rutas. |
+| DN-003 FK nueva + fallback heurístico | sí | **PASS** | `MovimientoStock.EgresoId` es FK exacta sin fallback heurístico. Históricos quedan en NULL, correcto. |
+| MH-001 `IN` desde colección local | sí | **PASS** | El KPI usa `List<int>`; el catálogo documenta que sólo `string` reproduce el fallo. |
+| MH-004 desglose vs. total por anulados | sí | **PASS** | KPI y gráfico de IVA excluyen anulados (probado anulando en vivo). |
+| LP-001 agregación de hijas sin filtrar estado del padre | sí | **PASS** funcional | Depende del soft-delete del egreso, no del estado de la compra; correcto hoy, frágil ante D-02. |
+| GAN-001 guard "al menos un pago" | sí | **PASS** | Alta sin pagos bloqueada en las dos pantallas. |
+| GAN-003 `<partial>` dentro de `<template>` | sí | **PASS** | "Agregar pago" agrega fila en ambas pantallas; reindexado correcto con prefijo `Pagos` y `Costo.Pagos`. |
+| SG-001 inputs indexados vacíos contra tipos no nullable | sí | **PASS** | El `%` deshabilitado de una deducción fija no postea y no rompe el binding (persistido con `Porcentaje 0.0000`). |
+| ELV-001 controller sin `[Authorize]` | sí | **PASS** | `ConceptosDeduccionController` con `[Authorize(Policy="RequireProductor")]` a nivel clase. |
+| ELV-002 guarda en Create ausente en Update | sí | **PASS** | Validaciones de deducciones **simétricas** entre alta y edición (código idéntico). |
+| LIP-001 error de `ServiceResult` invisible | sí | **PASS** | Todos los errores de negocio nuevos se ven en el validation-summary. |
+| KOI-005 / KOI-006 controller inexistente → 404 | sí | **PASS** | Link del sidebar → 200. |
+| KOI-001 botón eliminar del ABM no ejecuta | sí | **PASS** | Usa el handler a nivel form (`data-swal-confirm`), no el patrón roto. |
+| KOI-004 consumo > bruto sin bloqueo | sí | **PASS** | PV26: guard en cliente **y** en servidor. |
+| REG-008 input pierde foco al tipear | sí | **PASS** | La grilla no se re-renderiza al tipear. |
+| REG-010 / KOI-003 / CRM-002 link vs. rol | sí | **PASS con observación** | Ver D-06. |
+| MH-019 estado huérfano tras guard nuevo | sí | **FAIL** | Ver D-02 (R34). |
+| DN-004 reversar pago posteado altera período cerrado | sí | **N/A** | El proyecto no tiene cierre de período ni caja chica. |
+| KOI-009 URL AJAX absoluta en JS estático | sí | **PASS** en v18 / observación preexistente | `ov-costo-pagos.js` limpio. `notifications.js` tiene 4 rutas absolutas (preexistente). Ver D-07. |
+| REG-001/002/004/005/009, DN-001/002, VSF-*, CRM-001/003/004/005/006, MH-005…018/021, GAN-002/004, LP-004, KOI-002, CRM-015/016 | no / N-A | — | Tecnología o dominio ausente. |
+
+## 4b. Cobertura de reglas nuevas/modificadas desde la última corrida (2026-09-07)
+
+`6-qa.md` no tenía el campo "Última validación de reglas cross-proyecto" (memoria previa al campo). Se reconstruyó la línea de corte por `git log` sobre el repo de agentes.
+
+| Regla | Origen | Alta/modif. | Resultado | Acción |
+|---|---|---|---|---|
+| **GAN-005** | `regresiones-manuales.yml` (commit `12ad6ea`, 2026-09-08) | alta — **nace de la corrida QA v17** | **PASS** (no regresión) | Cubierta también en la grilla de deducciones y en `Stock/Compra`. |
+| **GAN-006** | `regresiones-manuales.yml` (`12ad6ea`) | alta — nace de QA v17 | **PASS** (no regresión) | Verificada en las 4 superficies nuevas. |
+| **DN-003** | `regresiones-manuales.yml` (`12ad6ea`) | alta | **PASS** | Directamente aplicable a `MovimientoStock.EgresoId`. |
+| **DN-004** | `regresiones-manuales.yml` (`12ad6ea`) | alta | **N/A** | Sin cierre de período/caja chica en este sistema. |
+| **KOI-009** | `regresiones-manuales.yml` (`6699516`, 2026-09-08) | alta | **PASS** en v18 | Observación preexistente en `notifications.js` (D-07). |
+| **KOI-010** | `regresiones-manuales.yml` (`6699516`) | alta | **FAIL** | **Auto-fix aplicado** (§6). |
+| `32-estandares-qa-implementador` | instructions | **sin cambios** desde 2026-09-04 | — | Mismas reglas que la corrida anterior. |
+| `35-pantalla-control-stock` | instructions | **sin cambios** desde 2026-09-01 | — | — |
+| `34-integracion-afip-arca` | instructions | 2 bloques nuevos (`12ad6ea`) | **N/A** | Ganadería no tiene integración AFIP/ARCA (`grep afip|arca|CondicionIVAReceptor` = 0 hits). |
+
+## 5. Defectos detectados
+
+| id | Severidad | Defecto | Pasos / evidencia |
+|---|---|---|---|
+| **D-01** | **CRÍTICO — bloqueante** | **`AnularCompra` se puede ejecutar N veces y descuenta el stock cada vez.** No hay guard en servidor; el único freno es un `String.Contains("ANULADA:")` en la vista, que no protege del doble submit, del F5 sobre el POST ni del botón atrás. | 3 POST a `/Stock/AnularCompra/{id}` sobre una compra de **5** cabezas → **3 contramovimientos** (`Ajuste −5` ×3), stock **85 → 70**. Se destruyeron **10 cabezas inexistentes**. Los 3 POST devolvieron 200 sin error. El detalle acumula `ANULADA:` repetido. |
+| **D-02** | **CRÍTICO — bloqueante (R34 abierto)** | **Anular el Egreso por su cuenta deja el movimiento de stock vivo, y además vuelve la compra inanulable para siempre.** `EgresoService.AnularAsync` no tiene ningún guard contra egresos vinculados a una compra. | Compra con costo (movimiento ↔ egreso) → `Egresos/Index` → "Anular" → 200 "Egreso anulado". Query de control: **1 movimiento de compra vivo con egreso dado de baja**; el stock queda arriba sin costo detrás. `Stock/Historial` sigue mostrando el link "Egreso #N" a un egreso anulado. Peor: `AnularCompraAsync` corta en "El egreso vinculado a la compra ya no existe" **después** de postear el contramovimiento de stock → rollback → la compra ya no se puede anular por ningún camino. |
+| **D-03** | **ALTA** | **`AnularCompra` acepta los movimientos de reversión de una factura anulada y destruye el stock que la anulación había devuelto.** El filtro es sólo `Tipo == Compra`, y `FacturaVentaService.AnularAsync` postea la reversión **como tipo `Compra`**. | Anulada una factura → stock 70→**71** (correcto). En `Stock/Historial` la fila "Reversion anulacion Factura F-0000NN" es tipo Compra y **muestra el botón "Anular compra"**. Un clic → stock **71→70**: la cabeza devuelta desaparece, sin egreso ni compensación. Reproducido end-to-end. |
+| **D-11** | **MEDIA — decisión de negocio** | **El Total queda $ 0,01 por debajo del comprobante del consignatario** por redondeo de medio centavo. Ver §2b para la causa raíz completa. | Sistema 141.346.002,71 vs. objetivo 141.346.002,72. Las 3 deducciones porcentuales caen exactamente en `.375`/`.125`/`.375`; el sistema redondea las tres half-up (consistente), el comprobante redondea dos arriba y una abajo (inconsistente). Ninguna regla única reproduce el papel. |
+| **D-04** | MEDIA | `MontoIva` se persiste **sin `Math.Round`** en factura (alta y edición), mientras `MontoDescuento` y `EgresoHelper` sí redondean. El `Total` se calcula con el valor crudo y MySQL redondea al escribir → el invariante puede romperse por 1 centavo con un `%` de IVA de muchos decimales. | `FacturaVentaService`, alta y edición: `MontoIva = input.MontoIva`. No reproducido con los datos de dev, pero es una asimetría real y toca justo el eje del D-11. |
+| **D-05** | MEDIA | `Subtotal` de cabecera se calcula como `Round(Σ kilos×precio)` mientras cada línea se persiste como `Round(kilos×precio)` por separado. Con `KilosTotales` a 3 decimales y `PrecioPorKilo` a 4, cabecera y suma de líneas pueden diferir en centavos. Idem `TotalDeducciones` (suma de crudos vs. líneas redondeadas). | Estático. No reproducido con los datos de dev. Fix: `Sum(Math.Round(x,2))` en ambos lados. |
+| **D-06** | BAJA | El link "Conceptos de deducción" del sidebar está sólo bajo `IsAuthenticated`, sin guard de rol, mientras el controller exige `RequireProductor`. Un rol autenticado por debajo de Productor vería el link y recibiría 403. | Hoy no hay tal rol (Productor / SuperUsuario), así que no es explotable; queda como deuda de defensa en profundidad. |
+| **D-07** | BAJA | `notifications.js` tiene 4 rutas AJAX absolutas desde la raíz (KOI-009). **Preexistente**, no de v18. Rompe si la app se hostea bajo subdirectorio. | `notifications.js:11,31,47,57`. |
+| **D-08** | BAJA | El desglose de deducciones en `Facturas/Details` se lista **sin `OrderBy(Orden)`** (sale en orden inverso al del catálogo). | Details muestra Guía Municipal, Ing. Brutos, Sellos, Derecho de Registro — invertido respecto del alta. |
+| **D-09** | BAJA | `max="99.99"` en `PorcentajeDescuento` (factura y egreso) contra columna `decimal(9,4)` y `max="99.9999"` en los otros porcentajes. Rechaza valores legítimos como `99.995`. | `Facturas/Create.cshtml:166`, `Egresos/Create.cshtml:62`. |
+| **D-10** | BAJA | Mensajes de validación en inglés por defecto en algunos campos ("The Proveedor (organismo intermediario) field is required.", "The value '' is invalid."), conviviendo con mensajes en español. **Preexistente.** | Visible en el re-render de `Facturas/Create` y `Stock/Compra`. |
+
+**Sobre la regresión que se anunció en `ov-costo-pagos.js`:** **no se pudo reproducir ninguna.** Se hizo un diff normalizado del JS inline de v17 contra el archivo extraído (sin cambio semántico: sólo parametrización, null-guards y el guard `if (inp.disabled) return`) y se ejercitaron en navegador real **todas** las rutas de la pantalla — sync `%`↔`$` de descuento e IVA en ambas direcciones, presets, "Sin descuento", total en vivo, auto-importe de pagos, agregar/quitar filas con reindexado bajo los dos prefijos de binding, toggle de cheque, re-render tras validación fallida, y alta end-to-end persistida con decimales exactos. Todo **PASS**, 0 errores JS. El único defecto real hallado en ese archivo es **KOI-010**, que es **preexistente de v17** (el `toFixed(2)` estaba igual en el JS inline) y quedó auto-fixeado. El bug `&#x27;` estaba efectivamente corregido con `@Html.Raw` en las 2 vistas, y **se barrió todo el repositorio buscando el patrón: no hay una tercera instancia** (literales Razor con apóstrofe fuera de `Html.Raw` = 0 hits).
+
+## 6. Auto-fixes aplicados
+
+| id catálogo | Archivos tocados | Cambio | Resultado post-parche |
+|---|---|---|---|
+| **KOI-010** | `Ganaderia.Web/wwwroot/js/ov-costo-pagos.js` (`actualizarSuma`), `Ganaderia.Web/Views/Egresos/Create.cshtml:142`, `Ganaderia.Web/Views/Stock/Compra.cshtml:136` | `sumaPagosEl.textContent = suma.toFixed(2)` → `fmtMoneda(suma)`; el render inicial del `<span>` pasa de `0.00` a `$ 0,00` en las dos vistas. | **PASS.** Antes: `1493827.15` al lado de `$ 1.493.827,15` en la misma tabla. Ahora ambos `$ 1.493.827,15`, en las 2 pantallas. Build 0 errores; alta end-to-end de egreso y de compra con costo re-verificadas post-fix con decimales exactos (`2.500.000,55 / 262.500,06 / 2.762.500,61`). Sin regresión. |
+
+**No auto-fixeados a propósito** (decisión de negocio o cambio de comportamiento acordado — escalados al implementador): **D-01, D-02, D-03** (definen qué debe pasar al anular: bloquear vs. cascadear), **D-11** (regla de redondeo del medio centavo: la decide el usuario contra su consignatario), **D-04/D-05** (tocan aritmética de plata ya registrada), D-06 a D-10.
+
+## 7. Invariantes de datos (al inicio y al cierre)
+
+| Invariante | Desvíos |
+|---|---|
+| `Subtotal − MontoDescuento − TotalDeducciones + MontoIva = Total` en `FacturasVenta` | **0** |
+| `TotalDeducciones` = Σ líneas de `FacturaVentaDeducciones` (facturas activas) | **0** |
+| `Subtotal − MontoDescuento + MontoIva = Importe` en `Egresos` | **0** |
+| Σ `EgresoPagos` = `Egreso.Importe` (egresos activos) | **0** |
+| `Total ≤ 0` en facturas | **0** |
+| Deducciones con `Monto < 0` o `Porcentaje` fuera de `[0,100)` | **0** |
+| `Grupo.StockActual` vs. ledger de `MovimientosStock` | **0** (los 5 grupos) |
+
+Nota: una factura **anulada** conserva su `TotalDeducciones` de cabecera mientras sus líneas quedan soft-deleted. Es correcto (snapshot histórico) y por eso el invariante se evalúa sobre facturas activas.
+
+## 8. Riesgos de liberación y mitigaciones
+
+- **RT23 / bloqueante de deploy** — la migración hace 4 `DropColumn` de `IIBB`/`OtrasPercepciones`. Es segura **sólo con 0 facturas de venta en producción**. **Hay que re-verificarlo el día del deploy**: si aparece aunque sea una factura, frenar y convertir esos valores en filas de `FacturaVentaDeducciones` antes de borrar nada. El `Down()` recrea las columnas **en 0**: el rollback no recupera datos.
+- **D-01/D-02/D-03** — tres caminos por los que el stock se corrompe en silencio, todos alcanzables con un clic desde pantallas normales. Es exactamente el vínculo stock↔costo que v18 vino a construir. **Mitigación: no liberar hasta corregirlos.**
+- **D-11 / R32 revertido** — la base pasó a Subtotal y la brecha contra el comprobante bajó de 117.177,80 a **0,01**. Hay que decidir explícitamente si se acepta el centavo o se adopta la regla de redondeo del consignatario. Conviene avisarle al usuario antes de que lo descubra conciliando.
+- **R33** — verificado y correcto (PF82): editar el catálogo no toca facturas emitidas. Hay que **decírselo al usuario** o va a parecer un error.
+- **Concurrencia** — `Grupo.StockActual` es desnormalizado, sin `RowVersion` ni bloqueo de fila, y las lecturas de validación corren fuera de la transacción. Bajo uso concurrente puede desincronizarse del ledger. No hay rutina de reconciliación. Riesgo bajo con 1–2 usuarios reales; conviene una verificación periódica del invariante.
+- **Sin toggle de rollout** — el cambio de semántica (percepciones que sumaban → deducciones que restan) entra sin AppSetting de reversión. Aceptable porque producción tiene 0 facturas de venta.
+
+## 9. Pruebas mínimas ejecutadas
+
+22 criterios (PF78–PF88, PV24–PV28, PD18–PD21) + 7 chequeos de re-verificación tras el cambio de base + 13 casos de regresión + smoke de 30 rutas + 7 invariantes de base, todos en **navegador real** contra la app corriendo y contrastados contra MySQL. Base restaurada al baseline exacto (`diff` = 0 diferencias) dos veces: tras la primera pasada y tras la re-verificación del cambio de base.
+
+## 10. Checklist de salida para merge (v18)
+
+- [x] Build 0 errores, sin warnings nuevos (antes y después del auto-fix y del cambio de base).
+- [x] Migración aplicada y reversible en `ganaderia_dev`.
+- [x] PF78–PF88, PV24–PV28, PD18–PD21: **22/22 PASS** (PF79 con el desvío de $ 0,01 de D-11).
+- [x] Cambio de base Neto→Subtotal re-verificado end-to-end y persistido.
+- [x] IVA sigue sobre el Neto gravado; descuento sigue sobre el Subtotal.
+- [x] Regresión de v17 (PF67, PF68, PF72) sin desvíos.
+- [x] Invariantes de base en 0 desvíos.
+- [x] Auto-fix KOI-010 aplicado y verificado.
+- [x] Base de dev devuelta al baseline exacto.
+- [x] Sin commit y sin deploy (pedido explícito).
+- [ ] **D-01 (doble anulación de compra) — BLOQUEANTE. Corregido para el camino secuencial; SIGUE ABIERTO bajo POST concurrentes (doble clic). Ver §12.4.**
+- [x] **D-02 (R34: anular egreso vinculado) — CORREGIDO y re-verificado (§12.2).**
+- [x] **D-03 (anular la reversión de una factura) — CORREGIDO y re-verificado (§12.3).**
+- [ ] **D-11 (centavo de redondeo) — decisión del usuario, pendiente.**
+- [ ] D-04/D-05 (redondeo de `MontoIva` y de `Subtotal`) — pendiente, no bloqueante.
+- [ ] D-06 a D-10 — pendientes, cosméticos/deuda.
+- [ ] **RT23: re-verificar `SELECT COUNT(*) FROM FacturasVenta` en producción el día del deploy.**
+- [ ] Revisión del implementador sobre el auto-fix KOI-010 antes del merge.
+
+## 11. Veredicto
+
+**NO APTO PARA DEPLOY.**
+
+La **funcionalidad nueva de v18 es correcta y está completa**: los 22 criterios de aceptación pasan end-to-end contra la app real. El snapshot de deducciones es genuinamente inmutable (PF82 verificado cambiando el catálogo en vivo), la transacción de la compra con costo es **atómica de verdad** (PF86: forzado el fallo, no quedó ni una fila), y no hay ninguna regresión sobre v17, la caja, el stock ni el gráfico de IVA. La extracción del JS compartido está bien hecha y las dos pantallas lo consumen sin divergir.
+
+El cambio de base (Neto → Subtotal) hecho en caliente durante esta corrida **funciona y logró su objetivo**: cerró la brecha contra el comprobante del consignatario de 117.177,80 a **0,01**, sin contaminar el IVA ni el descuento, y con el driver inverso correcto. El centavo remanente (**D-11**) no es un bug de implementación: los tres porcentajes caen exactamente en medio centavo y el papel del consignatario los redondea de forma internamente inconsistente. Es una decisión del usuario.
+
+Lo que bloquea es **la otra mitad de R34**: la anulación. Se resolvió la punta Stock→Egreso (`AnularCompraAsync`, que funciona perfecto) pero quedaron **tres caminos por los que el stock se corrompe en silencio**, los tres alcanzables con un clic desde pantallas normales y **ninguno con error visible**:
+
+1. **D-01** — anular dos veces la misma compra descuenta el stock dos veces. Un doble clic alcanza. Verificado: 3 anulaciones de una compra de 5 cabezas destruyeron 10 cabezas.
+2. **D-02** — anular el egreso desde `Egresos/Index` deja el stock arriba sin costo detrás **y** deja la compra inanulable para siempre. Es R34 textual, todavía abierto.
+3. **D-03** — el botón "Anular compra" aparece sobre los movimientos de reversión de una factura anulada, y usarlo borra el stock que la anulación acababa de devolver.
+
+En un sistema **en producción** cuyo dato más sensible es el conteo de cabezas, tres formas silenciosas de perder stock no se liberan. Ninguna es difícil de cerrar —un guard de idempotencia, un guard en `EgresoService.AnularAsync` y un `mov.FacturaVentaId == null` en el filtro— pero las tres son **decisiones de negocio** (¿bloquear o cascadear?), así que no se auto-fixearon: van al implementador.
+
+Con esos tres corregidos y re-verificados, y con D-11 decidido, v18 queda apto. El resto de los hallazgos (D-04 a D-10) no bloquea.
+
+> **Actualización (misma jornada): los tres fueron corregidos y re-verificados. D-02 y D-03 quedaron cerrados; D-01 sigue abierto bajo concurrencia y mantiene el NO APTO. Ver §12.**
+
+---
+
+## 12. Re-verificación de las correcciones de D-01 / D-02 / D-03 (2026-09-08, misma jornada)
+
+El implementador corrigió los tres bloqueantes bajo la decisión de negocio del orquestador: **bloquear, no cascadear**. Segunda migración `20260908210815_MovimientoStock_MovimientoRevertido` (aditiva, con backfill), aplicada después de `Facturas_Deducciones_Y_CompraConCosto` — ahora hay **dos** migraciones pendientes, en ese orden.
+
+Se re-ejecutaron los tres defectos con la misma agresividad con que se encontraron: POST repetidos, POST directos salteando la UI, y verificación **en base**, no en pantalla. Build: **0 errores**, 9 warnings preexistentes.
+
+### 12.1 Resultado por defecto
+
+| Defecto | Corrección | Resultado |
+|---|---|---|
+| **D-02** (anular egreso vinculado) | `EgresoService.AnularAsync` rechaza el egreso vinculado y remite a Stock; `AnularCompraAsync` valida todo antes de abrir la transacción | **CORREGIDO — verificado** |
+| **D-03** (anular la reversión de una factura) | Discriminador `Tipo == Compra && FacturaVentaId == null`, en la vista **y** en el servidor | **CORREGIDO — verificado** |
+| **D-01** (doble anulación) | `MovimientoStock.MovimientoRevertidoId` (self-FK Restrict) como estado real, en lugar del `String.Contains("ANULADA:")` | **PARCIALMENTE CORREGIDO — sigue bloqueante** |
+
+### 12.2 D-02 — corregido
+
+- **POST directo** a `/Egresos/Anular/{id}` sobre el egreso costo de una compra (saltando la UI): **bloqueado**, con el mensaje que remite a Stock > Historial.
+- Tras el intento fallido, la compra **sigue siendo anulable** (antes quedaba inanulable para siempre): se anuló correctamente, con contramovimiento de stock, egreso y pago dados de baja, movimiento de caja original **intacto** y contramovimiento (MH-020).
+- Invariante "movimiento de compra vivo con egreso dado de baja y sin contramovimiento": **0 filas**.
+- **Observación menor (D-12, BAJA)**: el botón "Anular" **sigue visible** en `Egresos/Index` para el egreso vinculado. El servidor rechaza correctamente —que es lo que importa— pero el usuario puede clickearlo y recibir un error evitable. Conviene ocultarlo o deshabilitarlo con tooltip, por el mismo criterio de defensa en profundidad de D-06.
+
+### 12.3 D-03 — corregido
+
+- La fila "Reversion anulacion Factura F-0000NN" (tipo `Compra`, con `FacturaVentaId`) **ya no muestra** el botón "Anular compra".
+- **POST directo** sobre ese movimiento: **bloqueado** con "Este movimiento es la reversión de una factura de venta anulada, no una compra de hacienda."
+- Regresión del discriminador verificada: una **compra sin costo** (`EgresoId` NULL, `FacturaVentaId` NULL) **sigue siendo anulable**, que es exactamente lo que se habría roto usando `EgresoId != null`. La elección del discriminador es correcta.
+
+### 12.4 D-01 — sólo la mitad: **sigue bloqueante**
+
+**El camino secuencial quedó cerrado.** 4 POST seguidos: el primero anula, los tres siguientes reciben "Esta compra ya fue anulada. No se puede anular dos veces." Eso cubre F5-resubmit, botón atrás y clicks repetidos después de que la página recargó.
+
+**El camino concurrente sigue abierto, y es justamente el doble clic que motivó el defecto.** El guard es un `AnyAsync(m => m.MovimientoRevertidoId == mov.Id)` que corre **fuera y antes** de la transacción, sin bloqueo de fila y sin constraint en base: check-then-act clásico.
+
+Experimento controlado sobre baseline limpio (`StockActual` 72 = Ledger 72):
+
+| Paso | StockActual | Ledger |
+|---|---|---|
+| Compra de **10** cabezas | 82 | 82 |
+| **2 POST simultáneos** (un doble clic) | **72** | **62** |
+
+Resultado: **2 contramovimientos** posteados (`Ajuste −10` ×2) para una sola anulación, ambos con `MovimientoRevertidoId` apuntando a la misma compra. Reproducido **3 de 3 veces** con 2 POST; con 6 POST en paralelo salieron 3 contramovimientos.
+
+Hay un segundo daño, más insidioso que el original: **`Grupo.StockActual` y el ledger se desincronizan**. `StockActual` queda en 72 — el valor *plausible*, el que el usuario ve en pantalla — mientras el ledger de `MovimientosStock` suma 62. Es un *lost update* sobre la columna desnormalizada: las dos transacciones leyeron 82 y las dos escribieron 72, pero **las dos filas de movimiento persistieron**. La corrupción es **invisible en la UI**: sólo aparece auditando el ledger.
+
+**Fix propuesto** (no aplicado: toca la estrategia de concurrencia, es decisión del implementador):
+1. **Índice único sobre `MovimientoRevertidoId`** (permitiendo NULL). Es la garantía a nivel base, aditiva y barata: hace estructuralmente imposible el segundo contramovimiento, y además es semánticamente correcto (a lo sumo un contramovimiento por movimiento revertido). El segundo POST cae en `DbUpdateException` y se traduce al mismo mensaje de "ya fue anulada".
+2. Mover el chequeo **dentro** de la transacción con lectura bloqueante sobre la fila del `Grupo`, lo que además cierra el lost update de `StockActual`.
+3. Complementario, no sustituto: deshabilitar el botón en el submit del lado del cliente.
+
+### 12.5 Backfill de la migración — correcto
+
+Caso crítico: el movimiento 25 fue anulado **antes** de la migración, cuando la marca era sólo texto.
+
+- La migración le pobló `MovimientoRevertidoId = 25` a su contramovimiento (mov. 26). Verificado en base.
+- **POST directo** a `/Stock/AnularCompra/25`: rechazado con **"Esta compra ya fue anulada"** — es el guard de idempotencia el que dispara, no el de "el egreso ya no existe". Eso prueba que el estado nuevo quedó bien poblado y que el defecto **no reaparece** en los datos viejos.
+- El botón tampoco se renderiza para esa fila.
+
+### 12.6 Regresión de lo que la corrección pudo romper
+
+| Caso | Resultado |
+|---|---|
+| **`RegistrarMuerteAsync`** (cortado y restaurado por el implementador) | **PASS** — Muerte de 2 cabezas: stock 72→70, movimiento tipo 4 correcto. |
+| **`CompensarAsync`** (ídem) | **PASS** — Compensación inter-categoría Lote vaquillonas → Lote 1: un movimiento `−2` en origen y `+2` en destino, stocks 44→42 y +2. |
+| **`RegistrarAjusteAsync`** (ídem) | **PASS** — El campo es `StockReal` (conteo absoluto), no delta: con `StockReal=40` posteó el delta correcto y dejó el stock en 40. |
+| Nacimiento (control) | **PASS** — 70→73. |
+| Anulación de **egreso común** (no vinculado) | **PASS** — "Egreso anulado. 1 pago(s) ya acreditado(s) se revirtieron con un contramovimiento en caja." El bloqueo de D-02 **no** alcanza a los egresos comunes. |
+| Anulación de **factura de venta** | **PASS** — stock 40→37 (venta) →40 (anulación). |
+| **PF85** compra sin costo, anulable | **PASS** — creada y anulada correctamente. |
+| **PF88** compra con costo | **PASS** — contramovimiento de stock, egreso y pago de baja, caja original intacta + contramovimiento. |
+| **Base de deducciones = Subtotal** (no se tocó) | **PASS** — rótulo "sobre el Subtotal"; con descuento 4% → neto 130.803.120,00, IVA **13.734.327,60**, deducciones 3.191.444,89, Total 141.346.002,71. Cambiando el descuento a 10% las deducciones **no se mueven**. Intacto. |
+| Invariantes de base | **INV1–INV5 en 0 desvíos** sobre baseline limpio. INV6/INV7 sólo se ensucian al forzar la race de D-01. |
+| Ledger vs `Grupo.StockActual` | **0 desvíos** en los 5 grupos sobre baseline limpio; **se rompe bajo la race de D-01** (§12.4). |
+
+### 12.7 Invariantes nuevos recomendados para monitoreo
+
+A raíz de esta corrección conviene dejar dos chequeos permanentes:
+
+- `SELECT MovimientoRevertidoId, COUNT(*) FROM MovimientosStock WHERE MovimientoRevertidoId IS NOT NULL GROUP BY 1 HAVING COUNT(*) > 1` → **debe dar 0 filas**. Hoy es el detector directo de D-01.
+- `Grupo.StockActual` vs. suma del ledger por grupo → **0 desvíos**. Es el único que revela el lost update, porque la pantalla muestra el valor plausible.
+
+### 12.8 Hallazgo registrado, no tocado
+
+**D-13 (INFORMATIVO)** — existe **1 movimiento de caja en estado `Acreditado` con `DeletedAt` seteado** (2026-07-02), de la era v11, anterior a la adopción de MH-020 (ledger inmutable con contramovimiento). Es dato viejo, **no una regresión de esta entrega**: se registra y **no se toca**. Si en algún momento se hace una limpieza histórica, es el candidato.
+
+### 12.9 Veredicto tras la re-verificación
+
+**SIGUE NO APTO PARA DEPLOY**, por un único defecto: **D-01 bajo concurrencia**.
+
+Dos de los tres bloqueantes están **genuinamente cerrados**: D-02 y D-03 resisten el POST directo saltando la UI, la decisión "bloquear, no cascadear" está bien implementada en servidor y no rompió la anulación de egresos comunes, y el backfill hace que los datos viejos no revivan el defecto. Los tres flujos que el implementador cortó de más (`RegistrarMuerteAsync`, `CompensarAsync`, `RegistrarAjusteAsync`) funcionan end-to-end en navegador, no sólo compilan. El cambio de base a Subtotal quedó intacto.
+
+D-01 se cerró para el 80% de los caminos reales pero **no para el que le da nombre**: el doble clic. Pasar de una subcadena de texto a estado consultable fue la corrección correcta, pero el estado se consulta **fuera de la transacción y sin constraint**, así que dos requests simultáneos lo leen los dos en falso. Y el efecto ahora es peor de caracterizar que antes, porque `StockActual` queda en el número que el usuario espera ver mientras el ledger dice otra cosa: **la pérdida de stock deja de ser visible en pantalla**.
+
+Es un fix chico —un índice único sobre `MovimientoRevertidoId`, que además es semánticamente lo correcto— pero es cambio de estrategia de concurrencia y de esquema (tercera migración), así que no se auto-fixeó.
+
+Con D-01 cerrado y re-verificado bajo POST concurrentes, v18 queda **apto**, con D-11 (el centavo de redondeo) pendiente de decisión del usuario y D-04 a D-13 como deuda no bloqueante.

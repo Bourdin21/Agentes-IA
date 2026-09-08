@@ -148,7 +148,6 @@ Código confirmado reutilizable de proyectos del estudio — mismo stack, mismo 
 | Comparable | Módulos | M total | Ratio vs marihogar |
 |---|---:|---:|---:|
 | ShowroomGriffin (11 módulos + infra) | 11 | 86.6h | 0.77 ✅ — marihogar tiene 7 módulos adicionales + 2 integraciones |
-| Energy Nutrition (14 + 4 integ.) est. | 18 | ~100h | 1.13 ✅ — marihogar más módulos financieros; EN más catálogo |
 | ganadería (8 módulos) | 8 | ~81h | 0.72 ✅ — ganadería tiene mayor complejidad transaccional; marihogar más módulos simples |
 
 **Conclusión:** 113h M para 18 módulos es coherente. Ratio por módulo: 6.3h/mod (marihogar) vs 10.1h/mod (ganadería) — correcto dado que marihogar incluye módulos livianos (caja, gastos, CC proveedores).

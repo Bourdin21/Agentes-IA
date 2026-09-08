@@ -76,7 +76,7 @@ Si se reparte el total real (4h) proporcionalmente al peso de cada item en el M 
 
 ### Lecciones aprendidas y acciones de recalibracion
 
-1. **Nuevo record de eficiencia IA en el dataset** (7.07x PERT/real, 2.86x formula/real). Refuerza — sin cambiarlo unilateralmente (politica vigente: factor 2.5 fijo hasta cierre de Energy Nutrition) — la evidencia a favor de subir el factor de eficiencia por encima de 2.5.
+1. **Nuevo record de eficiencia IA en el dataset** (7.07x PERT/real, 2.86x formula/real). Refuerza — sin cambiarlo unilateralmente (politica vigente: factor 2.5 fijo por decision de negocio) — la evidencia a favor de subir el factor de eficiencia por encima de 2.5.
 2. **Distincion de granularidad clave:** este lote es una **iteracion evolutiva sobre un sistema ya entregado** (reutiliza patrones ya resueltos: `CuentaCorriente`/`MovimientoCC` de Cliente, `AdjuntoService`, `MetodoPago`), no un modulo nuevo desde cero. Anclar este tipo de trabajo en los rangos de "Modulo nuevo" (ABM complejo 7.7-11.5h, Financiero 5-8h) sobreestima sistematicamente — la seccion "Modificacion sobre modulo existente" de `27-presupuesto-parametros.instructions.md` es el ancla correcta, y se le agregaron 2 filas nuevas a partir de este cierre (ver ese archivo).
 3. Los 2 "fixes" simples (items 1 y 2) confirmaron el piso del rango "Ajuste puntual" (0.5-1h) — sin sorpresas ahi.
 4. Los 2 fixes post-QA (item 6) y la simplificacion de 2 reportes (item 7) confirman que "modificar reglas de negocio o reportes sobre un modulo existente" sigue barato (1-2h) incluso cuando toca varias capas, siempre que no haya migracion nueva.

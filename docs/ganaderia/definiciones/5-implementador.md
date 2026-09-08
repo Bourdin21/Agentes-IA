@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: ganaderia
-## Ultima actualizacion: 2026-09-07
+## Ultima actualizacion: 2026-09-08
 
 ## Contexto inicial
 
@@ -880,3 +880,264 @@ Historial de lo acumulado hasta este deploy, en orden de dependencia:
 - Bug preexistente de v15 en `Egresos/Create.cshtml` (listeners del driver de IVA anidados dentro de `recalcularTotal()`, que nunca se ejecutaba).
 
 Los dos primeros eran **preexistentes de v13** y tenian la edicion de facturas inutilizable en produccion; viajaron en el mismo deploy, como exigia el veredicto condicionado de QA.
+
+---
+
+## Iteracion v18 — Deducciones de liquidacion + compra de hacienda con costo (2026-09-08)
+
+Sobre analisis **v14** (§3.11, §3.12, §5.9), diseño **v5** (§8.4) y arquitectura **v5** (§18).
+Etapa 4 (presupuesto) salteada por decision del usuario.
+
+### 1. Por que se hizo
+
+La factura de venta de hacienda **la emite el consignatario**, y sus conceptos (derecho de registro,
+sellos, ingresos brutos, guia municipal) **restan** del total en vez de sumar. El modelo de v13
+asumia que IIBB y "Otras percepciones" sumaban, asi que el usuario venia cargando **importes
+negativos** en "Otras percepciones" para forzar que la cuenta cerrara. Pidio ademas, explicitamente,
+**no tener que escribir el nombre ni el importe de cada deduccion en cada factura**: de ahi el
+catalogo que precarga la grilla ya calculada (HU-D9).
+
+### 2. Escaneo de reutilizacion (tarea 0)
+
+| Buscado | Resultado | Decision |
+|---|---|---|
+| Catalogo que **precarga** lineas en un comprobante | `marihogar` y `la-platense` cargan sus impuestos a mano; ninguno precarga de catalogo | **Patron nuevo**, no se importa codigo |
+| Grilla dinamica con recalculo en vivo | Este mismo proyecto: `Facturas/Create.cshtml` (items/ingresos) y `Egresos/Create.cshtml` (pagos) | **Reutilizacion directa** de la mecanica `Campo[i]` + driver "ultimo tocado manda" |
+| Movimiento de stock vinculado a comprobante | Este proyecto: `MovimientoStock.FacturaVentaId` | **Reutilizacion simetrica**: `EgresoId` con identico criterio (FK nullable, Restrict, sin navegacion inversa) |
+| ABM de catalogo simple | `RubrosController` / `Rubro` | `ConceptoDeduccion` calcado 1:1 |
+
+### 3. RT23 — el bloqueante, verificado dos veces
+
+`SELECT COUNT(*) FROM FacturasVenta` contra **produccion** (`db_a7251f_ganader`):
+- Antes de escribir la migracion: **0**
+- Re-verificado inmediatamente antes de dar la migracion por buena (2026-09-08 17:24): **0**
+- `SELECT COUNT(*) ... WHERE MontoIIBB<>0 OR PorcentajeIIBB<>0 OR MontoOtrasPercepciones<>0 OR PorcentajeOtrasPercepciones<>0`: **0**
+
+Produccion esta en `20260907123702_Comprobantes_DescuentoComercial`, asi que la nueva migracion es
+la siguiente y no hay hueco. **El `DropColumn` es seguro. Si al momento del deploy aparecio aunque
+sea UNA factura, hay que FRENAR y convertir esos valores en filas de `FacturaVentaDeducciones`
+antes de borrar nada.**
+
+### 4. Cambios por capa
+
+**Domain**
+- `ConceptoDeduccion : SoftDestroyable` (nueva): `Nombre` (100), `EsImporteFijo`, `Porcentaje` (9,4), `ImporteFijo` (18,2), `AplicaPorDefecto`, `Orden`.
+- `FacturaVentaDeduccion : SoftDestroyable` (nueva): `FacturaVentaId`, `ConceptoDeduccionId?`, y el **SNAPSHOT** `Nombre`/`EsImporteFijo`/`Porcentaje`/`Monto`.
+- `FacturaVenta`: **se eliminan** `PorcentajeIIBB`, `MontoIIBB`, `PorcentajeOtrasPercepciones`, `MontoOtrasPercepciones`. Se agregan `TotalDeducciones` y `List<FacturaVentaDeduccion> Deducciones`. `Total = NetoGravado + MontoIva − TotalDeducciones`.
+- `MovimientoStock`: `+ int? EgresoId`.
+
+**Application**
+- `DeduccionInput` (nuevo record) y `FacturaVentaCreateInput` con `List<DeduccionInput> Deducciones` en lugar de los cuatro campos de IIBB/percepciones.
+- `IConceptoDeduccionService` (ABM + `ListarParaPrecargaAsync()`).
+- `CostoCompraInput` (nuevo record); `IStockService.RegistrarCompraAsync(..., CostoCompraInput? costo = null)` y `AnularCompraAsync(int movimientoStockId, string motivo)`.
+- `TableroAnualKpisDto` += `ReinvertidoEnHacienda`.
+
+**Infrastructure**
+- `AppDbContext`: 2 `DbSet<>` nuevos, config fluent de las dos entidades, FK `MovimientoStock.EgresoId` (Restrict) + indice, baja de la config de IIBB/percepciones, `TotalDeducciones` con precision.
+- `ConceptoDeduccionService` (calcado de `RubroService`; PV27 unicidad de nombre entre activos; la baja **no** se bloquea por uso, porque la referencia es blanda).
+- `FacturaVentaService`: nuevo calculo del total en las dos rutas (alta y edicion), `MapDeducciones` congelando el snapshot, PV24/PV25/PV26, `RemoveRange` + alta en la edicion, baja de las lineas en la anulacion.
+- **`EgresoHelper` (nuevo, clave — RT22)**: `Validar`, `CrearEnTransaccionAsync`, `AnularEnTransaccionAsync`. **Sin transaccion propia**: corre dentro de la del llamador. `EgresoService` y `StockService` lo comparten, asi que hay **una sola** regla de negocio para el alta y la baja de un egreso.
+- `StockService.RegistrarCompraAsync` con costo: valida (mismo helper) **antes** de abrir la transaccion, y dentro de UNA transaccion crea egreso + pagos + caja y recien despues `StockHelper.PostearMovimiento(..., egresoId:)`.
+- `StockService.AnularCompraAsync`: contramovimiento de stock (`Ajuste` con cantidad negativa) + baja del egreso con contramovimiento de caja por lo acreditado (MH-020). El movimiento original **no** se borra: se marca `ANULADA:` en el detalle.
+- `DashboardService`: `ReinvertidoEnHacienda`.
+- `StockHelper.PostearMovimiento`: parametro `egresoId`.
+
+**Web**
+- `ConceptosDeduccionController` + vistas `Index`/`Create`/`Edit`/`_Form`/`_ToggleTipoScript`; entrada en el menu de Catalogos.
+- `Facturas/Create.cshtml`: la card pasa a "Descuento, IVA y deducciones" con la grilla precargada, nombre como texto de solo lectura, `%`/importe editables (ultimo tocado manda por fila), `<select>` "Agregar deduccion" con los conceptos no usados, recalculo al cambiar el neto. `impGrupos` pierde `iibb`/`percep`.
+- `Facturas/Details.cshtml`: desglose leyendo el snapshot. `Facturas/Index.cshtml`: columna Deducciones (desde `TotalDeducciones`, que esta desnormalizado justamente para esto).
+- `Stock/Compra.cshtml`: bloque de costo opcional. `Stock/Historial.cshtml`: link al egreso y boton de anular compra.
+- `Dashboard/TableroAnual.cshtml`: KPI "Reinvertido en hacienda".
+- **RD18/PD19 — JS compartido**: el driver de descuento/IVA/pagos se extrajo a `wwwroot/js/ov-costo-pagos.js` (`initCostoPagos(opts)`) y `_FilaPago.cshtml` se movio a `Views/Shared/` con prefijo de binding parametrizable. Verificado: **una sola copia de cada uno en el repositorio**.
+
+### 5. Migracion EF — `20260908200801_Facturas_Deducciones_Y_CompraConCosto`
+
+**Escrita a mano.** El scaffolding genero un
+`RenameColumn(MontoOtrasPercepciones -> TotalDeducciones)`: es la **quinta vez** que este proyecto
+recibe una operacion destructiva del scaffolder. Ese rename es destructivo en sentido semantico —
+reinterpretaria un importe que **sumaba** como un total que **resta**. Se reemplazo por `AddColumn`
+nueva + los cuatro `DropColumn` explicitos. El `Designer` y el `ModelSnapshot` se conservaron (se
+generan del modelo, no de las operaciones) y se revisaron linea por linea antes de aplicar.
+
+Orden del `Up`: (1) `ConceptosDeduccion`, (2) `FacturaVentaDeducciones`, (3) `TotalDeducciones`,
+(4) `MovimientosStock.EgresoId` + FK Restrict, (5) los cuatro `DropColumn`, (6) las 4 semillas.
+`Down` simetrico (las columnas viejas vuelven en 0; sus valores no se pueden recuperar).
+
+Semillas: Derecho de Registro 0,3500% · Imp. Sellos Pcia Bs As 1,0500% · Ing. Brutos Nomina 42/12
+0,7500% · Guia Municipal (importe fijo, 0). Las cuatro con `AplicaPorDefecto`.
+
+### 6. Verificacion
+
+| Item | Estado | Evidencia |
+|---|---|---|
+| Build de `Ganaderia.slnx` | **OK** | 0 errores. 9 warnings, **todos preexistentes** (4 NU1902 de MailKit/MimeKit + CS0114 de `HomeController.StatusCode`). Ningun warning nuevo. |
+| Migracion aplicada a `ganaderia_dev` | **OK** | Columnas viejas ausentes, `TotalDeducciones` y `EgresoId` presentes, 4 semillas |
+| Migracion **reversible** | **OK** | `update Comprobantes_DescuentoComercial` y vuelta a aplicar, sin errores |
+| Invariante `Neto − Deducciones + IVA = Total` | **OK — 0 desvios** | Sobre todas las facturas de dev, antes y despues |
+| `TotalDeducciones` == suma de lineas | **OK** | Query de control sin filas |
+| **PF78** Neto 130.803.120,00 / IVA 13.734.327,60 | **OK — exactos** | Subtotal 136.253.250,00, desc. 4%, IVA 10,5% en navegador real |
+| **PF79** Total con las 4 deducciones | **OK** | Con Guia Municipal 262.000,00: **Total 141.463.180,52**, identico al mockup §8.4.2 |
+| **PF80** importe fijo no se recalcula | **OK** | Al bajar el neto, la fija quedo en 262.000 y las porcentuales recalcularon; su `%` deshabilitado |
+| **PF81** grilla precargada sin escribir nada | **OK** | 4 filas al abrir el alta, con nombre e importe ya resueltos |
+| **PF82** editar el catalogo no toca facturas emitidas | **OK** | Catalogo hoy en `Derecho de Registro / 0,3500`; la factura 11 conserva `Derecho de Registro (MODIFICADO) / 9,9999 / 13.080.181,20` |
+| **PF83** sin deducciones, Total = Neto + IVA | **OK** | Factura 12: 1.000.000 + 21% = 1.210.000,00; el detalle no muestra el bloque |
+| **PF84** compra con costo | **OK** | Mov. 25 ↔ Egreso 15 (2.762.500,61), pago acreditado, `MovimientoCaja` 44 |
+| **PF85** compra sin costo | **OK** | Mov. 24 con `EgresoId` NULL; POST identico al de antes de v14 |
+| **PF86** atomicidad forzando el fallo | **OK** | Pagos por 999.999 contra un total de 1.210.000: **0 movimientos y 0 egresos** en base |
+| **PF87** KPI Reinvertido en hacienda | **OK** | $ 2.762.500,61 — solo el egreso de la compra; los egresos comunes no suman |
+| **PF88** anulacion revierte las dos puntas | **OK** | Stock 97→85 (contramovimiento), egreso y pago dados de baja, movimiento de caja original **intacto** + contramovimiento (MH-020), saldo de vuelta en el baseline exacto |
+| **PD18** nombre como texto, no input | **OK** | 0 inputs visibles en la celda del concepto |
+| **PD19** JS compartido, una sola copia | **OK** | `grep` sobre `.js`/`.cshtml`: 1 archivo. `_FilaPago.cshtml`: 1 archivo, en `Shared/` |
+| **PD20** con el check apagado no se emite `Costo.*` | **OK** | Bloque oculto y todos los campos `disabled` al abrir |
+| **PD21/RD20** el POST fallido conserva las lineas del usuario | **OK** | Se quitaron 2 deducciones, fallo la validacion, volvieron exactamente las 2 restantes |
+| **LP-003 / GAN-005** round-trip de decimales | **OK** | `2.500.000,55` → `262.500,06` → `2.762.500,61` persistidos exactos. Marcadores `__Invariant` confirmados en el HTML servido |
+| **GAN-006** `step` de porcentajes | **OK** | `0.0001` en deducciones, catalogo y bloque de costo |
+| Regresion `Egresos/Create` tras extraer el JS | **OK** | Descuento, neto, IVA, total, auto-importe, sync inverso `$`→`%` y alta end-to-end |
+| Smoke en navegador real, 0 errores JS | **OK** | Todas las pantallas tocadas |
+
+**Bug propio detectado y corregido durante el smoke:** `descDriverInicial: @(... ? "'monto'" : "'pct'")`
+lo HTML-encodeaba Razor a `&#x27;`, rompiendo el script entero con `Unexpected token '&'`. Estaba
+en `Stock/Compra.cshtml` **y** en `Egresos/Create.cshtml` (donde lo introduje al extraer el JS).
+Corregido con `@Html.Raw`. Sin el smoke en navegador real esto se deployaba roto.
+
+### 7. Nota de entorno
+
+El Chromium de Playwright no puede abrir sockets contra `localhost` en esta maquina (curl y el
+`fetch` de Node si). Se resolvio interceptando las requests del navegador y resolviendolas con el
+`fetch` de Node: sigue siendo un navegador real ejecutando el JS real contra la app real, solo
+cambia el transporte. Ademas, la app hace `UseHttpsRedirection`: hay que bindear **tambien** HTTPS
+(`https://localhost:7200`) o todo responde 307 a un puerto que no escucha.
+
+### 8. Estado de deploy
+
+**NO DEPLOYADO Y NO COMMITEADO** — pedido explicito del usuario. La migracion esta aplicada solo a
+`ganaderia_dev`. Antes del deploy: **re-verificar `SELECT COUNT(*) FROM FacturasVenta` en
+produccion** (RT23).
+
+---
+
+## Iteracion v18.1 — Correccion de los 3 defectos bloqueantes de QA en la ANULACION (2026-09-08)
+
+QA cerro la v18 con **NO APTO PARA DEPLOY**: la funcionalidad nueva paso 22/22, pero los tres
+defectos estaban en la **anulacion** — la mitad de R34 que la v18 no habia resuelto bien.
+
+### D-01 (CRITICO) — `AnularCompra` no era idempotente
+
+**Sintoma.** Tres POST sobre la misma compra de 5 cabezas postearon **tres** contramovimientos:
+stock 85 → 70, diez cabezas destruidas, respondiendo 200 y sin ningun error. El unico freno era un
+`Detalle.Contains("ANULADA:")` **en la vista**: cero proteccion en el servidor.
+
+**Correccion.** La marca de "ya anulada" pasa a ser un **estado consultable**, no una subcadena:
+nueva columna `MovimientoStock.MovimientoRevertidoId` (self-FK, Restrict). El contramovimiento
+apunta al movimiento que revierte, y el servicio pregunta
+`AnyAsync(m => m.MovimientoRevertidoId == mov.Id)`. Buscar en el texto es exactamente lo que dejo
+pasar el bug, asi que ya no se busca en el texto en ningun lado. De paso queda la trazabilidad
+contramovimiento → origen, que antes no existia.
+
+El rotulo `| ANULADA: motivo` en el detalle **se mantiene** para que se lea en el historial, pero ya
+no es el estado: es decoracion.
+
+### D-02 (CRITICO) — anular el egreso por su cuenta rompia las dos puntas
+
+**Sintoma.** Anular el egreso desde `Egresos/Index` dejaba el movimiento de stock **vivo** apuntando
+a un egreso dado de baja, y ademas dejaba la compra **inanulable para siempre**: `AnularCompraAsync`
+cortaba al no encontrar el egreso *despues* de haber posteado el contramovimiento, y hacia rollback.
+
+**Correccion (decision tomada: BLOQUEAR).** `EgresoService.AnularAsync` **rechaza** la anulacion de
+un egreso vinculado a un movimiento de stock, y le dice al usuario que anule la compra desde Stock,
+que es la operacion que revierte las dos puntas. Coherente con el `OnDelete: Restrict` de RT25: una
+pantalla de plata no puede alterar el stock en silencio.
+
+Ademas se corrigio el **orden** de `AnularCompraAsync`: **validar primero, postear despues**. Ahora
+resuelve movimiento, tipo, reversion, idempotencia, grupo, stock suficiente **y el egreso con sus
+pagos y movimientos de caja** antes de abrir la transaccion. Nunca postea un contramovimiento sin
+saber que puede completar la operacion entera.
+
+### D-03 (ALTA) — el boton "Anular compra" aparecia donde no correspondia
+
+**Sintoma.** La reversion de stock de una factura de venta anulada se postea con tipo `Compra`, asi
+que heredaba el boton. Usarlo hacia desaparecer la cabeza que se acababa de devolver al rodeo
+(reproducido por QA: 70 → 71 → 70).
+
+**Discriminador elegido: `Tipo == Compra && FacturaVentaId == null`.** Evidencia:
+
+1. **Solo dos lugares** crean movimientos tipo `Compra` (grep sobre `Ganaderia.Infrastructure` y
+   `Ganaderia.Web`, excluyendo `StockHelper.Signo`):
+   - `FacturaVentaService.cs:292` — la reversion de una venta anulada, que pasa
+     `facturaVentaId: factura.Id` ⇒ **siempre** lleva `FacturaVentaId`.
+   - `StockService.cs:68` (compra **sin** costo, via `RegistrarIngresoAsync`) y
+     `StockService.cs:109` (compra **con** costo, con `egresoId:`) ⇒ **ninguna** de las dos pasa
+     `facturaVentaId`.
+2. Los datos de dev lo confirman fila por fila:
+
+   | Id | Origen | `FacturaVentaId` | `EgresoId` |
+   |---|---|---|---|
+   | 12 | Reversion de la factura F-000005 | **5** | NULL |
+   | 24 | `PF85 compra sin costo` | NULL | NULL |
+   | 25 | `PF84 terneras con costo` | NULL | **15** |
+
+**Por que no `EgresoId != null`**: dejaria afuera el movimiento 24 — una compra **sin** costo (PF85),
+que es un caso legitimo y anulable. La condicion elegida cubre compras con y sin costo y excluye
+reversiones.
+
+La vista es solo la mitad: **`StockService.AnularCompraAsync` rechaza igual el POST directo**, tanto
+la reversion de factura como la compra ya anulada.
+
+### Migracion — `20260908210815_MovimientoStock_MovimientoRevertido`
+
+**Segunda migracion, aditiva.** No se sumo a `Facturas_Deducciones_Y_CompraConCosto` (como pedia
+§18.5 para *aquella* entrega) porque esa ya esta aplicada en dev y su `Down` borra
+`ConceptosDeduccion` y `FacturaVentaDeducciones`: revertirla para reeditarla destruiria las
+deducciones de las facturas que QA dejo como baseline. Esta es puramente aditiva —`AddColumn`
+nullable + indice + FK Restrict— sin un solo `DropColumn` ni `RenameColumn`. **Desvio consciente de
+§18.5, con motivo.**
+
+Incluye un **backfill** que convierte, por unica vez, el viejo marcador de texto en estado real:
+```sql
+UPDATE MovimientosStock rev
+JOIN MovimientosStock orig
+  ON orig.Id = CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(rev.Detalle, '#', -1), ':', 1) AS UNSIGNED)
+SET rev.MovimientoRevertidoId = orig.Id
+WHERE rev.Detalle LIKE 'Reversion anulacion compra #%' AND ...
+```
+Es el **unico** lugar donde leer el detalle es legitimo. Sin backfill, una compra anulada antes de
+esta migracion volveria a aparecer como anulable y un segundo POST destruiria stock otra vez — o
+sea, el defecto que se esta corrigiendo. Verificado en dev: el movimiento 26 quedo apuntando al 25.
+
+### Verificacion
+
+| Item | Estado | Evidencia |
+|---|---|---|
+| **D-01** tres POST seguidos | **OK** | Compra de 5 (mov 43): `SELECT COUNT(*) WHERE MovimientoRevertidoId=43` → **1**. Stock 72 → +5 → −5 → **72**: no se destruyo nada. Repetido con el mov 49, mismo resultado |
+| **D-01** mensaje del 2do/3er intento | **OK** | `[ERROR] Esta compra ya fue anulada. No se puede anular dos veces.` |
+| **D-01** ninguna compra con >1 contramovimiento | **OK** | `GROUP BY MovimientoRevertidoId HAVING COUNT(*)>1` → 0 filas |
+| **D-02** anular egreso vinculado | **OK** | `[ERROR] Este egreso es el costo de una compra de hacienda y no se puede anular por separado. Anule la compra desde Stock > Historial de movimientos...` |
+| **D-02** el egreso queda vivo | **OK** | Sigue en el listado despues del intento |
+| **D-02** despues se anula desde Stock | **OK** | `[OK] Compra anulada. Se revirtieron 2 unidad(es)...; el egreso asociado se dio de baja y 1 movimiento(s) de caja acreditado(s) se compensaron con contramovimiento.` |
+| **D-02** egreso comun no vinculado | **OK — no se rompio el flujo comun** | `[OK] Egreso anulado. 1 pago(s) ya acreditado(s) se revirtieron con un contramovimiento en caja.` |
+| **D-03** la reversion no ofrece el boton | **OK** | 0 formularios `AnularCompra` en esa fila |
+| **D-03** POST directo | **OK** | `[ERROR] Este movimiento es la reversion de una factura de venta anulada, no una compra de hacienda. No se puede anular por separado.` |
+| **PF85** compra sin costo sigue siendo anulable | **OK** | Movs 43 y 49 (sin costo) anulados correctamente al primer intento; en el historial restaurado el mov 24 sigue ofreciendo el boton |
+| **PF88** completo | **OK** | Stock revertido, egreso dado de baja, movimiento de caja original **intacto** + contramovimiento |
+| **MH-020** ningun acreditado borrado | **OK** | `WHERE Estado=2 AND DeletedAt IS NOT NULL AND DATE(DeletedAt)=CURDATE()` → **0**. (Hay 1 fila asi del **2026-07-02**: es preexistente de la era v11, cuando `AnularAsync` daba de baja todo sin mirar el estado. No la genero esta iteracion.) |
+| Ledger vs `StockActual` | **OK** | Coinciden en los 5 grupos |
+| Invariante `Neto − Deducciones + IVA = Total` | **OK — 0 desvios** | |
+| Egresos vinculados dados de baja sin compra anulada | **OK — 0** | La punta suelta que denunciaba D-02 ya no puede existir |
+| Build de `Ganaderia.slnx` | **OK** | 0 errores, 8 warnings, todos preexistentes |
+| `ganaderia_dev` en el baseline de QA | **OK** | `diff` del snapshot pre/post: identico salvo la etiqueta del marcador |
+
+**Error propio durante la correccion:** al reemplazar `AnularCompraAsync` corte de mas en el splice
+y me lleve `RegistrarMuerteAsync`, `CompensarAsync` y `RegistrarAjusteAsync`. Lo detecto el
+compilador (CS0535, tres miembros de interfaz sin implementar); restaurados desde `git show HEAD`.
+La superficie publica de `StockService` quedo verificada metodo por metodo.
+
+**Nota sobre `AuditLogs`:** quedaron las entradas de esta verificacion (y las de QA) — no se
+borraron a proposito. Es un log de auditoria append-only; limpiarlo para que una corrida de pruebas
+se vea prolija es justamente lo que no hay que hacer.
+
+### Estado de deploy
+
+**NO DEPLOYADO Y NO COMMITEADO.** Ahora son **dos** migraciones pendientes:
+`Facturas_Deducciones_Y_CompraConCosto` y `MovimientoStock_MovimientoRevertido`, en ese orden.
+Antes del deploy sigue vigente **RT23**: re-verificar `SELECT COUNT(*) FROM FacturasVenta` en
+produccion (ultima verificacion: 0, el 2026-09-08 17:24).

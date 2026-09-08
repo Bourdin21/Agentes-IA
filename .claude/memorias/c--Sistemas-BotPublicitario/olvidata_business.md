@@ -62,7 +62,7 @@ VINOSEFUE · ESUR/RecoTrack · ULISES · DELICIAS NATURALES · ESCABA · LUMITRA
 Eleven (x2: La Plata + otra sede) · Belclau · Ganadería Fausto · Ganadería Emo ·
 ShowroomGriffin · KoiDumplings · Contadores BMA (Conversor) · LabIPAC ·
 VirtualWallet · SaldoClaro · Alquileres (ROAMING/Augusto)
-Pendientes de cobrar: Energy Nutrition ($3.700) · Koi Dumplings · Ganadería Fausto
+Pendientes de cobrar: Koi Dumplings · Ganadería Fausto
 
 ## Proceso de venta — 5 pasos, ciclo 7–10 días
 1. **Contacto** (inbound WhatsApp o outbound bot) → respuesta el mismo día

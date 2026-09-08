@@ -849,6 +849,105 @@ Sin backfill: `DEFAULT 0` deja el histórico con la semántica correcta (sin des
 
 ---
 
+## 18. Arquitectura v5 — Deducciones de liquidación + compra de hacienda con costo
+
+Sobre el diseño **v5** (§8.4) y el análisis **v14**. Grounded en el código real post-v17.1.
+
+### Escaneo de reutilización
+
+`MovimientoStock.FacturaVentaId` ya resuelve el vínculo movimiento↔comprobante en este mismo proyecto: `EgresoId` se agrega con idéntico criterio (FK nullable, sin navegación inversa obligatoria). El catálogo `ConceptoDeduccion` se calca de `Rubro` (`SoftDestroyable` + ABM simple). No hay componente equivalente en otros proyectos del historial: `marihogar` y `la-platense` cargan sus impuestos a mano, ninguno precarga desde catálogo.
+
+### 18.1 Domain
+
+**Nueva entidad `ConceptoDeduccion : SoftDestroyable`**
+
+```csharp
+public string Nombre { get; set; } = string.Empty;   // 100, único entre activos
+public bool EsImporteFijo { get; set; }              // false = porcentual
+public decimal Porcentaje { get; set; }              // HasPrecision(9, 4)
+public decimal ImporteFijo { get; set; }             // HasPrecision(18, 2)
+public bool AplicaPorDefecto { get; set; }
+public int Orden { get; set; }
+```
+
+**Nueva entidad `FacturaVentaDeduccion : SoftDestroyable`**
+
+```csharp
+public int FacturaVentaId { get; set; }
+public int? ConceptoDeduccionId { get; set; }   // referencia blanda; puede quedar huérfana
+public string Nombre { get; set; } = string.Empty;  // SNAPSHOT (RD17)
+public bool EsImporteFijo { get; set; }
+public decimal Porcentaje { get; set; }         // HasPrecision(9, 4)
+public decimal Monto { get; set; }              // HasPrecision(18, 2)
+```
+
+**`FacturaVenta`**: se **eliminan** `PorcentajeIIBB`, `MontoIIBB`, `PorcentajeOtrasPercepciones`, `MontoOtrasPercepciones`. Se agregan `TotalDeducciones` (18,2; desnormalizado para listados y detalle sin cargar la colección) y `List<FacturaVentaDeduccion> Deducciones`. `Total` pasa a `NetoGravado + MontoIva − TotalDeducciones`.
+
+**`MovimientoStock`**: `+ int? EgresoId` (FK nullable a `Egreso`, `OnDelete: Restrict`), simétrico a `FacturaVentaId`.
+
+### 18.2 Application
+
+- `FacturaVentaCreateInput`: se quitan los cuatro campos de IIBB/percepciones; se agrega `List<DeduccionInput> Deducciones` (`ConceptoDeduccionId?`, `Nombre`, `EsImporteFijo`, `Porcentaje`, `Monto`).
+- Nuevo `IConceptoDeduccionService` (ABM + `ListarParaPrecargaAsync()` que devuelve los `AplicaPorDefecto` ordenados).
+- `IStockService.RegistrarCompraAsync` gana un parámetro opcional `CostoCompraInput? costo` (rubro, proveedor, subtotal, descuento, IVA, pagos).
+- `TableroAnualKpisDto` += `ReinvertidoEnHacienda`.
+
+### 18.3 Infrastructure
+
+**`FacturaVentaService`** — el cálculo del total (líneas ~61 y ~158, las mismas dos de v13) pasa a:
+
+```csharp
+var neto  = Math.Round(subtotal - input.MontoDescuento, 2);
+var dedu  = Math.Round(input.Deducciones.Sum(d => d.Monto), 2);
+var total = Math.Round(neto + input.MontoIva - dedu, 2);
+```
+
+**Base de cálculo de las deducciones (v14.1):** el importe de cada deducción porcentual se calcula sobre el **`Subtotal`** (importe bruto), no sobre el neto gravado — el IVA es el único sobre el neto. Igual que con el IVA, **el servidor no recalcula esos importes**: el cliente los manda y el servidor valida rangos y suma (mismo contrato de confianza desde v13). El cambio de base vive por lo tanto en `Facturas/Create.cshtml` (`recalcDeducciones(subtotal)`), no en el servicio.
+
+Validaciones nuevas: cada `%` en [0,100), cada `Monto` ≥ 0 (PV24/PV25), `total > 0` (PV26). Se **borra** la validación de IIBB/percepciones. `EditAsync` reemplaza las deducciones con `RemoveRange` + alta (no hay ledger acá: son líneas del comprobante, no movimientos posteados, así que MH-020 no aplica).
+
+**`StockService.RegistrarCompraAsync`** — con costo, **una sola transacción explícita**: crear el `Egreso` + sus `EgresoPago` + movimientos de caja, `SaveChangesAsync` para obtener el Id, y recién entonces `StockHelper.PostearMovimiento(...)` con `EgresoId` seteado. **No** llamar a `EgresoService.CreateAsync` desde adentro: abre su propia transacción y rompe la atomicidad (RT22). La lógica de alta de egreso se extrae a un método compartido que ambos servicios invocan dentro de la transacción del llamador.
+
+**`StockService.AnularCompraAsync`** — revierte las dos puntas: contramovimiento de caja por lo acreditado (MH-020), baja de los pagos pendientes, soft delete del egreso y contramovimiento de stock. R34.
+
+**`DashboardService`** — `ReinvertidoEnHacienda` = suma de `Egreso.Importe` de los egresos referenciados por movimientos de stock tipo `Compra` no anulados, en el período filtrado.
+
+### 18.4 Web
+
+`ConceptosDeduccionController` (ABM, calcado de `RubrosController`) + entrada en el menú de Catálogos. `Facturas/Create.cshtml`: la card cambia según §8.4.2 y el driver `impGrupos` pierde `iibb`/`percep` y gana el manejo de la grilla. `Stock/Compra.cshtml`: bloque de costo con el **JS compartido** (RD18/PD19). `Facturas/Details.cshtml` y el listado: desglose de deducciones leyendo el snapshot.
+
+### 18.5 Migración EF
+
+**Una sola migración `Facturas_Deducciones_Y_CompraConCosto`, escrita a mano:**
+
+1. `CreateTable ConceptosDeduccion` + `CreateTable FacturaVentaDeducciones` (FK a `FacturasVenta`, cascade; FK a `ConceptosDeduccion`, restrict).
+2. `AddColumn FacturasVenta.TotalDeducciones decimal(18,2) NOT NULL DEFAULT 0`.
+3. `AddColumn MovimientosStock.EgresoId int NULL` + FK restrict.
+4. `DropColumn` de los cuatro campos de IIBB/percepciones de `FacturasVenta`.
+5. `INSERT` de los cuatro conceptos semilla (§8.4.1).
+
+**El paso 4 es destructivo y sólo es seguro porque producción tiene 0 facturas de venta** — verificado el 2026-09-08 por consulta directa (`SELECT COUNT(*) FROM FacturasVenta` → 0). **Re-verificar inmediatamente antes de aplicar la migración**: si el cliente cargó facturas en el medio, hay que frenar y convertir esos valores en filas de deducción antes de borrar las columnas.
+
+### Riesgos técnicos v5
+
+- **RT22** Atomicidad de la compra con costo: `EgresoService.CreateAsync` abre su propia transacción. Componer dos servicios transaccionales anida transacciones y rompe PF86. La lógica compartida tiene que poder correr **dentro** de la transacción del llamador.
+- **RT23** El `DropColumn` del paso 4 destruye datos si producción dejó de estar en cero. Verificación obligatoria antes de aplicar.
+- **RT24** `FacturaVentaDeduccion.ConceptoDeduccionId` es una referencia blanda: el concepto puede borrarse (soft delete) después. El detalle **debe** leer `Nombre`/`Porcentaje` de la propia fila, nunca hacer join al catálogo (RD17/R33).
+- **RT25** `MovimientoStock.EgresoId` con `OnDelete: Restrict`: un egreso vinculado a una compra no puede borrarse duro. Es intencional; la baja es soft delete, como todo el resto.
+- **RT26** El desglose de deducciones se muestra en el detalle: si alguien recompone el total desde ahí en vez de leer `Total` persistido, va a ignorar los redondeos por línea (RT18 otra vez).
+
+### Checklist de salida v5
+
+- [ ] `SELECT COUNT(*) FROM FacturasVenta` en producción = 0, **verificado el día del deploy**, antes de aplicar la migración (RT23).
+- [ ] Migración a mano revisada: sin `RenameColumn`, con los `DropColumn` explícitos y las semillas incluidas.
+- [ ] JS de costo/pagos en un único archivo, consumido por `Egresos/Create` y `Stock/Compra` (RD18/PD19).
+- [ ] Invariante `Neto − Deducciones + IVA = Total` en 0 desvíos.
+- [ ] Compra con costo: stock y egreso creados o ninguno de los dos (PF86), con la transacción verificada forzando un fallo.
+- [ ] Anulación de compra de hacienda revierte las dos puntas con contramovimiento (PF88, MH-020).
+- [ ] `value=` de los campos nuevos con `CultureInfo.InvariantCulture` y marcadores `__Invariant` en las filas de la grilla (LP-003 / GAN-005).
+
+---
+
 ## 16. Historial de versiones
 
 - **v1** — Primera consolidación arquitectónica sobre el blankproject real. Reutiliza `SoftDestroyable`, `ServiceResult`, `IRepository<T>`, `AppDbContext` con query filter global de soft delete, `NotificationService` y convenciones de enums con `HasConversion<int>`. Define estructura de carpetas, dos migraciones EF separadas, estrategia de correlativo con tabla contador + transacción, job diario vía `IHostedService`, almacenamiento local de comprobantes servido por controller autenticado, riesgos técnicos RT1–RT8 y pruebas arquitectónicas PA1–PA6. Deja 3 preguntas abiertas para el diseñador funcional.
@@ -856,3 +955,5 @@ Sin backfill: `DEFAULT 0` deja el histórico con la semántica correcta (sin des
 - **v3** — Diseño técnico de autocomplete Select2 (§15): `FacturaVenta.Motivo` pasa de enum (`MotivoVenta`, eliminado) a texto libre, con migración de backfill de menor riesgo que v2 (RT13, mapeo 1:1 sin ambigüedad). Nuevo `IFacturaVentaService.SugerenciasMotivoAsync` simétrico a `IEgresoService.SugerenciasDetalleAsync`. Se retira el `<datalist>` nativo de Egresos y se unifica el widget de autocomplete en un único script JS reutilizable (`ov-autocomplete-select2.js`) para ambas pantallas.
 - **v4** — Diseño técnico del descuento comercial pre-impuestos y de la serie de IVA del Tablero Anual (§17), sobre el código real post-v16. Dos columnas por comprobante (`PorcentajeDescuento` 9,4 + `MontoDescuento` 18,2 — se corrige el 18,4 que había estimado el diseño, que no era la convención del proyecto) más `NetoGravado` calculado con `Ignore` explícito. `Total`/`Importe` siguen calculándose **en servidor** (dos líneas por servicio), así que el descuento no cambia el contrato de confianza con el cliente. Serie de IVA por consulta directa a `FacturasVenta`/`Egresos` agrupada en memoria (devengado, sin tocar `MovimientosCaja`), apoyándose en el filtro global de soft delete para excluir anulados. Una única migración `Comprobantes_DescuentoComercial` con `DEFAULT 0` y **sin backfill** — no muta ninguna fila existente, por lo que no requiere el protocolo de 3 fases de RT9. Riesgos RT17–RT21. Escaneo cross-proyecto: criterio de "total autoritativo" tomado de `marihogar`; descuento por línea de `la-platense` descartado; protocolo de migración de `vinosefue` evaluado y no necesario.
 - **v4.1** — Dos correcciones de la v4 detectadas por el implementador al contrastar §17 contra el código y los docs reales: (1) el escaneo de reutilización atribuía a `marihogar` el origen del criterio "total autoritativo", cuando `marihogar/5-implementador.md` §657 dice que ese bloque de impuestos fue copiado **de `ganaderia`** — la dirección del préstamo estaba invertida, y corregirla importa porque define a qué proyecto se mira como referencia la próxima vez (corolario: marihogar es candidato natural a recibir este mismo descuento); (2) §17.4 listaba "el PDF del comprobante" entre los consumidores a adaptar, y **ese PDF no existe** en este proyecto (el comprobante es un archivo que el usuario sube). Ningún cambio de decisión técnica.
+- **v5** — Diseño técnico de las deducciones de liquidación y de la compra de hacienda con costo (§18). Dos entidades nuevas (`ConceptoDeduccion` catálogo, `FacturaVentaDeduccion` líneas con **snapshot** de nombre y porcentaje), eliminación de los cuatro campos de IIBB/percepciones de `FacturaVenta` —destructivo, seguro sólo porque producción tiene 0 facturas, a re-verificar el día del deploy (RT23)—, `MovimientoStock.EgresoId` simétrico al `FacturaVentaId` existente, y una única migración a mano con semillas. El punto técnico delicado es RT22: la compra con costo tiene que crear egreso y movimiento de stock en **una sola** transacción, así que la lógica de alta de egreso se extrae a un método que corre dentro de la transacción del llamador en vez de llamar a `EgresoService.CreateAsync`. Riesgos RT22–RT26.
+- **v5.1** — Base de cálculo de las deducciones corregida a **`Subtotal`** (era el neto gravado), por decisión del usuario tras cuantificar el desvío contra la liquidación real ($117.177,80 en un comprobante de 136 millones). El IVA sigue siendo el único concepto que se calcula sobre el neto gravado. Como el servidor no recalcula los importes de deducción (los recibe del cliente y valida, mismo contrato que el IVA desde v13), el cambio quedó confinado al JS de `Facturas/Create.cshtml` más la documentación de la entidad. R32 cerrado.

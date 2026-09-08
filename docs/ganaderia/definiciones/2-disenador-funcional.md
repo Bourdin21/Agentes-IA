@@ -699,6 +699,104 @@ Nueva card debajo del gráfico de flujo existente, **clon estructural de `chartM
 
 ---
 
+## 8.4 Diseño v5 — Deducciones de liquidación + compra de hacienda con costo
+
+Sobre el análisis **v14** (§3.11, §3.12, §5.9).
+
+### Escaneo de reutilización cross-proyecto
+
+| Buscado | Dónde | Decisión |
+|---|---|---|
+| Catálogo de conceptos que **precarga** líneas en un comprobante | `marihogar` (`OrdenCompra` con impuestos por comprobante) y `la-platense` (`ItemVenta` con IVA/descuento por línea) | Ninguno precarga desde catálogo: en los dos el usuario carga el valor a mano. **Patrón nuevo.** |
+| Grilla dinámica con recálculo en vivo | **Este proyecto**: `Facturas/Create.cshtml` (ítems, ingresos) y `Egresos/Create.cshtml` (pagos, con el auto-completado de v17.1) | **Reutilización directa**: misma mecánica de agregar/quitar/reindexar `Campo[i]` + driver "último tocado manda". |
+| Movimiento de stock vinculado a un comprobante | **Este proyecto**: `MovimientoStock.FacturaVentaId` (venta) | **Reutilización directa y simétrica**: se agrega `EgresoId` con el mismo criterio. |
+| Compra que impacta stock y caja a la vez | `marihogar` (`OrdenCompra` → stock + cuenta corriente), `la-platense` (compras con actualización de stock) | Patrón conocido; acá es más simple porque el egreso ya existe y solo falta el vínculo. No se importa código. |
+
+### 8.4.1 Catálogo `Conceptos de deducción` (ABM nuevo, dentro de Catálogos)
+
+Columnas del listado: Nombre · Tipo (Porcentaje / Importe fijo) · Valor · Aplica por defecto · Orden. Alta/edición con las mismas convenciones que los otros ABM (Rubros, Grupos).
+
+Semillas de la migración, tomadas de la liquidación real: **Derecho de Registro 0,350%**, **Imp. Sellos Pcia Bs As 1,050%**, **Ing. Brutos Nómina 42/12 0,750%**, **Guía Municipal** (importe fijo, arranca en 0), las cuatro con *aplica por defecto* activo.
+
+### 8.4.2 `Facturas/Create` — la card de impuestos cambia de forma
+
+```
+┌─ Descuento, IVA y deducciones ──────────────────────────────────────┐
+│  Subtotal                                        136.253.250,00     │
+│  Descuento %  [ 4,00 ]  $ [ 5.450.130,00 ]      [ Sin descuento ]   │
+│  Neto gravado                                    130.803.120,00     │
+│                                                                      │
+│  IVA %  [ 10,50 ]   $ [ 13.734.327,60 ]   sobre Neto gravado        │
+│                                                                      │
+│  Deducciones (sobre el Subtotal)      [ Agregar deducción  ▼ ]      │
+│  ┌────────────────────────────────┬─────────┬──────────────┬───┐    │
+│  │ Derecho de Registro            │ 0,3500 %│   476.886,37 │ ✗ │    │
+│  │ Imp. Sellos Pcia Bs As         │ 1,0500 %│ 1.430.659,13 │ ✗ │    │
+│  │ Ing. Brutos Nómina 42/12       │ 0,7500 %│ 1.021.899,38 │ ✗ │    │
+│  │ Guía Municipal                 │       — │   262.000,00 │ ✗ │    │
+│  └────────────────────────────────┴─────────┴──────────────┴───┘    │
+│                       Total deducciones:      − 3.191.444,88        │
+│  ──────────────────────────────────────────────────────────────     │
+│  Total                                          141.346.002,72      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**Base de cálculo (v14.1):** las deducciones porcentuales se aplican sobre el **Subtotal**, no sobre el neto gravado — el IVA es el único que va sobre el neto. Con estos números el total coincide **exactamente** con el importe neto de la liquidación real del cliente.
+
+- La grilla **ya viene cargada** al abrir el alta (conceptos con *aplica por defecto*), con el importe calculado. El usuario no escribe nada en el caso normal.
+- El nombre es **texto de solo lectura** en la fila: viene del catálogo. No es un input.
+- `%` e importe editables por línea, último tocado manda, igual que IVA y descuento. Una línea de importe fijo tiene el `%` deshabilitado y no se recalcula al cambiar el neto.
+- **"Agregar deducción"** es un `<select>` con los conceptos del catálogo que todavía no están en la grilla — no un campo de texto libre.
+- El botón de quitar saca la línea; la grilla puede quedar vacía.
+- El bloque completo se recalcula cuando cambia el **Subtotal o el descuento**, en la misma pasada de `recalcImpuestos()` (el descuento no entra en la base de las deducciones, pero sí en la del IVA, así que la pasada es una sola).
+
+### 8.4.3 `Stock/Compra` — sección de costo opcional
+
+La pantalla actual (grupo, cantidad, fecha, detalle) gana un bloque **"Costo de la compra (opcional)"** con un check que lo despliega:
+
+```
+☑ Registrar el costo de esta compra
+   Rubro [ ▼ ]   Proveedor [ ▼ ]
+   Subtotal [ ]  Descuento % [ ] $ [ ]  IVA % [ 21 ] $ [ ]
+   Total: $ 0,00
+   Pagos  [ + Agregar pago ]      (misma grilla que Egresos/Create)
+```
+
+Se reutiliza tal cual la partial `_FilaPago.cshtml` y el driver de descuento/IVA/auto-importe ya probado en `Egresos/Create` — **extraído a una partial compartida** para no tener dos copias del mismo JS divergiendo (que es exactamente cómo nació el bug de v15).
+
+Con el check apagado, el POST es idéntico al de hoy y el comportamiento no cambia (PF85).
+
+### 8.4.4 ViewModels y DTOs (delta)
+
+- `ConceptoDeduccionVm` (ABM): `Nombre`, `EsImporteFijo`, `Porcentaje`, `ImporteFijo`, `AplicaPorDefecto`, `Orden`.
+- `FacturaVentaCreateVm`: **se quitan** `PorcentajeIIBB`/`MontoIIBB`/`PorcentajeOtrasPercepciones`/`MontoOtrasPercepciones`; **se agrega** `List<DeduccionInputVm> Deducciones` (`ConceptoDeduccionId`, `Nombre`, `Porcentaje`, `Monto`, `EsImporteFijo`).
+- `MovimientoStockInputVm` (compra): `+ bool RegistrarCosto`, `+ CostoCompraVm Costo` (rubro, proveedor, subtotal, descuento, IVA, `List<EgresoPagoViewModel> Pagos`).
+- `TableroAnualKpisDto` += `ReinvertidoEnHacienda`.
+
+### Riesgos de diseño v5
+
+- **RD17** El nombre de la deducción es snapshot en la factura, no una referencia viva al catálogo. Editar el catálogo no debe tocar facturas emitidas (R33) — y el detalle tiene que leer el snapshot, no el catálogo.
+- **RD18** El JS de descuento/IVA/pagos pasa a vivir en dos pantallas (`Egresos/Create` y `Stock/Compra`). Si se copia y pega en vez de compartirse, se repite el bug de v15. **Extraer a partial/JS compartido es parte del alcance, no una mejora opcional.**
+- **RD19** Con el check de costo apagado, el binder igual recibe el sub-objeto `Costo` vacío: las validaciones `[Required]` de rubro/proveedor no pueden ser de atributo, tienen que ser condicionales en servidor (PV28).
+- **RD20** La grilla de deducciones se precarga en el **GET**. Si el POST falla por validación, la vista se re-renderiza con lo que mandó el usuario, **no** con la precarga del catálogo, o se le pisan las líneas que había quitado.
+
+### Pruebas de diseño v5
+
+- **PD18** El nombre de la deducción se renderiza como texto, nunca como input editable.
+- **PD19** El JS de costo/pagos existe una sola vez en el repositorio y lo consumen las dos pantallas (RD18).
+- **PD20** Con el check de costo apagado no se emite ningún campo `Costo.*` que el servidor deba ignorar a mano.
+- **PD21** Al volver de una validación fallida, la grilla de deducciones conserva exactamente las líneas que el usuario tenía (RD20).
+
+### Historias de usuario v5
+
+- **HU-D8** — Como Productor, quiero que las deducciones de la liquidación se resten del total, para no tener que cargar importes negativos para que la cuenta cierre.
+- **HU-D9** — Como Productor, quiero que las deducciones habituales ya vengan cargadas con su porcentaje, para no escribir el mismo nombre y el mismo importe en cada factura.
+- **HU-D10** — Como Productor, quiero configurar una vez los conceptos de deducción, para que el sistema se adapte cuando cambie una alícuota.
+- **HU-D11** — Como Productor, quiero registrar la compra de terneras con su costo en un solo paso, para que quede el stock y el egreso sin cargarlos dos veces.
+- **HU-D12** — Como Productor, quiero ver cuánto reinvertí en hacienda en el año, para saber cuánta plata volvió al rodeo.
+
+---
+
 ## 9. Trazabilidad a requisitos
 
 | Requisito (v10) | Pantalla | Servicio | ViewModel |
@@ -761,3 +859,4 @@ Entregar a los próximos agentes:
 - **v2** — A partir del análisis funcional v11 (proyecto `ganaderia - emo` únicamente): rediseño del módulo Egresos con pagos múltiples (`EgresoPago`), grilla dinámica en el alta, ciclo Pendiente→Acreditado de cheque diferido vía extensión del job diario existente, y acciones de rechazo/regularización (`IEgresoPagoService`) simétricas a `ICuotaService`. Se alinea la nomenclatura del documento a la del código real (`Egreso`, no `Gasto`). Agregados RD6–RD8, PD8–PD10.
 - **v3** — A partir del análisis funcional v12 (proyecto `ganaderia - emo` únicamente, §8.1/§8.2): autocomplete de Concepto (Egresos) migra de `<datalist>` a **Select2**; `Motivo` de Factura de venta pasa de enum cerrado a texto libre con autocomplete Select2, nuevo contrato `IFacturaVentaService.SugerenciasMotivoAsync` simétrico a `SugerenciasDetalleAsync`. Agregados RD9–RD11, PD11–PD12.
 - **v4** — A partir del análisis funcional v13 (§8.3): **descuento comercial opcional** en Facturas de venta y Egresos, cargable en % o importe, aplicado sobre el Subtotal para dar un **neto gravado** sobre el que se calculan todos los impuestos (IVA, IIBB y percepciones en ventas; IVA en egresos) — resuelto extendiendo el driver `impState` ya existente con un grupo `desc` y cambiando **una sola función** (`base()`). **Reajuste proporcional de ingresos** al editar una factura cuyo total cambia, con aviso previo (resuelve la pregunta abierta S39: proporcional, no parejo). **Gráfico de IVA compras vs. ventas** en el Tablero Anual, clon estructural de `chartMensual`, base devengado por fecha de comprobante, con rótulo explícito de base contable y de "no es un Libro IVA". Escaneo de reutilización cross-proyecto: layout tomado de ShowroomGriffin, lección de modelado de la-platense, mecánica reutilizada del propio proyecto (v13/v15). Agregados RD12–RD16, PD13–PD17, HU-D1–HU-D7.
+- **v5** — A partir del análisis v14 (§8.4): **catálogo de conceptos de deducción** + grilla que se **precarga sola** en la factura con los importes ya calculados (el usuario no escribe nombre ni importe), reemplazando los campos `IIBB` y `Otras percepciones`, que en este negocio son deducciones y no percepciones. **`Stock/Compra` con costo opcional** que genera el egreso real con pagos, vinculado al movimiento, reutilizando el bloque de descuento/IVA/pagos de `Egresos/Create` **extraído a una partial compartida** (RD18: copiarlo es repetir el bug de v15). Agregados RD17–RD20, PD18–PD21, HU-D8–HU-D12.

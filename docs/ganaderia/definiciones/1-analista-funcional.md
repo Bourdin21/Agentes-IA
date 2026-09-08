@@ -171,6 +171,51 @@ Al editar una factura y cambiar su total (por descuento, ítems o impuestos), lo
 - El servidor mantiene la validacion dura: si la suma no cierra (tolerancia $0,01 por ingreso), rechaza el guardado. El aviso es una ayuda de UI, no reemplaza la validacion.
 - Recordatorio de alcance: una factura solo es editable mientras **ningun** ingreso este Acreditado ni Rechazado.
 
+### 3.11 Deducciones de liquidación (v14)
+
+**El problema real.** La factura de venta de hacienda no la emite el productor: la emite el **consignatario**, y lo que llega es una *liquidación* donde al bruto se le restan comisiones e impuestos hasta llegar al importe que efectivamente se cobra. El modelo de v13 asumía que IVA, IIBB y "Otras percepciones" **suman** al total (percepciones clásicas). En esta liquidación **restan**. El usuario venía cargando valores negativos en "Otras percepciones" para forzar que la cuenta cerrara.
+
+**Liquidación real aportada por el cliente (verificada al centavo):**
+
+```
+Imp. Bruto                                       136.253.250,00
+− vComisión 3%                                    −4.087.597,50
+− C.C. Artículo 256 1%                            −1.362.532,50
+= Neto Gravado                                   130.803.120,00
++ I.V.A. 10,5%   (sobre el Neto Gravado)         +13.734.327,60
+− Derecho de Registro 0,350%                        −476.886,37
+− Imp. Sellos Pcia Bs As 1,050%                   −1.430.659,13
+− Ing. Brutos Nómina 42/12 0,750%                 −1.021.899,38
+− Guía Municipal (importe fijo)                     −262.000,00
+= IMPORTE NETO                                   141.346.002,72
+```
+
+**Base de cálculo (v14.1, decisión final):** en la liquidación **todos** los porcentajes salvo el IVA se calculan sobre el **Importe Bruto** (= Subtotal), no sobre el Neto Gravado — `0,350% × 136.253.250 = 476.886,37` exacto; sobre el neto daría 457.810,92. La v14 había adoptado el neto gravado por pedido inicial del usuario; al cuantificar el desvío contra su propia liquidación (**$117.177,80** de más en un comprobante de 136 millones) el usuario decidió **alinearlo con el comprobante**: las deducciones porcentuales van **sobre el Subtotal**. El único concepto que se calcula sobre el Neto Gravado es el **IVA**. R32 queda **cerrado**.
+
+**Modelo adoptado.** Un **catálogo de conceptos de deducción** (ABM) + una **grilla por factura** que se precarga sola:
+
+- Cada concepto tiene nombre, un **porcentaje por defecto** o un **importe fijo**, y una marca de "aplica por defecto".
+- Al abrir una factura nueva, la grilla ya viene con los conceptos marcados por defecto y con el importe **ya calculado**. El usuario **no escribe el nombre ni el importe** — este fue el pedido explícito: *"el usuario no quiere tener que escribir a mano el nombre de la deducción y el importe cada vez que carga una factura"*.
+- Cada línea es editable (% o importe, último tocado manda), se puede quitar, y se puede agregar otra desde el catálogo.
+- Los importes se recalculan solos cuando cambia el neto gravado, igual que el IVA.
+
+**Fórmula v14:**
+
+```
+Neto gravado = Subtotal − Descuento
+IVA          = Neto gravado × %IVA          ← única base "neta"
+Deducción_i  = Subtotal    × %_i            ← sobre el BRUTO (o importe fijo)
+Total        = Neto gravado + IVA − Σ Deducciones
+```
+
+Con los números de la liquidación real esto da **exactamente 141.346.002,72**, el mismo importe neto del comprobante.
+
+**`PorcentajeIIBB`/`MontoIIBB` y `PorcentajeOtrasPercepciones`/`MontoOtrasPercepciones` se eliminan** de la factura: en este negocio ambos son deducciones y quedan representados como conceptos del catálogo (Ing. Brutos entre ellos). Verificado contra producción antes de decidirlo: **0 facturas de venta cargadas**, así que no hay historial que preservar ni totales viejos que respetar.
+
+### 3.12 Descuento: sigue siendo uno solo (v14)
+
+La liquidación real trae **dos** descuentos pre-IVA (vComisión 3% y C.C. Artículo 256 1%) y el sistema tiene un único descuento global. El usuario confirmó que *"los descuentos están bien aplicados"*, cargando el acumulado. Queda como S41: si más adelante necesita el desglose, el descuento se convierte en una grilla con el mismo patrón que las deducciones.
+
 ## 4. Módulo Egresos — Compras a proveedor
 
 > **v11**: se reemplaza el modelo de "forma de pago única con acreditación inmediata" por **pagos múltiples por Egreso**. Motivo del cliente: una compra suele pagarse combinando uno o varios cheques diferidos (que no siempre cubren el importe total) más un pago compensatorio (efectivo/transferencia) por la diferencia.
@@ -296,6 +341,16 @@ Lista cerrada de pares permitidos `(CategoríaOrigen → CategoríaDestino)`:
 - No se permite `Inicial` sobre un Grupo dado de baja.
 
 ---
+
+### 5.9 Compra de hacienda propia con costo (v14)
+
+Dos veces por año el cliente compra las terneras que van a ser madres. Hoy el movimiento de stock tipo **Compra** registra las cabezas que entran pero **no la plata**, y el egreso —si se carga— vive por separado y sin relación con el stock. El cliente necesita ver **cuánto se reinvirtió en hacienda** en un período.
+
+- La compra se carga **desde Stock** (la pantalla `Stock/Compra` ya existe), en un solo paso: grupo, cantidad y fecha, más el costo.
+- El costo genera un **egreso real, con su grilla de pagos**, igual que cualquier compra a proveedor: descuenta del saldo de caja y aparece en el Tablero Anual. No es un dato informativo suelto.
+- El movimiento de stock y el egreso quedan **vinculados** y se crean en **una sola transacción**: o entran los dos, o no entra ninguno.
+- El costo es **opcional**: una compra sin costo cargado sigue funcionando igual que antes (no hay regresión sobre lo ya cargado).
+- Nuevo indicador **"Reinvertido en hacienda"** en el Tablero Anual: suma de los egresos vinculados a movimientos de compra del período.
 
 ## 6. Proveedores
 
@@ -430,6 +485,9 @@ Nuevo grafico en el **Tablero Anual**, para saber cuanto IVA genero el negocio y
 - **R29** (v13) — El reajuste de ingresos al editar una factura puede pisar una distribucion de cuotas que el usuario habia armado a mano. Mitigacion: nunca reajustar en silencio — avisar el desvio y que el usuario confirme.
 - **R30** (v13) — El Tablero Anual pasa a mostrar dos bases contables en una misma pantalla (caja para ingresos/egresos, devengado para el IVA). Sin rotulo explicito el usuario puede comparar barras que no hablan del mismo periodo.
 - **R31** (v13) — El grafico de IVA puede usarse como si fuera un Libro IVA. No lo es: no contempla notas de credito ni percepciones. Debe quedar claro en la pantalla que es informativo.
+- **R32** (v14) — **CERRADO en v14.1.** Se había adoptado el neto gravado como base de las deducciones; medido contra la liquidación real daba $117.177,80 de más en un comprobante de 136 millones. El usuario decidió alinearlo: las deducciones porcentuales se calculan sobre el **Subtotal**, y el sistema reproduce el importe neto del consignatario al centavo. Queda como precedente: cuando el comprobante lo emite un tercero, la base de cálculo se toma del comprobante, no de la intuición.
+- **R33** (v14) — La grilla de deducciones se precarga desde un catálogo: si alguien cambia un porcentaje del catálogo, las facturas **ya emitidas no cambian** (guardan su propio porcentaje e importe). Es lo correcto, pero hay que decirlo o va a parecer un error.
+- **R34** (v14) — La compra de hacienda crea stock y egreso juntos. Si se anula el egreso por su cuenta, el movimiento de stock quedaría vivo sin costo. La anulación tiene que contemplar las dos puntas.
 
 ---
 
@@ -462,6 +520,9 @@ Nuevo grafico en el **Tablero Anual**, para saber cuanto IVA genero el negocio y
   - **S38** (v13) El descuento es **comercial** (bonificacion sobre el neto gravado del comprobante), no financiero por pronto pago posterior a la emision.
   - **S39** (v13) El reajuste de ingresos redistribuye de forma **proporcional** a los importes ya cargados, con el ajuste de centavos en el ultimo — a confirmar en Diseño (ver §15).
   - **S40** (v13) Un unico descuento global por comprobante; no se acumulan descuentos ni se guarda un motivo de descuento.
+  - **S41** (v14) El descuento pre-IVA sigue siendo **uno solo y global**; los dos descuentos de la liquidación real se cargan acumulados (confirmado por el usuario).
+  - **S42** (v14) Un concepto de deducción es **porcentual o de importe fijo**, no las dos cosas a la vez.
+  - **S43** (v14) La compra de hacienda usa un **Rubro** existente del catálogo (el usuario elige; se sugiere uno llamado "Hacienda"). No se crea un rubro reservado por el sistema.
 
 ---
 
@@ -563,6 +624,19 @@ _Ninguna al cierre de v10. Todas las preguntas previas fueron cerradas o diferid
 - PF75 — (v13) Una factura anulada deja de sumar en el grafico de IVA.
 - PF76 — (v13) La linea de saldo del grafico equivale a IVA ventas menos IVA compras del mes, y el KPI al saldo del periodo filtrado.
 - PF77 — (v13) El detalle de venta y de egreso muestran Subtotal, Descuento (% e importe), Neto gravado, IVA y Total.
+- PF78 — (v14) Factura con Subtotal 136.253.250, descuento 4% (3% + 1%) e IVA 10,5%: Neto gravado 130.803.120,00 e IVA 13.734.327,60 — los dos valores de la liquidación real.
+- PF79 — (v14) Con las 4 deducciones por defecto cargadas, el Total = Neto + IVA − Σ deducciones, y el desglose del detalle muestra cada concepto con su nombre.
+- PF79b — (v14.1) Con Subtotal 136.253.250, descuento 4%, IVA 10,5% y las 4 deducciones por defecto (Guía Municipal 262.000 fija), el Total da **141.346.002,72** — idéntico al importe neto de la liquidación real. Las deducciones porcentuales se calculan sobre el **Subtotal**; el IVA sigue dando 13.734.327,60 sobre el **neto gravado**.
+- PF79c — (v14.1) Escribiendo el **importe** de una deducción en vez del %, el porcentaje derivado se calcula sobre el Subtotal (no sobre el neto).
+- PF80 — (v14) Una deducción de importe fijo (Guía Municipal) no se recalcula al cambiar el neto gravado; una porcentual sí.
+- PF81 — (v14) Al abrir una factura nueva, la grilla ya viene con los conceptos marcados "aplica por defecto": el usuario no escribe ni un nombre ni un importe.
+- PF82 — (v14) Cambiar el porcentaje del catálogo NO altera las facturas ya emitidas (R33).
+- PF83 — (v14) Quitar todas las deducciones deja Total = Neto + IVA (no hay regresión respecto de una factura sin deducciones).
+- PF84 — (v14) Compra de hacienda con costo: se crean el movimiento de stock y el egreso, vinculados, el stock del grupo sube y el saldo de caja baja por el importe pagado.
+- PF85 — (v14) Compra de hacienda **sin** costo: se crea solo el movimiento de stock, igual que antes de v14.
+- PF86 — (v14) Si el egreso falla (por ejemplo, pagos que no suman el total), **no** se crea el movimiento de stock: la transacción es atómica.
+- PF87 — (v14) El indicador "Reinvertido en hacienda" del Tablero Anual suma los egresos vinculados a compras de hacienda del período, y no cuenta los egresos comunes.
+- PF88 — (v14) Anular una compra de hacienda revierte el stock y el egreso con contramovimiento de caja (MH-020), sin dejar una punta viva.
 
 ### Validaciones / borde
 - PV1 — Importes y kilos > 0.
@@ -588,6 +662,11 @@ _Ninguna al cierre de v10. Todas las preguntas previas fueron cerradas o diferid
 - PV21 — (v13) Descuento negativo (% o importe): bloqueado.
 - PV22 — (v13) Guardar la edicion de una factura con ingresos que no suman el nuevo total: bloqueado por el servidor, aunque el aviso de UI se haya ignorado.
 - PV23 — (v13) Egreso cuyos pagos suman el Subtotal sin descontar (ignorando el descuento): bloqueado.
+- PV24 — (v14) Deducción con porcentaje fuera de [0, 100): bloqueada.
+- PV25 — (v14) Deducción con importe negativo: bloqueada. (El usuario ya no necesita negativos: las deducciones restan por definición.)
+- PV26 — (v14) Suma de deducciones que deja el Total en cero o negativo: bloqueada.
+- PV27 — (v14) Concepto de deducción sin nombre, o con nombre duplicado en el catálogo: bloqueado.
+- PV28 — (v14) Compra de hacienda con costo cargado pero sin rubro o sin proveedor: bloqueada.
 
 ---
 
@@ -643,3 +722,5 @@ _Ninguna al cierre de v10. Todas las preguntas previas fueron cerradas o diferid
 - **v11** — Pedido del cliente (proyecto `ganaderia - emo` únicamente): Egresos pasa de forma de pago única con acreditación inmediata a **pagos múltiples por Egreso** (nueva entidad `EgresoPago`), habilitando cheques diferidos con fecha de vencimiento propia + pago compensatorio, con validación de suma exacta contra el importe total. El cheque diferido replica el ciclo Pendiente→Acreditado del job diario ya usado para Cuotas de venta, y admite rechazo/regularización (Opción 3 a/b) simétricos a los de Cuota. No se agrega edición de Egreso. Agregadas PF53–PF61, PV13–PV16, riesgos R25–R26, supuestos S31–S34.
 - **v12** — Pedido del cliente (proyecto `ganaderia - emo` únicamente): el autocomplete de Concepto (Egresos) migra de `<datalist>` nativo a **Select2** (estándar UI del estudio, sin agregar dependencias nuevas). En Facturas de venta, `Motivo` deja de ser un enum cerrado y pasa a **texto libre con autocomplete Select2**, mismo patrón que Concepto de Egreso; los 3 valores históricos se preservan como datos migrados. Agregadas PF62–PF66, PV17–PV18, riesgos R27–R28, supuestos S35–S37.
 - **v13** — Pedido del cliente: (1) **descuento comercial opcional** en Facturas de venta y Egresos, cargable en % o importe, aplicado sobre el neto **antes** de los impuestos (el IVA —y en ventas tambien IIBB y percepciones— se calculan sobre el neto descontado); tope: no puede dejar el total en cero. (2) Al editar una factura cuyo total cambia, **reajuste de los ingresos con aviso previo**. (3) **Grafico de IVA compras vs. ventas** en el Tablero Anual, base **devengado** (fecha del comprobante, no del cobro), con linea de saldo IVA ventas - IVA compras. Agregadas PF67–PF77, PV19–PV23, riesgos R29–R31, supuestos S38–S40. Ademas se **reconcilio §8 (Dashboard)** con la realidad implementada en v13–v16 (split Dashboard/Tablero Anual, ABM de Grupos fusionado en Stock), que la memoria del analista todavia no reflejaba.
+- **v14** — Pedido del cliente sobre uso real del sistema. (1) **Deducciones de liquidación**: la factura de hacienda la emite el consignatario y sus conceptos (derecho de registro, sellos, ingresos brutos, guía municipal) **restan**, no suman — el usuario estaba cargando importes negativos en "Otras percepciones" para forzar la cuenta. Se reemplazan `IIBB` y `OtrasPercepciones` por un **catálogo de conceptos** + una **grilla que se precarga sola** con importes ya calculados, para que el usuario no tenga que escribir nombre ni importe en cada factura. Base de cálculo: **neto gravado**, por decisión explícita del usuario, aunque la liquidación real usa el bruto (R32). (2) **Compra de hacienda propia con costo**: `Stock/Compra` pasa a poder registrar el egreso real con pagos, vinculado al movimiento en una sola transacción, y aparece el indicador "Reinvertido en hacienda". Agregadas PF78–PF88, PV24–PV28, riesgos R32–R34, supuestos S41–S43. Verificado contra producción antes de decidir el reemplazo de columnas: **0 facturas de venta cargadas**.
+- **v14.1** — Corrección de la base de cálculo de las deducciones, decidida por el usuario al ver el desvío cuantificado: pasan de calcularse sobre el **neto gravado** a calcularse sobre el **Subtotal (importe bruto)**, que es como las liquida el consignatario. El IVA sigue siendo el único concepto sobre el neto gravado. Con esto el sistema reproduce el importe neto de la liquidación real al centavo (141.346.002,72) en vez de quedar $117.177,80 arriba. **R32 cerrado.** Agregadas PF79b y PF79c.

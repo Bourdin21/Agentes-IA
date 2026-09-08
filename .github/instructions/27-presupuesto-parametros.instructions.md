@@ -17,7 +17,6 @@ Proyectos de referencia disponibles:
 - /docs/recotrack/definiciones/4-presupuestador.md (dataset ABM simple/intermedio con 30% incluido)
 - /docs/lumitrack/definiciones/4-presupuestador.md (dataset ABM intermedio/complejo con 30% incluido)
 - /docs/piapartments/definiciones/4-presupuestador.md (ABM intermedio con 30% incluido)
-- /docs/energy-nutrition/definiciones/4-presupuestador.md (138 h estimadas, 14 modulos + 4 integraciones, referencia metodologica v4.0 — SIN CIERRE REAL, usar solo para integraciones externas y metodo)
 - /docs/contadores-bma-conversor/definiciones/4-presupuestador.md (8 h reales, 3 modulos, PHP + parser Excel propietario — CIERRE REAL 2026-06-29)
 - /docs/ganaderia/definiciones/4-presupuestador.md (20 h reales, 8 modulos funcionales, 101.0 h PERT con contingencia estimadas — CIERRE REAL 2026-07-03, ratio PERT/real record del dataset: 5.05x. Precio comercial real: USD 950 total con 15% desc. referido + 1er año de mantenimiento incluido; desarrollo puro ≈ USD 650 ≈ USD 32.5/h efectivo, cercano al objetivo USD 35/h. **Proyecto de referencia comercial para alcances similares.**)
 - /docs/vinosefue/definiciones/4-presupuestador.md — sprint "Compras al proveedor: armado manual y cuenta corriente" (4 h reales total del lote, 8 items reconstruidos retroactivamente en 28.27 h PERT con contingencia — CIERRE REAL 2026-07-03, **nuevo record del dataset: ratio PERT/real 7.07x, ratio formula/real 2.86x**. Es una iteracion evolutiva (reutiliza CuentaCorriente/MovimientoCC de Cliente, AdjuntoService, MetodoPago), no un proyecto nuevo desde cero — ver regla de granularidad nueva abajo.)
@@ -35,7 +34,7 @@ Proyectos de referencia disponibles:
 
 - Tasa base: USD 35 / hora (Junio 2026 — horas reales con contingencia temporal 20%).
 - Tasa anterior: USD 40 / hora (Junio 2026 — probada con contingencia 20%, revertida por ajuste de precio).
-- Tasa anterior: USD 30 / hora (Junio 2026 — usada en Energy Nutrition v4.0 como excepcion negociada).
+- Tasa anterior: USD 30 / hora (Junio 2026 — excepcion negociada puntual, ya no vigente).
 - Tasa anterior historica: USD 14 / hora (proyectos hasta Abril 2026 — quedan como referencia de horas, no de costo).
 - Aplicar a todos los presupuestos futuros salvo indicacion contraria del cliente.
 - Si el cliente negocia descuento, no bajar de USD 30/h sin aprobacion explicita.
@@ -44,24 +43,26 @@ Proyectos de referencia disponibles:
 
 ## Rangos de referencia por tipo de modulo
 
-Horas M (PERT caso probable) sin cambio. Costos calculados con formula vigente: M x $16.80 (= M/2.5 x 1.20 x $35).
-Las "horas facturables" son M/2.5 x 1.20 — no se exponen al cliente (solo USD por area funcional).
+**Esta tabla es exclusiva de Build (sistema nuevo para cliente nuevo, clasificacion de modulos "nuevos"/greenfield).** Horas M (PERT caso probable) sin cambio. Costos calculados con formula vigente de Build: M x $10.50 (= M/4.0 x 1.20 x $35) — factor de eficiencia 4.0 desde 2026-09-08 (ver "Modelo de facturacion" y el registro de decision en "Notas de calibracion").
+Las "horas facturables" son M/4.0 x 1.20 — no se exponen al cliente (solo USD por area funcional).
+
+**Fork deliberado, no unificar:** Merge, "modulo nuevo" post-entrega y el resto de "Extras opcionales" NO usan esta tabla ni el factor 4.0 — siguen en factor 2.5 / M x $16.80 (ver seccion "Extras opcionales" mas abajo, motivo explicado ahi). Tampoco cambia "Modificacion sobre modulo existente" (items de reutilizacion dentro de un Build): esos ya vienen con M chico porque la reutilizacion se refleja achicando M, no multiplicando el factor — aplicarles ademas el factor 4.0 seria contar la misma eficiencia dos veces.
 
 | Tipo de modulo | Rango M (h) | Horas facturables | USD (a $35/h con 20% cont.) |
 |---|---|---|---|
-| Ajuste puntual (campo, validacion, logica menor) | 0.5 – 1 h | 0.2 – 0.5 h | USD 8 – 17 |
-| Deploy inicial hosting compartido (subdominio + vendor + .htaccess) | 2 – 3 h | 0.96 – 1.44 h | USD 34 – 50 |
-| ABM simple (sin relaciones, sin logica) | 1 – 2 h | 0.5 – 1.0 h | USD 17 – 34 |
-| UI pantalla unica sin BD (drag-and-drop, sin framework) | 1 h | 0.48 h | USD 17 |
-| ABM intermedio (con relaciones y validaciones) | 4 – 7 h | 1.9 – 3.4 h | USD 67 – 118 |
-| Modulo con workflow / estados | 4 – 6 h | 1.9 – 2.9 h | USD 67 – 100 |
-| Modulo financiero o con logica compleja | 5 – 8 h | 2.4 – 3.8 h | USD 84 – 134 |
-| Parser Excel propietario (formato jerarquico, pivot, multi-input) | 4 – 6 h | 1.9 – 2.9 h | USD 67 – 100 |
-| ABM complejo (padre/hijos, trazabilidad) | 7.7 – 11.5 h | 3.7 – 5.5 h | USD 129 – 193 |
-| Integracion WS simple (OAuth + mapeo) | 3 – 4 h | 1.4 – 1.9 h | USD 50 – 67 |
-| Integracion webhook (BackgroundService + HMAC) | 8 – 10 h | 3.8 – 4.8 h | USD 134 – 168 |
-| Integracion ARCA/AFIP (codigo + cert + homologacion) | 7 – 9 h | 3.4 – 4.3 h | USD 118 – 151 |
-| Integracion batch doble (rate limit + token refresh) | 15 – 18 h | 7.2 – 8.6 h | USD 252 – 302 |
+| Ajuste puntual (campo, validacion, logica menor) | 0.5 – 1 h | 0.15 – 0.3 h | USD 5 – 11 |
+| Deploy inicial hosting compartido (subdominio + vendor + .htaccess) | 2 – 3 h | 0.6 – 0.9 h | USD 21 – 32 |
+| ABM simple (sin relaciones, sin logica) | 1 – 2 h | 0.3 – 0.6 h | USD 11 – 21 |
+| UI pantalla unica sin BD (drag-and-drop, sin framework) | 1 h | 0.3 h | USD 11 |
+| ABM intermedio (con relaciones y validaciones) | 4 – 7 h | 1.2 – 2.1 h | USD 42 – 74 |
+| Modulo con workflow / estados | 4 – 6 h | 1.2 – 1.8 h | USD 42 – 63 |
+| Modulo financiero o con logica compleja | 5 – 8 h | 1.5 – 2.4 h | USD 53 – 84 |
+| Parser Excel propietario (formato jerarquico, pivot, multi-input) | 4 – 6 h | 1.2 – 1.8 h | USD 42 – 63 |
+| ABM complejo (padre/hijos, trazabilidad) | 7.7 – 11.5 h | 2.3 – 3.5 h | USD 81 – 121 |
+| Integracion REST documentada (1-2 endpoints, token que vence, sin persistencia nueva) | 3 – 5 h | 0.9 – 1.5 h | USD 32 – 53 |
+| Integracion ARCA/AFIP (cert .p12 + homologacion) | 5 – 9 h | 1.5 – 2.7 h | USD 53 – 95 |
+
+**Filas eliminadas 2026-09-08 (Integracion webhook, Integracion batch doble):** provenian del proyecto de referencia "Energy Nutrition", dado de baja del dataset el mismo dia sin haber cerrado nunca (ver "Rangos de integraciones externas" en "Calibracion incremental" y fila I-8/I-4 de "Auditoria de inconsistencias"). No hay cierre real que las respalde — no inventar un rango, anclar de nuevo si aparece un caso real. Las filas de integracion de arriba (REST documentada, ARCA/AFIP) reemplazan tambien a la vieja "Integracion WS simple (OAuth + mapeo)" 3-4h: son la misma categoria, ya con cierre real (KOI/Ayres, marihogar) y recalculadas al factor 4.0 vigente.
 
 ## Calibracion incremental Abril 2026 (dataset real compartido)
 
@@ -90,12 +91,24 @@ Patron de desvio confirmado (contadores-bma-conversor):
 - UI pantalla unica: M estimado 2 h → real 1 h → ratio 2.0x (sobreestimado — IA muy eficiente en pantallas sin BD).
 - Deploy inicial: M estimado 1 h → real 3 h → ratio 0.33x (SUBESTIMADO 3x — primer deploy siempre subestimado).
 
-Rangos de integraciones externas (horas base PERT, contingencia separada) — fuente: Energy Nutrition v4.0 (estimacion, sin cierre real):
-- Integracion WS simple (OAuth + mapeo): 3 – 4 h base.
-- Integracion webhook con BackgroundService (HMAC, async): 8 – 10 h base.
-- Integracion batch doble con rate limit y token refresh: 15 – 18 h base.
-- Integracion ARCA/AFIP (migracion codigo + cert .p12 + homologacion): 7 – 9 h base.
-Nota: estas referencias son estimaciones metodologicas (no cierres reales). Recalibrar cuando EN tenga cierre.
+Rangos de integraciones externas (horas base PERT, contingencia separada) — SOLO con cierre real:
+- Integracion REST documentada (1-2 endpoints, token que vence, sin persistencia nueva): 3 – 5 h base.
+  Fuente: KOI / Ayres POS, CIERRE REAL 2026-09-08 — 2.6 h reales de flujo completo (Discovery a Documentacion)
+  reutilizando PAT-024 (cache de token) y la estructura de integracion ya existente en el propio proyecto.
+  El rango se deja por encima del real porque ese cierre tuvo reutilizacion fuerte disponible.
+- Integracion ARCA/AFIP (cert .p12 + homologacion): 5 – 9 h base.
+  Fuente: marihogar, PAT-006 — M ~5 h reutilizando el patron ya documentado; el techo aplica sin ese documento.
+
+**Atencion al estimar integraciones — leccion del cierre de KOI/Ayres (2026-09-08):** el riesgo dominante
+NO es el mapeo de endpoints sino la **habilitacion de acceso (red + credenciales)**. En ese cierre el modulo
+estuvo 26 dias bloqueado por credenciales y la conectividad saliente consumio mas tiempo que escribir el
+cliente HTTP. Cotizar "habilitacion de acceso" como item de riesgo separado y explicito, no diluido en la
+contingencia. Sumar tambien la **verificacion contra datos reales** cuando la integracion alimenta calculos
+financieros: los defectos de datos aparecen ahi, no en diseño.
+
+NO hay rango vigente para integracion webhook ni para integracion batch contra base de datos de terceros:
+los que habia provenian de una estimacion sin cierre real y fueron dados de baja. Estimar esos casos exige
+anclaje nuevo — no inventar un rango.
 
 Resumen de rangos base equivalentes (sin contingencia):
 - ABM simple: 1.5 a 3.1 h.
@@ -139,7 +152,7 @@ Incluir siempre en el presupuesto como linea separada post-desarrollo. El plan c
 
 **Regla de año 1 de mantenimiento gratis — vigente desde 2026-08-27, REEMPLAZA la regla anterior de "solo ante objecion de precio":** el primer año de mantenimiento va SIEMPRE incluido sin cargo, por defecto, en todo presupuesto de Build inicial de cliente nuevo — no hace falta que exista una objecion de precio previa ni pedirlo caso por caso. Desde el año 2 en adelante, precio de lista del plan sin cambios. Presentar siempre en el documento cliente como tabla con columnas "Año 1: Gratis" / "Desde el año 2: USD X/año" (mismo formato ya usado en desborder-sin-gluten/dietetica-mitre/peras-del-olmo). Excepcion: si hay una recomendacion estrategica explicita en sentido contrario para un cliente puntual (ej. perfil B2B con capacidad de pago establecida, ver seccion "Descuento de expansion agresiva" y el caso FABINCO), esa recomendacion puntual prevalece sobre este default — declararlo explicitamente como excepcion, no aplicar el default a ciegas ni asumir que la excepcion sigue vigente sin confirmarla de nuevo.
 
-Upsells vigentes (fuera del alcance de la formula de Build, ver seccion "Extras opcionales" para lo que sí se calcula con `M x $16.80`): módulo nuevo desde USD 250. Usuario adicional mas alla de 10 NO tiene una cifra fija a exponer en el presupuesto (ver regla de usuarios arriba) — se acuerda puntualmente si y cuando el cliente supere ese numero. Reflejado en `src/pages/precios.astro` del sitio (`C:\Sistemas\olvidatasoft-new`) — revisar si ese archivo todavia expone un precio fijo de usuario adicional y actualizarlo a la mencion de detalle.
+Upsells vigentes (fuera del alcance de la formula de Build — factor 4.0 desde 2026-09-08 —, ver seccion "Extras opcionales" para lo que sí se calcula con `M x $16.80`, factor 2.5, deliberadamente NO actualizado): módulo nuevo desde USD 250. Usuario adicional mas alla de 10 NO tiene una cifra fija a exponer en el presupuesto (ver regla de usuarios arriba) — se acuerda puntualmente si y cuando el cliente supere ese numero. Reflejado en `src/pages/precios.astro` del sitio (`C:\Sistemas\olvidatasoft-new`) — revisar si ese archivo todavia expone un precio fijo de usuario adicional y actualizarlo a la mencion de detalle.
 
 Reglas de aplicacion:
 - Determinar el plan según la cantidad de tablas del sistema entregado — la cantidad de usuarios NUNCA es un factor de este calculo.
@@ -150,7 +163,9 @@ Reglas de aplicacion:
 
 ## Extras opcionales (vigente 2026)
 
-Precios calculados con formula vigente (M x $16.80). Referencia a tasa USD 35/h con contingencia 20%:
+Precios calculados con formula de Merge/post-entrega (M x $16.80, factor 2.5). Referencia a tasa USD 35/h con contingencia 20%.
+
+**Fork deliberado desde 2026-09-08 — NO unificar con Build:** el 2026-09-08 el factor de Build subio de 2.5 a 4.0 (ver "Modelo de facturacion"). Esta seccion (Merge sobre sistema propio ya entregado, modulo nuevo post-entrega, UI, performance, ronda de ajuste, backup) se queda a proposito en el factor viejo, 2.5 / $16.80. Motivo de negocio, no descuido: esta es la zona que la seccion "Descuento de expansion agresiva" ya declara como "el margen real del negocio" (excluida de ese descuento, precio de lista siempre). Ademas, el trabajo que cae aca es casi siempre reutilizacion sobre un sistema propio ya construido — el mismo tipo de trabajo que en el dataset de cierres reales (vinosefue, labipac) mostro la mayor eficiencia (ratios formula/real 2.76x-2.86x, muy por encima del 1.93x de Ganaderia, el unico cierre limpio sin reutilizacion fuerte de por medio). Subir tambien aca el factor global equivaldria a regalar dos veces la misma eficiencia: una vez via el precio de lista mas bajo, y otra via el margen que esta seccion esta pensada para capturar. Si en el futuro alguien quiere "prolijizar" y unificar ambos factores, ese es precisamente el error que esta nota busca evitar — consultar con `olvidata-ceo` antes de tocarlo.
 
 | Extra                        | Precio    | M equiv. | Validez calibracion                                       |
 |------------------------------|-----------|----------|-----------------------------------------------------------|
@@ -184,17 +199,21 @@ Precios calculados con formula vigente (M x $16.80). Referencia a tasa USD 35/h 
 
 **Facturacion electronica AFIP/ARCA — YA NO es exclusion fija (corregido 2026-08-27):** dejo de serlo en la practica desde que `marihogar` la tiene funcionando en produccion real con CAE (ver PAT-006 en `docs/patrones/catalogo.yml` y `34-integracion-afip-arca.instructions.md`). Se cotiza como modulo real cuando el cliente lo necesita (M~5h por reutilizacion documentada del patron, ver rango "Integracion ARCA/AFIP" en la tabla de arriba para construccion sin este precedente) — no se excluye por default, y no hace falta "excepcion documentada" para ofrecerla: es alcance estandar disponible, a incluir o no segun lo que el cliente confirme en discovery/demo.
 
-## Modelo de facturacion (Junio 2026)
+## Modelo de facturacion (Junio 2026, factor recalibrado 2026-09-08)
 
-Objetivo: cobrar USD 35/h sobre horas reales de desarrollo con IA asistida, con contingencia temporal del 20%.
+Objetivo: cobrar USD 35/h sobre horas reales de desarrollo con IA asistida, con contingencia temporal del 20%. Esta formula es la de **Build** (sistema nuevo / rewrite completo para cliente nuevo). Merge, modulo nuevo post-entrega y el resto de "Extras opcionales" usan una version forkeada con el factor viejo (2.5) — ver seccion "Extras opcionales" para el motivo.
 
-Formula vigente:
-  Horas facturables por modulo = (M / 2.5) x 1.20
+Formula vigente (Build, desde 2026-09-08):
+  Horas facturables por modulo = (M / 4.0) x 1.20
   Costo modulo = Horas facturables x USD 35
+  Simplificado: Costo = M x 0.30 x $35 = M x $10.50
+
+Formula anterior (Build, vigente 2026-06-08 a 2026-09-08, hoy solo para referencia historica — Merge sigue usandola):
+  Horas facturables por modulo = (M / 2.5) x 1.20
   Simplificado: Costo = M x 0.48 x $35 = M x $16.80
 
 - M es el valor "caso mas probable" del PERT (no el PERT calculado, no el P).
-- El factor 2.5 representa la eficiencia IA calibrada sobre cierres reales (ShowroomGriffin, Ganaderia).
+- El factor de eficiencia IA de Build es **4.0 desde 2026-09-08** (antes 2.5). Decision de negocio, no solo estadistica — razonamiento y evidencia completos en "Notas de calibracion" (entrada 2026-09-08). Resumen: separar dos familias de cierres reales. Los evolutivos/de reutilizacion (vinosefue 2.86x, labipac 2.76x) ya estaban compensados por otro mecanismo (M chico en "Modificacion sobre modulo existente" + descuento de expansion agresiva atado a R) y usarlos para subir el factor global habria sido contar la misma eficiencia dos veces. La señal limpia es Ganaderia (1.93x formula/real, sin reutilizacion fuerte), que implica un factor real de ~4.8x. Se eligio 4.0 — conservador respecto de ese numero, no el ~5.9x que sale de promediar todo el dataset sin separar familias — porque hay un solo cierre limpio de ese tipo y los proximos builds grandes/nunca vistos son justamente el caso donde ese margen de seguridad importa.
 - El 20% de contingencia cubre reentregas, iteraciones menores y desvios de estimacion.
 - No aplicar contingencia adicional sobre la formula: el 20% ya la absorbe.
 - Excepcion: riesgo extremo documentado (integracion sin precedente, migracion de datos) puede sumarse justificado.
@@ -224,7 +243,7 @@ Precios de referencia (API Claude, cacheados 2026-06-24, ver `shared/models.md` 
 ```
 Costo_IA_modulo = Horas_facturables_modulo x tarifa_Opus_USD_hora
 ```
-donde `Horas_facturables_modulo` es el mismo valor ya calculado para precio (`M / 2.5 x 1.20`) — se asume que practicamente todo ese tiempo de esfuerzo asistido por IA a nivel modulo corresponde a Implementador + QA (Opus), ya que Discovery/Analisis/Diseño/Arquitectura/Presupuesto/Documentacion son sesiones conversacionales cortas (Ask-mode, Sonnet) que ocurren una vez por proyecto, no por modulo.
+donde `Horas_facturables_modulo` es el mismo valor ya calculado para precio, **segun la linea de negocio del modulo** (fork vigente desde 2026-09-08): `M / 4.0 x 1.20` si es Build, `M / 2.5 x 1.20` si es Merge/modulo nuevo post-entrega/Extras opcionales — se asume que practicamente todo ese tiempo de esfuerzo asistido por IA a nivel modulo corresponde a Implementador + QA (Opus), ya que Discovery/Analisis/Diseño/Arquitectura/Presupuesto/Documentacion son sesiones conversacionales cortas (Ask-mode, Sonnet) que ocurren una vez por proyecto, no por modulo.
 
 **Overhead fijo por proyecto (una sola vez, no por modulo):**
 ```
@@ -238,7 +257,7 @@ Costo_IA_overhead_proyecto = Horas_Ask_mode_estimadas x tarifa_Sonnet_USD_hora
 
 **Como se aplica al precio final (folded, sin linea visible nueva):**
 1. Calcular `Costo_IA_modulo` para cada modulo y `Costo_IA_overhead_proyecto` una vez por proyecto.
-2. Si `Costo_IA_modulo` supera el 15% del precio de lista del modulo (`M x $16.80`), sumar la diferencia directamente al precio final de ESE modulo especifico (ya calculado, sin generar linea nueva ni desglose visible al cliente) — el 25% de Tokens IA no alcanza a cubrir el costo real proyectado y el numero final debe absorberlo.
+2. Si `Costo_IA_modulo` supera el 15% del precio de lista del modulo (`M x $10.50` en Build, `M x $16.80` en Merge/Extras — ver fork de la nota anterior), sumar la diferencia directamente al precio final de ESE modulo especifico (ya calculado, sin generar linea nueva ni desglose visible al cliente) — el 25% de Tokens IA no alcanza a cubrir el costo real proyectado y el numero final debe absorberlo. **Nota post-2026-09-08:** con Build en $10.50/M el precio de lista es mas chico, asi que este umbral del 15% se cruza mas facil que antes — prestar mas atencion a este chequeo en modulos de Build de M alto (integraciones, financiero) que antes practicamente nunca lo disparaban.
 3. Si `Costo_IA_modulo` esta por debajo del 15%, no ajustar nada: el 25% de Tokens IA ya lo cubre.
 4. Documentar el calculo completo (Costo_IA por modulo, overhead, umbral, ajuste aplicado si hubo) en `4-presupuestador.md`, seccion interna — nunca en `presupuesto-cliente.md`.
 
@@ -246,7 +265,7 @@ Costo_IA_overhead_proyecto = Horas_Ask_mode_estimadas x tarifa_Sonnet_USD_hora
 
 ## Descuento de expansion agresiva por reutilizacion cross-proyecto (vigente desde 2026-07-29)
 
-Decision de negocio: la ganancia ya no se busca en el margen del Build, se busca en volumen de clientes nuevos x mantenimiento anual compuesto en el tiempo. El costo real de produccion de un Build ya es bajo cuando el proyecto reutiliza patrones ya construidos en otros proyectos (la formula M x $16.80 ya lo refleja via M chico en la seccion "Modificacion sobre modulo existente" de arriba). Esta seccion agrega un descuento ADICIONAL sobre el precio de lista para acelerar el cierre de clientes nuevos, financiado por ese ahorro de costo real — no es un descuento arbitrario.
+Decision de negocio: la ganancia ya no se busca en el margen del Build, se busca en volumen de clientes nuevos x mantenimiento anual compuesto en el tiempo. El costo real de produccion de un Build ya es bajo cuando el proyecto reutiliza patrones ya construidos en otros proyectos (la formula de Build, M x $10.50 desde 2026-09-08 — antes M x $16.80 —, ya lo refleja via M chico en la seccion "Modificacion sobre modulo existente" de arriba). Esta seccion agrega un descuento ADICIONAL sobre el precio de lista para acelerar el cierre de clientes nuevos, financiado por ese ahorro de costo real — no es un descuento arbitrario.
 
 **Cuando aplica:** solo a presupuestos de Build inicial para cliente NUEVO (o rewrite completo de un sistema de terceros). NO aplica a Mantenimiento anual, Extras opcionales (usuario adicional, modulo nuevo post-entrega, UI, performance, ronda de ajuste, backup) ni a Merge sobre sistema propio ya entregado — esos se cotizan siempre a precio de lista, sin descuento: ahi esta el margen real del negocio.
 
@@ -284,7 +303,7 @@ Los cortes estan calibrados para que la mayoria de los proyectos tipicos actuale
 **Gatillo:** el mismo tablero de 5 señales de ciclos economicos que ya condiciona el descuento por reutilizacion (ver "Gatillo con el tablero de ciclos economicos" abajo) — es la misma decision de fondo (bajar precio para acelerar cierre mientras el contexto lo permite), no tiene gatillo independiente. Si el tablero pasa a rojo, se pausan ambos ejes de descuento a la vez.
 
 **Formula de aplicacion (orden obligatorio, no alterar):**
-1. `Subtotal_lista = Σ (M_item x $16.80)` — igual que hoy, sin cambios.
+1. `Subtotal_lista = Σ (M_item x $10.50)` — actualizado 2026-09-08 junto con el factor de Build (antes $16.80). **Efecto secundario a vigilar:** con la constante mas chica, el mismo proyecto da un Subtotal_lista ~37.5% menor — puede correr proyectos a un tier de volumen mas bajo (V0/V1 en vez de V1/V2, ver tabla de tiers arriba) y acercar mas builds chicos al piso absoluto de USD 280 del punto 6. No es un error, es el efecto esperado de bajar el precio de lista; si el piso de USD 280 empieza a activarse con frecuencia, es señal de revisar ese piso, no de tocar el factor de nuevo.
 2. `Tokens_IA = Subtotal_lista x 0.25` — se calcula SIEMPRE sobre el subtotal de lista SIN descontar. Cubre costo real de infraestructura IA; nunca se resigna este cargo, sea cual sea el tier.
 3. Calcular `factor_tier_reutilizacion` (segun R, tabla de arriba) y `factor_tier_volumen` (segun Subtotal_lista, tabla de arriba). `factor_tier = MAX(factor_tier_reutilizacion, factor_tier_volumen)`.
 4. `Descuento_expansion = Subtotal_lista x factor_tier`.
@@ -318,7 +337,17 @@ Causa: el deploy inicial fue subestimado (1 h estimado → 3 h real) y el proyec
 sobre horas reales retroactivas, no sobre M estimado. No afecta la validez de la formula para
 proyectos futuros donde se aplica correctamente desde el inicio con M real.
 
-Factor de calibracion 2.5: fijo hasta que Energy Nutrition cierre. Recalibrar con ese cierre. El cierre real de Ganaderia (ratio PERT-contingencia/real 5.05x, el mas alto del dataset) es evidencia adicional a favor de subir el factor por encima de 2.5 en esa recalibracion futura.
+**Factor de calibracion de Build: 2.5 → 4.0, decision de negocio cerrada el 2026-09-08 (`olvidata-ceo`, confirmado por Joaquin).**
+
+La politica anterior congelaba el factor hasta el cierre de un proyecto de referencia ("Energy Nutrition") que fue dado de baja del dataset el mismo dia sin haber cerrado nunca — la condicion que lo bloqueaba ya no podia cumplirse. El dataset de cierres reales ya tenia de sobra para decidir, pero mezclar todos los ratios sin distinguir de donde vienen habria sido un error: no es solo una cuenta de promedio, es entender que esta midiendo cada cierre.
+
+**Separar dos familias de evidencia, no promediarlas:**
+- **Evolutivos / reutilizacion sobre sistema ya entregado** (vinosefue compras proveedor 2.86x, labipac sesion 3 2.76x, vinosefue categoria 1.84x, ratios formula/real): esta velocidad extra YA esta capturada por otro mecanismo — M chico en "Modificacion sobre modulo existente" mas el descuento de expansion agresiva atado al ratio de reutilizacion R. Usar estos ratios para subir tambien el factor GLOBAL habria sido darle el mismo descuento dos veces al mismo tipo de trabajo. KOI/Ayres (2026-09-08) cae en este mismo grupo: el propio cierre documenta reutilizacion fuerte de PAT-024 (cache de token), no es una señal limpia de velocidad "generica".
+- **Greenfield / primera vez, sin reutilizacion fuerte de por medio** (Ganaderia, unico cierre real de este tipo: 1.93x formula/real): esta es la señal que efectivamente importa para el factor global, porque mide la eficiencia de IA en trabajo nuevo, no la eficiencia de reusar codigo propio. Implica un factor real de aproximadamente 2.5 x 1.93 ≈ 4.8.
+
+**Por que 4.0 y no ~4.8 (Ganaderia) ni ~5.9x (promedio de todo el dataset sin separar):** un solo cierre limpio de tipo greenfield es poca base para apostar el 100% de esa señal — los proximos builds grandes o de un rubro nunca visto por el estudio son justo el escenario donde ese margen de seguridad importa, y son builds que todavia no estan en el dataset. 4.0 captura la mayor parte de la ganancia real sin asumir que el proximo build greenfield se va a comportar tan bien como Ganaderia.
+
+**Que NO cambia con esta decision:** la tarifa nominal sigue en USD 35/h (piso USD 30/h) — lo que cambia es cuantas horas reales representa esa hora facturada. El cargo de Tokens IA (25% del subtotal) sigue igual, solo cambia la base sobre la que se calcula. Merge, modulo nuevo post-entrega y "Extras opcionales" quedan deliberadamente afuera de este cambio — factor 2.5, precio de lista, sin descuento — porque esa es la zona donde el estudio captura margen real (ver seccion "Extras opcionales" para el detalle del fork).
 
 **Tendencia confirmada por 2 cierres consecutivos (vinosefue 2026-07-13, y en menor medida labipac 2026-07-08):** cuando la reconstruccion PERT se ancla desde el arranque en "iteracion evolutiva / reutilizacion de patron existente" (en vez de partir de rangos de "modulo nuevo" y corregir despues), el ratio de sobreestimacion baja de forma consistente — de 7.07x/2.86x (vinosefue compras proveedor, la reconstruccion que origino la regla) a 6.84x/2.76x (labipac) a **4.37x/1.84x (vinosefue categoria, el mas bajo hasta ahora)**. La regla de granularidad sigue siendo correcta y vale la pena seguir aplicandola de entrada, no como correccion posterior — cada iteracion de calibracion la esta acercando mas a 1.0x.
 
@@ -356,11 +385,11 @@ Regla de recalibracion obligatoria derivada de este patron:
 - Total combinado historico base: 175 horas - USD 2.450 - tasa efectiva historica USD 14/h.
 - **Junio 2026 — primer ciclo real a tasa nueva:** iteracion evolutiva Delicias Naturales, 4 h reales, USD 160 a USD 40/h. Ratio estimado/real: 1.0 (estimacion exacta).
 - **2026-06-03:** Relevamiento de Stock (Delicias Naturales), ABM intermedio. 5.5 h reales a USD 40/h. Dataset ABM intermedio: 5h, 5.5h, 6.5h, 7h. Rango confirmado 5-7h, mediana 6h.
-- **2026-06-08:** Contingencia temporal del 20% incorporada a la formula. Tasa ajustada a USD 35/h (definitiva). Formula vigente: M/2.5 x 1.20 x $35 = M x $16.80. Energy Nutrition v6.1 calculado bajo esta formula.
+- **2026-06-08:** Contingencia temporal del 20% incorporada a la formula. Tasa ajustada a USD 35/h (definitiva). Formula vigente: M/2.5 x 1.20 x $35 = M x $16.80.
 - **2026-06-29:** contadores-bma-conversor cerrado. 8 h reales, 3 modulos (PHP + parser Excel + deploy). Datos incorporados al dataset. Desvio critico: deploy inicial 1 h estimado → 3 h real. Nueva fila en tabla de rangos: "Deploy inicial hosting compartido M=2-3 h". Nueva fila: "Parser Excel propietario M=4-6 h". UI pantalla unica: confirma M=1 h (piso de ABM simple). Proyecto cobrado sobre horas reales retroactivas con descuento referido 15% → USD 199.
 - **2026-07-03: Ganaderia cerrado (CIERRE REAL, reemplaza la proyeccion previa de ~30 h).** Total real Etapa 1 + Etapa 2 = 20 h, 8 modulos funcionales (catalogos, usuarios, stock, ingresos con facturacion/cuotas, rechazos/regularizacion/job diario, egresos, caja, dashboard). Estimado: 81.5 h base / 101.0 h con contingencia PERT. Ratio PERT-contingencia/real = 5.05x (record del dataset, en horas). Ratio formula-vigente (M/2.5x1.20)/real = 1.93x (segundo mas alto del dataset, supera a ShowroomGriffin 1.6x).
   **Precio comercial real (corregido el mismo dia):** USD 950 facturados (no USD 1.212, que era solo la estimacion interna PERT × USD 12/h, nunca cobrada tal cual) — incluye 15% de descuento por referido ya aplicado (mismo tipo de descuento que contadores-bma-conversor) + el primer año del plan de mantenimiento (USD 300) empaquetado dentro del precio. Desarrollo puro implicito: USD 650 → tasa efectiva real ≈ **USD 32.5/h, muy cercana al objetivo USD 35/h** (equivalente al modelo nuevo 20h×$35=$700 quedo solo USD 50 por debajo). Plan anual continuo desde el 2do año: USD 300/año.
-  **Ganaderia queda fijado como proyecto de referencia comercial** para presupuestos futuros de alcance funcional comparable (8-11 modulos, mezcla ABM+workflow+financiero, 2 migraciones EF): ancla la relacion horas-reales/funcionalidad-entregada (20 h ≈ 8 modulos de esa complejidad), no las 101.0 h PERT originales que sobreestimaron 5.05x. Ver detalle completo en `/docs/ganaderia/definiciones/4-presupuestador.md`. El factor de eficiencia 2.5 de la formula vigente sigue sin recalibrarse (atado al cierre de Energy Nutrition), pero el ratio de horas (1.93x-5.05x) sigue siendo evidencia a favor de subirlo — la tarifa por hora real, en cambio, ya valida el objetivo USD 35/h una vez separados mantenimiento y descuento.
+  **Ganaderia queda fijado como proyecto de referencia comercial** para presupuestos futuros de alcance funcional comparable (8-11 modulos, mezcla ABM+workflow+financiero, 2 migraciones EF): ancla la relacion horas-reales/funcionalidad-entregada (20 h ≈ 8 modulos de esa complejidad), no las 101.0 h PERT originales que sobreestimaron 5.05x. Ver detalle completo en `/docs/ganaderia/definiciones/4-presupuestador.md`. El factor de eficiencia 2.5 de la formula vigente sigue sin recalibrarse, pero el ratio de horas (1.93x-5.05x) sigue siendo evidencia a favor de subirlo — la tarifa por hora real, en cambio, ya valida el objetivo USD 35/h una vez separados mantenimiento y descuento.
 - **2026-07-03: vinosefue — sprint "Compras al proveedor: armado manual y cuenta corriente" cerrado (CIERRE REAL, sin presupuesto formal — el cliente/owner implemento directamente).** 4 h reales totales para 8 items (2 fixes + 3 features + 2 ajustes post-QA + simplificacion de 2 reportes). Reconstruccion retroactiva PERT: 23.8 h base (M) / 28.27 h con contingencia. **Ratio PERT-contingencia/real = 7.07x (nuevo record del dataset, supera a Ganaderia 5.05x).** Ratio formula-vigente/real = 2.86x (nuevo record, supera a Ganaderia 1.93x). Causa principal identificada: este lote es una **iteracion evolutiva que reutiliza patrones ya resueltos en el mismo repo** (ledger `CuentaCorriente`/`MovimientoCC` de Cliente replicado para Proveedor, `AdjuntoService`, `MetodoPago` ya existentes) — clasificarlo con los rangos de "modulo nuevo" (ABM complejo, Financiero) sobreestima sistematicamente. Se agregaron 3 filas nuevas a "Modificacion sobre modulo existente" (refactor de vinculo/FK + migracion, ledger reutilizando patron existente, ABM manual reutilizando servicios existentes) y una regla de granularidad obligatoria: verificar reutilizacion de patron ya resuelto ANTES de clasificar como modulo nuevo. El real no vino desglosado por item (solo el total de 4h) — el reparto por item en `/docs/vinosefue/definiciones/4-presupuestador.md` es una aproximacion proporcional, no un dato medido.
 - **2026-07-08: labipac — SESION 3 cerrada (3 mejoras: Unidad/PrecioPorUnidad en Perfiles con simplificacion de F-001, Carga masiva + alta rapida, fix ancho columna PDF, mas 3 fixes de una ronda posterior de QA manual — CIERRE REAL).** Presupuestado en 11.5 h M base / 13.69 h con contingencia (USD 212.52 con Tokens IA, aprobado por el cliente). Real: **2.0 h totales** (incluye los 3 fixes post-QA). **Ratio PERT-contingencia/real = 6.84x, ratio formula-vigente/real = 2.76x — segundo lugar del dataset, muy cerca del record de vinosefue (7.07x/2.86x).** Confirma el mismo patron: es la 3ra ronda de mejoras sobre el mismo proyecto (rondas previas: presupuesto inicial 2026-06-13, ampliacion FABA 2026-06-23), y la banda M de esta ronda ya habia sido ajustada a la baja por reutilizacion (ratio M/mediana 0.67-0.76 con justificacion documentada) — aun asi cerro con una sobreestimacion casi tan alta como vinosefue. Diferencia clave: no es la primera vez que se reutiliza un patron generico de otro proyecto, sino que se reutilizan patrones **construidos en rondas previas del mismo proyecto** (card AJAX de IVA de F-002, endpoint `GetPrecioItem`, `CreateAsync` de servicios ya existentes). Se agrego la regla "segunda/tercera ronda sobre el mismo modulo": cuando aplica esta señal, usar el PISO del rango de "Modificacion sobre modulo existente" en vez de la mediana, incluso si el item parece una pantalla nueva. Regla incorporada tambien al metodo de estimacion del agente presupuestador (`presupuesto-mvc.agent.md`, Paso 0 y Paso 4).
 - **2026-07-29:** decision de negocio — expansion agresiva. Se agrega la seccion "Descuento de expansion agresiva por reutilizacion cross-proyecto": tiers de descuento (30%/15%/0%) sobre Subtotal Etapa1+Etapa2 segun ratio de reutilizacion R, piso absoluto USD 280, Tokens IA siempre sobre subtotal sin descontar. Condicionado al tablero de ciclos economicos (checkpoint octubre 2027). No aplica a mantenimiento, extras ni Merge.
@@ -370,6 +399,7 @@ Regla de recalibracion obligatoria derivada de este patron:
 - **2026-08-27:** decision de negocio — "no cobrar usuario extra hasta superar los 10 usuarios". Reemplaza el criterio anterior de cobrar usuario adicional apenas se superaba el tope "incluido" de cada plan (2 en PRO, 3 en PREMIUM). Motivo: simplifica la conversacion comercial (no hay que explicar upsells de usuario a clientes chicos-medianos, que es la inmensa mayoria del pipeline actual) y el costo marginal real de un usuario adicional en un sistema ya construido es minimo. El plan se sigue determinando por cantidad de tablas, no por usuarios, hasta ese piso de 10. Aplicado el mismo dia a `peras-del-olmo` (PREMIUM+1 usuario USD 625/año → **PREMIUM sin cargo extra, USD 500/año**, 4 usuarios). Proyectos ya cotizados con upsell de usuario bajo el criterio anterior (`cma-centro-medico`, PRO+3 usuarios USD 775/año con 5 usuarios; `audifonos-bariloche`, YA ENVIADO al lead, PREMIUM+3 usuarios USD 800/año con 6 usuarios) quedan con sus numeros previos salvo que Joaquin pida explicitamente recalcularlos — no se tocan documentos ya enviados ni proyectos no mencionados sin pedido explicito.
 - **2026-07-29 (aclaracion sobre objecion de precio en Build ya en Tier 1):** cuando un prospecto en Tier 1 (30% ya aplicado) sigue objetando precio, la palanca recomendada es **regalar el primer año de mantenimiento** (caso por caso, no estructural), NO extender el descuento de Build mas alla del 30% del tier. Motivo: (1) no existe una tabla de "Tier 0" por encima de 30% — inventar un descuento ad hoc rompe el sistema de tiers fijo pensado para cerrar rapido sin negociar caso por caso; (2) el mantenimiento regalado es un costo de UNA SOLA VEZ (se retoma a precio de lista completo desde el año 2), no toca el recurrente compuesto que sostiene el hito 2028 mas alla del año de cierre; (3) hay precedente comercial que funciono: Ganaderia (cierre real 2026-07-03) empaqueto el primer año de mantenimiento (USD 300 en ese momento) dentro del precio total y cerro exitosamente. Aplicado por primera vez bajo esta tabla de precios vigente en la propuesta de ferreteria (borrador 2026-07-25, ajustado 2026-07-29): desarrollo USD 1.485 sin cambios (Tier 1, 30% ya aplicado), mantenimiento PREMIUM año 1 regalado (USD 500), año 2 en adelante a precio de lista USD 500/año. Esto es una **excepcion explicita** a la regla "el mantenimiento nunca lleva descuento" (ver seccion "Descuento de expansion agresiva") — esa regla sigue vigente para descuentos estructurales/permanentes; regalar el año 1 como incentivo de cierre puntual no la contradice porque no es un descuento sobre el precio de lista del plan, es una promocion de arranque caso por caso que no se documenta como nueva fila de la tabla de planes. **Superseded 2026-08-27**: esta seccion documenta el criterio ORIGINAL (usar solo ante objecion de precio real, no por default) — reemplazado por la regla vigente en "Planes de mantenimiento anual" arriba, que aplica el año 1 gratis SIEMPRE por defecto en Build inicial de cliente nuevo, sin necesidad de objecion previa. Se deja esta entrada para trazabilidad historica del razonamiento original (por que se penso como excepcion puntual en su momento), no como regla vigente.
 - **2026-07-29 (tipo de cambio real observado H1 2026, para conversion ARS-USD honesta en seguimiento del hito 2028):** research de dolar blue Argentina, 2026: minimo USD 1 = $1.390 ARS (08/04/2026), maximo $1.570 ARS (28/07/2026), apertura de año $1.530 ARS (02/01/2026). Rango de referencia para convertir cobros en ARS a USD cuando no se tiene el TC exacto del dia de cada pago: **$1.390 - $1.570, promedio aproximado $1.480**. No usar un numero unico falso-preciso (ej. "$1.500 fijo") para reconstruir ingresos historicos en ARS — usar este rango y declarar el supuesto. Fuente: cotizacion-dolar.com.ar / rava.com, consultado 2026-07-29.
+- **2026-09-08: decision de negocio — factor de eficiencia de Build 2.5 → 4.0, resuelta por `olvidata-ceo` y confirmada por Joaquin.** Detonante doble el mismo dia: (1) cierre real de KOI/Ayres (integracion REST, 2.6 h reales contra una ancla de 15-18 h) y (2) baja del proyecto de referencia "Energy Nutrition" del dataset, sin haber cerrado nunca — la condicion que congelaba el factor ("hasta que cierre Energy Nutrition") ya no podia cumplirse. Formula de Build: `M/4.0 x 1.20 x $35 = M x $10.50` (antes `M x $16.80`). Razonamiento: separar cierres evolutivos/reutilizacion (vinosefue 2.86x, labipac 2.76x, KOI/Ayres — reutilizo PAT-024 — ya compensados por M chico + descuento de expansion agresiva por R) del unico cierre greenfield limpio (Ganaderia, 1.93x formula/real → factor real implicito ~4.8x); 4.0 es conservador respecto de ese ~4.8x y muy por debajo del ~5.9x que sale de promediar todo el dataset sin distinguir familias. Tarifa nominal USD 35/h sin cambios, Tokens IA (25%) sin cambios en el mecanismo. **Forkeado explicitamente:** Merge, modulo nuevo post-entrega y "Extras opcionales" se quedan en factor 2.5 / `M x $16.80` — es la zona de margen real del negocio, excluida del descuento de expansion agresiva, y el trabajo que cae ahi es mayoritariamente el tipo "evolutivo" que ya esta compensado por otro lado; subir tambien ahi el factor global habria sido contar la misma eficiencia dos veces. No afecta planes de mantenimiento (`precios.astro`, tabla STARTER/PRO/PREMIUM/SCALE, no se calculan con esta formula) ni contratos de clientes existentes. Detalle completo del razonamiento en "Modelo de facturacion" y "Notas de calibracion" (entrada del factor). De paso, se removieron del documento las ultimas referencias a "Energy Nutrition" que habian quedado sueltas: las filas "Integracion webhook" e "Integracion batch doble" de "Rangos de referencia por tipo de modulo" (sin cierre real, EN era su unica fuente) y la fila I-4 de "Auditoria de inconsistencias" (referenciaba "EN v4.0, pendiente cierre real").
 - Al referenciar historicos anteriores a Junio 2026, usar las horas como referencia de esfuerzo y recalcular el costo con la tasa vigente de USD 35/h.
 - Revisar y actualizar la tasa cada 6 meses o ante cambio de contexto economico.
 - La contingencia se aplica una unica vez segun la politica vigente (variable por riesgo 8/15/25 por defecto, o fija del cliente cuando aplique).
@@ -379,16 +409,16 @@ Regla de recalibracion obligatoria derivada de este patron:
 
 ## Auditoria de inconsistencias — Junio 2026
 
-Detectadas al incorporar Energy Nutrition y definir objetivo USD 35/h. Estado de cada una:
+Detectadas al definir el objetivo USD 35/h. Estado de cada una:
 
 | # | Inconsistencia | Causa | Estado |
 |---|---|---|---|
-| I-1 | Tasa vigente USD 30/h estaba POR DEBAJO del piso declarado USD 35/h en Energy Nutrition 4b | Tasa bajo de 45→30 sin actualizar el piso | CORREGIDO — tasa vigente = USD 35/h, piso = USD 30/h |
+| I-1 | Tasa vigente USD 30/h estaba POR DEBAJO del piso declarado USD 35/h | Tasa bajo de 45→30 sin actualizar el piso | CORREGIDO — tasa vigente = USD 35/h, piso = USD 30/h |
 | I-2 | Extras opcionales referenciaban USD 45/h como tasa de validacion | No se actualizo la tabla al bajar la tasa | CORREGIDO — tabla recalculada a USD 35/h |
 | I-3 | Rangos de costo por modulo calculados a USD 30/h | Tercera actualizacion de tasa no los sincronizo | CORREGIDO — rangos actualizados a USD 35/h |
-| I-4 | Integraciones externas sin rango de referencia en dataset | Ningun proyecto anterior las incluia | CORREGIDO — 4 nuevos tipos de integracion agregados (fuente: EN v4.0, pendiente cierre real) |
-| I-5 | Sobreestimacion sistematica detectada pero sin guia de uso para modelo de horas reales | La alerta existia pero no decia que hacer si se cobra por hora real | CORREGIDO — seccion "Modelo de facturacion" con regla de division por 2.5 |
+| I-4 | Integraciones externas sin rango de referencia en dataset | Ningun proyecto anterior las incluia | SUPERSEDED 2026-09-08 — los 4 tipos originales (fuente: EN v4.0, sin cierre real) fueron reemplazados por 2 tipos con cierre real: Integracion REST documentada (KOI/Ayres, 2026-09-08) e Integracion ARCA/AFIP (marihogar, PAT-006). Ver "Rangos de referencia por tipo de modulo" e I-8. |
+| I-5 | Sobreestimacion sistematica detectada pero sin guia de uso para modelo de horas reales | La alerta existia pero no decia que hacer si se cobra por hora real | CORREGIDO — seccion "Modelo de facturacion" con regla de division por 2.5 (factor de Build actualizado a 4.0 el 2026-09-08, Merge se mantiene en 2.5 — ver esa seccion) |
 | I-6 | Historial de tasa confuso (14→40→45→30 en mismo mes) sin razon explicita | Calibraciones rapidas sin documentar motivacion | CORREGIDO — historial simplificado en notas de calibracion |
 | I-7 | Ganaderia en dataset con tasa USD 12/h, inconsistente con tasas actuales | El documento de ganaderia usa tasa historica del contrato | PENDIENTE — al usar ganaderia como referencia de horas, ignorar la columna USD; recalcular a USD 35/h |
-| I-8 | Energy Nutrition sin cierre real, riesgo de usar sus horas como verdad | Proyecto en estado BORRADOR | MITIGADO — EN marcado explicitamente como "sin cierre real" en lista de proyectos y en su memoria |
+| I-8 | Riesgo de usar como verdad las horas de una estimacion sin cierre real | Proyecto de referencia en estado BORRADOR dentro del dataset | RESUELTO 2026-09-08 — el proyecto fue dado de baja del dataset y sus rangos de integracion eliminados; ya no hay estimaciones sin cierre real en las anclas |
 | I-9 | Metodo PERT no diferencia entre precio fijo y horas reales | El PERT siempre produjo estimaciones de "precio fijo maximo" | MITIGADO — seccion "Modelo de facturacion" documenta la diferencia y la regla de ajuste |

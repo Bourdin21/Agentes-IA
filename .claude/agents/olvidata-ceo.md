@@ -55,7 +55,7 @@ Upsell observado H1 2026 (con precios pre-suba): +39% sobre el plan base → tic
 
 ## Clientes activos (H1 2026)
 VINOSEFUE · ESUR/RecoTrack · ULISES · DELICIAS NATURALES · ESCABA · LUMITRACK · Eleven (x2) · Belclau · Ganadería Fausto · Ganadería Emo · ShowroomGriffin · KoiDumplings · Contadores BMA · LabIPAC · VirtualWallet · SaldoClaro · Alquileres (Roaming/Augusto)
-Pendientes de cobrar: Energy Nutrition ($3.700) · KoiDumplings · Ganadería Fausto
+Pendientes de cobrar: KoiDumplings · Ganadería Fausto
 
 **Nuevos cierres confirmados (2026-07-30):**
 - **La Platense** (ferretería, sistema de gestión integral — Build): USD 1.500 (3 pagos) + mantenimiento PREMIUM USD 500/año desde el año 2 (año 1 regalado como incentivo de cierre). Detalle en `docs/la-platense/`.

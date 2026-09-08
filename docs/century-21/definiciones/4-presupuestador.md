@@ -39,7 +39,9 @@ Cliente piloto: Century 21 La Plata. Objetivo: construir una plataforma SaaS mul
 
 ## 5. PASO 0 — Anclaje histórico
 
-Referencias seleccionadas: **marihogar** (76h M / 10 módulos, bot WhatsApp + catálogo con fotos, misma era de tasa/formula), **Energy Nutrition** (integraciones batch/webhook, sin cierre real — solo método y rangos), **ShowroomGriffin** (86.57h base / 11 módulos, infra transversal), **labipac** (integración parcial API, cierre real reciente).
+Referencias seleccionadas: **marihogar** (76h M / 10 módulos, bot WhatsApp + catálogo con fotos, misma era de tasa/formula), **ShowroomGriffin** (86.57h base / 11 módulos, infra transversal), **labipac** (integración parcial API, cierre real reciente).
+
+*Nota 2026-09-08: este presupuesto se ancló en su momento también contra un proyecto de referencia sin cierre real, dado de baja del dataset. Las cifras de abajo no se recalcularon — se deja constancia de que esa ancla ya no es válida para presupuestos nuevos.*
 
 ## 6. WBS con PERT completo
 
@@ -104,7 +106,6 @@ Referencias seleccionadas: **marihogar** (76h M / 10 módulos, bot WhatsApp + ca
 |---|---:|---:|---:|
 | marihogar (bot WhatsApp + catálogo con fotos, sin AFIP) | 10 | 76h | 0.91 ✅ |
 | ShowroomGriffin (multi-rol, sin integraciones externas) | 11 | 86.57h | 0.80 — justificado: century-21 no tiene módulo financiero pesado tipo "Ventas" |
-| Energy Nutrition (4 integraciones externas) | 18 | 117.3h | avg 5.3h/módulo vs 6.5h/módulo EN — coherente (century-21 tiene 13 módulos ahora, más chicos en promedio) |
 
 **Conclusión:** total 69.0h M (13 módulos) coherente con el dataset tras la reestimación por cambio de roles. Sin ajuste adicional.
 
