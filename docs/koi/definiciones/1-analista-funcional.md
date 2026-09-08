@@ -789,15 +789,15 @@ Prueba de concepto completa: se trajo agosto 2026 entero de Ayres y se comparó 
 | Salón | 54.837.560,00 | `ME` 52.404.760,00 | +2.432.800 |
 | Pedidos | 8.293.549,00 | `PE` 8.293.849,00 | −300 |
 | Mostrador | 100,00 | `MO` 2.432.500,00 | −2.432.400 |
-| Comensales | 1.678 | 1.735 | −57 |
-| **Cantidad de ventas** | **2.000** | **1.062** | **+938 (+88 %)** |
+| Comensales | 1.678 | **1.678** | ✅ **coincide** (ver 15.11) |
+| **Cantidad de ventas** | **2.000** | **1.018** | **+982 (+96 %)** |
 
-Otros KPIs reales de agosto: ticket promedio $59.445,49 · venta por cubierto $36.386,81 · ítems totales 5.924 · ítems por venta 5,58 · ventas por día 34,26.
+Otros KPIs reales de agosto: ticket promedio $62.014,84 · ítems totales 5.924 · ventas por día 32,84. *(Cifras corregidas en 15.11: excluyen las ventas anuladas.)*
 
 **Conclusión: el total cierra al centavo, el detalle no.** Tres hallazgos de calidad de dato, todos a favor de automatizar:
 
 1. **El desglose por canal es incorrecto.** El operador sumó Mostrador dentro de Salón (`ME + MO = 54.837.260` ≈ el Salón cargado) y dejó $100 simbólicos en Mostrador. El desglose Salón/Pedidos/Mostrador de los períodos históricos **no es confiable**, y es justamente el que alimenta los indicadores por canal.
-2. **La "Cantidad de ventas" está cargada casi al doble** (2.000 vs 1.062 reales). Impacta directo en el ticket promedio, que hoy se muestra subestimado ~47 %.
+2. **La "Cantidad de ventas" está cargada casi al doble** (2.000 vs 1.018 reales). Impacta directo en el ticket promedio: el sistema muestra ~$31.566 cuando el real es ~$62.015, o sea **menos de la mitad**.
 3. La diferencia de $100 en el total es exactamente el valor simbólico puesto en Mostrador.
 
 **Corrección a §10.1.1:** ahí se documentó `sectorTipo "ME" = mostrador`. Los datos reales lo desmienten: `ME` son 812 ventas por $52,4 M (el grueso del restaurante) y existe un `MO` separado de 54 ventas por $2,4 M. El mapeo correcto es **`ME` = Salón (mesa), `PE` = Pedidos, `MO` = Mostrador**, y la conciliación aritmética de arriba lo confirma. Debe validarse con el cliente antes de escribirlo en código (P-A08).
@@ -822,7 +822,7 @@ Otros KPIs reales de agosto: ticket promedio $59.445,49 · venta por cubierto $3
 - **CA-2**: al confirmar, el Estado de Resultados queda con esos valores y los conceptos porcentuales se recalculan solos.
 - **CA-3**: un mes completo se resuelve en varias llamadas de ≤ 10 días sin que el usuario tenga que saberlo.
 - **CA-4**: si el token vence a mitad de una importación, el sistema lo renueva y continúa sin error visible.
-- **CA-5**: sobre agosto 2026, el total traído es `63.131.109,00` (tolerancia $0) y la cantidad de ventas `1.062`.
+- **CA-5**: sobre agosto 2026, el total traído es `63.131.109,00` (tolerancia $0), la cantidad de ventas `1.018` y los comensales `1.678` — **excluyendo las 44 ventas anuladas** (ver 15.11).
 - **CA-6**: con la API caída o inalcanzable, la pantalla informa el problema y **el período queda intacto**.
 - **CA-7**: intentar traer ventas sobre un período cerrado se rechaza con mensaje claro.
 
@@ -840,7 +840,7 @@ Otros KPIs reales de agosto: ticket promedio $59.445,49 · venta por cubierto $3
 - **R-A01 (RESUELTO — ver 15.10):** se habilitó la salida a `190.245.226.181:8520` desde el panel de hosting. El login real desde producción devuelve `200 SUCCESS` en 220 ms. Queda como **dependencia operativa**: la regla está atada a una IP fija; si Ayres cambia de servidor, la integración se corta y el síntoma será el mismo WSAEACCES.
 - **R-A02 (medio):** la API va por **HTTP plano, sin TLS**, y la credencial viaja en el body. Exposición a intercepción en tránsito. Debe plantearse a Ayres/MaxiSistemas; no lo resuelve el código de KOI.
 - **R-A03 (medio):** volumen — 1.062 ventas/mes con sus `items[]`. Conviene agregar por chunk y descartar el detalle en vez de sostener el mes entero en memoria.
-- **R-A04 (bajo):** el parámetro `estado` de la venta no se filtró en las pruebas. Hay que verificar si existen ventas anuladas que no deban sumar. El total cerró al centavo, así que probablemente no las haya en agosto, pero no está probado.
+- **R-A04 (RESUELTO — ver 15.11):** sí había ventas anuladas, y sí distorsionaban. Se excluyen del agregado.
 
 ### 15.9 R-A01 CERRADO — el hosting bloquea la salida al puerto 8520 (2026-09-08)
 
@@ -890,4 +890,25 @@ Los puertos 8080 y 3306 salían **desde el principio**: no era una whitelist de 
 **R-A02 sigue abierto:** la API continúa siendo `http://` sin TLS, con la credencial en el body. Habilitar el puerto nos destrabó sin depender de terceros, pero el pedido a Ayres de exponerla en 443 con certificado mantiene sentido por seguridad. **Deja de ser bloqueante y pasa a ser tema para el cliente.**
 
 **Estado del módulo: VIABLE.** Se levanta el freno sobre Diseño, Arquitectura y Presupuesto.
+
+### 15.11 R-A04 RESUELTO — las ventas anuladas distorsionaban tres indicadores (2026-09-08)
+
+Detectado al verificar la implementación contra producción, gracias a que el módulo se instrumentó para **informar** los estados en vez de sumarlos a ciegas (decisión de arquitectura §12.5).
+
+Ayres marca el estado de cada venta: `C` = cerrada, `X` = anulada. **Las anuladas vienen siempre en $0** — por eso el importe total cerraba perfecto contra la carga manual y el problema era invisible— **pero arrastran comensales**.
+
+| Agosto 2026 | Con anuladas | Solo cerradas | Cargado a mano |
+|---|---|---|---|
+| Ventas | 1.062 | **1.018** | 2.000 |
+| Importe | 63.131.109,00 | **63.131.109,00** | 63.131.209,00 |
+| Comensales | 1.735 | **1.678** | **1.678** |
+| Ticket promedio | 59.445,49 | **62.014,84** | 31.565,60 |
+
+**El hallazgo que corrige el análisis de 15.4:** ahí se reportó "Comensales: manual 1.678 vs Ayres 1.735, desvío −57" y se lo contó como un error de carga. **Era al revés.** 1.735 − 57 (los comensales de las 44 anuladas) = **1.678 exactos**. El Administrador que carga a mano **ya venía excluyendo las anuladas y su dato era correcto**; el agregado del análisis era el que estaba mal por incluirlas. Corregido en la tabla de 15.4.
+
+**Decisión aplicada:** solo las ventas cerradas entran al agregado. Las excluidas se cuentan aparte y el preview las informa explícitamente ("Se excluyeron N venta(s) sin cerrar"). No se descartan en silencio: si algún día aparece un estado nuevo, se ve.
+
+**Verificado en producción** sobre septiembre 2026 (período abierto), contrastando el preview de la aplicación contra un cálculo independiente hecho por fuera del sistema: 180 ventas, $11.155.330,00, 285 comensales, ticket $61.974,06, Salón $9.104.600 / Pedidos $1.573.830 / Mostrador $476.900. **Coincidencia exacta en todos los campos**, y las 4 anuladas informadas como advertencia.
+
+**Lo que queda en pie de 15.4:** la Cantidad de ventas cargada a mano sigue siendo errónea (2.000 contra 1.018 reales) y el desglose por canal también (Mostrador imputado dentro de Salón). El ticket promedio que el cliente ve hoy es **menos de la mitad** del real.
 

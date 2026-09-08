@@ -37,3 +37,19 @@ La migración de datos históricos (CU-15) ya se ejecutó en el entorno local y 
 - El Excel fuente nunca trackeó "Cantidad de comensales" ni "Cantidad de ventas" por mes — esos indicadores quedan vacíos ("—") en los períodos migrados hasta que se cargue el primer mes con datos reales desde el sistema.
 - El Excel fuente no distinguía canal Pedidos/Mostrador en el histórico (solo Facturado A / No facturado B) — los períodos migrados muestran 100% "Salón" hasta el primer mes cargado nativamente en el sistema (mismo criterio ya aprobado para el riesgo M14 del arquitecto).
 - ~5 a 11 de los 100 puntos de inversión por mes no tienen un inversor nombrado con historial propio en el Excel (aparecen como "disponibles" en Puntos) — es una característica del Excel original, no un dato perdido en la migración.
+
+---
+
+## Documentación — Módulo E2-01 "Integración Ayres POS" (Septiembre 2026)
+
+**Entregable:** `docs/koi/manual-usuario.md` actualizado. Tres cambios, no uno:
+
+1. **Sección nueva "Traer las ventas desde Ayres — paso a paso"**, ubicada entre la carga del Estado de Resultados y el cierre de período, que es el orden real del recorrido del usuario. Explica el flujo de 5 pasos, y remarca lo que más tranquiliza a quien opera: *hasta que no confirma, el sistema no modificó nada*. Incluye qué pasa con las anuladas, el mes en curso, y qué ocurre si Ayres no responde (el período queda intacto, nunca a medias).
+
+2. **Corrección de documentación que había quedado obsoleta y nadie había detectado:**
+   - El manual describía cargar los gastos "con el botón de edición (lápiz) de cada línea". **Ese botón ya no existe** desde la Etapa 18 (edición inline por AJAX). Reescrito, sumando la explicación del borde punteado de los conceptos porcentuales y del botón ↺ para volver al % (Etapa 19).
+   - La sección "Qué no incluye esta versión" listaba **cámaras, fichador y conexión con Ayres** como no entregados. **Los tres ya están entregados.** Reescrita para reflejar lo que efectivamente sigue afuera: sincronización automática (excluida a propósito) y los endpoints de Ayres que no son ventas.
+
+3. **Advertencia operativa para el cliente (D-A01):** el manual explica, sin tecnicismos, que la conexión depende de la dirección del servidor de Ayres y que si el proveedor lo cambia la conexión se corta — que no es una falla ni una pérdida de datos, y a quién avisar. Se cierra aclarando que **la carga manual sigue disponible siempre**: la integración es una comodidad, no un requisito.
+
+**Criterio aplicado:** el manual está escrito para el cliente, no para el equipo. No menciona endpoints, tokens, chunking ni nombres de clases. Lo que sí menciona —que Ayres solo permite pedir de a 10 días— está para explicar por qué la pantalla tarda unos segundos, no como detalle técnico.

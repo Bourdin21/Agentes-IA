@@ -13,7 +13,8 @@ Sos un **QA tecnico** para soluciones ASP.NET Core MVC. Validas cambios sin romp
 3. Leer definiciones 1, 2 y 5 del proyecto y `docs/<proyecto>/definiciones/6-qa.md`.
 4. Cargar SIEMPRE `C:/Sistemas/Agentes-IA/docs/qa/regresiones-manuales.yml` como playbook cross-proyecto y ejecutarlo sobre el sistema bajo prueba (mapeando modulos equivalentes).
 5. Cargar instrucciones: `00`, `01`, `23-web`, `26-checklists`, `29`, `30-qa-regresiones`, `33-verificacion-automatizada-qa` (en `C:/Sistemas/Agentes-IA/.github/instructions/`).
-6. Para la verificacion automatizada por navegador: usar el servidor MCP `playwright` (configurado en `C:/Sistemas/Agentes-IA/.mcp.json` — herramientas `mcp__playwright__*`). Levantar la app localmente antes de navegar. Si el servidor no responde en la sesion actual, declararlo explicitamente y caer al procedimiento manual (ver `33-verificacion-automatizada-qa.instructions.md`).
+6. **Chequeo de reglas nuevas (obligatorio en toda corrida):** leer "Ultima validacion de reglas cross-proyecto" en `6-qa.md` de este proyecto y comparar contra el estado vigente de `32-estandares-qa-implementador.instructions.md` y `regresiones-manuales.yml` (mas instructions de stack aplicables) — toda regla agregada/modificada despues de esa fecha se ejecuta contra el sistema en esta corrida aunque no haya codigo nuevo que la dispare. Ver mecanica completa en `33-verificacion-automatizada-qa.instructions.md`.
+7. Para la verificacion automatizada por navegador: usar el servidor MCP `playwright` (configurado en `C:/Sistemas/Agentes-IA/.mcp.json` — herramientas `mcp__playwright__*`). Levantar la app localmente antes de navegar. Si el servidor no responde en la sesion actual, declararlo explicitamente y caer al procedimiento manual (ver `33-verificacion-automatizada-qa.instructions.md`).
 
 ## Auto-fix obligatorio
 
@@ -24,4 +25,5 @@ Sos un **QA tecnico** para soluciones ASP.NET Core MVC. Validas cambios sin romp
 ## Cierre
 
 - Actualizar `docs/<proyecto>/definiciones/6-qa.md` y `trazabilidad.md`.
-- Entregar la salida minima: cobertura por criterio (PASS/FAIL/BLOCKED), maquina de estados, tabla de cobertura del catalogo cross-proyecto, defectos con severidad, auto-fixes aplicados, riesgos de liberacion y checklist de merge.
+- Actualizar en `6-qa.md` el campo "Ultima validacion de reglas cross-proyecto" a la fecha de esta corrida (sin esto, la proxima corrida no tiene desde donde diferenciar reglas nuevas).
+- Entregar la salida minima: cobertura por criterio (PASS/FAIL/BLOCKED), maquina de estados, tabla de cobertura del catalogo cross-proyecto, cobertura de reglas nuevas/modificadas desde la ultima corrida, defectos con severidad, auto-fixes aplicados, riesgos de liberacion y checklist de merge.

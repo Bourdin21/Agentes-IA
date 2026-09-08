@@ -2332,3 +2332,69 @@ regresiones:
       - "Editar el monto de $1000 a $400 -> la caja vigente refleja -$600 neto, la caja original no cambia."
     nota_generalizacion: "Es la contracara de MH-020 regla (b) ('los pagos ya posteados se reversan por un CONTRAMOVIMIENTO nuevo â€” nunca editando ni borrando el movimiento original') mirada desde la EDICION en vez de la cancelacion. Aplica a todo proyecto del estudio que tenga (a) movimientos financieros agrupados en un contenedor con estado terminal (caja diaria, periodo contable, cierre mensual) y (b) una operacion de correccion que reversa el movimiento original. Regla: reversar SIEMPRE por contramovimiento en el periodo abierto; el soft-delete del movimiento original solo es aceptable si se puede garantizar que su periodo sigue abierto. Ojo tambien con la mitad simetrica: exigir un contenedor ABIERTO para poder corregir un dato que no mueve plata (una fecha) convierte una correccion trivial en una operacion bloqueada."
 
+
+  - id: KOI-009
+    modulo: Global / URLs AJAX bajo aplicacion anidada (_Layout, Dashboard, notifications.js)
+    titulo: "Las llamadas AJAX con URL absoluta desde la raiz (/Controller/Accion) dan 404 cuando la app esta deployada como aplicacion ANIDADA bajo un subdirectorio (/koi)"
+    severidad: major
+    reproducido_en: produccion (https://portaldelinversor.com.ar/koi/)
+    pasos:
+      - "Deployar la app como aplicacion anidada bajo un subdirectorio (PathBase = /koi)."
+      - "Abrir el Dashboard con la consola del navegador abierta."
+      - "Observar la pestana Red."
+    sintoma: "404 GET https://<host>/Notifications/GetRecent y 404 GET https://<host>/Dashboard/Historico?meses=12 (sin el prefijo /koi). La campanita de notificaciones nunca carga, el grafico historico del Dashboard queda vacio, y marcar notificaciones como leidas no persiste. En consola: 'Unexpected token <, \"<!DOCTYPE \"... is not valid JSON' — es el HTML del 404 parseado como JSON."
+    expectativa: "Toda URL de AJAX se resuelve contra el PathBase de la app, no contra la raiz del host."
+    causa_raiz: "5 call sites escriben la URL como literal absoluto desde la raiz ('/Notifications/GetRecent') en vez de resolverla con Url.Content('~/...'), Url.Action(...) o un prefijo global tomado de Request.PathBase. Funciona en local (donde PathBase es vacio) y se rompe solo al deployar anidado, por eso pasa el build y la prueba local."
+    capa: Web
+    archivos_fix:
+      - path: KoiDumplings.Web/wwwroot/js/notifications.js
+        motivo: "Lineas 11, 46 y 56: $.get('/Notifications/GetRecent'), $.post('/Notifications/MarkAsRead'), $.post('/Notifications/MarkAllAsRead'). Al ser un .js estatico no puede usar Url.Content: exponer el PathBase desde _Layout (ej. window.APP_BASE = '@Url.Content(\"~/\")') y prefijar."
+      - path: KoiDumplings.Web/Views/Dashboard/Index.cshtml
+        motivo: "Linea 906: fetch('/Dashboard/Historico?meses=' + meses) -> fetch('@Url.Action(\"Historico\", \"Dashboard\")?meses=' + meses)."
+      - path: KoiDumplings.Web/Views/Shared/_Layout.cshtml
+        motivo: "Linea 402: fetch('/Account/ToggleTema') -> Url.Action. Ademas es el lugar natural para publicar window.APP_BASE."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Escuchar page.on('response') y filtrar status >= 400 mientras se navega el Dashboard"
+      condicion_falla: "Aparece cualquier request 404 cuya URL NO contenga el PathBase de la app."
+    criterio_aceptacion:
+      - "Navegando cualquier pantalla no hay ningun 404 de endpoints propios."
+      - "La campanita lista las notificaciones recientes."
+      - "El grafico historico del Dashboard se dibuja con datos."
+      - "El toggle de tema persiste tras recargar."
+    pruebas_minimas:
+      - "Con la app bajo /koi: abrir Dashboard y confirmar 0 requests 404 a endpoints propios."
+      - "Click en la campanita -> se listan notificaciones."
+      - "Cambiar el tema y recargar -> el tema elegido se mantiene."
+    nota_generalizacion: "Aplica a TODO proyecto del estudio que se deployee bajo un subdirectorio (SmarterASP con aplicacion anidada). Regla: en Razor usar siempre Url.Action/Url.Content; en .js estaticos nunca escribir rutas absolutas desde la raiz — tomar el prefijo de una variable global publicada por el layout. El modo de falla es especialmente traicionero porque el build compila, la prueba local pasa, y en produccion la funcionalidad falla EN SILENCIO (un 404 de un GET AJAX no muestra nada al usuario)."
+
+  - id: KOI-010
+    modulo: P-03 Estado de Resultados mensual / repintado AJAX del % de referencia
+    titulo: "El % de referencia de un concepto porcentual se repinta como '3.00 %' (punto) en vez de '3,00 %' (coma) tras revertir/guardar por AJAX"
+    severidad: minor
+    reproducido_en: produccion (https://portaldelinversor.com.ar/koi/), periodo 2026-09
+    pasos:
+      - "Como Administrador abrir Estado de Resultados de un periodo ABIERTO."
+      - "Sobrescribir a mano el importe de un concepto porcentual (ej. Regalias 3%)."
+      - "Pulsar el boton 'volver al %' de la columna de porcentaje y confirmar."
+      - "Mirar la celda del % SIN recargar la pagina."
+    sintoma: "La celda muestra '3.00 %' con punto decimal. Al recargar la pagina vuelve a verse '3,00 %'. Convive en la misma grilla con importes formateados en es-AR, asi que la inconsistencia es visible."
+    expectativa: "El repintado por AJAX respeta el mismo formato es-AR que rinde Razor con ToString(\"N2\")."
+    causa_raiz: "pintarPorcentajeConcepto() usaba valor.toFixed(2), que siempre emite punto decimal, en vez del helper fmt() que el resto de la vista ya usa (toLocaleString('es-AR')). Es el unico repintado numerico de la vista que no pasa por fmt()."
+    capa: Web
+    archivos_fix:
+      - path: KoiDumplings.Web/Views/EstadoResultados/Mensual.cshtml
+        motivo: "En pintarPorcentajeConcepto(): reemplazar valor.toFixed(2) por fmt(valor), conservando el fallback '—' cuando no hay porcentaje."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "span.porcentaje-valor dentro de tr[data-subgrupo-id] tras un POST a RevertirConcepto o GuardarVentas"
+      condicion_falla: "El texto del span contiene el porcentaje con PUNTO decimal (ej. 3.00 %) en vez de coma (3,00 %)."
+    criterio_aceptacion:
+      - "Tras revertir al %, la celda muestra el porcentaje con coma decimal, igual que tras una recarga."
+      - "El fallback '—' se conserva cuando el concepto no tiene porcentaje."
+    pruebas_minimas:
+      - "Override + revertir sobre un concepto porcentual -> la celda muestra '3,00 %' sin recargar."
+      - "Recargar la pagina -> el valor coincide con el que se veia antes de recargar."
+    nota_generalizacion: "Patron a vigilar en toda vista que repinte numeros por AJAX: el servidor rinde con la cultura es-AR y el cliente tiende a usar toFixed(), que es invariante. Si la vista ya tiene un helper de formato, TODO repintado numerico debe pasar por el; un solo call site que se saltee el helper produce una inconsistencia visible dentro de la misma grilla."

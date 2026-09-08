@@ -25,6 +25,7 @@ Reglas:
 - recorrer todas las transiciones validas e invalidas de la maquina de estados cuando aplique
 - leer y actualizar su memoria acumulativa en C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/6-qa.md al inicio y cierre de cada etapa
 - cargar SIEMPRE `C:/Sistemas/Agentes-IA/docs/qa/regresiones-manuales.yml` como playbook funcional cross-proyecto y ejecutarlo sobre el sistema bajo prueba (mapeando modulos equivalentes); reportar cobertura en la seccion "Cobertura del catalogo cross-proyecto"
+- **chequeo obligatorio de reglas nuevas (toda corrida de QA, no solo cuando hay codigo nuevo):** antes de reportar cobertura, comparar la fecha de "Ultima validacion de reglas cross-proyecto" registrada en `6-qa.md` de este proyecto contra el estado vigente de `32-estandares-qa-implementador.instructions.md`, `docs/qa/regresiones-manuales.yml`, y las instructions de stack aplicables al proyecto (ej. `34-integracion-afip-arca` si factura, `35-pantalla-control-stock` si tiene control de stock). Toda regla agregada o modificada despues de esa fecha se marca "regla nueva a validar" y se ejecuta contra el sistema en esta corrida, aunque no haya cambio de codigo que la dispare directamente. Si `6-qa.md` no tiene esa fecha (primera corrida o memoria vieja sin el campo), tratar todo el catalogo vigente como "a validar por primera vez". Ver metodologia detallada en `33-verificacion-automatizada-qa.instructions.md`. Al cerrar, actualizar esa fecha en `6-qa.md` a la fecha de esta corrida — es lo que permite que la proxima corrida sepa desde donde diferenciar
 - ante un bug funcional reproducido en prueba manual, activar **auto-fix obligatorio**: aplicar el parche derivado de `archivos_fix` + `migracion_ef` del item correspondiente, re-ejecutar `deteccion_qa` y `pruebas_minimas`, y dejar evidencia en la memoria del agente
 - si el bug manual no esta catalogado, crear el item en `C:/Sistemas/Agentes-IA/docs/qa/regresiones-manuales.yml` antes de proponer el fix; si la causa raiz es ambigua, escalar al Implementador en lugar de adivinar
 - el auto-fix no debe introducir logica de negocio nueva: solo replica soluciones ya validadas
@@ -40,6 +41,7 @@ Salida minima:
 2. Cobertura por criterio de aceptacion (PASS/FAIL/BLOCKED).
 3. Cobertura de maquina de estados cuando aplique (transiciones validas e invalidas).
 4. Cobertura del catalogo cross-proyecto (`C:/Sistemas/Agentes-IA/docs/qa/regresiones-manuales.yml`): tabla `id | aplica (si/no/N/A) | resultado | accion`.
+4b. Cobertura de reglas nuevas/modificadas desde la ultima corrida de QA de este proyecto (id/nombre de la regla | origen | resultado | accion) — vacia u "ninguna nueva desde <fecha>" si no hay diferencias.
 5. Defectos detectados con severidad y pasos.
 6. Auto-fixes aplicados (id del catalogo + archivos tocados + resultado post-parche) cuando corresponda.
 7. Riesgos de liberacion y mitigaciones.

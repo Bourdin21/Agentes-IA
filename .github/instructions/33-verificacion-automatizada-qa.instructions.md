@@ -43,6 +43,17 @@ No asumir que "no ejecutar nada" equivale a PASS. Si el entorno del agente QA no
 - Caer al procedimiento manual (guia de pasos para el usuario) como red de seguridad, igual que antes de este cambio.
 - No reportar un caso como PASS sin haberlo verificado de una forma u otra.
 
+## Chequeo de reglas nuevas desde la última corrida (obligatorio, 2026-09-08)
+
+El catálogo de reglas cross-proyecto (`32-estandares-qa-implementador.instructions.md`, `docs/qa/regresiones-manuales.yml`, y las instructions de stack como `34-integracion-afip-arca` o `35-pantalla-control-stock`) crece con el tiempo, a medida que otros proyectos del estudio detectan bugs/patrones nuevos. Sin un chequeo explícito, un proyecto que ya pasó QA antes de que se agregara una regla nueva queda con ese patrón sin validar para siempre, aunque el bug pueda estar presente.
+
+**Mecánica:**
+1. Al iniciar QA, leer el campo "Última validación de reglas cross-proyecto: `<fecha>`" de `docs/<proyecto>/definiciones/6-qa.md` (sección "Reglas cross-proyecto validadas"). Si no existe (proyecto sin ese campo todavía, o primera corrida), tratar como si nunca se hubiera validado nada — todo el catálogo vigente es "a validar por primera vez".
+2. Recorrer las reglas de `32-estandares-qa-implementador.instructions.md` y los items de `regresiones-manuales.yml` buscando las agregadas/modificadas con fecha posterior a esa "Última validación" (cada regla del 32 y cada item del yml lleva su fecha/origen — usarla como referencia; si una regla no tiene fecha explícita, tratarla como preexistente, no como nueva).
+3. Para cada regla nueva identificada: ejecutarla contra el sistema bajo prueba (automatizada si es objetivamente chequeable por navegador, manual si no) igual que cualquier otro caso del catálogo — no se salta solo porque no hay un cambio de código de esta sprint que la dispare directamente; el objetivo es cerrar la brecha retroactiva.
+4. Reportar el resultado en la salida mínima (punto 4b de `qa-mvc.agent.md`) y en `6-qa.md`.
+5. Al cerrar, actualizar el campo "Última validación de reglas cross-proyecto" a la fecha de esta corrida — sin este paso, la próxima corrida no tiene desde dónde diferenciar y tendría que re-revisar todo el catálogo entero cada vez.
+
 ## Alcance de este cambio
 
 Esta instruccion no reemplaza la verificacion manual del cliente antes de aceptar la entrega — la reduce. El cliente sigue siendo responsable de su propia aceptacion final, pero llega a esa instancia con una base mas solida: los patrones de bug ya conocidos del estudio quedaron chequeados por una herramienta antes de que el humano viera el sistema, no despues.

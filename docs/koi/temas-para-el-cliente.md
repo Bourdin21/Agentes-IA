@@ -127,9 +127,11 @@ La estructura quedó preparada para que, si en el futuro suman otro local, sea `
 | Ventas totales | 63.131.209 | **63.131.109** |
 | Salón | 54.837.560 | 52.404.760 |
 | Mostrador | 100 | 2.432.500 |
-| Cantidad de ventas | 2.000 | **1.062** |
+| Cantidad de ventas | 2.000 | **1.018** |
 
-El **total** está bien (diferencia de $100 sobre $63 millones). Lo que está mal es el detalle: Mostrador se cargó dentro de Salón, y la cantidad de ventas está al doble — lo que hace que **el ticket promedio que se muestra hoy esté subestimado alrededor del 47 %**.
+El **total** está bien (diferencia de $100 sobre $63 millones). Lo que está mal es el detalle: Mostrador se cargó dentro de Salón, y la cantidad de ventas está al doble — lo que hace que **el ticket promedio que se muestra hoy sea menos de la mitad del real** ($31.566 contra $62.015).
+
+Aclaración a favor de quien carga: los **comensales estaban bien** (1.678). Se verificó que ya venía excluyendo las ventas anuladas, que el sistema de Ayres informa aparte.
 
 **3. Decisiones pendientes del cliente:**
 - ¿Se corrigen los períodos históricos con los datos reales de Ayres, o se dejan como están? Los **totales no cambian**, así que **no afecta ningún reparto ya liquidado** — solo mejora los indicadores por canal y el ticket promedio.

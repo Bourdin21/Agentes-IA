@@ -69,7 +69,13 @@ Esta es la pantalla que usás vos (o quien vos designes) para cargar la informac
 
 **3. Cargá las ventas del mes.** En "Estado de Resultados", completás las ventas de Salón, Pedidos y Mostrador, cada una separada en facturada (A) y no facturada (B), más la cantidad de comensales y la cantidad de ventas (tickets) del mes. El sistema calcula automáticamente los totales (Ventas A, Ventas Totales) a medida que cargás.
 
-**4. Cargá los gastos por rubro.** Los conceptos que se calculan solos por porcentaje (regalías, canon, comisiones de tarjeta, impuestos, previsiones) **ya aparecen calculados** apenas cargaste las ventas — no hace falta tocarlos. Los conceptos manuales (costo de mercadería, sueldos, alquiler, servicios, etc.) los cargás vos con el botón de edición (lápiz) de cada línea.
+  **Ahora podés traerlas directo de Ayres.** El botón **"Traer de Ayres"** consulta tu sistema de ventas y te muestra, antes de tocar nada, una comparación entre lo que hay cargado y lo que informa Ayres. Recién si le das "Aplicar" se guardan los valores. Si cancelás, no se modifica nada. Ver la sección *"Traer las ventas desde Ayres"* más abajo.
+
+**4. Cargá los gastos por rubro.** Los conceptos que se calculan solos por porcentaje (regalías, canon, comisiones de tarjeta, impuestos, previsiones) **ya aparecen calculados** apenas cargaste las ventas — no hace falta tocarlos.
+
+  Los conceptos manuales (costo de mercadería, sueldos, alquiler, servicios) **los escribís directamente en la grilla**: hacés clic en el importe, escribís y al salir del campo se guarda solo. Un tilde verde te confirma cada guardado. Ya no hay que abrir ninguna ventana ni recargar la página entre gasto y gasto.
+
+  *Los campos que se calculan por porcentaje se distinguen con un borde punteado.* Si alguna vez necesitás poner un importe distinto del que da el porcentaje (por ejemplo, el impuesto real que te liquidaron), **podés escribirlo igual**: esa línea queda marcada en naranja y deja de seguir el porcentaje, hasta que uses el botón ↺ de la columna "%" para volver al cálculo automático.
 
 **5. Revisá los totales.** Al pie de la pantalla ves, actualizados en tiempo real, el Total de Gastos, el Resultado del Ejercicio y su equivalente en dólares.
 
@@ -80,6 +86,40 @@ Esta es la pantalla que usás vos (o quien vos designes) para cargar la informac
 **Casos especiales contemplados:**
 - Si intentás cerrar un mes sin tipo de cambio cargado o sin ventas cargadas, el sistema te avisa qué falta antes de dejarte continuar.
 - Los porcentajes de cada concepto calculado (regalías 3%, canon 2,5%, comisiones de tarjeta 5%, etc.) se configuran una sola vez en "Configuración" y de ahí en adelante se aplican solos cada mes — si en algún momento cambia un porcentaje, se lo actualizamos nosotros y rige desde el mes que corresponda, sin alterar los meses ya cerrados.
+
+## Traer las ventas desde Ayres — paso a paso
+
+Hasta ahora las ventas del mes se cargaban a mano, mirando los reportes de Ayres. Ahora el sistema las trae solo.
+
+**1. Entrá al Estado de Resultados del mes** que querés cargar. El botón **"Traer de Ayres"** aparece al lado de las ventas, siempre que el período esté **abierto**. En un mes ya cerrado no aparece: los meses cerrados no se tocan.
+
+**2. Hacé clic.** El sistema consulta Ayres y arma el total del mes. Puede tardar unos segundos: Ayres solo permite pedir de a 10 días, así que por detrás se hacen tres o cuatro consultas y se suman. Eso es cosa del sistema, vos no tenés que hacer nada.
+
+**3. Mirá la comparación.** Se abre una ventana con dos columnas: lo que hay cargado hoy y lo que informa Ayres. Las líneas que cambian aparecen resaltadas; las que quedan igual, en gris. Abajo te dice cuántas ventas leyó y de qué fechas.
+
+  **Hasta acá el sistema no modificó nada.** Solo leyó.
+
+**4. Decidí.** *"Aplicar"* guarda los valores; *"Cancelar"* cierra la ventana y todo queda como estaba.
+
+**5. Listo.** Al aplicar, las ventas quedan cargadas y **los conceptos que se calculan por porcentaje se actualizan solos** (regalías, canon, previsiones), igual que si las hubieras escrito a mano. El resultado del ejercicio se recalcula al instante.
+
+### Cosas que conviene saber
+
+**Las ventas anuladas no se cuentan.** Ayres marca las ventas anuladas por separado. El sistema las excluye del total y te avisa cuántas encontró. Esto importa para la cantidad de comensales y el ticket promedio: si se contaran, los números saldrían distorsionados.
+
+**Los canales se separan solos.** Ayres identifica cada venta como Salón, Pedidos o Mostrador, y el sistema las imputa a la columna que corresponde. Es una de las cosas que la carga manual venía teniendo difícil de sostener.
+
+**El mes en curso se puede consultar.** Si traés un mes que todavía no terminó, el sistema te avisa que el total es parcial. Sirve para ir mirando cómo viene el mes.
+
+**Si Ayres no responde, no pasa nada.** El sistema te avisa que no pudo conectarse y **el período queda exactamente como estaba**. Nunca queda un mes cargado a medias: o entra todo, o no entra nada.
+
+**Podés probar la conexión sin tocar ningún mes.** En "Sistema" hay una prueba de conexión con Ayres que te dice si está todo bien, sin modificar ningún dato.
+
+### Si alguna vez deja de funcionar
+
+La conexión con Ayres depende de la dirección del servidor donde corre tu sistema de ventas. **Si en algún momento cambian ese servidor, la conexión se corta** y el sistema va a avisarte que no puede conectarse. No es una falla del sistema ni se pierde ningún dato: hay que reconfigurar la dirección nueva. Avisanos y lo resolvemos.
+
+Mientras tanto, la carga manual de ventas **sigue estando disponible siempre**: la conexión con Ayres es una comodidad, no un requisito.
 
 ## Cómo funciona el cierre de período y el reparto a inversores — paso a paso
 
@@ -114,11 +154,10 @@ En "Configuración" administrás el catálogo de rubros y subrubros de gasto (po
 
 ## Qué no incluye esta versión
 
-Estas tres funcionalidades quedaron fuera de esta entrega — son candidatas a una próxima etapa, una vez que definamos el alcance y el costo con vos:
+Las tres funcionalidades que habían quedado fuera de la primera entrega —cámaras, registro de asistencia por huella y conexión con Ayres— **ya están entregadas**. Lo que sigue afuera por ahora:
 
-- Visualización de las cámaras IP del local dentro del sistema.
-- Registro de asistencia del personal por huella digital.
-- Conexión automática con la base de datos de tu sistema de ventas (Ayres) — hoy la carga de ventas se hace de forma manual, tal como se acordó en el alcance de esta etapa.
+- **Sincronización automática de ventas.** Traer las ventas de Ayres es una acción que disparás vos, con confirmación previa. El sistema **no** se conecta solo ni actualiza nada por su cuenta: es a propósito, para que nadie modifique un mes sin querer.
+- **Traer de Ayres otra cosa que no sean ventas** (compras, stock, caja). La conexión existe y podría ampliarse, pero hoy solo se usa para ventas.
 
 ## De dónde salen los números (para tu tranquilidad)
 
