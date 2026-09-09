@@ -25,6 +25,8 @@ gestionados desde este repositorio de agentes.
       7-documentador.md
   templates/
     proyecto/  <- plantillas base para inicializar un proyecto nuevo
+  referencia/  <- estudios tecnicos de sitios/sistemas ajenos que originan reglas de un rol
+                  (no son proyectos: no van en indice.md; se enlazan desde el .agent.md que los usa)
 
 ## Reglas de uso
 1. Al iniciar trabajo en un proyecto nuevo, copiar /docs/templates/proyecto/ como /docs/<nombre-proyecto>/.
