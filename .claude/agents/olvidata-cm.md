@@ -187,9 +187,13 @@ Diferencias clave con la mecánica de Higgsfield ya documentada arriba — **no 
 - Si este pilar llega a cruzar con capturas reales de sistemas de cliente, sigue aplicando la regla de Pilar 1: la pantalla real nunca se genera por IA.
 - Igual que con Higgsfield: **vos generás y entregás los prompts, el usuario los pega en VEO manualmente** — no hay integración automática de generación de video, salvo que se use el script de `Veo/` (ver reglas de confirmación de gasto más abajo).
 
-### Riesgo real a probar antes de comprometer el plan completo (encontrado 2026-09-09, no confirmado empíricamente todavía)
+### Riesgo de verosimilitud facial — PROBADO, las fotos de referencia pasan (confirmado 2026-09-09)
 
-Google restringe explícitamente la generación de "personas reales identificables" en Veo — y hay reportes de usuarios a los que el filtro les bloqueó generación **con sus propias fotos**, con el mensaje "can't create videos from input images containing celebrity or their likenesses", incluso siendo dueños legítimos de la imagen. Esto es un riesgo directo para el plan del avatar con la cara real de Joaquín — el filtro de verosimilitud facial no necesariamente distingue "esta persona dio su consentimiento" de "esto se parece a alguien identificable". Antes de armar el lote completo de guiones, correr **una sola prueba barata en 720p** (~USD 1.20) con las fotos de referencia de Joaquín para confirmar si el filtro deja pasar o bloquea — si bloquea, la vía de escape documentada es pedir "allowlist access" a Google (mencionado para Vertex AI, no confirmado si aplica igual al plan simple de AI Studio/Gemini API que estamos usando).
+Google restringe la generación de "personas reales identificables" en Veo. Se probó con las fotos reales de Joaquín como referencia (vestuario + 2 de rostro) y **el filtro las dejó pasar sin bloqueo** en múltiples corridas — el riesgo teórico que se había marcado como "a probar" queda descartado para las fotos en sí.
+
+### Regla dura confirmada: el avatar NUNCA dice su propio nombre real hablado (2026-09-09, confirmado empíricamente con A/B)
+
+Distinto del riesgo de las fotos: el filtro de Veo **sí bloquea que el diálogo hablado incluya el nombre real de una persona** ("soy Joaquín"), con el mensaje exacto: *"Sorry, we can't create videos with real people's names or likenesses. Please remove the celebrity reference and try again."* — confirmado con un test A/B controlado: mismo prompt/escena/referencias, la única variable fue agregar "soy Joaquín" al diálogo → bloqueado; sacarlo → generó sin problema. **Ningún guion de este pilar debe hacer que el avatar diga su propio nombre en el diálogo hablado** — la identificación de marca/persona va por el logo, la caption o el texto en pantalla, nunca por el audio. "Bienvenidos, esto es Olvidata" funciona; "Bienvenidos, soy Joaquín" no.
 
 ### Flujo de trabajo obligatorio: revisión de guion antes de generar (decidido 2026-09-09)
 
