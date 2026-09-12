@@ -522,3 +522,108 @@ Los importes van al lado **A** (`VentasASalon`, `VentasAPedidos`, `VentasAMostra
 - [x] Feature flag para apagar el módulo sin redeploy
 - [x] Diagnóstico temporal marcado para eliminación
 - [ ] **Presupuesto: SALTEADO por decisión del dueño del estudio (2026-09-08)**
+
+---
+
+## 13. Arquitectura — Sprint "Entrega 1: fixes y mejoras" (Septiembre 2026)
+
+Entrada: `1-analista-funcional.md` §16 y `2-disenador-funcional.md` §15, aprobados. **Presupuesto salteado por decisión explícita del dueño** ("implementar end to end sin presupuesto") — registrado en `trazabilidad.md`, no es una omisión del proceso.
+
+### 13.1 Orden de ejecución (no es arbitrario)
+
+**Ola 1 — Lotes A y B.** Defectos y accesos. Toca `Repository`, `Program.cs`, `_Layout`, `Account`, el importador y la migración de datos.
+**Ola 2 — Lotes C, D, E y F.** UI. Toca `FormatoMoneda`, CSS, EDR, Dashboard, Mes Actual, Mi Inversión, Configuración e importador.
+
+**Se ejecutan en secuencia, no en paralelo**, porque ambas olas tocan `EstadoResultadosController` (la guarda de cierre del Encargado en la 1, los conceptos por mes en la 2). Dos agentes sobre el mismo archivo se pisan.
+
+### 13.2 A1 — Fix del repositorio genérico
+
+```csharp
+public virtual async Task UpdateAsync(T entity)
+{
+    _dbSet.Update(entity);
+    await _context.SaveChangesAsync();   // ← lo que faltaba
+}
+```
+Igual en `AddAsync` y `DeleteAsync`. **`SaveChangesAsync()` público se conserva** para no romper a quien lo llame explícitamente (llamarlo dos veces es inocuo: la segunda no encuentra cambios pendientes).
+
+**Verificación obligatoria:** `InversoresController` es hoy el único consumidor (`grep "_repo\."`). Confirmarlo antes de tocar, y confirmar después que ningún otro punto dependía de que no guardara.
+
+### 13.3 A2 — Consolidación de catálogos: procedimiento
+
+**Es lo más riesgoso del sprint: gastos históricos con liquidaciones pagadas.**
+
+1. **Backup previo de `ConceptosGasto` y `Subgrupos`.** No se ejecuta nada sin backup verificado.
+2. **Foto previa:** total de gastos por período, guardado a archivo. Es el patrón de verdad.
+3. **Mapeo explícito viejo→nuevo**, escrito en la migración, no inferido en runtime. Pares inequívocos: `12→39` (Regalías), `13→40` (Cánon), `22→43` (Cargas Sociales). El resto de los 14 se lista y **se revisa antes de ejecutar**; cualquier subgrupo sin equivalente claro **no se migra** y se reporta.
+4. **Traslado:** por cada período, el importe del concepto viejo se mueve al subgrupo nuevo. Si el destino **ya tiene** un concepto con importe distinto de 0, **no se pisa**: se aborta y se reporta — ese es justamente el caso de doble carga que hay que evitar.
+5. **Verificación:** total por período **antes == después**, al centavo. Si difiere en un solo período, se revierte todo.
+6. **Baja de los viejos** recién después de que 5 dé exacto.
+
+**Todo dentro de una transacción.** Migración de datos, no de esquema.
+
+### 13.4 A2 — Importador idempotente
+
+`ImportacionExcelKoiService`: donde hoy omite un concepto existente, pasa a **actualizarlo**. Se conserva el reporte por fila distinguiendo *nuevo* / *actualizado* / *omitido* — el diseño del sprint anterior ya lo preveía. Es lo que elimina la duplicación real que rompe el cierre.
+
+### 13.5 B3 — Rol Gerente: dónde van las barreras
+
+```csharp
+options.AddPolicy("GestionOperativa", p => p.RequireRole(
+    SeedData.RolSuperUsuario, SeedData.RolAdministrador, SeedData.RolEncargado));
+```
+
+| Recurso | Policy |
+|---|---|
+| `EstadoResultadosController` — **por acción, no por clase** (corregido 2026-09-09) | `GestionOperativa` en las 8 acciones de carga/consulta; a nivel clase habría **cortado el acceso del rol Inversor a `Anual`**, que entra ahí desde su propio sidebar. |
+| `CerrarPeriodo`, `ConfirmarCierre`, `ReabrirPeriodo` (acciones) | **`SoloAdministrador`** — a nivel acción, sobrescribiendo la del controller |
+| `EstadoResultadosService.CerrarPeriodoAsync` / `ReabrirPeriodoAsync` | Guarda en el **servicio**: rechaza si el usuario no es Admin/SuperUsuario |
+| `NotificationsController` | ~~Se amplía a `GestionOperativa`~~ **NO SE TOCA (corregido 2026-09-09):** la clase es `[Authorize]` simple, como ya documentaba §237 de este mismo archivo. La premisa del análisis era falsa; ampliarlo habría abierto el compositor de notificaciones al rol Inversor. |
+| Inversores · Puntos · Liquidaciones · RepartoGeneral · Configuracion · Users · System | **Sin cambios** — el Encargado no entra |
+
+**Doble barrera deliberada** (acción + servicio): ocultar el botón no es control de acceso, y acá se cierra un período que dispara pagos.
+
+### 13.6 C1 — Decimales: un solo punto de cambio
+
+`Helpers/FormatoMoneda.FormatMonto` pasa a redondear a entero para **mostrar**. La base y los cálculos **conservan los centavos** (P-B03).
+
+**Excepciones que NO se redondean, verificar una por una:**
+- **Tipo de cambio** — no es un importe; perder sus decimales altera todos los cálculos en USD.
+- **Porcentajes** (`PorcentajeAplicado`, rentabilidad, recupero) — usan `N2` propio.
+- **Puntos de inversión** (`PuntosAplicados`, `N2`) — admiten fracciones.
+
+Spinners: regla CSS única en `olvidata-theme.css` sobre la clase de los inputs de importe (`appearance:none` + `::-webkit-*-spin-button`), más `inputmode="numeric"`. **No se toca vista por vista.**
+
+### 13.7 D — Serie diaria de Ayres
+
+`AyresService`: el agregador acumula y descarta el detalle por diseño (R-A03). Se agrega un `Dictionary<DateOnly,(decimal Importe,int Cubiertos,int Tickets)>` que se llena **dentro del mismo recorrido** y se devuelve en el DTO. Coste: un registro por día (≤31), no las ~1.000 ventas. **No se cambia la política de descarte del detalle.**
+
+Sólo entran las ventas **cerradas**, igual que el resto del agregado (§15.11 del analista).
+
+### 13.8 E4 — Benchmarks configurables
+
+Se reutiliza `ParametroPorcentaje`, la entidad que el sistema ya usa para porcentajes por período, **o** una tabla `BenchmarkMercado` mínima (`Nombre`, `PorcentajeAnual`, `Orden`, `Activo`) si el modelo de vigencia por período no aplica. **Decisión del implementador según lo que resulte menos invasivo**; si crea tabla, es la única migración de esquema del sprint. Carga inicial por seed: S&P 500 12 %, Bonos Corporativos 8 %, Propiedades Inmobiliarias 5 %.
+
+### 13.9 E1 — Barrido legal (ítem 23)
+
+**No se busca por nombre de pantalla, se busca por dato.** Barrer todas las vistas y exportables accesibles al rol Inversor por: `VentasB`, `NoFacturado`, `Informal`, `Facturado`, `VentasA` y los gráficos que los usan. El Administrador conserva el desglose donde lo necesita para cargar. **Un solo informe olvidado invalida el objetivo.**
+
+### 13.10 Impacto por capa y migraciones
+
+| Capa | Archivos |
+|---|---|
+| **Domain** | Sólo si E4 crea `BenchmarkMercado` |
+| **Application** | Policy `GestionOperativa`; `FeatureFlags.ModuloCamaras`; DTO de serie diaria; DTO de benchmarks |
+| **Infrastructure** | `Repositories/Repository.cs` (A1); migración de consolidación (A2); `ImportacionExcelKoiService` (A2); `AyresService` (D); guardas de cierre (B3) |
+| **Web** | `Program.cs`; `_Layout`; `AccountController` + 3 vistas + `PasswordResetViewModels`; `RepartoGeneral/Index`; `EstadoResultados/*`; `Dashboard/Index`; `MesActual/*`; `MiInversion/*`; `Configuracion/*`; `ImportacionInicial/Index`; `Helpers/FormatoMoneda`; `olvidata-theme.css` |
+| **Migraciones EF** | 1 de **datos** (consolidación, obligatoria) + 1 de **esquema** sólo si E4 crea tabla |
+
+### 13.11 Checklist de gate
+
+- [x] Orden de olas justificado por colisión de archivos, no por preferencia
+- [x] Migración de datos con backup, foto previa, verificación al centavo y reversión definida
+- [x] Barrera de cierre en servicio **y** en acción, no sólo en vista
+- [x] Decimales centralizados, con las tres excepciones identificadas
+- [x] Serie diaria sin romper la política de descarte de detalle
+- [x] Barrido legal por dato, no por pantalla
+- [ ] **Presupuesto: SALTEADO por decisión del dueño (2026-09-09)**

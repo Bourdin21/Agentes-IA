@@ -519,3 +519,119 @@ Ambos con `[ValidateAntiForgeryToken]` y policy `SoloAdministrador`.
   - CA: un `sectorTipo` no mapeado no se descarta ni rompe: su importe va a "Otros" y el preview lo advierte.
 - **HU-A08** — Como SuperUsuario, quiero comprobar la conexión con Ayres sin tocar un período.
   - CA: desde Sistema puedo probar la conexión y obtener un resultado claro (conecta / credenciales rechazadas / inalcanzable) sin escribir ningún dato.
+
+---
+
+## 15. Diseño — Sprint "Entrega 1: fixes y mejoras" (Septiembre 2026)
+
+Entrada: `1-analista-funcional.md` §16 aprobado, con P-B03/04/05/07 resueltas por el dueño el 2026-09-09. **28 ítems** (los 30 del backlog menos el 4 y el 10, que no reproducen).
+
+### 15.0 Escaneo de reutilización (obligatorio)
+
+| Origen | Qué se toma | Ítem |
+|---|---|---|
+| **PAT-014 — blankproject** (`C:\Sistemas\BlankProject`) | Flujo completo de "olvidé mi contraseña": acciones `ForgotPassword`/`ResetPassword`, `PasswordResetViewModels.cs` y 3 vistas con el mismo estilo `ov-login-card` del Login. **KOI no lo tiene porque se clonó antes de que el patrón se portara al baseline.** Ya está probado end-to-end contra base real en la-platense. | **1** |
+| **KOI mismo — fix de la columna Período** (Reparto General / Historial) | `data-order` numérico en la celda + `columnDefs type:'num'`. Es el mismo bug, en otra columna. | **13** |
+| **KOI mismo — PAT-012 / `ImportacionInicial`** | Flujo analizar → preview → confirmar, con el flag `persistir` en una sola función. | **14, 30** |
+| **KOI mismo — `EstadoResultados/Mensual`** | Edición inline por AJAX con indicador por fila (Etapa 18) y el helper `pintarImporteConcepto`. | **7, 11** |
+| **KOI mismo — `MiInversion`** (gráfico de evolución del recupero, Etapa de dividendos) | Chart.js ya integrado y con el patrón de tema claro/oscuro resuelto. | **26** |
+
+**No se reutiliza de otros proyectos** para el rol Gerente: el scoping por identidad de PAT-017 es para usuarios finales no-staff (portal del inversor), y acá se trata de un rol interno con escritura. Se resuelve con las policies que el proyecto ya usa.
+
+### 15.1 Lote A — Defectos (van primero, y se entregan aunque el resto se recorte)
+
+**A1 · Ítem 12 — el repositorio genérico no persiste.**
+- `Repository<T>.UpdateAsync`, `AddAsync` y `DeleteAsync` pasan a llamar `await _context.SaveChangesAsync()`. Se corrige **el repositorio**, no sólo el controller: dejarlo como está es una trampa para el próximo que lo use.
+- `InversoresController` no requiere cambios una vez arreglado el repositorio.
+- **Criterio de aceptación:** crear, renombrar y eliminar un inversor desde la pantalla y verificar el efecto **releyendo el registro**, no confiando en el mensaje de éxito — que es precisamente lo que enmascaró el bug.
+
+**A2 · Ítem 8 — consolidación de los dos catálogos.** Tres piezas, en este orden:
+1. **Migración de datos (riesgo alto).** Mover los gastos de los 14 subgrupos viejos a su equivalente del catálogo nuevo. Mapeo explícito, revisado antes de ejecutar. Los pares con colisión de nombre (`12→39` Regalías, `22→43` Cargas Sociales) son inequívocos; el resto se lista para revisión. **Backup previo obligatorio y verificación de que el total de gastos de cada período no cambie ni un centavo.** Los subgrupos viejos se eliminan recién después de verificar.
+2. **Importador idempotente.** Al reimportar, si ya existe un concepto para ese período y subgrupo, se **actualiza** en vez de crear uno paralelo. Es lo que hoy produce la duplicación real que rompe el cierre.
+3. **Editar importes de conceptos importados.** Hoy la vista bloquea la edición de conceptos inactivos (`!concepto.EsInactivo`). Tras la consolidación no quedan conceptos inactivos con importe, así que la regla se cumple sola. Se mantiene la restricción para subgrupos realmente dados de baja.
+
+**A3 · Ítem 13 — orden de "Util/Punto".** `data-order` numérico en las celdas de importe de Reparto General, más `columnDefs: [{ type:'num', targets:[...] }]`. Idéntico al fix ya aplicado en la columna Período.
+
+**A4 · Ítem 3 — `/System` fuera del menú de no-superadmin.** El link "Sistema / Email" se mueve del bloque `Administrador || SuperUsuario` al bloque `SuperUsuario`. El controller ya exige SuperUsuario: hoy el Administrador ve un link que le devuelve 403.
+
+### 15.2 Lote B — Acceso y permisos
+
+**B1 · Ítem 1 — recuperar contraseña antes del login.** Port de PAT-014 desde el baseline. En `Login.cshtml`, link **"¿Olvidaste tu contraseña?"** debajo del formulario. Se conservan las dos decisiones de seguridad del patrón: respuesta **idéntica exista o no el email** (no delata cuentas) y rate limiting propio `"password-reset"`. Se renombra la marca del email a "KOI Dumplings".
+- *Nota:* el cliente también menciona recuperar **nombre de usuario**. En este sistema el usuario **es** el email, así que no hay nada que recuperar: el flujo por email lo cubre. Se aclara en el texto de la pantalla.
+
+**B2 · Ítem 2 — ocultar Cámaras.** Se ocultan del sidebar "Cámaras" (sección Local) y "Config. cámaras" (sección Sistema). **No se borra el módulo ni se revocan permisos**: queda accesible por URL para el Administrador, listo para volver a mostrarse. Se implementa con `FeatureFlags.ModuloCamaras`, el mismo mecanismo que se estrenó con Ayres — así se prende de nuevo sin redeploy.
+
+**B3 · Ítem 9 — rol "Gerente".** Se **reutiliza el rol `Encargado` existente**, ampliando su alcance en vez de crear uno nuevo (evita un cuarto rol y no rompe al usuario del Fichador).
+- Policy nueva `GestionOperativa` = SuperUsuario + Administrador + Encargado, aplicada a `EstadoResultados` (carga y consulta) y a la vista anual.
+- **La barrera de cierre va en el servidor**: `CerrarPeriodoAsync` y la acción de cierre rechazan al Encargado, no alcanza con ocultar el botón. Mismo criterio para `ReabrirPeriodo`.
+- **Sin acceso** a Inversores, Puntos, Liquidaciones, Reparto General ni Configuración.
+- **Efecto lateral a resolver:** `NotificationsController` es `SoloAdministrador`, así que hoy la campanita del layout le daría 403 en todas las pantallas. Se amplía a la policy nueva.
+- Sidebar filtrado por rol: el Encargado ve KOI + Gestión, no ve Inversiones ni Sistema.
+
+### 15.3 Lote C — Estado de Resultados
+
+**C1 · Ítems 5 y 6 — importes sin decimales y sin flechitas.**
+- **Sólo presentación** (P-B03). Se centraliza en el helper `FormatoMoneda` que el proyecto ya tiene, para no tocar 98 lugares a mano: pasa a redondear a entero para mostrar. La base conserva los centavos y la conciliación contra el Excel sigue exacta.
+- Flechitas: `inputmode="numeric"` + CSS que oculta el spinner (`::-webkit-outer-spin-button`, `appearance:none`) en `olvidata-theme.css`, aplicado a la clase de los inputs de importe. Una regla, no 17 vistas.
+- **Queda registrado como opción 2**, no implementada, redondear también al guardar.
+
+**C2 · Ítem 7 — dar de baja subgrupos desde el EDR.** Botón de baja por fila, sólo Administrador y sólo sobre subgrupos **sin importe cargado en el período**. Confirmación previa. Es baja del catálogo (soft delete), así que se advierte que afecta a los meses siguientes, no a la historia.
+
+**C3 · Ítem 11 — conceptos por mes (el gasto extraordinario).** Es el ítem con más carga de diseño del lote. El cliente quiere sacar o agregar "Fumigación" según el mes.
+- **Agregar:** selector "Agregar concepto a este mes" que lista los subgrupos del catálogo que todavía no están en el período, y crea la fila con importe 0 lista para cargar.
+- **Quitar:** la fila de un concepto **con importe 0** puede sacarse del mes. Si tiene importe, primero hay que ponerlo en 0 — así nunca se borra plata por accidente.
+- **No confundir con el ítem 7:** acá se agrega/saca del **mes**, no del catálogo.
+
+**C4 · Ítem 14 — previsualizar la notificación de cierre.** Reutiliza el patrón analizar→confirmar de PAT-012. Antes de `EnviarMasivo`, pantalla con el mail **tal como lo va a recibir el inversor** (uno de ejemplo, con datos reales) y la lista de destinatarios con su dirección. Botones "Enviar a los N" / "Cancelar". **Nada se envía hasta confirmar.**
+
+### 15.4 Lote D — Dashboard, Mes actual y mobile
+
+Se apoyan en datos que **Ayres ya provee** desde E2-01 (cubiertos, tickets, ventas por día).
+
+| Ítem | Cambio |
+|---|---|
+| 15 | En el Dashboard mensual: **cubiertos por día** reemplaza a ticket promedio; se agregan resultado en pesos y en dólares. |
+| 16 | Se elimina el gráfico **y** la tabla de "facturado vs informal". |
+| 17 | Se elimina el gráfico de ventas por canal con desglose IVA. |
+| 18 | El gráfico de desglose por rubro pasa a ocupar el ancho liberado por 16 y 17. |
+| 19 | Mes actual: cantidad de tickets y cantidad de cubiertos. |
+| 20 y 22 | Gráfico de **evolución diaria** con dos series conmutables: **plata** y **cubiertos**. Un solo gráfico con selector, no dos. Fuente: `GET /ventas` de Ayres agrupado por `fechaContable`. |
+| 21 y 29 | Mobile: se agrega la tarjeta **Cubiertos**, que además deja la grilla par y simétrica. |
+
+**Nota de arquitectura para el implementador:** la evolución diaria necesita el detalle por día, que hoy el agregador de Ayres **descarta** por diseño (se acumula y se tira el detalle, R-A03). Hay que devolver además una serie diaria — que es liviana, un registro por día — sin volver a sostener las ~1.000 ventas del mes en memoria.
+
+### 15.5 Lote E — Vista del inversor
+
+**E1 · Ítem 23 — sacar "facturado vs informal" (LEGAL).** Barrido completo de **todos** los informes del inversor: Mi Inversión, Rendimiento Histórico, Mes Actual, y cualquier exportable (PDF/Excel). **Es el ítem de mayor sensibilidad del lote y no admite entrega parcial.** Nota: el Administrador sí sigue viendo el desglose A/B donde lo necesita para cargar; lo que se elimina es su exposición al inversor.
+
+**E2 · Ítem 24 — agrandar desglose por rubro y datos comerciales** en Rendimiento Histórico, ocupando el espacio que libera E1.
+
+**E3 · Ítem 25 — explicar la brecha del recupero.** No se toca el cálculo (P-B05). En Mi Inversión, junto a los dos porcentajes, una leyenda breve: el recupero en pesos convierte **cada dividendo al tipo de cambio de su mes**, así que ambos porcentajes son correctos y distintos. Redacción sin tecnicismos, para el inversor.
+
+**E4 · Ítems 26, 27, 28 — el reporte de rendimiento.** Se replica en pantalla el formato del PDF aprobado:
+- 4 KPIs en dólares: Capital Aportado · Utilidad Acumulada (verde) · % Recupero (con "En N meses") · Rentabilidad Mensual promedio.
+- **Gráfico de barras** de evolución de pagos mensuales en USD, con el valor rotulado sobre cada barra.
+- **Comparativa de Mercado** en barras horizontales, con **benchmarks fijos configurables** (P-B04): se administran desde Configuración, con los valores del PDF como carga inicial (S&P 500 12 %, Bonos Corporativos 8 %, Propiedades Inmobiliarias 5 %). Sin integración de mercado.
+- Párrafo de análisis al pie.
+
+### 15.6 Lote F — Importador (ítem 30)
+
+El cliente dice "no sé por qué está esto". El texto describe un flujo de 6 hojas que él nunca usó — la importación real la hicimos nosotros. **No se saca la funcionalidad** (sirve, y el ítem 8 la vuelve a necesitar), se reescribe el texto para que diga **cuándo usarla y cuándo no**, y se corrige la frase *"los registros que ya existen se omiten con advertencia"*, que después del ítem 8 deja de ser cierta: pasan a actualizarse.
+
+### 15.7 Impacto por capa
+
+| Capa | Alcance |
+|---|---|
+| **Domain** | Sin entidades nuevas. Posible campo de configuración para benchmarks (E4). |
+| **Application** | Policy `GestionOperativa`; `FeatureFlags.ModuloCamaras`; DTO de serie diaria (D); DTOs de benchmarks. |
+| **Infrastructure** | **Fix del repositorio genérico (A1)**; migración de consolidación de catálogos (A2); serie diaria en el agregador de Ayres; guardas de cierre por rol. |
+| **Web** | El grueso: Login + 3 vistas de reset; sidebar; EDR (decimales, spinners, baja, conceptos por mes); Dashboard; Mes Actual; Mi Inversión; Rendimiento Histórico; preview de notificación; texto del importador. |
+| **Migración EF** | **Sí**: consolidación de catálogos (datos, no esquema) y, si los benchmarks se persisten, una tabla o filas de parámetro. |
+
+### 15.8 Riesgos de implementación
+
+- **La migración del ítem 8 es lo más delicado del sprint.** Toca gastos con liquidaciones ya pagadas. Se ejecuta con backup, mapeo revisado, y verificación de totales por período **antes y después**. Si un total se mueve, se revierte.
+- **El ítem 23 es legal**: un solo informe que se olvide invalida el objetivo. Requiere barrido exhaustivo, no búsqueda por nombre de pantalla.
+- **La barrera de cierre del Gerente (B3) tiene que estar en el servidor.** Ocultar el botón no es control de acceso.
+- **A1 cambia el comportamiento de un repositorio genérico**: hay que verificar que ningún otro consumidor dependa (hoy no lo hay) del hecho de que no guardaba.
+- **C1 toca el formateo de importes de todo el sistema.** Centralizarlo en `FormatoMoneda` reduce el riesgo, pero hay que revisar que ningún lugar dependa de ver centavos — en particular el tipo de cambio, que **no es un importe** y debe conservar sus decimales.

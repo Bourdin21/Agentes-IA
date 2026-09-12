@@ -912,3 +912,134 @@ Ayres marca el estado de cada venta: `C` = cerrada, `X` = anulada. **Las anulada
 
 **Lo que queda en pie de 15.4:** la Cantidad de ventas cargada a mano sigue siendo errónea (2.000 contra 1.018 reales) y el desglose por canal también (Mostrador imputado dentro de Salón). El ticket promedio que el cliente ve hoy es **menos de la mitad** del real.
 
+
+---
+
+## 16. Discovery + Análisis — Sprint "Entrega 1: fixes y mejoras" (Septiembre 2026)
+
+Backlog del cliente tras el uso real del sistema en producción: 30 ítems en 8 áreas. Discovery hecho **contra producción y contra el código**, no sobre el enunciado: cinco ítems cambiaron de naturaleza al verificarlos.
+
+### 16.1 Resultado del Discovery — reclasificación de los 30 ítems
+
+| Categoría | Ítems | Consecuencia |
+|---|---|---|
+| **A. Defectos confirmados en producción** | 12, 8, 13, 3 | Prioridad sobre todo lo demás. Uno es más grave de lo reportado. |
+| **B. Ya implementado — no reproduce** | 4, 10 | **No se cotizan.** Hay que entender qué vio el cliente. |
+| **C. Cambio directo, bajo riesgo** | 1, 2, 5, 6, 16, 17, 18, 21, 23, 24, 29, 30 | El grueso del lote. |
+| **D. Funcionalidad nueva** | 7, 9, 11, 14, 15, 19, 20, 22, 26, 28 | Requiere diseño. |
+| **E. Migración de datos financieros — riesgo alto** | 8 (parte) | Toca historia ya conciliada y liquidada. |
+| **F. Necesita definición del cliente antes de estimar** | 25, 27, 28 | Bloqueantes de alcance, no de ejecución. |
+
+### 16.2 Hallazgo crítico — el ítem 12 es mucho peor de lo reportado
+
+El cliente reportó: *"Quiero editar el nombre de los inversores, me da el OK pero no los cambia."*
+
+**Causa raíz encontrada:** el repositorio genérico nunca persiste.
+
+```csharp
+public virtual async Task UpdateAsync(T entity)
+{
+    _dbSet.Update(entity);
+    await Task.CompletedTask;   // ← marca la entidad, NO guarda
+}
+```
+
+`SaveChangesAsync()` es un método aparte del repositorio y **`InversoresController` no lo llama en ninguna de sus tres operaciones de escritura**. Descartado que algo lo salve por detrás: no hay `IUnitOfWork`, ni filtro, ni middleware que haga `SaveChanges`.
+
+**Alcance real: crear, editar y eliminar inversores no hacen absolutamente nada.** El cliente solo notó la edición, probablemente porque los 15 inversores entraron por la importación inicial —un camino distinto, que sí persiste— y nunca se dio de alta uno por pantalla.
+
+**Verificado en producción** (prueba segura, precisamente porque no escribe): `POST /Inversores/Edit/1` cambiando "Minjo Wang" → `HTTP 302` con el mensaje *"actualizado correctamente"*, y al releer el registro el nombre sigue siendo "Minjo Wang". Producción intacta.
+
+**Nota de fondo:** `InversoresController` es el **único** consumidor del repositorio genérico; el resto del sistema usa servicios que llaman a `SaveChangesAsync` explícitamente. Eso acota el daño, pero el repositorio queda como una trampa cargada para el próximo que lo use. Se corrige el repositorio, no solo el controller.
+
+### 16.3 Hallazgo crítico — el ítem 8 son tres problemas, no uno
+
+El cliente reportó: *"Hay valores duplicados para cerrar el mes cuando se importa el excel. No cierra el EDR porque calcula mal los gastos. Los duplicados son de importaciones históricas."*
+
+**Lo que hay realmente: dos catálogos conviviendo.** El sprint de "catálogo real" reemplazó la estructura de rubros pero **no remapeó los gastos históricos**, contra lo que se había decidido en §14. Resultado, en agosto 2026:
+
+| | Conceptos visibles | Importe |
+|---|---|---|
+| Septiembre (mes nuevo, catálogo nuevo) | 47 | — |
+| **Agosto (histórico)** | **61** | — |
+| — de los cuales, subgrupos del catálogo **viejo** | 14 | **$44.448.247,04** |
+| — subgrupos del catálogo **nuevo** | 47 | $2.762.930,00 |
+
+**Todo el histórico vive en los subgrupos viejos; los nuevos están en $0.** Dos pares colisionan por nombre y son los que el cliente ve como duplicados:
+
+- `id=12 "Regalías (3 %)"` $1.893.936,27 — vs — `id=39 "Regalías (3%)"` $0,00
+- `id=22 "Cargas Sociales"` $2.299.631,00 — vs — `id=43 "Cargas Sociales"` $0,00
+
+**Los tres problemas:**
+
+1. **Duplicación visual** — el EDR de un mes histórico muestra dos filas para el mismo concepto real. Hoy no suma doble (el nuevo está en 0), pero es ilegible.
+2. **Duplicación real al reimportar** — este es el que rompe el cierre. Si se reimporta el Excel, el importador mapea contra el catálogo **nuevo** y le carga el importe, mientras el **viejo** conserva el suyo. Ahí sí se suma dos veces y el EDR no cuadra. Es exactamente lo que describe el cliente.
+3. **Los importes históricos no se pueden editar** — porque los subgrupos viejos están dados de baja, y la vista sólo permite editar conceptos vigentes (`puedeEditarConcepto = esAdmin && !EsCerrado && !concepto.EsInactivo`). No es un olvido: es la regla actual, que este pedido obliga a revisar.
+
+**Riesgo:** consolidar los dos catálogos es migración sobre datos financieros **ya conciliados y con liquidaciones pagadas**. Mismo perfil de riesgo que el ítem 4 del sprint anterior. Exige backup previo y verificación de que **los totales por período no cambien**.
+
+### 16.4 Dos ítems que NO reproducen — no se cotizan
+
+**Ítem 4 — "que los meses cerrados se puedan volver a abrir".** Ya está implementado (Etapa 17): botón "Reabrir período" con motivo obligatorio, que informa cuántas liquidaciones se descartan. QA lo verificó ayer en navegador real. **Pregunta al cliente:** ¿no encuentra el botón, o pide algo distinto — por ejemplo editar sin reabrir, o que no se descarten las liquidaciones?
+
+**Ítem 10 — "en Servicios figuran 4 servicios cuando son más de 10".** No reproduce: hoy Servicios muestra **16** conceptos en el mes corriente. Conteo actual por rubro: CMV 4 · Fee de Franquicia 2 · Sueldos y CCSS 3 · Gastos Varios 9 · Alquiler 1 · **Servicios 16** · Impuestos 9 · Previsión y Reservas 2 · Gastos Extras 1. **Hipótesis:** el cliente lo vio antes de que se desplegara el catálogo real. **A confirmar antes de tocar nada.**
+
+### 16.5 Ítems que resultaron más chicos de lo que parecían
+
+**Ítem 3 — "quitar /System para los que no sean superadmin".** `SystemController` **ya** exige `RequireSuperUsuario`. El problema es sólo el menú: el link "Sistema / Email" se renderiza para Administrador, que al entrar recibe 403. Es un `@if` en el sidebar, no un cambio de permisos.
+
+**Ítem 13 — Reparto General, orden de la columna "Util/Punto".** La columna Período ya se corrigió en su momento con `data-order` numérico. Las columnas de importe (`Util/Punto`, `Util/Punto USD`) no lo tienen, así que ordenan como texto — el mismo bug, en otra columna.
+
+### 16.6 Ítems que resultaron más grandes de lo que parecían
+
+**Ítems 5 y 6 — sacar decimales y quitar las flechitas de los inputs.** Suena cosmético, pero el alcance es transversal: **17 vistas** con `<input type="number">` y **98 usos** de formateo de importes. Además hay que separar dos cosas que el pedido mezcla:
+- **Mostrar** sin decimales es presentación y no toca la base.
+- **Cargar** sin decimales cambia el dato. Si se redondea al guardar, los porcentuales calculados y los totales del EDR pueden dejar de cuadrar contra el Excel del cliente al centavo — que es justamente la conciliación que hoy da exacta.
+**Recomendación:** redondear **solo la visualización**, conservando los centavos en la base. A confirmar con el cliente.
+
+**Ítem 9 — perfil "Gerente/Encargado".** El rol `Encargado` **ya existe** pero está acotado a `/Fichador` mediante la policy `SoloAdministracionOFichador`, creada explícitamente para no abrirle ningún otro módulo. El pedido lo convierte en un rol operativo real: debe entrar a Estado de Resultados, Historial y gestión de gastos, **poder pre-guardar pero no cerrar**, y **no ver la parte de inversores**. ~~Efecto lateral a contemplar: `NotificationsController` es `SoloAdministrador`, así que con el rol nuevo la campanita del layout devolvería 403 en todas las pantallas.~~ **CORREGIDO 2026-09-09 durante la implementación: la premisa era FALSA.** `NotificationsController` es `[Authorize]` simple; sólo `Crear`/`UsuariosPorRol`/`Enviar` exigen Administrador. No hacía falta ampliar nada, y ampliarlo le habría abierto el compositor de notificaciones al rol Inversor. **Peor aún, §13 de `3-arquitecto-mvc.md` ya lo decía correctamente desde el sprint de notificaciones.** Lección: este Discovery leyó las policies con un grep a nivel clase, dio por hecho que aplicaban a todas las acciones, y no contrastó contra la documentación previa del propio proyecto.
+
+### 16.7 El PDF de referencia (ítem 27) — define el alcance de 26 y 28
+
+`docs/KOI DUMPLINGS REPORTE DE RENDIMIENTO para inversores.pdf`. Una página, por inversor, **todo en dólares**:
+
+- **Encabezado:** marca KOI + nombre del inversor + período cubierto.
+- **4 KPIs:** Capital Aportado (u$s 15.000) · Utilidad Acumulada (u$s 5.511, en verde) · % Recupero (37,0 %, con "En 14 meses") · Rentabilidad Mensual (2,6 %, "Promedio").
+- **Gráfico de barras** "Evolución de Pagos Mensuales (USD)", con el valor rotulado sobre cada barra.
+- **Comparativa de Mercado:** barras horizontales — KOI 37,0 % · S&P 500 12,0 % · Bonos Corporativos 8,0 % · Propiedades Inmobiliarias 5,0 %.
+- **Pie:** párrafo de "ANÁLISIS DE RENTABILIDAD" en prosa.
+
+**Definición clave para el ítem 28:** los benchmarks del PDF son **valores fijos de referencia**, no cotizaciones en vivo. Eso baja el ítem de "integrar una API de mercado" a "parámetros configurables". **Es la diferencia entre un ítem chico y uno grande — a confirmar con el cliente.**
+
+### 16.8 El ítem 25 (recupero) — el único que exige análisis de negocio
+
+El cliente describe: *"por cada mes, a cada tipo de cambio, tenés el recupero en pesos y en dólares, pero el valor en pesos depende del tipo de cambio del mes, entonces se abre la brecha de recupero, y esta brecha es porque el dato es arrastrado desde el comienzo de la inversión."*
+
+**Lectura:** el capital aportado está en USD y fijo; los dividendos se liquidan en pesos y se convierten al TC **del mes de cada liquidación**. Acumular pesos de meses distintos y compararlos contra un capital en dólares mezcla unidades: el recupero en pesos y el recupero en dólares divergen, y la brecha crece con el tiempo y con la devaluación.
+
+**El PDF resuelve esto por decisión, no por cálculo: muestra todo en dólares.** Recupero 37,0 % sobre capital u$s 15.000 y utilidad acumulada u$s 5.511 — una sola unidad, sin brecha posible.
+
+**RESUELTO 2026-09-09 — no se toca el cálculo.** El dueño confirmó que el mecanismo actual es el correcto y deliberado: cada dividendo en pesos se convierte al **tipo de cambio cargado en su propio mes**, así que el % de recupero en USD y el de ARS son distintos **por definición**, no por error. La brecha no es un defecto a cerrar: es la consecuencia real de cobrar en una moneda que se devalúa contra otra que no.
+
+**El ítem deja de ser un cálculo y pasa a ser comunicación:** la pantalla tiene que explicar por qué los dos números difieren, para que el inversor no lo lea como una inconsistencia del sistema. Se mantienen ambas monedas visibles.
+
+### 16.9 Preguntas abiertas — bloquean estimación, no ejecución
+
+| # | Pregunta | Ítem |
+|---|---|---|
+| P-B01 | ¿No encuentra el botón "Reabrir período", o pide editar un mes cerrado sin reabrirlo? | 4 |
+| P-B02 | ¿En qué mes vio sólo 4 servicios? Hoy se ven 16. | 10 |
+| P-B03 | ¿Sin decimales solo en pantalla, o también redondeando lo que se guarda? | 5 | ✅ **RESUELTA 2026-09-09: sólo en pantalla.** La base conserva los centavos y la conciliación contra el Excel sigue exacta. El dueño pidió **dejar registrada como opción 2** la variante de redondear también al guardar, para evaluarla más adelante — no se implementa ahora. |
+| P-B04 | ¿La comparativa de mercado son valores fijos configurables (como el PDF) o cotizaciones en vivo? | 28 | ✅ **RESUELTA 2026-09-09: valores fijos configurables**, cargados desde Configuración. Sin integración de mercado. |
+| P-B05 | ¿El recupero pasa a expresarse en dólares como unidad oficial? | 25 | ✅ **RESUELTA 2026-09-09: NO. Se mantienen ambas monedas y se explica la brecha.** El dueño confirmó que el cálculo actual es correcto: el recupero en pesos convierte cada dividendo al **tipo de cambio cargado en su mes**, y por eso los % en USD y en ARS son legítimamente distintos. **Deja de ser un bug y pasa a ser un ítem de comunicación en pantalla.** |
+| P-B06 | El "Gerente" ¿debe ver el Dashboard y el Historial completos, incluidos importes de resultado? | 9 |
+| P-B07 | ¿Se consolidan los dos catálogos moviendo la historia al catálogo nuevo? Los totales por período no cambiarían. | 8 | ✅ **RESUELTA 2026-09-09: sí, consolidar en el catálogo nuevo.** Backup previo obligatorio y verificación de que los totales por período no se muevan un centavo. |
+| P-B08 | El texto del importador ¿se saca, o se reformula? Hoy describe un flujo de 6 hojas que el cliente no reconoce. | 30 |
+
+### 16.10 Riesgos
+
+- **R-B01 (alto):** consolidar los catálogos toca gastos históricos con liquidaciones ya pagadas. Backup previo y verificación de que los totales por período no se mueven ni un centavo.
+- **R-B02 (alto):** el rol Gerente amplía quién escribe sobre datos financieros. La barrera "no puede cerrar" tiene que estar en el **servidor**, no sólo en la vista.
+- **R-B03 (medio):** redondear importes al guardar rompería la conciliación al centavo contra el Excel del cliente (ver P-B03).
+- **R-B04 (medio):** sacar "facturado vs informal" (ítem 23) es por un tema **legal**. Hay que barrer TODOS los informes del inversor, no sólo el que el cliente nombró — incluidos PDF/Excel exportables si los hay.
+- **R-B05 (bajo):** el repositorio genérico queda arreglado, pero conviene revisar que ningún otro consumidor futuro repita el patrón.

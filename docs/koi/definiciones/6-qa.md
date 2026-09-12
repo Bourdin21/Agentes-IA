@@ -1,10 +1,106 @@
 # Memoria QA — KoiDumplings
-# Última actualización: 2026-09-08 (Etapa 6 — QA del módulo E2-01 "Integración Ayres POS")
+# Última actualización: 2026-09-11 (Etapa 6 — regresión completa de todo lo entregado desde el 2026-09-08)
+# Última validación de reglas cross-proyecto: 2026-09-11
 
 ## Estado del sistema (2026-09-08)
 - Build: **PASS** — `dotnet build` 0 errores, 9 warnings, todos preexistentes (8 × NU1902 MailKit/MimeKit = VUL-001, 1 × CS0114 `HomeController.StatusCode`).
 - EF migrations: sin cambios pendientes. Última: `20260908162332_E19_ConceptoGastoImporteEditadoManual` (aplicada en producción).
 - Producción: `https://portaldelinversor.com.ar/koi/` — 23 pantallas verificadas, **0 errores 500**.
+
+---
+
+## Etapa 6 — Regresión completa de lo entregado desde el 2026-09-08 (corrida 2026-09-11)
+
+**Alcance:** los 16 commits de `b0f70a0` a `7cdfe20` (≈16.000 líneas agregadas). Pedido del dueño: *"volver a probar todas y cada una de las mejoras realizadas a partir del 8 de septiembre"*.
+
+### Camino de verificación usado — IMPORTANTE
+El MCP `playwright` **no estaba disponible** en la sesión. Los tres agentes cayeron al camino equivalente que prevé `33-verificacion-automatizada-qa`: **Chromium real vía el paquete npm `playwright` 1.63 desde Node**, cruzando cada número con SQL. No se dio nada por PASS desde HTML plano.
+
+**Entornos aislados (uno por agente, para que las escrituras no se contaminen):** tres copias de `koidumplings_dev` (`koidumplings_qa_a/b/c`) y tres instancias de la app publicada en `https://localhost:7101/7102/7103`. **Producción quedó como sólo lectura** y sólo para el caso del path base `/koi`, que no se reproduce en localhost. Cada agente restauró su base al baseline al terminar.
+
+### Cobertura
+| Área | Agente | Casos | Resultado |
+|---|---|---|---|
+| Estado de Resultados y gastos | A (7101) | 23 | NO-GO por KOI-011 |
+| Inversores y liquidaciones | B (7102) | 17 | NO-GO condicional por KOI-B01 |
+| Accesos, Dashboard, Ayres | C (7103) | 26 | GO |
+
+### Lo verificado del núcleo de la entrega (todo PASS, con evidencia)
+- **Guard de duplicados del catálogo viejo (`7cdfe20`)** en los dos sentidos: mes con catálogo viejo vivo → 14 filas, 3 aperturas, 14 filas; una fila borrada a propósito NO se recrea. Mes sin catálogo viejo → completar vacíos sí crea la fila (`ImporteCalculado = 612.269,22` = 1 % de 61.226.922).
+- **Regresión de la Etapa 19b cerrada (`l1`)**: 3 recargas del mes, 4 porcentuales idénticos. Abrir la pantalla no escribe nada.
+- **Corte de la rentabilidad al último mes CERRADO (`7cdfe20`)**, con el borde forzado: pasando las liquidaciones de feb/mar/abr-26 a Pendiente (última pagada = enero), la UI sigue diciendo **19 meses**; cerrando agosto-26 salta a **22**. La regla vieja habría dicho 18.
+- **Recupero ARS ≠ USD y ARS mayor en los 15 inversores**, al decimal contra SQL. Irigo: 41,2 % U$D = 6.180,03/15.000 y 53,2 % $ = 7.822.750/(15.000 × 980).
+- **Duplicación de liquidaciones al reabrir**: cerrar → reabrir → cerrar da 15 / 0 vivas / 15 vivas, **0 duplicados**.
+- **Aislamiento del inversor**: no ve facturado/informal ni etiquetas que lo insinúen; el reporte de otro inversor da **403** (IDOR cerrado, con usuario Inversor real — antes estaba BLOCKED).
+- **Accesos y menús**: Gerente carga datos pero no cierra el mes (4 POST rechazados server-side) y no ve inversores (12 URLs directas); rol Encargado con permisos reales; "Notificaciones de cierre" arriba de "Nueva Notificación".
+- **Dashboard**: 0 errores de consola JS en 14 pantallas × hasta 4 roles × 2 viewports; canvas de Chart.js renderizando de verdad; tarjetas parejas a 400 px.
+- **Importador**: reimportar el mismo Excel da 0 nuevos / 53 actualizados.
+- **Recuperar contraseña**: las 4 consignas PASS, con el mail real capturado y el envío asincrónico funcionando.
+
+### Defectos nuevos
+| Id | Sev. | Qué | Estado |
+|---|---|---|---|
+| **KOI-011** (DEF-A01) | **CRÍTICA** | `AuditLogs.Action` es `varchar(20)` y dos acciones nuevas miden 21: `RecalculoPisaManuales` (`f7d8413`) y `EdicionPeriodoCerrado` (`48fc20e`) → `Data too long for column 'Action'`. **Corregir un mes cerrado y pisar manuales nunca funcionaron en producción** (verificado: la columna es `varchar(20)` y no hay ninguna fila con esas acciones). Es fail-safe, pero empuja al usuario a reabrir el mes — la operación destructiva que la Etapa 25 vino a evitar. | Enviado a implementación |
+| **KOI-012** (DEF-A03) | ALTA | La migración `E20_ConsolidacionCatalogos_A2` tiene el mapeo como **ids literales de producción**. En una base con otros ids traslada plata al concepto equivocado (observado: `Alquiler del local 4.500.000 → Cristalería & Equipamiento`). Producción quedó bien; se corrompe cualquier entorno nuevo. | Enviado a implementación |
+| **KOI-B01** | ALTA | El tilde "Se muestra" de un benchmark **siempre se guarda en `false`**: el `<input type="hidden" value="false">` está **antes** del checkbox y el binder de `bool` toma el primero. Rompe la comparativa de mercado de los 15 inversores al primer guardado, sin vuelta atrás por UI. `Views/Configuracion/Benchmarks.cshtml:90-92` y `:135-136`. Confirmado en código por el orquestador. | Enviado a implementación |
+| **DEF-A02** | ALTA | `PisarManuales` (`EstadoResultadosController.cs:592-615`) no captura `DbUpdateException`: HTTP 500 con body vacío. `GuardarConceptoEnPeriodoCerradoAsync` sí lo maneja. | Enviado a implementación |
+| **KOI-B02** | MEDIA | Dashboard en blanco al cambiar de año desde la vista del inversor: `cargarHistorico(12)` hace `getElementById('btnHist12').classList` sin null-guard (`Views/Dashboard/Index.cshtml:1013-1014`, invocado desde `:1093`). Confirmado en código por el orquestador. | Enviado a implementación |
+| **KOI-B05** | MEDIA | El historial marca `Enviado` justo después de llamar a `SendEmailAsync`, que corta en silencio sin SMTP host o sin destinatarios válidos (`NotificacionCierreService.cs:91-92`). | **Decidido 2026-09-11:** marcar `Enviado` recién con el OK del envío. Pendiente de implementar |
+| **KOI-B06** | MEDIA | Cerrar un mes **manda los mails solo**: `ConfirmarCierre` encola el envío (líneas 783-789). La previsualización protege el reenvío, no el mes recién cerrado. | **Decidido 2026-09-11:** sacar el envío del cierre; se administra sólo desde Notificaciones de cierre. Pendiente de implementar |
+| **D-C01** | MENOR | El Administrador llega a `/Audit` por URL (200) aunque el link esté oculto. Sin filtración: la consulta filtra por usuario. Choque entre `AuditController.cs:10` y `_Layout.cshtml:339`. | **Decidido 2026-09-11:** Auditoría sólo para SuperUsuario. Pendiente de implementar |
+| **D-C02** | MENOR | Con `ModuloCamaras` apagado, `/Camaras/Ver` sigue en 200 para todos, incluido el Inversor. El flag esconde en vez de apagar (diseño catalogado en KOI-005). | **Decidido 2026-09-11:** bloquear también la pantalla. Pendiente de implementar |
+| **KOI-B03/B04, D-C03, OBS-A06** | BAJA | Pantallas de acción que sólo rechazan en el POST; flechas de orden en una tabla `ordering:false`; copia vieja del JS en `obj/` de publicación; el detalle de liquidaciones pendientes aparece después de guardar y no antes. | Backlog |
+
+### Observaciones sobre datos (no son defectos de código)
+- **OBS-A04:** en la copia de dev, 2026-08 suma dos veces Regalías, Canon y las dos Previsiones ($ 4.207.913,25). En producción ese mes **ya está conciliado** (2026-09-10), así que no aplica.
+- **OBS-A05:** reimportar el Excel completo sobre los históricos duplicó los gastos de 2024-11 a 2025-12 en la copia de dev. En producción el efecto quedaría acotado a los 6 pares no consolidados: **no conviene reimportar el Excel completo sin resolverlos antes**.
+- **Ayres:** `koi.ayresit.com:8520` no es alcanzable desde esta máquina (el permiso de salida está atado a la IP del hosting). Se cubrió con un stub fiel al contrato real: 4 ventas `C` + 3 `X` dieron 1.050.000 / 4 ventas / 22 comensales, y el día con una sola anulada no aparece en la serie. **La exclusión de anuladas funciona**. **El dueño confirmó el 2026-09-11 que la integración opera bien en producción**, así que el ítem queda cerrado: la limitación era del entorno de pruebas, no del código.
+- `IntegracionAyres` está en `false` en dev: la tarjeta de evolución diaria no existe ahí.
+
+### Reglas cross-proyecto
+`6-qa.md` no tenía el campo de última validación, así que se ejecutó el catálogo entero como primera validación. **No hubo reglas nuevas ni modificadas desde el 2026-09-08.** Ejecutadas y PASS: REG-004, REG-008, REG-010, KOI-001, KOI-003, KOI-004, KOI-005/006 (43 links de sidebar × 3 roles, 0 rotos), KOI-010, SG-001, GAN-005, GAN-006, LP-003, LIP-001, ELV-001, MH-009/MH-014, PAT-017. **KOI-009 → RESUELTO** (verificado en producción: raíz → 404, `/koi/…` → 302, el JS desplegado usa `KOI_BASE`).
+
+### Go / No-go de la corrida
+**NO-GO hasta corregir KOI-011 y KOI-B01.** El núcleo de lo entregado desde el 8/9 está verde y verificado con evidencia; los dos bloqueantes son de superficie (una columna corta y dos líneas de Razor invertidas) pero dejan muertas dos funciones que el cliente va a usar.
+
+### Re-test tras los fixes (misma corrida, 2026-09-11)
+
+Se re-publicó la app en los tres entornos con los commits `db49b95`, `2baeced` y `4d82c86`, y se aplicó **E24** en las tres bases de prueba. Los agentes A y B re-testearon con su contexto y su base intactos.
+
+**Área A → GO.**
+- **k2 (corregir un mes cerrado):** 2026-02, Regalías `2.290.959,09 → 2.291.959,09`. Fila de auditoría `Id 2057`, `Action='EdicionPeriodoCerrado'` (21 car.). Liquidaciones **pendientes** 15/15 recalculadas (delta −950,00); **pagadas 0 cambiadas**, `UpdatedAt` intacto. El período sigue Cerrado.
+- **l2 (pisar manuales):** HTTP **200** con `{"success":true,"pisados":1,...}` — ya no hay 500. `ImporteCalculado = 1.836.807,66`, `ImporteEditadoManual = 0`. Auditoría `Id 2074`, `Action='RecalculoPisaManuales'`.
+- **DEF-A02 forzado de verdad:** volviendo la columna a `varchar(20)`, el pisado responde **200** con `{"success":false,"message":"…"}` y un cartel legible, en vez del 500 con body vacío; no se pisa nada; la excepción queda capturada en el log. Devuelta a `varchar(50)`, vuelve a funcionar.
+- **OBS-A06 RETIRADA por el propio QA:** la observación se había hecho sobre 2026-02, cuyas 15 liquidaciones pagadas están soft-deleted por una reapertura previa, así que el bloque no tenía nada que mostrar. Re-testeado sobre 2026-04 (15 pagadas vivas), el aviso **previo** sí lista cada inversor con importe y fecha de pago. El ítem del checklist queda **cumplido**.
+- **Regresión:** el guard de `7cdfe20` y `l1` se comportan exactamente igual que en la primera corrida (14→14 filas, fila borrada no se recrea, 3 recargas sin cambios).
+
+**Área B → GO.**
+- **KOI-B01:** el POST ahora viaja `["checkbox=true","hidden=false"]`; `Activo` queda 1 / 0 / 1 en los tres pasos y un benchmark nuevo nace en 1. **La comparativa volvió al reporte del inversor** y escala bien contra KOI: S&P 500 15,0 % dibuja 36,4 % de la barra de KOI (41,2 %). Destildar lo saca del reporte; re-tildar lo devuelve.
+- **KOI-B02:** año sin datos renderiza con su aviso y **consola limpia** (antes: `TypeError … reading 'classList'`); año con datos sigue dibujando (12 → 12 puntos, toggle a 24 → 22 puntos).
+- **Regresión:** Irigo 41,2 % / 53,2 % sobre **19 meses** → 2,2 % / 2,8 %; Caicedo 15,7 % / 17,3 % sobre **14 meses**. Idénticos a la primera corrida y al cruce por SQL. 265 liquidaciones vivas, 0 duplicados, IDOR cerrado.
+
+**Cosmético corregido después del re-test (`4d82c86`):** los tres mensajes de error decían "No se modifico nada" sin tilde, y el aviso previo mostraba `$115.435 , pagada el` (faltaba el espacio tras el signo y sobraba uno antes de la coma, por el salto de línea entre el `</span>` y el `@if`).
+
+### Pasadas 3 y 4 — decisiones del dueño implementadas y verificadas (2026-09-11)
+
+Los cinco cambios decididos por el dueño (`4dd42a9`) y el fix de `KOI-B07` (`f017f01`) se verificaron sobre los mismos entornos aislados. **Áreas B y C: GO.**
+
+- **Auditoría sólo SuperUsuario:** Administrador pasa de **200** a **AccessDenied**, incluido `POST /Audit/GetData`, que es el que devuelve las filas. Es el único controller que toca `AuditLogs`.
+- **Cámaras:** 404 en las 5 acciones con el flag apagado — incluido `/Camaras/Ver` con rol Inversor, que antes daba 200 con la pantalla a la vista. **Reversible encendiendo el flag, sin redeploy.**
+- **Cierre sin mails:** 15 liquidaciones y `registrosenvionotificacion` en **0**, repetido dos veces. Aviso previo, toast y banner con link a la previsualización de ese período; el banner no reaparece al recargar.
+- **`Enviado` con confirmación,** medido por mails entregados en un catcher SMTP propio: sin SMTP → **Fallido** con motivo (antes decía Enviado); con SMTP → **Enviado y los 3 entregados**; servidor caído → **Fallido** con el error de conexión. Ninguna fila fallida sin explicación. El test de email de Sistema ahora se pone rojo cuando corresponde.
+- **`KOI-B07`:** tanda fallida reintentada → **3 mails**; período ya enviado → **0 mails incluso forzando el POST directo**; mezcla → **exactamente los 2 que faltaban**, sin duplicar al ya notificado; doble disparo simultáneo → **3 mails**, uno por inversor.
+- **Tarjetas de Mi Inversión:** medidas por posición real en pantalla. 1440 px: Inversor · Dividendos U$D · Recupero U$D arriba, Capital · Dividendos $ · Recupero $ abajo. 400 px: cada par U$D/ARS junto, sin huérfanas ni scroll horizontal.
+- **Regresión en las tres pasadas:** Irigo 41,2 % / 53,2 % sobre 19 meses; Caicedo 15,7 % / 17,3 % sobre 14. Idénticos al SQL. 0 errores de consola, 0 HTTP 5xx, IDOR cerrado.
+
+### Estado final: DEPLOYADO Y VERIFICADO EN PRODUCCIÓN (2026-09-11)
+Migración `E24` aplicada primero (backup `bkp_20260911_auditlogs`, 1.308 filas), después el deploy de los cinco commits (83 archivos). 8 pantallas en 200, `/Camaras/Ver` en 404, y los tres meses conciliados intactos. **Las dos funciones que nunca habían andado en producción —corregir un gasto de un mes cerrado y pisar valores manuales— quedan operativas.**
+
+### Go / No-go final de la corrida
+**GO para el build `4d82c86`**, con una condición de despliegue: en producción `AuditLogs.Action` **sigue en `varchar(20)`**, así que hasta que se corra el script de E24 allá, corregir un mes cerrado y confirmar el pisado **siguen rotas para el cliente**. Orden correcto: **script primero, deploy después**.
+
+### Defectos nuevos dados de alta en el catálogo cross-proyecto
+`KOI-011` (columna de auditoría corta), `KOI-012` (migración con ids de producción), `KOI-013` (hidden antes del checkbox), `KOI-014` (script de inicio sin guard). El catálogo pasó de 67 a 71 ítems.
 
 ---
 

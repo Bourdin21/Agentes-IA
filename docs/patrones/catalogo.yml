@@ -772,7 +772,8 @@ patrones:
       la formula (el enum agrega complejidad sin pagarla), ni si el precio fijo puede vivir en una
       entidad separada sin compartir el resto del ciclo de vida del item.
     proyecto_origen: labipac (sesion 7, 2026-09-03 — caso real LIBRETA SANITARIA, un tramite administrativo dentro de un catalogo de practicas de laboratorio cotizadas por unidades bioquimicas)
-    proyectos_que_lo_usan: []
+    proyectos_que_lo_usan:
+      - "koi (Etapas 19 y 26, 2026-09-10) — conceptos porcentuales del Estado de Resultados: flag ImporteEditadoManual por fila y por periodo (pieza 1: el recalculo batch saltea las filas manuales). Variante que agrega la Etapa 26: el recalculo NUNCA pisa en silencio una fila manual — devuelve la lista viejo -> nuevo, el usuario confirma (con tilde por fila) y un endpoint aparte pisa solo lo confirmado, reenviando los importes que el usuario VIO para no pisar una fila que cambio entretanto (chequeo optimista por valor, sin RowVersion). En un GET no se pisa nada con valor; solo se completan vacios. Migracion de datos que marca como manuales las filas heredadas cuyo importe no coincide con base x % (tolerancia 1 centavo por Math.Round al par vs ROUND de MySQL), con AuditLog por fila para un Down exacto. Archivos: KoiDumplings.Infrastructure/Services/EstadoResultadosService.cs (RecalcularInternamente, PisarConceptosManualesAsync), Views/EstadoResultados/Mensual.cshtml (confirmarPisadoManuales), Migrations/20260910162303_E22_PorcentualesManualesHeredados.cs"
     archivos_referencia:
       - proyecto: labipac
         path: "LabIPAC.Domain/Enums/TipoModoPrecio.cs + LabIPAC.Domain/Entities/UnidadBioquimica.cs"
@@ -947,3 +948,94 @@ patrones:
       (lento pero correcto) en vez de fallar con 401 a mitad de una operacion.
       Tercera: el reintento tiene que ser UNO SOLO. Si la credencial cambio de verdad,
       reintentar en bucle solo genera logins fallidos contra el servidor del tercero.
+
+  - id: PAT-025
+    nombre: "Cola de trabajo en segundo plano con scope propio (mails que no bloquean la respuesta)"
+    categoria: infraestructura
+    descripcion: >
+      IBackgroundJobQueue (Singleton, Channel acotado) + BackgroundJobWorker (BackgroundService)
+      que drena la cola de a un trabajo por vez, cada uno en un scope de DI PROPIO creado con
+      IServiceScopeFactory. Reemplaza el patron `_ = Task.Run(() => _servicioScoped.HacerAlgoAsync())`,
+      que captura en la clausura un servicio scoped del request: cuando el request termina se
+      dispone el scope y con el el DbContext, y la tarea sigue corriendo contra objetos dispuestos.
+      El trabajo encolado recibe el IServiceProvider del scope nuevo y resuelve ahi adentro lo que
+      necesita; en la clausura solo viajan datos (ids, strings). Toda excepcion queda logueada.
+    cuando_usar: >
+      Cualquier accion HTTP que dispare trabajo lento y no critico para la respuesta —
+      tipicamente envio de mails por SMTP: restablecer contraseña, notificaciones masivas,
+      avisos de cierre. Tambien cuando el tiempo de respuesta es en si mismo informacion
+      sensible (anti-enumeracion de cuentas): sacar el SMTP del request iguala las dos ramas.
+    proyecto_origen: koi
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: koi
+        path: "KoiDumplings.Application/Interfaces/IBackgroundJobQueue.cs"
+        motivo: "Contrato: Encolar(nombre, Func<IServiceProvider, CancellationToken, Task>). El nombre es lo unico que aparece en el log si el trabajo falla"
+        pendiente_verificar: false
+      - proyecto: koi
+        path: "KoiDumplings.Infrastructure/Services/BackgroundJobQueue.cs"
+        motivo: "Cola (Channel acotado, DropWrite) + BackgroundJobWorker con el scope por trabajo y el catch que hace visible el fallo"
+        pendiente_verificar: false
+      - proyecto: koi
+        path: "KoiDumplings.Infrastructure/DependencyInjection.cs"
+        motivo: "El registro que hace que funcione: AddSingleton<BackgroundJobQueue>() + AddSingleton<IBackgroundJobQueue>(sp => sp.GetRequiredService<BackgroundJobQueue>()) + AddHostedService<BackgroundJobWorker>()"
+        pendiente_verificar: false
+      - proyecto: koi
+        path: "KoiDumplings.Web/Controllers/AccountController.cs (ForgotPassword) y NotificacionCierreController.cs (EnviarMasivo)"
+        motivo: "Los dos usos: token y link se arman en el request (dependen de UserManager y Url.Action); al trabajo solo viajan strings. NOTA 2026-09-11: el segundo uso ERA EstadoResultadosController.ConfirmarCierre; se movio a EnviarMasivo cuando el dueño decidio que cerrar un periodo no notifique (KOI-B06). El patron no cambia, cambio quien lo dispara"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-014
+    notas: >
+      SINTOMA QUE LO MOTIVO (KOI, 2026-09-10): dos `Task.Run` fire-and-forget sobre un servicio
+      scoped que usa el DbContext. Funcionaban por carrera ganada — el request devolvia un
+      redirect y la tarea alcanzaba a leer antes del dispose. Bajo carga, o con SMTP lento, el
+      periodo quedaba cerrado y los inversores sin mail, con CERO rastro en el log porque el
+      fire-and-forget no tenia catch. Ese es el motivo por el que un problema asi puede llevar
+      meses sin detectarse: no falla, desaparece.
+      REGLA: lo que dependa del request (Url.Action, UserManager del usuario logueado, Request.Host,
+      PathBase) se resuelve ANTES de encolar y viaja como dato. Nunca se captura un servicio.
+      LIMITE DELIBERADO: es una cola en memoria. Si el sitio se recicla (IIS) con trabajos
+      pendientes, se pierden. Sirve para mails reintentables a mano; NO para nada que tenga que
+      sobrevivir un reinicio — eso va a la base.
+      Un `IEmailService` sin estado (solo IOptions + MailKit, no IDisposable, sin DbContext) NO
+      sufre este bug aunque se lo capture: por eso `ErrorNotifier.NotifyError` se dejo como
+      estaba. El bug aparece cuando el servicio capturado toca el DbContext.
+
+  - id: PAT-026
+    nombre: "Scroll horizontal que se nota: desvanecido por mascara + foco fuera del borde"
+    categoria: ui
+    descripcion: >
+      Contenedor con overflow-x (graficos, tablas anchas) que avisa que hay mas contenido
+      aunque la barra de scroll mida 0 px, que es lo normal en mobile. El borde se
+      desvanece con `mask-image` solo del lado donde queda contenido (atributos
+      `data-mas-izq` / `data-mas-der` que marca un script chico con `scroll` pasivo +
+      `ResizeObserver`), y el foco de teclado se corre fuera del desvanecido en `focusin`.
+    cuando_usar: >
+      Cualquier bloque que desborde a lo ancho en mobile, sobre cualquier fondo. No usar un
+      degradado del color del fondo por encima: tiene que coincidir con el fondo, y sobre
+      fondos oscuros o translucidos no se ve.
+    proyecto_origen: kite-punta-lara
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: kite-punta-lara
+        path: "front/src/scripts/grilla-scroll.ts"
+        motivo: "marcarDesborde + vigilarGrilla: scroll pasivo, ResizeObserver, y el focusin que saca la hora enfocada del desvanecido"
+        pendiente_verificar: false
+      - proyecto: kite-punta-lara
+        path: "front/src/styles/global.css (.gh-scroll[data-mas-*])"
+        motivo: "la mascara en sus tres casos (izquierda, derecha, ambos) y overscroll-behavior-x: contain"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      MEDIDO (kite, 2026-09-09): 656 px de contenido en 324 visibles y la barra de scroll de
+      mobile en 0 px de alto; scrollear funcionaba, pero nada en pantalla lo decia. La primera
+      version fue un velo del color del fondo: sobre la card oscura era literalmente invisible
+      aunque el test de atributos pasaba (se detecto mirando la captura, no con el test).
+      TRAMPAS: (1) con mascara no hace falta wrapper; un velo con pseudo-elementos tiene que
+      colgar de un elemento que NO scrollea, o se desplaza con el contenido. (2) Con teclado el
+      navegador lleva el foco justo hasta el borde, o sea adentro del desvanecido;
+      `scroll-padding-inline` no alcanzo en Chrome y se corrige en `focusin`. (3) La mascara
+      recorta tambien el anillo de foco del propio contenedor en los extremos: medirlo.
+      (4) No auto-scrollear el contenedor al cargar para "mostrar lo importante": se probo y el
+      usuario lo saco, al entrar la pantalla tiene que estar quieta.

@@ -123,17 +123,84 @@ Mientras tanto, la carga manual de ventas **sigue estando disponible siempre**: 
 
 ## Cómo funciona el cierre de período y el reparto a inversores — paso a paso
 
-**1. Vista previa antes de cerrar.** Al hacer clic en "Cerrar período" desde el Estado de Resultados, el sistema te muestra una previsualización: el resultado del mes, la utilidad que le corresponde a cada punto de inversión, y el detalle de lo que cobraría cada inversor según sus puntos vigentes.
+Esta es la operación más importante del sistema: **es la que reparte plata**. Por eso tiene una previsualización antes de confirmar y varias trabas para que nada se dispare por accidente.
 
-**2. Cargá los consumos del mes, si los hay.** Si algún inversor consumió en el local durante el mes, cargás ese monto en su fila — el sistema lo descuenta automáticamente de lo que le corresponde cobrar (nunca te va a dejar cargar un consumo mayor a lo que ese inversor cobraría ese mes).
+### Qué pasa exactamente cuando cerrás un mes
 
-**3. Confirmá el cierre.** Al confirmar, el sistema: cierra el período (ya no se puede editar), genera la liquidación de cada inversor con estado "Pendiente", y **envía automáticamente un mail a cada inversor activo** con el resumen del mes y su liquidación personal.
+**1. Vista previa antes de cerrar.** Al hacer clic en "Cerrar período" desde el Estado de Resultados, el sistema te muestra una previsualización: el resultado del mes, la utilidad que le corresponde a cada punto de inversión, y el detalle de lo que cobraría cada inversor según sus puntos vigentes. **Todavía no pasó nada** — es sólo una cuenta en pantalla.
 
-**4. Gestioná los pagos.** Una vez cerrado el mes, entrás a "Liquidaciones" para marcar como "Pagada" la liquidación de cada inversor a medida que efectivamente les transferís el dinero (con la fecha de pago). Si te equivocaste, un Administrador puede reabrir una liquidación ya pagada, indicando el motivo.
+**2. Cargá los consumos del mes, si los hay.** Si algún inversor consumió en el local durante el mes, cargás ese monto en su fila y el sistema lo descuenta de lo que le corresponde cobrar. Nunca te va a dejar cargar un consumo mayor a lo que ese inversor cobraría ese mes.
 
-**Casos especiales contemplados:**
-- Si el envío de un mail falla (por ejemplo, un problema de conexión puntual), el cierre del período **no se cancela** — el mail fallido queda registrado y lo podés reenviar manualmente desde "Hist. notif. cierre".
-- Los consumos de un inversor nunca pueden superar el monto que cobraría ese mes — el sistema te avisa si lo intentás.
+**3. Confirmá el cierre.** Recién acá el sistema hace tres cosas, en este orden:
+
+  - **Cierra el período.** Los números del mes quedan fijos y la pantalla de carga pasa a sólo lectura.
+  - **Genera una liquidación por inversor**, en estado *Pendiente*, con el detalle de cómo se llegó a ese monto.
+  - **Manda un mail a cada inversor activo** con el resumen del mes y su liquidación personal.
+
+*El envío de los mails corre por detrás, después de cerrar. Si falla el mail de alguien, el cierre **no se cancela** ni se deshace: el período queda cerrado, las liquidaciones generadas, y el mail fallido queda registrado para reenviarlo.*
+
+### Cómo se calcula lo que cobra cada inversor
+
+El reparto sale del **Resultado del Ejercicio** del mes — ventas menos gastos — dividido por los **100 puntos** de inversión. Eso da la utilidad por punto. A cada inversor le corresponde esa utilidad multiplicada por **los puntos que tenía vigentes ese mes**, menos sus consumos.
+
+Dos aclaraciones que suelen generar preguntas:
+
+- **Los puntos son por mes.** Si un inversor cambió su cantidad de puntos, el sistema usa los que estaban vigentes en el mes que se está cerrando, no los de hoy.
+- **Puede haber puntos sin dueño.** Si en un mes no están asignados los 100 puntos, la parte no asignada simplemente no se reparte.
+
+### Los estados de una liquidación
+
+En **Liquidaciones** seguís el recorrido de cada pago:
+
+| Estado | Qué significa |
+|---|---|
+| **Pendiente** | Se generó al cerrar el mes. El inversor todavía no cobró. |
+| **Pagada** | Vos la marcaste como pagada, con su fecha. Es el registro de que la transferencia se hizo. |
+
+Marcás como pagadas de a una o varias juntas, indicando la fecha del pago. Si te equivocaste, un Administrador puede **reabrir una liquidación ya pagada** dejando el motivo, y vuelve a *Pendiente*.
+
+### Volver a abrir un mes cerrado
+
+Si necesitás corregir números de un mes ya cerrado, un Administrador puede reabrirlo desde el Estado de Resultados. **Pedís el motivo obligatoriamente**, y antes de confirmar el sistema te dice **cuántas liquidaciones se van a descartar y cuántas de ellas ya estaban pagadas**.
+
+Eso último es lo importante y conviene leerlo con atención: **reabrir un mes descarta las liquidaciones de ese mes, incluidas las que ya marcaste como pagadas**. El dinero que efectivamente transferiste no se deshace —eso pasó en el banco, no en el sistema— pero sí desaparece el registro de esa liquidación. Al volver a cerrar el mes se generan liquidaciones nuevas con los números corregidos, y hay que volver a marcarlas como pagadas.
+
+Por eso la reapertura pide motivo y muestra el conteo antes: **no es una acción para deshacer un tipeo**. Para corregir el importe de un gasto existe la corrección directa, que se explica a continuación y no descarta ninguna liquidación. La reapertura queda para cuando hay que cambiar las ventas del mes, o agregar y sacar conceptos.
+
+### Corregir un gasto de un mes cerrado, sin reabrirlo
+
+A veces un mes ya cerrado tiene un gasto mal cargado. En vez de reabrirlo —que descarta todas sus liquidaciones—, un Administrador puede corregir el importe directamente, desde el mismo Estado de Resultados.
+
+Antes de confirmar, el sistema te muestra qué va a pasar con las liquidaciones de ese mes:
+
+- Las **pendientes** se recalculan con el resultado corregido, respetando los puntos, los consumos y el tipo de cambio que cada inversor tenía al cierre.
+- Las **pagadas no se tocan**: esa plata ya se transfirió. El sistema te dice cuáles son, con su importe y su fecha de pago, para que decidas vos si hace falta compensar a alguien.
+
+Cada corrección queda registrada. **Sólo el Administrador puede hacerla**; el Encargado no.
+
+En un mes cerrado se corrigen importes de gastos. Para agregar o sacar conceptos, o para cambiar las ventas, hay que reabrir el mes.
+
+### Mover un gasto a otro concepto
+
+Si un gasto quedó cargado en un concepto equivocado —o en uno del catálogo anterior, como "Otros gastos"—, un Administrador puede moverlo a otro concepto con el botón ⇄ de su fila. Funciona en meses abiertos y cerrados.
+
+Si el concepto de destino ya tiene un importe en ese mes, los dos se suman. Antes de confirmar ves la cuenta completa: lo que había, lo que se mueve y cómo queda. **El total de gastos del mes nunca cambia al mover**: el gasto sólo cambia de renglón.
+
+Es la herramienta para ordenar los meses históricos que todavía muestran conceptos del catálogo anterior. Esos conceptos aparecen con la etiqueta "Histórico" y su importe se puede editar como el de cualquier otro.
+
+### Los mails a los inversores
+
+Hay dos caminos por los que sale un mail de cierre:
+
+**Automático, al cerrar el mes.** Es el de siempre: cerrás y salen los mails. No tenés que hacer nada.
+
+**Manual, desde "Hist. notif. cierre".** Sirve para reenviar. Podés reenviarle a un inversor puntual —por ejemplo si su mail rebotó— o volver a mandar a todos los del período.
+
+Cuando elegís reenviar a todos, **el sistema te muestra primero una previsualización**: el mail tal como lo va a recibir el inversor, con datos reales, y la lista completa de destinatarios con su dirección. Los inversores que no pueden recibirlo —porque no tienen usuario o no tienen mail cargado— aparecen aparte, con el motivo.
+
+Recién cuando confirmás salen los mails. **Si cancelás, no se envía nada.**
+
+En esa misma pantalla queda el historial de todo lo enviado: a quién, cuándo, y si salió bien o falló.
 
 ## Cómo funciona "Reparto General" — para vos como administrador
 

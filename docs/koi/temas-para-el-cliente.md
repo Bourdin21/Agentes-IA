@@ -137,3 +137,14 @@ Aclaración a favor de quien carga: los **comensales estaban bien** (1.678). Se 
 - ¿Se corrigen los períodos históricos con los datos reales de Ayres, o se dejan como están? Los **totales no cambian**, así que **no afecta ningún reparto ya liquidado** — solo mejora los indicadores por canal y el ticket promedio.
 - ¿Confirma que en Ayres "ME" es Salón, "PE" es Pedidos y "MO" es Mostrador?
 
+---
+
+## ⚠️ Pendientes antes de cerrar la Entrega 1 (2026-09-10)
+
+El detalle completo está en **`pendientes-entrega-1.md`**. Los dos que **bloquean** y necesitan una reunión con el cliente:
+
+1. **Agosto 2026 no cierra** — $99,9 M de gastos contra $63,1 M de ventas, porque el mes tiene cargados los dos catálogos a la vez. Hay que definir con Juani, para los 4 meses abiertos (2026-01, 07, 08 y 09), qué filas quedan. Sin cierre no hay reparto a inversores.
+2. **Seis subgrupos históricos sin destino** — entre ellos **"Otros gastos" ($212,7 M)** y **CMV ($442,2 M**, que el catálogo nuevo abre en cuatro). Los totales históricos son correctos; lo que falta es el mapeo, y no corresponde que lo decidamos nosotros.
+
+Y uno para validar: **"Mercadería KOI" de agosto se corrigió de $111.396.734 a $11.139.654** (error de tipeo de un dígito, con backup). Conviene que Juani confirme el número.
+

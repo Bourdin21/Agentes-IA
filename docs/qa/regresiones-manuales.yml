@@ -2398,3 +2398,118 @@ regresiones:
       - "Override + revertir sobre un concepto porcentual -> la celda muestra '3,00 %' sin recargar."
       - "Recargar la pagina -> el valor coincide con el que se veia antes de recargar."
     nota_generalizacion: "Patron a vigilar en toda vista que repinte numeros por AJAX: el servidor rinde con la cultura es-AR y el cliente tiende a usar toFixed(), que es invariante. Si la vista ya tiene un helper de formato, TODO repintado numerico debe pasar por el; un solo call site que se saltee el helper produce una inconsistencia visible dentro de la misma grilla."
+
+  - id: KOI-011
+    modulo: Auditoria transversal / AuditLogs.Action
+    titulo: "Una accion de auditoria de negocio mas larga que la columna Action mata en silencio la funcionalidad que la escribe"
+    severidad: critical
+    reproducido_en: "dev (copia de produccion) 2026-09-11; confirmado en produccion por inspeccion de esquema: la columna es varchar(20) y NO existe ninguna fila con las dos acciones nuevas, o sea que las dos funciones nunca se completaron desde que se entregaron"
+    pasos:
+      - "Como Administrador abrir el Estado de Resultados de un mes CERRADO."
+      - "Editar el importe de un gasto y confirmar el aviso de impacto en liquidaciones."
+      - "Variante 2: en un mes abierto, pulsar 'Recalcular %' con un concepto escrito a mano y confirmar el pisado."
+    sintoma: "El aviso previo funciona perfecto, pero al confirmar no se guarda nada: 'No se pudo guardar la correccion. No se modifico nada.' En la variante 2, HTTP 500 con body vacio. En el log: MySqlException: Data too long for column 'Action' at row 1."
+    expectativa: "La correccion se guarda y queda su registro de auditoria."
+    causa_raiz: "AppDbContext dimensiono AuditLogs.Action con HasMaxLength(20) pensando en el audit automatico ('Create'/'Update'/'Delete'), pero los servicios escriben ademas auditoria de NEGOCIO con nombres descriptivos. 'EdicionPeriodoCerrado' y 'RecalculoPisaManuales' miden 21; 'ReasignacionConcepto' mide 20 exactos y pasaba raspando. El SaveChanges es unico, asi que la transaccion revierte entera: es fail-safe, pero la funcion queda muerta."
+    capa: Infrastructure
+    archivos_fix:
+      - path: KoiDumplings.Infrastructure/Data/AppDbContext.cs
+        motivo: "Action a HasMaxLength(50): mas del doble de margen sobre la accion mas larga."
+    migracion_ef: "20260911132810_E24_AuditLogActionLength (AlterColumn a varchar(50)). En MySQL 'dotnet ef migrations script --idempotent' NO sirve: emite IF NOT EXISTS ... BEGIN ... END, que fuera de un procedimiento es error de sintaxis. Hay que escribir el equivalente a mano (ALTER por sentencia preparada condicionada a information_schema + INSERT ... WHERE NOT EXISTS en __EFMigrationsHistory)."
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "POST /EstadoResultados/GuardarConceptoEnPeriodoCerrado y POST /EstadoResultados/PisarManuales"
+      condicion_falla: "Tras confirmar, la operacion no persiste (o responde 500) y el log trae 'Data too long for column'."
+    criterio_aceptacion:
+      - "Las dos operaciones persisten el cambio Y su fila en AuditLogs."
+      - "Ninguna Action del codigo supera el largo declarado en el modelo."
+    pruebas_minimas:
+      - "Corregir un gasto de un mes cerrado -> el importe cambia y queda una fila con Action='EdicionPeriodoCerrado'."
+      - "Pisar un concepto manual con el recalculo -> el importe cambia y queda una fila con Action='RecalculoPisaManuales'."
+    nota_generalizacion: "Aplica a TODO proyecto del estudio con auditoria propia. Regla: si el codigo escribe nombres de accion descriptivos, la columna NO puede dimensionarse para los verbos del audit automatico. El modo de falla es traicionero: el build compila, el analisis estatico no lo ve, la UI muestra su aviso previo correctamente, y recien al confirmar revienta contra la base — y como el rollback deja todo intacto, parece 'no hizo nada' en vez de 'fallo'. Chequeo barato: comparar el largo de cada literal de Action contra el HasMaxLength del modelo. Peor consecuencia posible: el usuario que no puede corregir un mes cerrado recurre a REABRIRLO, que es la operacion destructiva que esa funcionalidad venia a evitar."
+
+  - id: KOI-012
+    modulo: Migraciones de datos / consolidacion de catalogos
+    titulo: "Una migracion de datos con ids de produccion escritos a mano traslada plata al concepto equivocado en cualquier otra base"
+    severidad: major
+    reproducido_en: "dev (copia de produccion) 2026-09-11, migracion E20_ConsolidacionCatalogos_A2"
+    pasos:
+      - "Tomar una base cuyo catalogo tenga los mismos conceptos pero con otros Id (dev, o una base nueva creada con dotnet ef database update)."
+      - "Correr la migracion de consolidacion."
+      - "Mirar a que concepto quedaron imputados los importes historicos."
+    sintoma: "La migracion corre sin error y los totales por periodo no se mueven, pero la imputacion queda corrupta: 'Alquiler del local 4.500.000' aterriza en 'Cristaleria & Equipamiento', 'Otros gastos 10.022.838,72' en 'Pastillas Horno Rational'. 133 filas creadas, 266 actualizadas, 133 dadas de baja."
+    expectativa: "La migracion mueve los conceptos correctos, o no mueve nada."
+    causa_raiz: "El mapeo estaba escrito como pares de Id literales de produccion (12->39, 13->40, ...). Los Id son datos de una base concreta, no identidad estable del dominio: en otra base esos numeros son otros conceptos."
+    capa: Infrastructure
+    archivos_fix:
+      - path: KoiDumplings.Infrastructure/Data/Migrations/20260910014549_E20_ConsolidacionCatalogos_A2.cs
+        motivo: "Cada par declara los nombres esperados de origen y destino; las seis sentencias que usan el mapa los validan por JOIN contra Subgrupos. Un par que no coincide queda intacto, y se registra una fila 'MigracionOmitida' en AuditLogs."
+    migracion_ef: "No se crea una migracion nueva: se endurece la ya aplicada. En produccion esta registrada en __EFMigrationsHistory, asi que editarla NO la re-ejecuta; el cambio protege entornos nuevos."
+    deteccion_qa:
+      tipo: datos
+      selector_o_endpoint: "Estado de Resultados de un mes historico posterior a la migracion"
+      condicion_falla: "Un importe historico aparece bajo un concepto que no tiene nada que ver con el original."
+    criterio_aceptacion:
+      - "En una base con los nombres esperados, la migracion produce el mismo resultado que antes."
+      - "En una base donde los nombres no coinciden, no mueve nada y deja constancia."
+    pruebas_minimas:
+      - "Dos bases gemelas (mismos ids e importes, distintos nombres): la de forma de produccion consolida; la otra deja 0 tocadas, 0 creadas, 0 de baja y 1 aviso."
+      - "Los totales por periodo quedan identicos en los dos casos."
+    nota_generalizacion: "Aplica a TODA migracion de datos del estudio. Regla: una migracion nunca debe direccionar filas por Id de una base concreta — resolver por clave natural (nombre, codigo) y validarla antes de escribir; si no matchea, no tocar nada y dejar rastro. Ojo con dos restricciones de MySQL al escribir la guarda: no se puede hacer UPDATE de una tabla usando esa misma tabla en una subconsulta del FROM ('You can't specify target table for update in FROM clause'), y MySql.Data interpreta las variables de sesion @var como parametros ('Parameter must be defined'), asi que la guarda termina siendo por fila con JOIN plano y no todo-o-nada."
+
+  - id: KOI-013
+    modulo: Configuracion / Benchmarks de mercado — checkbox booleano con hidden companion
+    titulo: "El hidden en false escrito ANTES del checkbox hace que un bool siempre llegue en false al binder"
+    severidad: major
+    reproducido_en: "dev (copia de produccion) 2026-09-11, pantalla Configuracion > Benchmarks"
+    pasos:
+      - "Abrir Configuracion > Benchmarks como Administrador."
+      - "Tildar 'Se muestra' en un benchmark (ej. S&P 500) y guardar la fila."
+      - "Mirar el valor de Activo en la base, y el reporte de cualquier inversor."
+    sintoma: "El benchmark queda Activo=0 aunque el tilde estaba puesto, y DESAPARECE de la comparativa de mercado de los 15 inversores. Volver a tildarlo no lo arregla: cae en el mismo camino. Un benchmark nuevo nace apagado."
+    expectativa: "El tilde puesto guarda Activo=1 y el benchmark aparece en la comparativa."
+    causa_raiz: "En la vista, el <input type=hidden name=activo value=false> estaba escrito ANTES del <input type=checkbox name=activo value=true>. Con el checkbox tildado el navegador manda los dos valores en el orden del DOM ('false','true') y el binder de bool se queda con el PRIMERO. El comentario del codigo describia el patron correcto, pero el orden hacia lo contrario."
+    capa: Web
+    archivos_fix:
+      - path: KoiDumplings.Web/Views/Configuracion/Benchmarks.cshtml
+        motivo: "Checkbox primero, hidden despues — el orden que genera asp-for. Aplica a la fila de edicion inline y a la fila de alta."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "POST de la fila de Benchmarks; leer new FormData(form).getAll('activo')"
+      condicion_falla: "El cuerpo del POST manda ['false','true'] (hidden primero) y/o el registro queda en 0 con el tilde puesto."
+    criterio_aceptacion:
+      - "Tilde puesto -> 1; destildado -> 0; vuelto a tildar -> 1."
+      - "Un registro nuevo con el tilde por defecto nace en 1."
+    pruebas_minimas:
+      - "Los tres pasos (poner, sacar, volver a poner) leidos contra la base, no contra la pantalla."
+      - "El benchmark activo aparece en la comparativa del reporte del inversor y el desactivado no."
+    nota_generalizacion: "Aplica a TODO proyecto del estudio con checkboxes booleanos en formularios armados a mano (edicion inline en tabla, forms fuera del <table> enganchados con form=...), donde no se puede usar asp-for. Regla: checkbox PRIMERO, hidden false DESPUES; el binder de bool toma el primer valor de la coleccion. El modo de falla es silencioso — la pantalla vuelve a dibujar el tilde como el usuario lo dejo y recien se nota cuando alguien mira el efecto aguas abajo. Chequeo barato: grep de type=\"hidden\" inmediatamente antes de un checkbox con el mismo name."
+
+  - id: KOI-014
+    modulo: Dashboard / script de inicio que toca botones que pueden no existir
+    titulo: "Un getElementById sin guard en el arranque deja la pantalla entera en blanco cuando el markup condicional no se renderizo"
+    severidad: minor
+    reproducido_en: "dev (copia de produccion) 2026-09-11, /Dashboard?anio=2024&mes=5 con usuario Inversor"
+    pasos:
+      - "Entrar como Inversor a Rendimiento Historico."
+      - "Elegir en el selector un anio/mes sin datos cargados."
+    sintoma: "Pantalla vacia y TypeError: Cannot read properties of null (reading 'classList'). Como el error corta el script, se cae todo lo que venia despues."
+    expectativa: "La pantalla renderiza su aviso de 'sin datos' y la consola queda limpia."
+    causa_raiz: "cargarHistorico() hacia document.getElementById('btnHist12').classList.toggle(...) y se invocaba incondicionalmente al final del script, aunque el bloque de botones y el canvas viven dentro de un @if del markup."
+    capa: Web
+    archivos_fix:
+      - path: KoiDumplings.Web/Views/Dashboard/Index.cshtml
+        motivo: "Resolver primero el canvas y salir temprano si no esta, mas null-guard en los dos botones. El early return ademas evita disparar un fetch cuyo resultado no tendria donde ir."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Cualquier pantalla con graficos, en el estado 'sin datos'"
+      condicion_falla: "La consola del navegador trae un TypeError sobre null en el arranque, y/o la pantalla queda vacia."
+    criterio_aceptacion:
+      - "En el estado sin datos: renderiza el aviso y la consola queda sin errores."
+      - "En el estado con datos: el grafico se dibuja igual que antes."
+    pruebas_minimas:
+      - "Navegador real sobre el estado sin datos -> 0 errores de consola."
+      - "Navegador real sobre el estado con datos -> canvas dibujado y toggles funcionando."
+    nota_generalizacion: "Aplica a TODA vista del estudio que mezcle markup condicional con un script de inicio. Regla: un script que corre en el arranque debe estar bajo la MISMA condicion que el markup que toca, o resolver el elemento y salir temprano. Verificar el estado vacio con navegador real y consola abierta: es el estado que nadie prueba, y un unico TypeError temprano apaga el resto de la pantalla."
