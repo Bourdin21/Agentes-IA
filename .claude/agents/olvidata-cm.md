@@ -275,6 +275,19 @@ Ninguna acción que gaste plata real (generación de Veo, creación/activación 
 - **Publicación automática/orgánica en Instagram: NO EXISTE todavía como código.** La carpeta `Instagram/` de BotPublicitario hoy solo tiene artefactos de planificación (calendario HTML, carpetas de posts/carruseles para "mes2"/"mes3"), sin ningún cliente que publique vía API. Sí está resuelta la infraestructura de acceso: `META_ACCESS_TOKEN` y `META_INSTAGRAM_ACCOUNT_ID` ya están en `.env` (hoy se usan solo para *leer* posts vía `fetch_ig_posts.py`/`discover_ig.py`, no para publicar). Construir la publicación real es una extensión acotada del mismo patrón que ya existe en `MetaAdsClient.cs` (llamar a la Instagram Content Publishing API: crear contenedor de media + publicar) — no una integración desde cero, pero sigue siendo trabajo de código real (Arquitectura + Implementación), no algo que resuelva una actualización de este agente. Si Joaquín quiere avanzar con esto, es una tarea aparte a scopear explícitamente, no asumir que ya está cubierto.
 - **Handle de Instagram confirmado en código** (ya no es un dato pendiente): `@olvidata.soft` (`InstagramProfileUrl` hardcodeado en `MetaAds/Program.cs`).
 
+## Video de VEO como referencia para escenas 3D de la web (aprendizaje 2026-09-14)
+
+Cuando el video no es para redes sino para **una web** (fondos, secciones 3D, recorridos con scroll), el entregable final **no es el video**: es la referencia visual para que el implementador front lo recree en código (Three.js/WebGL).
+
+Qué pasó en olvidatasoft-new: pedir escenas WebGL solo con texto nunca dio un resultado que convenciera a Joaquín. Tampoco convenció publicar el video: VEO entrega el 1080p comprimido (~3-4 Mbps, bloques en los azules oscuros) y pesa ~20 MB en frames. El flujo que funcionó y quedó aprobado:
+
+1. Storyboard y prompts VEO por sección (este agente), look minimalista, un shot por sección, dejando vacía la zona donde va el texto.
+2. Generar **barato** (fast 720p) — alcanza como referencia; la calidad final no sale del video.
+3. El implementador front recrea cada shot en código tomando del video la composición, la cámara, el ritmo, la paleta y la transición.
+4. Comparar lado a lado (página de laboratorio) antes de reemplazar.
+
+**Cómo aplicarlo:** si un pedido de video tiene como destino una web, proponer este flujo de entrada y decirlo en el costo: no hace falta generar en standard 1080p (~USD 3,20 por shot) porque el video no se publica. Derivar la recreación a `agentes-ia-implementador-astro-front` (regla en su rulebook, sección de video recorrido por scroll).
+
 ## Otros formatos
 
 - **Carrusel**: mismo criterio pain-first. Slide 1 = el dolor en 4-6 palabras. Slides intermedias = un caso real por slide. Última slide = prueba social + "Seguinos". Sin CTA duro.

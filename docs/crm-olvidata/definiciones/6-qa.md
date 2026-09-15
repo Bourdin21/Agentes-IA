@@ -1,9 +1,16 @@
 # Memoria - QA
 
 ## Proyecto: crm-olvidata — migración de BotPublicitario
-## Ultima actualizacion: 2026-08-28
+## Ultima actualizacion: 2026-09-14
 
 ## Definiciones vigentes
+
+### Reglas cross-proyecto validadas
+
+**Última validación de reglas cross-proyecto: 2026-09-14**
+
+- Primera corrida con este campo (antes no existía): se tomó como referencia la última QA de este proyecto (2026-08-28) y se validó contra el sistema todo lo agregado o modificado desde entonces en `32-estandares-qa-implementador.instructions.md` y `docs/qa/regresiones-manuales.yml`. Detalle en la sección "QA — feature 4 frentes — combo con gancho (2026-09-14)", punto F5.
+- Reglas agregadas por esta corrida: **CRM-023** (yml) y "Arrays por AJAX GET con jQuery: `traditional: true`" (32). La próxima corrida diferencia desde 2026-09-14.
 
 ### 0. Alcance funcional validado
 
@@ -891,7 +898,135 @@ Lo reportó la tanda B de paso; queda cuantificado: **140 de las 721 queries pre
 - **Chequear la unicidad de una clave incluyendo las filas soft-deleteadas** cuando el código que la resuelve no filtra `DeletedAt` — `SearchByRubroAsync` hace `.Where(i => i.ClaveRubro == rubro).OrderByDescending(i => i.CampanaOutbound.Activa).FirstOrDefault()` sin filtro de borrado.
 - **Un alta masiva de campañas no sólo agrega superficie de envío: agrega superficie de búsqueda diaria.** El restock global corre sobre todas las campañas activas todos los días, desacoplado de `Dias`, así que el impacto en la factura de la API escala con el total de campañas, no con las de hoy.
 
+## QA — feature "4 frentes — combo con gancho" E1-E7 (2026-09-14)
+
+### F0. Alcance, método y seguridad
+
+- **Alcance:** CU-30 a CU-35 (`1-analista-funcional.md`), diseño §8, arquitectura §7.2 (pruebas 7.2.10), los 14 puntos de §8 y los 11 desvíos de `5-implementador.md`. Código sin commitear, migración `AddGanchoYFrenteComercial` solo en `olvidatacrm_dev`.
+- **Seguridad:** dev tiene credenciales **reales** de Meta y Places en user-secrets, y el outbound estaba despausado (26 campañas activas, 234 Pendiente copiados de producción). Durante la corrida: `OutboundPausado=1`/`BusquedaMapsPausada=1`; app levantada con `Olvidata_WhatsApp__AccessToken`, `PhoneNumberId`, `Olvidata_GoogleMaps__ApiKey` y `AdminNotifyPhone` inválidos por variable de entorno; lote, follow-up, frío, webhook e IA ejecutados con un **harness de consola** (DI real de `AddInfrastructure` + `IWhatsAppClient` falso que registra lo que se habría mandado + cada escenario en transacción con **rollback**). Resultado: **0 mensajes de WhatsApp, 0 llamadas a Places, IA real 7 mensajes / 14 requests / USD 0,149.**
+- **Automatización:** Playwright MCP **no disponible** (el navegador del MCP no alcanza el host: `ERR_CONNECTION_REFUSED` en localhost y 127.0.0.1, `host.docker.internal` no resuelve). Se cubrió con HTTP autenticado (cookies + antiforgery) contra la app local, assertions SQL y el harness. Comparaciones "idéntico a antes" contra un **baseline HEAD (2ad3830)** en worktree temporal corriendo sobre la misma base.
+- **Build propio:** `dotnet build -c Release --no-incremental` → 0 errores (antes y después del auto-fix).
+
+### F1. Puntos obligatorios del Implementador
+
+| # | Caso | Resultado | Evidencia |
+|---|---|---|---|
+| 1 | Cupo con salteados | **OK** | Cupo 2, 3 contactos sin plantilla adelante (2 Presencia web, 1 Consultas): salieron los 2 elegibles siguientes (Gestión auto y a mano); el sin-gancho quedó afuera por cupo. Salteados en `Pendiente`, sin `PlantillaPrimerContacto`, log "no se enviaron", `GanchosSinEnvio` y card de /Bot con "Esperando". |
+| 2 | Regresión Gestión sin combo / sin gancho / Referido | **OK** | `olv_frio_v13` y `olv_frio_v12` por A/B (variantes A y B registradas), mismos parámetros que hoy; Referido primero con `olv_referido_v2`. Con combos configuradas: web/consultas/gestión salen con su combo sin A/B, admin no aprobada no sale. |
+| 3 | Botón "Sí, contame más" + IA | **OK** | Presencia web → `landing` + "Partís de cero…"; Administración → `ai_agents`; Consultas → `chatbot`; Gestión → `rent` + matriz Build. **Sin gancho: texto idéntico byte a byte al baseline HEAD** (3 rubros). "No me interesa" → Descartado. Módulo genérico de Chatbots → pregunta 1 con módulos. IA: los 4 mensajes de CU-30 CA2 cambiaron a `chatbot`/`ai_agents`/`landing`/`rent`; pregunta de precio → sin precio + escalada; cliente actual pidiendo mejora → `escalar_a_humano` en el mismo mensaje; prospecto frío con sistema viejo → sin ofrecer Merge. Venta cruzada mencionada una sola vez (e2). |
+| 4 | Fallbacks | **OK** | IA deshabilitada con `ai_agents`/`chatbot` en `ConversandoConIa` → sigue con la pregunta 2, sin re-presentarse. Categoría sin cuestionario → `DerivadoManual`, bot pausado, **1 sola notificación** tras 2 mensajes, nada al prospecto, sin excepción. `merge` histórico sigue su cuestionario. |
+| 5 | Filtros Gancho / Interés | **OK** | Contactos `GetData`: cada valor coincide con SQL (sin 204, PW 235, rent+rent_other 2, other 2, sin clasificar 438); valores inválidos ignorados; **combinaciones sin coincidencias → 200 con 0 filas** (MH-001); orden por las 2 columnas; Session repuesta en Index y vaciada por "Limpiar"; columnas visibles = filtros. Chats: filtro + Session + `limpiar=1` + chip "Administración" en la fila. Base totalmente vacía no probada (no se borra dev); el camino MH-001 se cubre con resultados vacíos y no hay `Contains`/`StartsWith` en SQL (grep). |
+| 6 | Plantillas | **OK** | Guardar válido persiste; 4 POST manipulados (combo de otro gancho, no aprobada, `olv_frio_v3` en Gestión, combo inexistente) → "No se guardó ninguna plantilla", config intacta; sin antiforgery 400. Templates: renombrar combo configurada → bloqueado con mensaje; editar texto sin renombrar → permitido; borrar → bloqueado; columna "Gancho Presencia web" en el listado; Salud no la lista como "sin campaña". |
+| 7 | A1-a | **OK** | Presencia web 4d y Administración 6d → sin follow-up; Consultas 8d y Presencia web 7d+1h → `Frio`; Gestión 4d, sin gancho 4d y Gestión 8d → `olv_nurturing_v2`. `MarkColdAsync` global dentro de la transacción no tocó ningún contacto real. |
+| 8 | Armar presupuesto solo Build | **OK tras auto-fix** | Checklist de 3 rubros (Retail, Estudios, Landing page): mismos módulos, flags, rangos y orden que HEAD (única diferencia: atributo `data-frentes="1"`). `Calcular` y `GenerarMensaje` **byte a byte iguales** a HEAD; CRM-015 sin regresión. **`frentes[]` NO bindeaba en el GET del checklist → defecto CRM-023**, corregido. En POST sí bindea (Calcular con `frentes[]=2` e ids de Build → 0 módulos). |
+| + | Tabla `GanchoHelpers` | **OK** | 26 casos: vacía/null → Presencia web "Sin web"; `instagram.com/x`, `www.instagram.com/…`, `x.mitiendanube.com`, `sites.google.com/view/x`, `wixsite`, `maps.app.goo.gl`, `linktr.ee`, `mercadolibre` → Presencia web con el dominio; `modalu.com.ar` + estudio → Administración; + `consultorio-palermo` → Consultas; + comercio → Gestión; `netflix.com` (no confunde con `x.com`) → Gestión; "no tengo" / "localhost" → Presencia web "dirección no válida"; Ads/Manual/Referido → sin gancho. |
+| + | Carga inicial "Asignar ganchos" | **OK** | 234 asignados, segunda corrida 0, sin antiforgery 400. |
+| + | Contactos Create/Edit/Details | **OK** | Alta con cada rama de la tabla; gancho a mano con canal Manual → error; web inválida → error; gancho inválido → error. Edit: combo pre-poblado (a mano) o "Automático"; Automático recalcula al cambiar la web; guardar otro campo no mueve `FechaGancho`; aviso "Ya se le escribió…" en GET y mensaje "Ojo…" al guardar; histórico ya enviado sin gancho no recibe uno automático (desvío 3). Card Oferta en Details y Chats/Detail con textos correctos. |
+| + | Módulos | **OK** | 84 módulos en Build tras migrar; filtro Frente (y valores inválidos ignorados) + Session + limpiar; Create default Build; Edit pre-seleccionado. |
+| + | Ortografía / tildes de UI nueva | **OK** | Revisados los textos agregados en vistas, ViewModels, helpers y enums: sin faltas. Nombres de frente en inglés (Build, Landing, AI Agents, Chatbots) por diseño. |
+| + | Consola del navegador limpia | **NO PROBADO** | Sin navegador disponible. Barrido estático KOI-B02: los ids que tocan los scripts nuevos no están bajo `@if`. Queda manual. |
+
+### F2. Cobertura por criterio de aceptación
+
+| CU | CA | Resultado | Nota |
+|---|---|---|---|
+| CU-30 | CA1 `ai_agents`/`chatbot` sí, `merge` no | PASS | `ClavesVigentes` y `CategoriasValidas` de la IA sin `merge` (verificado por reflexión); la tool usa ese enum. |
+| CU-30 | CA2 los 4 mensajes | PASS | IA real, 4/4. |
+| CU-30 | CA3 sin precios ni plazos | PASS | e5. |
+| CU-30 | CA4 sin mejoras a frío / cliente actual escala | PASS | e6 y e7. |
+| CU-31 | CA1-CA4 (reemplazados por la tabla de gancho del diseño 8.3/8.4) | PASS | Visible antes del envío (Contactos, Chats, /Bot), determinístico y puro. |
+| CU-32 | CA1-CA4 | PASS | Combo por gancho, v13 intacta, no cae a otra plantilla, mismos payloads, cupo y presupuesto. |
+| CU-33 | CA1, CA2, CA4, CA5 | PASS | Botón por gancho, cambio de categoría, fallback, módulos del frente. |
+| CU-33 | CA3 guardas vigentes | PASS parcial | Baja y escalada por precio verificadas; detección de no-humano y las 7 guardas no se re-ejecutaron contra la IA (fuera del cambio, cuidando el tope de costo). |
+| CU-34 | CA1, CA2 | PASS | Etiquetas legibles, filtros = columnas. |
+| CU-35 | CA1 | PASS | Ninguna vía nueva asigna `merge`. |
+| CU-35 | CA2 | PASS (sin datos) | Etiqueta "Mejoras en sistema Olvidata (discontinuado)" en helper y filtro; dev no tiene contactos con `merge`. |
+
+### F3. Máquina de estados
+
+- `FaseConversacion`: `ConfirmandoContinuar` + `seguir` → `AskingQuestions` con la categoría del gancho (4 ganchos + sin gancho) — PASS. `ConfirmandoContinuar` + `no_interesa` → `Descartado` — PASS. `ConversandoConIa` con IA caída → `AskingQuestions` si la categoría tiene cuestionario — PASS. `AskingQuestions` con categoría sin cuestionario → `DerivadoManual` + bot pausado (sin cambio de fase) — PASS. Texto libre con IA disponible → `ConversandoConIa` o `AskingQuestions`+`DerivadoManual` al escalar — PASS.
+- `EstadoEmbudo`: `Pendiente` → `MensajeEnviado` con combo — PASS; `Pendiente` se mantiene para ganchos sin plantilla — PASS; `MensajeEnviado` → `Frio` a los 7 días para los 3 ganchos combo y nunca `FollowUpEnviado` — PASS; `MensajeEnviado` → `FollowUpEnviado` para Gestión/sin gancho — PASS. Transición inválida probada: combo con 3-6 días no recibe follow-up ni pasa a frío — PASS.
+
+### F4. Cobertura del catálogo cross-proyecto (items relevantes a esta superficie; el resto sigue como en las corridas anteriores)
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| MH-001 (Contains de lista / StartsWith / EndsWith en SQL) | sí | PASS | grep de las líneas agregadas: todo en memoria; filtros por igualdad; endpoints con 0 resultados → 200. |
+| CRM-001 (campo nuevo con varios puntos de alta) | sí | PASS | `AsignarGancho` en Maps (2), Create/Edit, carga inicial y red de seguridad. |
+| CRM-007 / CRM-016 (vocabulario en 2 lugares) | sí | PASS | `CategoriaHelpers` fuente única; comercio → matriz de Retail en el botón. |
+| CRM-015 (siglas en el mensaje) | sí | PASS | Utilities idéntico a HEAD, "ABM Cuadrilla". |
+| LP-002 (capacidad nueva propagada a todos los usos) | sí | PASS | rename/delete/Salud contemplan la configuración por gancho. |
+| REG-010 / KOI-005 (sidebar vs. autorización) | no | N/A | Sin links nuevos. |
+| KOI-001 (SweetAlert fuera del form) | sí | PASS | "Asignar ganchos" arma el POST con token del form de la card. |
+| KOI-009 (URLs AJAX absolutas) | sí | PASS | Endpoints nuevos con `Url.Action`. |
+| KOI-011 (largo de Action de auditoría) | no | N/A | El proyecto no tiene tabla de auditoría. |
+| KOI-012 (migración con ids hardcodeados) | sí | PASS | Migración sin SQL de datos. |
+| KOI-013 / KOI-014 (checkbox+hidden / script condicional) | sí | PASS (estático) | Sin checkboxes nuevos a mano; ids de scripts nuevos incondicionales. Consola: manual. |
+| OLV-001/002/003/004 (tema oscuro: Select2, alertas, outline) | sí | NO PROBADO | Sin navegador. Los badges nuevos `violet`/`slate` tienen variante oscura; los Select2 nuevos usan el mismo theme que los existentes (sin override propio en `site.css`). Manual. |
+| GAN-005/006, DN-003/004, MH-016..021, KOI-010 | no | N/A | Sin grillas decimales, pagos, cajas ni stock en este alcance. |
+| **CRM-023** (nuevo) | sí | FAIL → **corregido** | Ver F6. |
+
+### F5. Reglas nuevas o modificadas desde la última corrida (2026-08-28)
+
+| Regla | Origen | Resultado | Acción |
+|---|---|---|---|
+| Tope de gasto en todos los caminos (CRM-017) | 32 | PASS | El combo sale solo por `SendDailyBatchAsync` (mismo cupo y presupuesto); los 3 ganchos combo no abren camino de follow-up. |
+| Flag operativo persistido (CRM-018) | 32 | PASS | Plantillas por gancho en `ConfiguracionesOutbound`. |
+| StartsWith/EndsWith en SQL (MH-001 variante) | 32 | PASS | Solo en memoria (`GanchoHelpers`). |
+| Feature opcional no rompe el host (CRM-020) | 32 | PASS | `ModuloCatalogoQueries`, escalada y red de seguridad envueltas; probado S4. |
+| Navegación vs FK en flujo con padre nuevo (CRM-021) | 32 | PASS | El código nuevo del webhook corre sobre contactos existentes y registra por la colección de navegación. |
+| Modo sombra sin efectos (CRM-022) | 32 | PASS (código) | Sin escrituras nuevas desde la IA. |
+| Lote con cupo: filtro antes del `Take` | 32 | PASS | Punto 1. |
+| Checkbox + hidden (KOI-B01) y script condicional (KOI-B02) | 32 / yml KOI-013, KOI-014 | PASS (estático) | Consola y estado vacío con navegador: manual. |
+| KOI-009..012, GAN-005/006, DN-003/004, MH-016..021, OLV-001..004, CRM-015/016 | yml | Ver F4 | — |
+
+### F6. Defectos
+
+| id | Severidad | Resumen | Estado |
+|---|---|---|---|
+| **CRM-023** | major | El selector múltiple "Frentes" de `/Modulos/Presupuesto` y del modal de `Chats/Detail` nunca llegaba al servidor: `$.get` con array manda `frentes[]=2`, que ASP.NET Core no bindea desde el query string, y `NormalizarFrentes` caía a Build **en silencio** (probado: `?frentes%5B%5D=2` → `data-frentes="1"`; `?frentes=1&frentes=2` → `"1,2"`). Hoy latente porque no hay módulos de otros frentes cargados, pero invalida E6 apenas se carguen. | **Auto-fix aplicado**: `$.ajax({ url, data, traditional: true })` en `Views/Modulos/Presupuesto.cshtml` y `Views/Chats/Detail.cshtml`. Rebuild Release 0 errores; re-verificado que las 2 vistas sirven el JS nuevo y que el formato tradicional bindea. Catalogado en yml + regla en 32. |
+
+Observaciones no bloqueantes:
+- **O1 — R3 medido en dev:** los 234 contactos Pendiente reciben gancho **Presencia web / "Sin web"** (ninguno tiene `PaginaWeb`). Con la combo web sin aprobar, el outbound manda 0 primeros contactos.
+- **O2:** clave de rubro no mapeada con guión (`rubro-raro`) deja motivo "Rubro de gestión: rubro" (usa la base antes del guión). Cosmético.
+- **O3 (preexistente):** /Bot/Salud "Templates activos sin campaña" dice "Están aprobados y activos" pero filtra solo `Activo` (listó una plantilla en `PendienteRevision`).
+- **O4:** EF advierte que `ModuloCatalogo.Frente` tiene default de base sin sentinel; inocuo (0 no es un frente válido y el formulario lo exige).
+- **O5 (operativo, preexistente):** dev combina credenciales reales de Meta/Places con outbound despausado y 26 campañas activas: levantar la app local sin pausar puede mandar mensajes reales.
+
+### F7. Pruebas mínimas ejecutadas por este QA
+
+Harness (rollback): S1 tabla de gancho (26), S2A lote sin combos con A/B, S2B lote con combos, S6 A1-a (7 contactos), S4 fallbacks (4), S3 botones (10 + baseline HEAD), S5 IA real (7). HTTP: Contactos Create (9), Details (4), Edit (6), GetData (27), Chats (10), Bot plantillas (7), Templates rename/edit/delete (3), Salud, AsignarGanchos (3), Modulos GetData/Create/Edit/Session, Checklist/Calcular/GenerarMensaje en las 2 versiones (16), re-verificación CRM-023.
+
+### F8. Riesgos de liberación y mitigaciones
+
+- Outbound en 0 hasta tener la combo web aprobada y asignada (O1) → no reactivar outbound esperando volumen; aprobar primero `olv_frio_combo_web_v1` (con la concordancia de género corregida).
+- Migración `AddGanchoYFrenteComercial` pendiente en producción → aplicarla antes del deploy; después, "Asignar ganchos pendientes" desde /Bot.
+- Consola, tema oscuro y XHR real de "Frentes" sin verificar en navegador → procedimiento manual abajo.
+- Primer mensaje de IA después del deploy reescribe la cache del prompt (~USD 0,03, esperado).
+- O5: en dev, pausar outbound antes de levantar la app local.
+
+**Procedimiento manual pendiente (Joaquín, 10 minutos):**
+1. Con la consola del navegador abierta (F12), recorrer en tema claro y oscuro: Contactos (filtrar por Gancho e Interés, Limpiar), Contactos/Nuevo y Editar (combo "Gancho del mensaje"), Chats (filtro Gancho), Bot (card "Plantillas de primer contacto"), Bot/Salud, Módulos, Módulos/Armar presupuesto. Esperado: 0 errores en consola, combos Select2 legibles en oscuro.
+2. En Módulos/Armar presupuesto, pestaña Red: elegir un rubro, dejar solo "Landing" en Frentes. Esperado: la request a `/Modulos/Checklist` lleva `frentes=2` (no `frentes%5B%5D`) y aparece "Todavía no hay módulos cargados … en los frentes elegidos".
+3. En un chat, "Armar propuesta": el modal arranca con Landing + AI Agents + Chatbots y cambiar los frentes recarga el checklist.
+
+### F9. Checklist de salida para merge
+
+- [x] Build Release 0 errores (QA, antes y después del auto-fix).
+- [x] 8 puntos obligatorios + extras verificados (F1).
+- [x] CRM-023 corregido y re-verificado.
+- [x] Dev restaurado: contactos, ganchos y `UpdatedAt` idénticos al backup; configuración y flags como estaban; plantillas y contactos de prueba borrados.
+- [ ] Procedimiento manual F8 (consola / tema oscuro / XHR real).
+- [ ] Textos combo por `olvidata-marketing` (género) + aprobación de Meta.
+- [ ] Migración en producción + deploy + "Asignar ganchos".
+- [ ] Commit (no realizado por instrucción).
+
+### F10. Estado go/no-go
+
+**GO condicional** para merge y deploy de E1-E7 con el outbound pausado, sujeto al procedimiento manual F8. **NO GO para reactivar el envío de combos** hasta tener las plantillas corregidas y aprobadas en Meta.
+
 ## Historial de ajustes
+- 2026-09-14 (feature "4 frentes — combo con gancho", E1-E7): QA con la app ejecutada contra `olvidatacrm_dev`, sin navegador (Playwright MCP aislado del host) → HTTP autenticado + SQL + **harness de consola con WhatsApp falso y rollback** (dev tenía credenciales reales de Meta/Places y outbound despausado: se pausó y se usaron credenciales inválidas; 0 mensajes, 0 Places). Baseline HEAD en worktree para "idéntico a antes". IA real 7 mensajes, USD 0,149. **8/8 puntos obligatorios OK**; CU-30 a CU-35 PASS (CU-33 CA3 parcial, CU-35 CA2 sin datos). **1 defecto major, CRM-023** (selector "Frentes" nunca bindeaba en el GET del checklist → Build en silencio), auto-fix `traditional: true` en 2 vistas, re-verificado, catalogado en yml y en 32. R3 medido: 234/234 Pendiente → Presencia web. Primera corrida con el campo "Última validación de reglas cross-proyecto" (2026-09-14). **GO condicional**; manual pendiente: consola, tema oscuro y XHR real.
 - 2026-08-28 (expansión nacional de outbound): QA de un **cambio de datos** en producción — 176 campañas + 176 industrias + 528 queries insertadas por 2 agentes en paralelo sobre 22 ciudades nuevas. Sólo lectura contra la base real, 0 escrituras. **GO, 7/7 PASS, 0 defectos.** Conteos exactos y rangos de `Id` perfectamente contiguos (142-317 / 142-317 / 881-1408), `ClaveRubro` única en 304/304 filas incluyendo las soft-deleteadas, `IndustriaCatalogoId` verificado en **las 22 ciudades** con firma idéntica y coincidente con el mapeo de las 108 preexistentes, las 6 campañas protegidas intactas (`UpdatedAt` ≤ 08-26; las únicas escrituras de hoy sobre filas viejas son del scheduler de 03:02-03:09), integridad referencial sin un solo huérfano, y las **528** queries con anclaje geográfico correcto (510 con la ciudad en el texto, 18 con localidad vecina + provincia), 0 duplicados y 0 colisiones con `GoogleMapsQueryUsadas`. Cupo real **465-469 msj/día** (49,4-49,9% de `CupoDiario`=940, lejos del techo y con tope global duro que lo hace inviolable). El incidente de MySqlConnector de la tanda A no dejó rastro — probado por contigüidad de `AUTO_INCREMENT`. **3 observaciones no bloqueantes**: el próximo barrido nocturno pasa de 91 a ~255 queries de Google Maps (el restock global recorre todas las campañas activas todos los días, sin filtrar por `Dias`) → salto de coste de API a vigilar; la demanda diaria quedó ~17% arriba de `MetaDiaria`=400 (preexistente, palanca `RebalancearMatrizAsync`); slug vs. `Nombre` cosmético. **Efecto colateral positivo no reportado por las tandas**: 266 contactos huérfanos adoptados (127 `Pendiente`), huérfanos totales de 460 a 333. Hallazgo preexistente cuantificado: **140 de 721 queries viejas** sin anclaje geográfico a su `Region`, con ~20 genuinamente ambiguas — no se tocó, queda como deuda.
 - 2026-08-28: QA de la feature **matriz de módulos valorizados + borrador de propuesta MVP/FULL**, previa al primer deploy (código sin commitear, migración sólo en dev). Método: build propio en Release **2 veces** (0 errores / 13 advertencias preexistentes, antes y después del auto-fix), app levantada contra `olvidatacrm_dev`, **26 pantallas, 8 endpoints POST/AJAX y 29 generaciones de mensaje** por HTTP autenticado, con assertions SQL independientes. MCP `playwright` no disponible (declarado; residuo manual acotado al texto real de la pregunta 1 por WhatsApp). **Los 11 escenarios del Implementador: 11 PASS** (el #4 con 1 defecto, auto-fixeado). Seed verificado contra la base —**84/88/9/62** y los 9 rangos por rubro coincidiendo uno por uno—; la lectura inicial de 89/10 resultó ser 2 filas soft-deleteadas de datos de prueba, eliminadas al cerrar. Los 5 rubros sin matriz (incluido **Alquiler de inmuebles**, el hallazgo del Implementador) muestran el aviso, no un checklist vacío. Las **9 reglas de redacción**: PASS, con el truncado a 4 ítems verificado en el caso pedido (**Ganadería con 7 imprescindibles → "y 3 más"**) y **el bug del doble "y" confirmado como corregido leyendo la salida, no el código**. Wiring de "Sugerir" probado con **12 contactos reales** cubriendo los 3 vocabularios de `Contacto.Rubro`: 7 con matriz (incluido `estudio`, o sea el fix del mapeo funcionando, y `indumentaria-once` con sufijo de región), 5 con el comportamiento viejo intacto. Cuestionario del bot: `Questions["build"]` en **2 preguntas** con la numeración de emoji correcta, `Contacto.CantidadUsuarios` **sin un solo escritor ni lector** (por grep), y la tabla de decisión computada contra la base da **7 rubros al mecanismo nuevo + "Vinos y bebidas" al menú fijo**; los 2 hallazgos del Implementador (`MecanismoPregunta1Async` como fuente única en los 2 call sites, `ArmarPitchPostDolorAsync` reconociendo las 2 fuentes) verificados, con la prueba social real confirmada para los rubros nuevos. **El fix Farmacia/Contabilidad no reintroduce cotización automática**: rastreados todos los consumidores hasta el último (`industria?.Plan` sólo dentro de `if (PresupuestoCotizadoUsd.HasValue)`, campo que el bot ya nunca setea; `CotizaAutomatico` sigue en `false`). `.gitignore` efectivo y **ningún archivo de clave commiteado nunca** (`git log --all` sin resultados) — cierra la duda que el Implementador dejó abierta. Regresión del sprint ya deployado: 24 rutas sin 500, 0 `[ERR]`/`[FTL]`. **1 defecto: CRM-015 (major) — auto-fixeado.** Los módulos cuyo nombre empieza con sigla salían deformados en el texto que se copia al WhatsApp del cliente (`ABM Cuadrilla` → `aBM Cuadrilla`, `SEO básico y deploy` → `sEO…`, `CRM de WhatsApp` → `cRM…`): 9 de 84 módulos, los 9 imprescindibles, en 4 de los 9 rubros. Catalogado en `docs/qa/regresiones-manuales.yml` **antes** del fix, corregido con un guard de sigla inicial en `PropuestaMvpFullService.Minuscula()` (sin lógica de negocio nueva: restaura la intención ya declarada en el comentario del propio método), y re-verificado sobre **18 mensajes con 0 fallas** y sin regresión en los nombres que sí deben bajar la inicial. 4 observaciones no bloqueantes (interpretación de la regla 5, "y" duplicada que viene del nombre del módulo, inconsistencia matriz-con-0-MVP entre los 2 consumidores, comentario desactualizado en `RubroHelpers`). Estado dev restaurado (84/88/9/62). Estado: **GO para deploy de producción** (deploy no ejecutado, queda para el cliente; pendiente commitear y aplicar la migración en producción).
 - 2026-08-27 (re-verificación acotada post-corrección): re-test de **CRM-007 / CRM-010 / CRM-012** tras la corrección del Implementador (§9), con app corriendo contra `olvidatacrm_dev` y assertions SQL independientes. **CRM-007 cerrado**: `ImpactoDelete` contrastado contra ground truth propio en **las 14 industrias** (no solo las 7 con datos) con coincidencia exacta —Retail 155, Laboratorios 104, Inmuebles 58, Utilities 38, Ganadería 35, Estudios 28, Farmacias 1, y 0 legítimo en las otras 7—, más reasignación real probada en ambas ramas (destino inválido → rechazado sin borrar nada; destino válido → contacto #158 `farmacia`→`estudio-palermo`, con auditoría estampada, quedando cubierto por la campaña activa #35, que es el círculo que M-B nunca cerraba). **CRM-010 cerrado**: el selector guarda `ClaveRubro`; alta real de un Referido (#442) que satisface el filtro completo de `SendDailyBatchAsync`; `Edit` conserva el rubro heredado y no lo pisa al editar otro campo. **CRM-012 cerrado**: `Alineadas` es propiedad calculada, sus 3 entradas coinciden con SQL independiente (0/19, 0/19, 0/18), y se forzó una divergencia real para ver la alerta disparar (5,3%/5,3%/0,0% → badge "Divergen"). **CRM-008 descartado por el cliente** (falsa alarma de la pasada anterior: se probó contra dev y se confundió con producción). Riesgo declarado por el Implementador (`BotFlowService` sin tocar) **confirmado**: los contactos con rubro reescrito por el bot (#194, #236) no son contados ni reasignados —son inalcanzables por construcción—, pero se detectó que la protección es **incidental y no una guarda explícita**: 18 contactos con conversación (17 en `AwaitingCategory` esperando respuesta + 1 `Completed`) conservan su `ClaveRubro` y sí quedan dentro del conteo/reasignación, contra lo que afirma el comentario del código → nuevo **CRM-014 (minor)**, que incluye además la colisión por mayúsculas entre la clave `farmacia` y el nombre de diálogo `"Farmacia"` (sin impacto hoy: 0 contactos). Build propio en Release **0 errores / 13 advertencias preexistentes**, 0 migraciones nuevas, 18 pantallas autenticadas todas 200, 0 errores en Serilog, dev restaurado y verificado. Ningún archivo de código modificado por QA. Estado: **GO para deploy de producción** (deploy no ejecutado, queda para el cliente).

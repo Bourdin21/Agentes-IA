@@ -1,8 +1,34 @@
 # Árbol de comunicación del bot — CRM Olvidata
 
-Estado del código al **2026-09-03**. Derivado de `OlvidataCRM.Infrastructure/Services/BotFlowService.cs`
-(máquina de estados y textos) y `OutboundCampaignService.cs` (envío frío, follow-up, frío).
-Todo texto entre comillas es literal, tal como lo recibe el prospecto.
+Estado del código al **2026-09-14** (feature "4 frentes — combo con gancho", implementada y pendiente de
+QA/deploy). Derivado de `OlvidataCRM.Infrastructure/Services/BotFlowService.cs` (máquina de estados y
+textos), `OutboundCampaignService.cs` (envío frío, follow-up, frío) y `Application/Helpers/GanchoHelpers.cs`
+(gancho). Todo texto entre comillas es literal, tal como lo recibe el prospecto.
+
+> **Desde 2026-09-13 el camino normal del texto libre es la conversación con IA** (`ConversacionIaService`,
+> ver `plan-llm-conversacional-bot.md`); el árbol de este documento sigue vigente como **fallback** y para
+> los toques de botón, que nunca pasan por la IA.
+
+---
+
+## 0. Gancho del primer contacto frío (2026-09-14)
+
+A todo contacto de **outbound frío** se le ofrece el mismo **combo** (página 3D + agentes de IA + asistente
+de WhatsApp; Build entra por el gancho Gestión). Lo que cambia por contacto es el **gancho**: por qué dolor
+abre el mensaje. Lo asigna el sistema con una tabla determinística (sin IA), o un usuario a mano desde
+Contactos/Editar. Se guarda con motivo y fecha y **no se recalcula solo**.
+
+| # | Condición (gana la primera) | Gancho |
+|---|---|---|
+| 1 | Canal distinto de outbound frío (ads, manual, referido) | *sin gancho* |
+| 2 | Elegido a mano | el elegido |
+| 3 | Sin web propia: vacía, o redes / agregadores de links / Tiendanube-Wix-Google Sites / marketplaces | **Presencia web** |
+| 4 | Web propia + rubro `estudio`, `farmacia`, `residuos` | **Administración** |
+| 5 | Web propia + rubro `inmobiliaria`, `consultorio`, `clinica`, `maquinaria`, `vinos`, `ski` | **Consultas** |
+| 6 | Cualquier otro caso (incluye rubro no mapeado) | **Gestión** |
+
+Se asigna al crear el contacto desde Google Maps (automático y búsqueda manual), en Contactos/Crear y
+Editar, con el botón "Asignar ganchos pendientes" de `/Bot`, y como red de seguridad en cada lote de envío.
 
 ---
 
@@ -10,7 +36,7 @@ Todo texto entre comillas es literal, tal como lo recibe el prospecto.
 
 | Puerta | Cómo llega | Estado inicial |
 |---|---|---|
-| **Outbound frío** | Campaña programada le manda la plantilla `olv_frio_v13` (274 campañas activas hoy) | `EstadoEmbudo=MensajeEnviado`, `FaseConversacion=ConfirmandoContinuar` |
+| **Outbound frío** | Campaña programada le manda la plantilla **combo de su gancho** (§1.2) o, si no corresponde, `olv_frio_v13` de la campaña | `EstadoEmbudo=MensajeEnviado`, `FaseConversacion=ConfirmandoContinuar` |
 | **Inbound orgánico** | Escribe al número sin que le hayamos escrito antes | `EstadoEmbudo=Respondido`, `FaseConversacion=Nuevo` |
 | **Ads (click-to-WhatsApp)** | Toca el CTA de un anuncio de Instagram/Facebook | `CanalOrigen=AdsPagos`, `FaseConversacion=Nuevo` |
 
@@ -185,8 +211,35 @@ sabemos.
 | **rent_other** | 1️⃣ A qué se dedica exactamente tu negocio?<br>2️⃣ Qué es lo que más te complica hoy en la gestión? |
 | **build** | 1️⃣ Contame en una línea: qué necesitás que haga el sistema?<br>2️⃣ Tenés una fecha en la que lo necesitás listo? |
 | **landing** | 1️⃣ Partís de cero o ya tenés algo online?<br>2️⃣ Qué buscás? (institucional, tienda online o landing para captar clientes)<br>3️⃣ Vas a cargar contenido propio seguido? (tipo blog o novedades) |
-| **merge** | Cuál de tus sistemas de Olvidata querés extender? · Qué función nueva necesitás? · Es urgente o lo planificamos? |
+| **ai_agents** *(2026-09-14)* | 1️⃣ Qué tarea administrativa les consume más horas por semana hoy?<br>2️⃣ Con qué la hacen ahora? (Excel, un sistema, a mano) |
+| **chatbot** *(2026-09-14)* | 1️⃣ Por dónde les llegan más consultas hoy y qué es lo que más les preguntan?<br>2️⃣ Quién las contesta ahora y en qué horario? |
+| **merge** *(solo histórico)* | Cuál de tus sistemas de Olvidata querés extender? · Qué función nueva necesitás? · Es urgente o lo planificamos? — **dado de baja el 2026-09-13**: se conserva solo para no cortar conversaciones viejas; ni la IA ni el árbol lo asignan. Los históricos se muestran como "Mejoras en sistema Olvidata (discontinuado)". |
 | **other** | Contame qué necesitás y te respondo a la brevedad 👍 |
+
+> **Botón "Sí, contame más" por gancho (2026-09-14).** El toque del botón lo resuelve el árbol (no la IA)
+> en `OnConfirmarContinuarAsync`, y ahora fija la categoría **según el gancho**: Presencia web → `landing`,
+> Administración → `ai_agents`, Consultas → `chatbot`; Gestión o sin gancho → `rent`, idéntico a antes. Para
+> `landing`/`ai_agents`/`chatbot`, si hay módulos cargados de ese frente para el rubro (o genéricos del
+> frente), la pregunta 1 los nombra; si no, va la pregunta fija de esta tabla. Todo lo que escriba después
+> lo atiende la IA, que recibe en su contexto qué combo se le ofreció y por qué gancho.
+>
+> **Fallback:** si la IA cae con el contacto en `ConversandoConIa` y categoría `ai_agents`/`chatbot`, el
+> árbol sigue ese cuestionario sin volver a presentarse. Si un contacto queda en `AskingQuestions` con una
+> categoría **sin** cuestionario, ya no hay error: se registra el mensaje, pasa a `DerivadoManual`, se pausa
+> el bot en ese chat y se notifica una sola vez al asesor. Al prospecto no le llega nada.
+
+### Categorías vigentes y cómo se muestran (`CategoriaHelpers`, fuente única)
+
+| Clave | Etiqueta ("Interés detectado") | Frente |
+|---|---|---|
+| `rent` / `rent_other` | Sistema de gestión | Build |
+| `build` | Desarrollo a medida | Build |
+| `landing` | Página web | Landing |
+| `ai_agents` | Agentes de IA | AI Agents |
+| `chatbot` | Asistente de consultas | Chatbots |
+| `other` | Otra consulta | — |
+| `merge` | Mejoras en sistema Olvidata (discontinuado) | — |
+| *(vacío)* | Sin clasificar | — |
 
 > Nota (2026-09-03): se sacaron los signos de apertura (¡¿) de las 10 preguntas y de todos los
 > mensajes de texto libre del flujo — mismo criterio ya aprobado por Meta en `olv_frio_v13`
@@ -292,8 +345,9 @@ cuestionario.
 
 | Disparo | Cuándo | Qué manda |
 |---|---|---|
-| **Follow-up** | 3 días desde el mensaje frío sin respuesta | Plantilla `olv_nurturing_v2` (caso de un negocio similar) → `EstadoEmbudo=FollowUpEnviado` |
+| **Follow-up** | 3 días desde el mensaje frío sin respuesta — **solo gancho Gestión o sin gancho** | Plantilla `olv_nurturing_v2` (caso de un negocio similar) → `EstadoEmbudo=FollowUpEnviado` |
 | **Archivado en frío** | 4 días desde el follow-up sin respuesta | *Nada al contacto* → `EstadoEmbudo=Frio` |
+| **Archivado en frío (combo, A1-a, 2026-09-14)** | Gancho Presencia web / Administración / Consultas: 7 días desde el primer envío sin respuesta (no reciben follow-up: su texto es de gestión y contradice el combo) | *Nada al contacto* → `EstadoEmbudo=Frio` |
 | **Aviso de ventana** | La ventana de 24 hs de WhatsApp está por cerrarse | Notificación in-app al asesor (no al contacto) |
 | **Mensaje programado** | Fecha/hora que fijó el asesor, dentro de la ventana de 24 hs | El texto o el PDF que dejó cargado |
 
@@ -336,4 +390,9 @@ Los únicos estados asignables **a mano** desde el CRM son `Cerrado` y `Descarta
 | Disparo por día/hora de cada campaña | `OlvidataCRM.Infrastructure/HostedServices/OutboundSchedulerService.cs` |
 | Recepción de mensajes de Meta (`/webhook/whatsapp`) | `OlvidataCRM.Web/Program.cs` |
 | Vocabulario de rubros (clave → industria → catálogo) | `OlvidataCRM.Application/Helpers/RubroHelpers.cs` |
+| Vocabulario de categorías y etiquetas ("Interés detectado") | `OlvidataCRM.Application/Helpers/CategoriaHelpers.cs` |
+| Gancho: tabla de decisión, dominios que no cuentan como web propia, grupos por rubro | `OlvidataCRM.Application/Helpers/GanchoHelpers.cs` |
+| Nombres fijos de las 4 plantillas combo y "plantillas con botón" | `OlvidataCRM.Application/Helpers/PlantillasCombo.cs` |
+| Plantilla por gancho configurada (y estado) | `/Bot` → sección 5, card "Plantillas de primer contacto (combo)"; ganchos que no salen en `/Bot/Salud` |
+| Módulos por frente (bot e IA, consulta compartida) | `OlvidataCRM.Infrastructure/Queries/ModuloCatalogoQueries.cs` |
 | Alta/edición de las plantillas en Meta | `C:\Sistemas\BotPublicitario\WhatsApp` (CLI aparte) |

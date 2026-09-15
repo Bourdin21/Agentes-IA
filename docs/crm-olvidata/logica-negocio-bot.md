@@ -51,7 +51,21 @@ in-process que espera hasta la próxima ventana horaria y dispara el pipeline.
    `EstadoEmbudo=Pendiente` — se descartan los que ya existen por teléfono (índice único,
    protegido también contra condición de carrera con `catch (DbUpdateException)`).
 3. **Enviar el lote diario** (`IOutboundCampaignService.SendDailyBatchAsync`,
-   `OutboundCampaignService.cs:66-148`):
+   `OutboundCampaignService.cs:66-148`).
+   > **Actualización 2026-09-14 ("4 frentes — combo con gancho").** Lo que sigue es la descripción original
+   > (julio) y varios números quedaron viejos (el tope diario hoy lo fija el presupuesto, ver
+   > `3-arquitecto-mvc.md` §6.1). Lo que cambió en este paso:
+   > - Antes de elegir plantilla, todo contacto outbound frío sin gancho recibe uno (red de seguridad,
+   >   tabla de decisión en `GanchoHelpers`, ver `arbol-comunicacion-bot.md` §0).
+   > - La plantilla se resuelve **por contacto y antes de aplicar el cupo** (`ResolverPlantilla`):
+   >   Referido → `olv_referido_v2`; gancho con plantilla combo configurada en `/Bot`, activa y aprobada →
+   >   esa combo (sin A/B); Presencia web / Administración / Consultas **sin** combo disponible → **no se
+   >   envía**, sigue `Pendiente`, no consume cupo ni presupuesto y se ve en `/Bot` y `/Bot/Salud`;
+   >   Gestión sin combo o sin gancho → la plantilla de la campaña con su A/B, igual que antes.
+   > - Tras el envío se guarda `Contacto.PlantillaPrimerContacto` (la plantilla que salió de verdad) y, si
+   >   la plantilla trae los botones (v10-v13 o cualquier combo), la fase queda en `ConfirmandoContinuar`.
+
+   Descripción original:
    - Tope global: `BotSettings.DailyLimit` (200) menos lo ya enviado hoy
      (`Contacto.FechaPrimerEnvio` de hoy), repartido entre campañas **en orden de `CampanasOutbound.Id`**
      (primera campaña que corre se lleva su cupo completo primero — no es proporcional).
@@ -63,7 +77,13 @@ in-process que espera hasta la próxima ventana horaria y dispara el pipeline.
    - Al enviar OK: `EstadoEmbudo → MensajeEnviado`, guarda `FechaPrimerEnvio` y `UltimoMensajeId`.
    - Si falla el envío (`WhatsAppApiException`): el contacto queda `Pendiente`, se reintenta en la
      próxima corrida — no hay reintento dentro de la misma corrida.
-4. **Follow-up** (`ProcessFollowUpsAsync`, `OutboundCampaignService.cs:150-195`):
+4. **Follow-up** (`ProcessFollowUpsAsync`, `OutboundCampaignService.cs:150-195`).
+   > **Actualización 2026-09-14 (decisión A1-a).** Los contactos con gancho **Presencia web,
+   > Administración o Consultas** ya **no** reciben `olv_nurturing_v2`: su texto es de sistema de gestión y
+   > contradice el combo que se les ofreció. En el paso 5, `MarkColdAsync` los pasa a `Frio` directo desde
+   > `MensajeEnviado` a los **7 días** del primer envío (3 + 4, el mismo plazo total). Gancho Gestión y
+   > contactos sin gancho siguen exactamente como se describe abajo. Desde 2026-09-13 el follow-up también
+   > descuenta del cupo diario y del presupuesto (ver `3-arquitecto-mvc.md` §6.1).
    - Candidatos: `EstadoEmbudo=MensajeEnviado` cuyo `FechaPrimerEnvio` tiene **3+ días**, y cuyo
      rubro sigue siendo parte de alguna campaña activa hoy.
    - Envía plantilla fija `olv_nurturing_v2` (no depende de la campaña). `EstadoEmbudo → FollowUpEnviado`.
@@ -171,6 +191,12 @@ Nuevo ──(1er mensaje, cualquier tipo)──▶ AwaitingCategory ──(elige
   diccionario `OutboundTypeToIndustry`; bug real corregido 2026-07-25, cualquier contacto de
   campaña regional caía siempre en el genérico "Otro rubro" hasta ese fix). Si no es outbound
   conocido (inbound directo), manda el menú de bienvenida con 3 opciones (lista interactiva).
+- **Actualización 2026-09-14 ("4 frentes").** Las categorías vigentes salen de `CategoriaHelpers`
+  (`rent`, `rent_other`, `build`, `landing`, `ai_agents`, `chatbot`, `other`); `merge` quedó solo para
+  históricos. El toque del botón "Sí, contame más" de una plantilla fría fija la categoría según el gancho
+  del contacto (Presencia web → `landing`, Administración → `ai_agents`, Consultas → `chatbot`, Gestión o
+  sin gancho → `rent`). Una categoría sin cuestionario ya no rompe el flujo: se deriva a un humano sin
+  mandarle nada al prospecto. Detalle completo en `arbol-comunicacion-bot.md` §0 y §3.4.
 - **`AwaitingCategory`** (`OnCategoryInputAsync`, `:373-407`): mapea la opción elegida a una
   categoría interna (`rent`=Ordenar la gestión, `build`=Algo a medida, `landing`=Web/landing;
   cualquier otra entrada cae a `other` y **cierra la conversación de una** sin pasar por preguntas).

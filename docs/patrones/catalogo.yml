@@ -25,7 +25,7 @@
 # en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
 
 version: 1
-ultima_actualizacion: 2026-09-08
+ultima_actualizacion: 2026-09-15
 
 patrones:
 
@@ -67,11 +67,22 @@ patrones:
     proyectos_que_lo_usan: []
     archivos_referencia:
       - proyecto: vinosefue
-        path: "pendiente confirmar — Infrastructure/Services/AdjuntoService.cs (o equivalente)"
-        motivo: "Servicio de adjuntos ya resuelto"
-        pendiente_verificar: true
+        path: "VinoSeFue.Infrastructure/Services/AdjuntoService.cs + VinoSeFue.Domain/Entities/Adjunto.cs (repo C:\\Sistemas\\vino-y-se-fue)"
+        motivo: "Servicio de adjuntos (GuardarAdjuntoAsync: copia el stream, crea la entidad sin SaveChanges)"
+        pendiente_verificar: false
+      - proyecto: vinosefue
+        path: "VinoSeFue.Web/Controllers/ComprasController.cs y ProveedorController.cs (ExtensionesPermitidas pdf/jpg/jpeg/png/webp, MaxFileSize 10 MB)"
+        motivo: "Validacion de extension y tamaño en el controller"
+        pendiente_verificar: false
     dependencias: []
-    notas: "Reutilizar en vez de crear un manejo de adjuntos ad-hoc por modulo."
+    notas: >
+      Reutilizar en vez de crear un manejo de adjuntos ad-hoc por modulo.
+      VERIFICADO 2026-09-15 (olvidata-agentes-multirubro M5): guarda en wwwroot/uploads/adjuntos/{yyyy-MM}/ con
+      nombre {prefijo}_{fecha}{ext} — el archivo queda PUBLICO (servido por static files, sin permisos) y puede
+      colisionar con dos subidas en el mismo segundo; no valida contenido (solo extension en el controller).
+      Sirve para comprobantes no sensibles. Para documentos confidenciales o multi-tenant usar almacenamiento fuera
+      de wwwroot con nombre GUID y descarga por endpoint con permisos (ganaderia LocalFileStorageService en App_Data;
+      PAT-033).
 
   - id: PAT-003
     nombre: "MetodoPago (venta con pago dividido en multiples medios + IVA)"
@@ -614,6 +625,9 @@ patrones:
       cma-centro-medico (u otro proyecto que lo necesite primero) cierre implementacion — este
       registro existe para que el proximo proyecto con esta necesidad (ej. audifonos-bariloche si
       retoma su Etapa 2/portal excluido) no lo diseñe desde cero.
+      VERIFICACION 2026-09-14 (arquitecto olvidata-agentes-multirubro): `IPortalPacienteService` no
+      existe en ningun repo de C:\Sistemas — sigue sin codigo; se mantiene pendiente_verificar.
+      Principio aplicado en olvidata-agentes-multirubro M2 (organizacion resuelta server-side, ver PAT-027).
 
   - id: PAT-018
     nombre: "Reconstruir un dato faltante despejandolo de los totales historicos ya calculados"
@@ -1039,3 +1053,449 @@ patrones:
       recorta tambien el anillo de foco del propio contenedor en los extremos: medirlo.
       (4) No auto-scrollear el contenedor al cargar para "mostrar lo importante": se probo y el
       usuario lo saco, al entrar la pantalla tiene que estar quieta.
+
+  - id: PAT-027
+    nombre: "Jerarquia de roles dentro del tenant con invariante de responsable activo y refresco inmediato de sesion"
+    categoria: dominio
+    descripcion: >
+      En un SaaS multi-tenant, cada usuario de una organizacion tiene un rol propio de la
+      organizacion (ej. Director/Empleado) distinto de los roles de staff de la plataforma, y
+      opcionalmente un agrupador (area/equipo). Un servicio de permisos por rol es la unica
+      fuente de verdad para services, controllers y vistas. Invariante: la organizacion siempre
+      conserva al menos un responsable activo (no se puede degradar ni bloquear al ultimo).
+      Todo cambio de rol, agrupador o bloqueo impacta en la sesion del usuario afectado en su
+      proxima request, no al vencer la cookie. Las consultas de usuarios (que no tienen filtro
+      automatico de tenant) se acotan siempre explicitamente a la organizacion de la sesion.
+    cuando_usar: >
+      Portales B2B donde el cliente administra su propia estructura interna (quien gestiona,
+      quien opera, en que area) sobre un sistema multi-tenant, con alta de usuarios controlada
+      o no por la plataforma.
+    proyecto_origen: olvidata-agentes-multirubro (M2 Organizacion, implementado 2026-09-14)
+    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    archivos_referencia:
+      - proyecto: olvidata-agentes-multirubro
+        path: "docs/olvidata-agentes-multirubro/definiciones/2-disenador-funcional.md (contratos Permisos/Miembros, tabla de cambio de estado con guarda)"
+        motivo: "Diseño funcional de referencia"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Organizacion/ResolvedorSesion.cs + ContextoUsuario.cs + PermisosOrganizacion.cs"
+        motivo: "Resolvedor de sesion por request (IMemoryCache 60 s + Invalidar) que puebla ITenantContext/IContextoUsuario; matriz de permisos derivada"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Organizacion/MiembroService.cs (CambiarRolYAreaAsync, CambiarEstadoAsync, CrearAsync)"
+        motivo: "Invariante del ultimo Director con Tenant.VersionMiembros + reintento con ChangeTracker.Clear; consultas de usuarios acotadas por TenantId; alta por SuperUsuario"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Web/Middleware/SesionOrganizacionMiddleware.cs + Authorization/PermisoOrganizacion.cs + Program.cs (orden del pipeline)"
+        motivo: "Middleware entre UseAuthentication y UseAuthorization; policies RequireMiembro/RequireDirector con handler scoped"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Data/Migrations/20260914150042_OrganizacionM2.cs + Data/Configurations/OrganizacionConfigurations.cs"
+        motivo: "Unicidad con soft delete: columnas generadas STORED escritas con migrationBuilder.Sql (MySql.EntityFrameworkCore 10.0.9 ignora stored: true) + check constraint rol/tenant"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "tests/OlvidataAgentes.Tests/OrganizacionTests.cs"
+        motivo: "Tests de aislamiento, ultimo Director con sesion vieja, token de concurrencia + reintento, refresco de sesion"
+        pendiente_verificar: false
+    dependencias: [PAT-017]
+    notas: >
+      Riesgos a resolver en arquitectura: (1) carrera entre dos responsables que se degradan a la
+      vez y dejan la organizacion sin responsable; (2) la revalidacion de SecurityStamp por
+      intervalo no alcanza para "proxima request"; (3) IDOR en gestion de usuarios porque Identity
+      no aplica el query filter de tenant. Relacionado con century-21 (scoping de GrupoId
+      resuelto desde el usuario, validacion de pertenencia en escrituras).
+      ARQUITECTURA (olvidata-agentes-multirubro, 2026-09-14, ver 3-arquitecto-mvc.md): (a) rol y
+      agrupador como columnas del usuario, NO roles de Identity ni claims en cookie; un resolvedor
+      por request (antes de UseAuthorization) lee la base con IMemoryCache TTL 60 s invalidable por
+      usuario, y el service que cambia rol/estado invalida + rota SecurityStamp; (b) invariante con
+      token de concurrencia en la entidad tenant (VersionMiembros): usuario + version en un solo
+      SaveChanges, reintento con reevaluacion ante DbUpdateConcurrencyException; (c) unicidad con
+      soft delete en MySQL via columna generada "valor si DeletedAt IS NULL, si no NULL" + indice
+      unico; (d) limite: la invalidacion en memoria es por instancia (con varias instancias, TTL).
+
+  - id: PAT-028
+    nombre: "Reglas de texto por alcance con precedencia, vista previa e instantanea auditable del contexto de un agente"
+    categoria: dominio
+    descripcion: >
+      Sistemas con agentes IA donde cada organizacion adapta el comportamiento de los agentes con
+      reglas de texto que tienen ALCANCE (organizacion, area, usuario, cliente, agente, cliente+agente),
+      MODO (obligatoria / por defecto) y TIPO (regla / procedimiento), versionadas, desactivables sin
+      borrar y con limites de tamano por alcance. Un UNICO constructor de contexto calcula las reglas
+      efectivas para (usuario, agente, cliente) en orden de precedencia fijo (plataforma > agente base >
+      obligatorias de arriba hacia abajo > por defecto de lo mas especifico a lo mas general > usuario)
+      y arma el prompt de sistema por secciones de lo mas estable a lo mas variable (maximiza cache de
+      prompt). La vista previa que ve el usuario antes de enviar, la instantanea que se guarda en la
+      tarea al crearla (ids + versiones + hash) y lo que usa el motor salen del mismo calculo. Regla
+      no negociable: una regla es texto, NUNCA otorga permisos (herramientas, clientes, gasto y
+      aprobaciones siguen en codigo).
+    cuando_usar: >
+      Portales multi-tenant que ejecutan agentes con prompts de la plataforma y personalizacion del
+      cliente en varios niveles, donde hace falta auditar que instrucciones recibio cada ejecucion.
+    proyecto_origen: olvidata-agentes-multirubro (M3 Reglas, implementado 2026-09-14)
+    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    archivos_referencia:
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Domain/Entities/Regla.cs (Regla + ReglaEvento inmutable) y Domain/Enums/EnumsReglas.cs"
+        motivo: "Modelo de datos: alcance, destinos, modo, tipo, etiquetas normalizadas, VersionActual como token de concurrencia"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Reglas/ReglaService.cs"
+        motivo: "Permisos por alcance, limites por balde (SUM de CHAR_LENGTH), versiones/eventos, mismo tema por etiquetas, estado derivado 'No se aplica', vista staff"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Motor/ConstructorContexto.cs + Application/Motor/IConstructorContexto.cs"
+        motivo: "Calculo unico (vista previa/instantanea/motor), instantanea por ids, render en 3 bloques con cache, escape XML, hash SHA-256"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Motor/{ServicioTareas,ProcesadorTareas,ProveedorModeloAnthropic}.cs"
+        motivo: "Instantanea al crear la tarea, reconstruccion con verificacion de hash antes de llamar al modelo, CacheControl por bloque"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Data/Configurations/ReglasConfigurations.cs + Data/Migrations/20260914182556_ReglasM3.cs"
+        motivo: "Check constraint CK_Reglas_Destino (cada alcance con sus destinos), indices por tenant"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Web/Controllers/ReglasController.cs + Views/Reglas/* + Views/Shared/_ReglasEfectivas.cshtml + Views/Agentes/Ejecutar.cshtml"
+        motivo: "Listado por pestañas con filtros por columna, formulario con opciones avanzadas y mismo tema, detalle con historial, vista previa"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "nucleo/plataforma/plataforma.yml + Services/Nucleo/ImportadorRubro.cs (reglas_plataforma)"
+        motivo: "Reglas de plataforma como artefactos del nucleo con evaluacion obligatoria antes de publicar"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "tests/OlvidataAgentes.Tests/{ReglasTests,ConstructorContextoTests}.cs + Infra/EntornoReglas.cs"
+        motivo: "Ejemplo Laura/Martin/Panaderia Norte como test, bloques, escape, hash alterado, compatibilidad sin instantanea"
+        pendiente_verificar: false
+    dependencias: [PAT-027]
+    notas: >
+      Relacionado con crm-olvidata (system prompt en prefijo estable cacheado + contexto variable,
+      medido USD 0,044 -> 0,016 por conversacion). Riesgos: inyeccion de instrucciones desde el texto
+      de reglas (plataforma primero, declaracion de precedencia, escape de marcadores de seccion),
+      deriva entre vista previa/instantanea/motor si se calculan por caminos distintos, costo por
+      volumen de reglas (limites). El texto de reglas de la plataforma y del agente base no se muestra
+      al cliente (IP); el staff de la plataforma puede ver el texto de las reglas del cliente para
+      controlar la configuracion.
+      ARQUITECTURA (olvidata-agentes-multirubro M3, 2026-09-14, ver 3-arquitecto-mvc.md): (a) historial
+      inmutable ReglaEvento como fuente de "la version usada"; (b) la tarea guarda la instantanea como
+      IDS de versiones (nucleo) y eventos (reglas) + hash, no el prompt completo (ahorra almacenamiento
+      en hosting compartido); al ejecutar se reconstruye y se compara el hash, distinto = tarea fallida
+      sin llamar al modelo; (c) system prompt en 3 bloques: B1 cacheado (plataforma + declaracion de
+      precedencia + agente base), B2 cacheado (organizacion + area), B3 sin cache (cliente + usuario);
+      (d) limites por "balde" con SUM(CHAR_LENGTH) de reglas activas; (e) escape XML del texto dentro de
+      secciones rotuladas; (f) token de concurrencia en la regla para ediciones humanas simultaneas.
+
+  - id: PAT-029
+    nombre: "Conversacion multi-turno reanudable sobre una tarea de agente con contexto congelado"
+    categoria: dominio
+    descripcion: >
+      Una tarea de agente IA terminada (completada, fallida o cancelada) se re-abre con un mensaje de
+      seguimiento de su autor: el mensaje se persiste como parte de la conversacion ANTES de encolar,
+      la tarea vuelve a Pendiente y el worker reconstruye toda la conversacion desde los pasos
+      persistidos (incluidos thinking y resultados de herramientas) con el MISMO contexto de sistema
+      congelado de la tarea. Maximo de pasos por turno, limites de largo y cantidad de seguimientos,
+      costo acumulado visible, un solo turno activo a la vez, y aviso cuando las reglas cambiaron desde
+      la creacion (se ofrece tarea nueva en lugar de recalcular).
+    cuando_usar: >
+      Portales donde usuarios no tecnicos iteran sobre el resultado de un agente ("mas corto", "otro
+      tono") y hace falta persistencia, reanudacion tras reinicio y auditoria del contexto usado.
+    proyecto_origen: olvidata-agentes-multirubro (M3b, implementado 2026-09-14)
+    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    archivos_referencia:
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Motor/ServicioTareas.cs (EnviarSeguimientoAsync, ObtenerDetalleAsync por turnos, CancelarAsync con CierreTurno, ListarAsync con Mensajes/UltimaActividad)"
+        motivo: "Re-apertura atomica con token Version y reintento, guardas y mensajes, turnos del detalle, preferencias ajenas ocultas"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Motor/ProcesadorTareas.cs (ReconstruirConversacion, LlamadasDelTurno, MarcarFinAsync, GuardarAsync)"
+        motivo: "Normalizacion de la conversacion para la API, pasos por turno, CierreTurno en todo fin Fallida, carrera del indice (TareaAgenteId, Numero)"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Motor/ProveedorModeloAnthropic.cs (MapearMensajes) + src/OlvidataAgentes.Application/Motor/ModeloConversacion.cs (CacheConversacion, ContenidoCierreTurno)"
+        motivo: "Breakpoint de cache en el ultimo bloque elegible del ultimo mensaje; contenido tipado del cierre de turno"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Motor/ProveedorModeloSimulado.cs + DependencyInjection.UsarModeloSimuladoSiCorresponde"
+        motivo: "Modelo simulado solo en Development (Anthropic:Simulado) para QA de la UI sin costo"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Web/Views/Tareas/{Detalle,_Conversacion,_CuadroSeguimiento,_PasosTurno}.cshtml"
+        motivo: "Hilo de turnos, turno activo en vivo (SignalR + respaldo, reinicio tras enviar), cuadro con Ctrl+Enter y contador, copiar"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "tests/OlvidataAgentes.Tests/ConversacionTests.cs"
+        motivo: "22 tests: normalizacion, pasos por turno, cierres, guardas, concurrencia, reanudacion, cache, reglas cambiadas, P6, listado, simulado"
+        pendiente_verificar: false
+    dependencias: [PAT-028]
+    notas: >
+      Riesgo principal: costo creciente porque cada turno reenvia la conversacion completa (mitigar con
+      limite de seguimientos, cache de prompt sobre el historial y costo visible). Solo el autor
+      continua (costo y preferencias personales son suyos); roles superiores leen.
+      ARQUITECTURA (olvidata-agentes-multirubro M3b, 2026-09-14, ver 3-arquitecto-mvc.md): (a) el
+      seguimiento es un paso MensajeUsuario guardado en el MISMO SaveChanges que la re-apertura de la
+      tarea (token Version evita doble envio); (b) paso CierreTurno para conservar error/cancelacion de
+      cada turno (nunca se envia al modelo); (c) al reconstruir la conversacion se normaliza para la
+      API: resultados sinteticos de error para tool_use sin tool_result y fusion de mensajes de usuario
+      consecutivos; thinking intacto; (d) maximo de pasos contado desde el ultimo MensajeUsuario;
+      (e) breakpoint de cache en el ultimo bloque elegible del ultimo mensaje; (f) "reglas cambiaron" =
+      recalcular el contexto y comparar ids con la instantanea, sin tocar el contexto congelado.
+      IMPLEMENTACION (2026-09-14): (g) una tarea Fallida/Cancelada anterior al patron recibe su CierreTurno
+      al primer ajuste (conserva el error del turno viejo); (h) un paso del modelo sin bloques se omite al
+      reconstruir (la API no acepta asistente vacio); (i) un DbUpdateException por el indice unico
+      (TareaAgenteId, Numero) se trata como carrera perdida solo si la Version en la base ya cambio;
+      (j) EF InMemory NO es transaccional: un test de doble envio ve el INSERT del perdedor, la atomicidad
+      hay que verificarla contra MySQL real; (k) el JSON de los pasos escapa no ASCII (ñ): comparar texto
+      deserializado, nunca el JSON crudo. (Movido desde PAT-030 el 2026-09-14: correspondia a M3b.)
+
+  - id: PAT-030
+    nombre: "Prompts derivados configurables por el cliente sobre un prompt base protegido, con propuesta y aprobacion"
+    categoria: dominio
+    descripcion: >
+      En una plataforma de agentes IA, el cliente no escribe agentes desde cero: crea DERIVADOS de un
+      agente base de la plataforma (prompt nunca visible) sumando una capa propia (instrucciones,
+      subconjunto de herramientas, visibilidad personal u organizacion, destino). Cada derivado tiene
+      versiones propias (borrador -> en revision -> publicada / rechazada -> reemplazada); lo personal lo
+      publica su creador, lo compartido con la organizacion lo aprueba un rol superior con revision lado
+      a lado y motivo de rechazo. El derivado usa siempre la ultima version publicada del base y cada
+      ejecucion queda anclada a ambas versiones. Herramientas efectivas = interseccion con las del base
+      vigente. Archivar evita ejecuciones nuevas sin romper historicos.
+    cuando_usar: >
+      SaaS con IP de prompts propia que quiere dar personalizacion al cliente sin exponer ni permitir
+      reemplazar el prompt base, con gobierno interno de lo que se comparte.
+    proyecto_origen: olvidata-agentes-multirubro (M4, implementado 2026-09-14 sin la aprobacion del rol superior)
+    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    archivos_referencia:
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Domain/Entities/AgenteOrganizacion.cs (AgenteOrganizacion + AgenteOrganizacionVersion) + Domain/Enums/EnumsAgentesOrganizacion.cs"
+        motivo: "Nombre/descripcion no versionados, proyeccion de lo publicado, VersionToken; version con borrador unico y estados con valores reservados para revision"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Agentes/AgenteOrganizacionService.cs"
+        motivo: "Catalogo por secciones, permisos por agente (creador / rol superior), limites, nombre unico sin mayusculas ni tildes, guardar con accion (borrador / publicar) en un guardado (transaccion si agente y version son nuevos), duplicar, archivar/reactivar, aviso a Directores, vistas de staff"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Motor/ConstructorContexto.cs (formato 2, DeclaracionPrecedenciaAgenteOrganizacion) + ServicioTareas.cs (ValidarAgenteOrganizacionAsync) + ProcesadorTareas.cs (herramientas por interseccion)"
+        motivo: "Instrucciones del derivado en el contexto sin cambiar el render/hash de las ejecuciones con agente base; base = ultima publicada al crear; herramientas efectivas al ejecutar"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Data/Configurations/AgentesOrganizacionConfigurations.cs + Data/Migrations/20260914220326_AgentesOrganizacionM4.cs"
+        motivo: "NombreVigente STORED por SQL + indice unico; FK circular agente <-> version; check de reglas recreado (exactamente uno de los dos agentes)"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Web/Controllers/AgentesController.cs + Views/Agentes/{Index,_TarjetaAgente,_Form,_BarraFormAgente,_ScriptFormAgente,_ScriptAccionesAgente,Crear,Editar,Detalle}.cshtml"
+        motivo: "Catalogo con buscador, formulario unico por cards con herramientas del base, barra segun visibilidad, detalle con historial y card de reglas"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "tests/OlvidataAgentes.Tests/AgentesOrganizacionTests.cs"
+        motivo: "17 tests: golden de hash de ejecuciones previas, privacidad, contexto formato 2, publicacion y aviso, permisos, versiones, herramientas, P1, limites, archivado, suscripcion vencida, duplicar, reglas, sugerencias, incluido siempre, aislamiento, staff"
+        pendiente_verificar: false
+    dependencias: [PAT-028]
+    notas: >
+      Riesgos: instrucciones del cliente como via de inyeccion (mismo tratamiento que reglas: nivel fijo
+      en el contexto, escape, declaracion de precedencia); una mejora del base cambia a todos los
+      derivados (decision consciente: mejoras automaticas); complejidad de estados contra simplicidad
+      de uso (mostrar borradores/revision solo a creador y aprobador).
+      DECISION olvidata-agentes-multirubro (2026-09-14): la aprobacion se pospuso — cualquier miembro
+      publica para la organizacion y se notifica a los aprobadores (que pueden editar/archivar); los
+      estados de revision quedan reservados en el enum para sumarlos despues.
+      ARQUITECTURA (M4, ver 3-arquitecto-mvc.md): nombre/descripcion no versionados; version con
+      instrucciones, herramientas, visibilidad y destino; borrador unico editable y publicadas
+      inmutables; proyeccion de lo publicado en el agente + token de concurrencia; unicidad de nombre
+      entre activos con columna generada STORED; la tarea ancla version del base (ultima publicada al
+      crear) y del derivado; herramientas efectivas por interseccion al ejecutar; instantanea extendida
+      sin cambiar el render de ejecuciones previas (hash compatible).
+      IMPLEMENTACION (olvidata-agentes-multirubro M4, 2026-09-14): (a) compatibilidad del hash con un
+      formato de contexto NUEVO (2) solo para ejecuciones con derivado: la declaracion de precedencia del
+      formato 1 no se toca y los campos nuevos de la instantanea se omiten del JSON cuando son null; test
+      golden con hashes calculados ANTES del cambio; (b) agente y version nuevos que se apuntan entre si
+      (VersionPublicadaId): dos SaveChanges en una transaccion; con agente existente alcanza la navegacion;
+      (c) publicar sin cambios no crea version repetida (y descarta el borrador); (d) el nombre unico se
+      compara como la colacion de MySQL (sin mayusculas ni tildes) y el 1062 del indice se reconoce por el
+      nombre de la columna generada en el mensaje; (e) "No disponible" derivado (licencia vencida o base
+      sin publicar), no persistido; (f) reglas por agente del base aplican a los derivados; las del derivado
+      solo a el (base primero dentro del nivel, sin alterar el orden previo).
+
+  - id: PAT-031
+    nombre: "Asignacion deterministica de oferta por perfil de prospecto (presencia web + rubro) con plantilla de primer contacto por oferta"
+    categoria: dominio
+    descripcion: >
+      Un bot de prospeccion en frio que vende varias lineas de producto no le manda a todos el mismo
+      pitch: cada prospecto recibe una "oferta" (frente) asignada por una tabla de decision
+      deterministica, sin LLM, evaluada en orden: canal no frio → sin oferta; eleccion manual → se
+      respeta; sin web propia (vacia o solo redes/Linktree/wa.me) → oferta de presencia web (variante
+      segun rubro visual); con web → oferta segun grupo del rubro (back-office / muchas consultas /
+      gestion). La oferta se guarda con motivo y fecha, no se recalcula sola, y define la plantilla
+      del primer mensaje (si la plantilla de esa oferta no esta aprobada, el prospecto NO se envia con
+      otra por defecto: queda esperando y se ve en un panel de salud). La respuesta al boton de
+      "contame mas" arranca el cuestionario/conversacion de la oferta, no uno generico. Se distingue
+      "oferta hecha" (dato del sistema) de "interes detectado" (lo que el prospecto termino pidiendo).
+    cuando_usar: >
+      Outbound frio multi-producto con datos publicos del prospecto (Google Places: website, rubro) y
+      plantillas de WhatsApp que requieren aprobacion previa por plantilla.
+    proyecto_origen: crm-olvidata (diseño 2026-09-14, implementado 2026-09-14 — pendiente QA y deploy)
+    proyectos_que_lo_usan: [crm-olvidata]
+    archivos_referencia:
+      - proyecto: crm-olvidata
+        path: "docs/crm-olvidata/definiciones/2-disenador-funcional.md (seccion 8: tabla de decision, dominios, plantillas, fallback)"
+        motivo: "Diseño funcional de referencia"
+      - proyecto: crm-olvidata
+        path: "OlvidataCRM.Application/Helpers/GanchoHelpers.cs"
+        motivo: "Tabla de decision pura (web propia por dominio en memoria + grupo de rubro), etiquetas/badges, texto de oferta"
+      - proyecto: crm-olvidata
+        path: "OlvidataCRM.Application/Helpers/PlantillasCombo.cs + CategoriaHelpers.cs"
+        motivo: "Nombres fijos de plantilla por gancho + predicado unico de 'plantilla con boton'; vocabulario unico de categorias"
+      - proyecto: crm-olvidata
+        path: "OlvidataCRM.Domain/Entities/Contacto.cs (AsignarGancho)"
+        motivo: "Metodo de dominio unico para escribir el gancho desde los 5 puntos de alta/asignacion (CRM-001)"
+      - proyecto: crm-olvidata
+        path: "OlvidataCRM.Infrastructure/Services/OutboundCampaignService.cs (ResolverPlantilla, SendDailyBatchAsync, GetEstadoPlantillasGanchoAsync, GetSaludAsync)"
+        motivo: "Plantilla por contacto resuelta antes del Take(cupo); sin combo disponible no se envia; salud y card de /Bot con el mismo evaluador"
+      - proyecto: crm-olvidata
+        path: "OlvidataCRM.Infrastructure/Queries/ModuloCatalogoQueries.cs"
+        motivo: "Consulta compartida de modulos por frente (antes duplicada en 2 servicios), envuelta para el webhook"
+    dependencias: []
+    notas: >
+      Gotchas: (1) si el boton de la plantilla lo resuelve un arbol fijo que asume una sola linea de
+      producto, cambiar solo la plantilla produce una conversacion incoherente — el handler del boton
+      tiene que leer la oferta; (2) "web vacia" en Places no garantiza "no tiene web": las plantillas de
+      la oferta web no deben afirmarlo; (3) mantener grupos de rubro y dominios en la misma fuente unica
+      que el vocabulario de rubros (una segunda lista editable ya causo desincronizaciones en crm-olvidata
+      CRM-007/016); (4) medir por oferta desde la primera tanda: la señal web tiende a absorber la mayoria
+      del volumen de pymes chicas.
+      VARIANTE COMBO (crm-olvidata, decision de Joaquin 2026-09-14): todos reciben la misma oferta
+      (paquete de varias lineas) y la tabla de decision elige solo el GANCHO (por que dolor abre el
+      mensaje); cada plantilla abre con el dolor del gancho y suma el resto del paquete en una sola frase.
+      La linea "historica" (sistema de gestion) usa su plantilla de campaña vigente como fallback mientras
+      la plantilla combo no este aprobada, asi no se frena el volumen existente. Riesgo propio: un mensaje
+      con varios productos reparte el foco frente a uno de un solo dolor — medir tasa de respuesta por
+      gancho contra la linea base anterior. El precio de paquete tiene que existir antes de la primera
+      propuesta.
+      ARQUITECTURA (crm-olvidata 2026-09-14, ver 3-arquitecto-mvc.md §7.2): regla de decision como helper
+      estatico puro en Application (dominios comparados en memoria, nunca en query EF por MH-001); metodo
+      de dominio unico para asignar el gancho (CRM-001, varios puntos de alta); el filtro "sin plantilla
+      disponible" va ANTES del Take(cupo) del lote o un contacto salteado consume cupo; las guardas de
+      rename/borrado de plantillas y el diagnostico de "plantilla sin uso" tienen que contemplar tambien
+      las plantillas referenciadas desde configuracion; revisar el follow-up automatico: si su texto es
+      de una sola linea de producto, contradice la oferta combo.
+
+  - id: PAT-032
+    nombre: "Agente que propone cambios de configuracion como tarjetas confirmables, ejecutados por el servicio de negocio"
+    categoria: dominio
+    descripcion: >
+      Un agente IA conversa con un usuario con permisos de configuracion (ej. Director) y, en lugar de
+      modificar datos, usa herramientas de PROPUESTA que persisten cambios estructurados (nueva regla,
+      cambio con version vista, desactivacion, activar sugerencia) en estado Pendiente. Las herramientas
+      de LECTURA estan acotadas por codigo a lo que ese usuario puede ver. Cada propuesta se muestra como
+      tarjeta en la conversacion (donde aplica en lenguaje llano, antes/despues, por que) con Aplicar,
+      Editar y aplicar, Descartar y Aplicar todas; aplicar ejecuta el MISMO servicio de negocio que el
+      formulario (permisos, limites, versiones) y verifica si el dato cambio desde la propuesta. El texto
+      de la conversacion nunca cuenta como confirmacion.
+    cuando_usar: >
+      Configuraciones complejas que usuarios no tecnicos prefieren describir con sus palabras, donde un
+      cambio equivocado tiene impacto amplio y hace falta confirmacion humana explicita y trazable.
+    proyecto_origen: olvidata-agentes-multirubro (M4b, implementado 2026-09-14)
+    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    archivos_referencia:
+      - proyecto: olvidata-agentes-multirubro
+        path: "docs/olvidata-agentes-multirubro/definiciones/2-disenador-funcional.md (seccion M4b: tarjetas, maquina de estados de propuesta, permisos)"
+        motivo: "Diseño funcional de referencia (tarjetas, mensajes, estados)"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Domain/Entities/PropuestaRegla.cs + Domain/Enums/EnumsReglas.cs (TipoPropuestaRegla, EstadoPropuestaRegla, OrigenRegla.PropuestaAgente) + Domain/Enums/EnumsAgentes.cs (TipoTarea)"
+        motivo: "Propuesta con destino, version/estado vistos de la regla, estados, motivo de fallo, resultado y VersionToken"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Configurador/HerramientasConfigurador.cs"
+        motivo: "Herramientas de lectura acotadas y de propuesta sin SaveChanges: guardas de tipo de tarea y rol re-verificado en la base, validaciones, maximo por paso"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Configurador/PropuestaReglaService.cs + Services/Reglas/ReglaService.cs (OrigenAplicacion, MarcarAplicada)"
+        motivo: "Tarjetas, aplicar con verificacion de cambio, Fallida con motivo, aplicar todas parcial, descartar, precarga; aplicacion por el servicio de negocio en el mismo guardado"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Motor/{ConstructorContexto.cs (ArmarConfiguracionAsync, formato 3), ProcesadorTareas.cs (autor re-verificado, ContextoHerramienta por tool_use), ServicioTareas.cs (IniciarConfiguracionAsync, ListarConfiguracionesAsync), ProveedorModeloSimulado.cs (guion de herramientas)} + Services/Organizacion/ResolvedorSesion.cs (ResolverUsuarioAsync)"
+        motivo: "Tarea de configuracion con contexto propio sin cambiar el hash de otras tareas, permisos del autor en segundo plano y QA sin costo"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Web/Controllers/ConfiguracionReglasController.cs + Views/ConfiguracionReglas/{Index,Nueva}.cshtml + Views/Tareas/{_TarjetasPropuesta,_ScriptPropuestas,_Conversacion}.cshtml + Views/Reglas/{_Form,Create,Edit,Detalle}.cshtml"
+        motivo: "Lista de conversaciones, chips de arranque, tarjetas con Antes/Despues, modal de cambio, aplicar todas, editar y aplicar con vuelta a la tarjeta, origen en historial"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Data/Configurations/ConfiguradorConfigurations.cs + Data/Migrations/20260915004203_ConfiguradorReglasM4b.cs + tests/OlvidataAgentes.Tests/ConfiguradorReglasTests.cs + nucleo/plataforma/agentes/configurador-reglas.md"
+        motivo: "Unico por (tarea, tool_use_id), token de concurrencia; 13 tests (golden de formatos 2 y 3, permisos, herramientas, validaciones, reanudacion, aplicar, limite, dos aprobadores, simulador); prompt borrador"
+        pendiente_verificar: false
+    dependencias: [PAT-028, PAT-029]
+    notas: >
+      Mismo criterio que crm-olvidata (el modelo devuelve la accion por function calling y la ejecuta el
+      servicio de negocio). Riesgos: propuestas mal interpretadas (mitigar con "donde aplica" legible y
+      editar antes de aplicar), inyeccion desde datos leidos (herramientas acotadas por permisos del
+      usuario que inicio, nunca por lo que pida el texto), dos aprobadores accionando la misma propuesta
+      (estado resuelto). El agente configurador no recibe como instrucciones las reglas que configura.
+      ARQUITECTURA (M4b, ver 3-arquitecto-mvc.md): la tarea de configuracion tiene tipo y formato de
+      contexto propios (no altera el hash de otras tareas); el worker resuelve el contexto del usuario
+      autor desde la base y cada herramienta re-verifica su rol; las herramientas solo agregan propuestas
+      al change tracker y se persisten con el registro de ejecucion (idempotencia por tool_use_id, unico
+      en base); aplicar delega en el servicio de negocio con un parametro de origen que marca la
+      propuesta en el mismo guardado; token de concurrencia en la propuesta; "aplicar todas" es exito
+      parcial y nunca confirma implicitamente cambios sobre datos modificados despues de proponer.
+      IMPLEMENTACION (olvidata-agentes-multirubro M4b, 2026-09-14): (a) instantanea y render de
+      configuracion SEPARADOS (InstantaneaConfiguracion + ArmarConfiguracionAsync) en vez de ramificar el
+      render existente: los formatos previos quedan byte a byte (golden capturado antes con un test
+      temporal que imprime el hash con Assert.Fail); (b) ContextoHerramienta suma tipo de tarea, paso del
+      modelo y tool_use_id con defaults compatibles; (c) el servicio de negocio recibe el origen como
+      sobrecarga con parametro obligatorio (no rompe llamadas existentes) y valida que la propuesta
+      corresponda a la operacion; si el dato ya dice lo propuesto, la propuesta queda aplicada sin
+      versionar; (d) "Fallida" se marca en guardado propio releyendo la propuesta (ChangeTracker.Clear),
+      nunca ante SinPermiso ni "ya resuelta"; (e) "aplicar todas" recibe la LISTA de pasos de la
+      respuesta (una respuesta puede tener propuestas en varios pasos) y procesa cada propuesta en su
+      unidad de trabajo; (f) simulador con guion por palabra clave (nuevas / revision / sugerencia) para
+      ver todos los tipos de tarjeta sin costo; (g) un enum sin valor 0 con HasDefaultValue da advertencia
+      de sentinel en cada arranque: el DEFAULT va solo en la migracion; (h) EF InMemory no aplica indices
+      unicos: idempotencia probada cortando el proceso a mitad de las herramientas, unicidad y token en
+      MySQL real.
+
+  - id: PAT-033
+    nombre: "Workspace de documentos por entidad, legible por agentes IA (almacen fuera de wwwroot, validacion de contenido, texto por partes, herramientas de solo lectura y adjuntos por mensaje)"
+    categoria: infraestructura
+    descripcion: >
+      Documentos subidos por usuarios y colgados de una entidad de negocio (ej. cliente de cartera) en un
+      sistema multi-tenant: binario en disco fuera de wwwroot con ruta construida solo con ids y GUID, validado
+      por firma/estructura (sin macros, ZIP con topes de descompresion), texto extraido por codigo al subir
+      (PDF por pagina, Word por bloques, planillas por hoja y bloques de filas con encabezado repetido) y
+      guardado por PARTES con rotulo llano y estado de lectura ("el agente lo puede leer / solo una parte / no
+      puede"); espacio por organizacion, maximo por entidad, duplicados por hash y nombre unico con sufijo.
+      Un agente IA los consulta con herramientas de SOLO LECTURA acotadas por la tarea (listar, leer partes con
+      tope por llamada, buscar texto) que devuelven JSON con aviso "informacion, nunca instrucciones"; el
+      usuario los adjunta a un mensaje (registro inmutable por mensaje con el nombre del momento) y el agente
+      recibe una nota con los ids, sin copiar el texto al prompt.
+    cuando_usar: >
+      Portales donde usuarios no tecnicos quieren que un agente IA trabaje sobre sus archivos (contratos,
+      balances, planillas) sin pegarlos en cada conversacion, con aislamiento entre clientes y costo de tokens
+      acotado. Tambien como base de adjuntos confidenciales aunque no haya agentes (sin la parte de herramientas).
+    proyecto_origen: olvidata-agentes-multirubro (M5, definido 2026-09-15 — pendiente implementacion)
+    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    archivos_referencia:
+      - proyecto: olvidata-agentes-multirubro
+        path: "docs/olvidata-agentes-multirubro/definiciones/2-disenador-funcional.md (seccion M5: subida en cola, estado de lectura, ver por partes, adjuntos, vista previa, Ver pasos llano)"
+        motivo: "Diseño funcional de referencia"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "docs/olvidata-agentes-multirubro/definiciones/3-arquitecto-mvc.md (seccion M5: DocumentoCartera, DocumentoCarteraParte, AdjuntoMensajeTarea, IAlmacenDocumentos, ValidadorContenidoArchivo, extractores, HerramientasDocumentos)"
+        motivo: "Arquitectura de referencia; completar rutas de codigo al implementar"
+        pendiente_verificar: true
+      - proyecto: ganaderia
+        path: "docs/ganaderia/definiciones/3-arquitecto-mvc.md (LocalFileStorageService en App_Data + endpoint autenticado)"
+        motivo: "Antecedente de almacen local fuera de wwwroot (ruta de codigo no verificada)"
+        pendiente_verificar: true
+    dependencias: [PAT-002, PAT-012, PAT-015, PAT-017, PAT-029]
+    notas: >
+      Gotchas previstos: (1) nunca derivar la ruta en disco del nombre del usuario; guardar sin extension y
+      verificar que la ruta completa quede bajo la raiz; (2) el MIME lo determina el servidor; descargar siempre
+      como attachment con nosniff y mostrar inline solo imagenes; (3) extraer con tope de tiempo, de paginas y de
+      caracteres, y contar bytes descomprimidos leidos (no confiar en el tamaño declarado del ZIP); (4) binarios en
+      disco y texto en la base con tope por documento (cuotas de MySQL de hosting compartido); (5) temporal +
+      confirmacion despues del commit y comando de limpieza para huerfanos; (6) la publicacion (Web Deploy) no
+      debe borrar la carpeta de documentos; (7) nombre unico con columna generada STORED para convivir con baja
+      logica, y el sufijo calculado con la misma normalizacion que la colacion de MySQL; (8) las herramientas del
+      agente toman la entidad de la tarea, nunca de la entrada del modelo, y responden igual para "no existe" y
+      "es de otro"; (9) adjuntos en los mensajes, no en el prompt de sistema, para no alterar hashes/cache del
+      contexto; (10) imagenes y escaneados quedan "no legibles" hasta sumar vision/OCR.

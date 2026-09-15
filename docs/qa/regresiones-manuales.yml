@@ -2513,3 +2513,166 @@ regresiones:
       - "Navegador real sobre el estado sin datos -> 0 errores de consola."
       - "Navegador real sobre el estado con datos -> canvas dibujado y toggles funcionando."
     nota_generalizacion: "Aplica a TODA vista del estudio que mezcle markup condicional con un script de inicio. Regla: un script que corre en el arranque debe estar bajo la MISMA condicion que el markup que toca, o resolver el elemento y salir temprano. Verificar el estado vacio con navegador real y consola abierta: es el estado que nadie prueba, y un unico TypeError temprano apaga el resto de la pantalla."
+
+  # -- Entradas especificas del proyecto olvidata-agentes-multirubro -------------
+
+  - id: OLV-001
+    modulo: "Tema oscuro / combos Select2 y filtros daterangepicker (auto-init global de Select2, regla 25)"
+    titulo: "Con Select2 aplicado a todo select, los combos quedan blancos en tema oscuro porque el theme solo tenia override para .form-select"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro, QA M2 2026-09-14 (localhost, Playwright)"
+    pasos:
+      - "Activar el tema oscuro (toggle del topbar o cookie crm-tema=dark)."
+      - "Abrir cualquier pantalla con combos: Areas (filtro Miembros), Cartera > Nuevo cliente (Tipo de identificacion), Miembros > Editar (Rol, Area), Tareas (Agente, Estado)."
+      - "Abrir un combo y un filtro de rango de fechas."
+    sintoma: "El cuadro del combo (y su desplegable) se ve blanco sobre la card oscura; el resto de los inputs si respeta el tema. El calendario de daterangepicker tambien queda claro."
+    expectativa: "Combos, desplegables y calendario usan los tokens oscuros (--ov-surface, --ov-border, --ov-text) igual que .form-control/.form-select."
+    causa_raiz: "olvidata-theme.css redefine en [data-theme=dark] solo .form-control/.form-select. Select2 oculta el <select> y dibuja su propio .select2-selection/.select2-dropdown con los colores fijos de select2-bootstrap-5-theme; daterangepicker igual con .daterangepicker. Al pasar Select2 a TODO select (regla 25) el hueco se hizo visible en todas las pantallas."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataAgentes.Web/wwwroot/css/site.css
+        motivo: "Overrides [data-theme=dark] para .select2-container--bootstrap-5 (selection, flecha, dropdown, buscador, opciones resaltada/seleccionada, foco) y .daterangepicker (fondo, celdas, rango, activo, flechas, botones) usando los tokens --ov-* del tema."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "getComputedStyle('.select2-selection').backgroundColor y '.select2-dropdown' con data-theme=dark"
+      condicion_falla: "Con data-theme=dark el fondo de .select2-selection, .select2-dropdown o .daterangepicker es claro (luminancia > 140) mientras la card es oscura."
+    criterio_aceptacion:
+      - "Tema oscuro: combo cerrado, desplegable abierto, buscador y calendario con fondo oscuro y texto claro."
+      - "Tema claro: sin cambios (fondo blanco como antes)."
+    pruebas_minimas:
+      - "Navegador real en tema oscuro: medir fondo de selection, dropdown abierto y daterangepicker abierto."
+      - "Mismo recorrido en tema claro para descartar regresion."
+    nota_generalizacion: "Aplica a TODO proyecto del baseline con tema oscuro (PAT-009) y Select2 global (regla 25): la-platense tiene las dos cosas y no tiene estos overrides. Regla: cualquier libreria que dibuja su propio widget (Select2, daterangepicker, DataTables, SweetAlert2) necesita su bloque [data-theme=dark]; no alcanza con el override de los controles nativos de Bootstrap."
+
+  - id: OLV-002
+    modulo: "Tema oscuro / alertas .ov-alert (danger, warning, info, success) y badge bg-info text-dark"
+    titulo: "En tema oscuro el texto de las alertas .ov-alert queda oscuro sobre fondo oscuro (contraste 1,5-2,6) y el badge bg-info text-dark queda blanco sobre celeste"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro, QA M3b 2026-09-14 (localhost, Playwright; detalle de tarea con turno fallido, limite de ajustes y suscripcion vencida)"
+    pasos:
+      - "Activar el tema oscuro (toggle del topbar o cookie crm-tema=dark)."
+      - "Abrir una pantalla con .ov-alert: detalle de una tarea con un turno Fallido (alerta danger), una tarea que llego al limite de ajustes (warning), Reglas como Empleado o el aviso de reglas cambiadas (info)."
+      - "Mirar el texto de la alerta y el badge 'Ajuste' de la conversacion."
+    sintoma: "El mensaje de error del turno (#991b1b sobre fondo rgba .15 casi negro) practicamente no se lee: contraste 1,54 en danger, 1,96 en warning y 2,61 en info. El badge 'Ajuste' (bg-info text-dark) muestra texto blanco sobre celeste (1,79). En tema claro todo cumple (5,1 a 7,9)."
+    expectativa: "En tema oscuro el texto de cada .ov-alert usa un tono claro de su color y el badge bg-info text-dark conserva texto oscuro; contraste >= 4,5 en todos los casos."
+    causa_raiz: "olvidata-theme.css redefine en [data-theme=dark] los fondos --ov-*-subtle como rgba(...,0.15) pero .ov-alert.{info,success,warning,danger} tiene color de texto fijo pensado para fondo claro. Ademas el theme fuerza [data-theme=dark] .text-dark { color: var(--ov-text) !important }, que tambien pisa el texto de los badges bg-info/bg-warning con text-dark (fondo fijo claro)."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataAgentes.Web/wwwroot/css/site.css
+        motivo: "Overrides [data-theme=dark] con tonos claros para .ov-alert.info/.success/.warning/.danger (y sus enlaces) y color oscuro !important para .badge.bg-info.text-dark y .badge.bg-warning.text-dark (especificidad mayor que el .text-dark del theme)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "getComputedStyle('.ov-alert.danger > div').color contra el fondo efectivo (componiendo alpha de ancestros) con data-theme=dark; idem .ov-alert.warning, .ov-alert.info y .badge.bg-info.text-dark"
+      condicion_falla: "Con data-theme=dark el contraste WCAG entre texto y fondo efectivo de una .ov-alert o de un badge text-dark es menor a 4,5."
+    criterio_aceptacion:
+      - "Tema oscuro: alertas danger, warning e info legibles (contraste >= 4,5), incluidos sus enlaces; badge 'Ajuste' con texto oscuro."
+      - "Tema claro: sin cambios."
+    pruebas_minimas:
+      - "Navegador real en tema oscuro: medir contraste de las cuatro variantes de .ov-alert y del badge; captura por elemento."
+      - "Mismo recorrido en tema claro para descartar regresion."
+    nota_generalizacion: "Aplica a todo proyecto del baseline con olvidata-theme.css y tema oscuro (PAT-009): el hueco es del theme, no de una pantalla. OBS-4 de QA M2 (ov-alert info con bajo contraste) era el mismo problema. Regla: al usar fondos 'subtle' con alpha en tema oscuro, el color de texto del componente tambien tiene que tener su variante oscura; y un override global con !important (.text-dark) rompe los badges de fondo claro."
+
+  - id: OLV-003
+    modulo: "Tema claro/oscuro / textos de riesgo: .dropdown-item.text-danger en menus y motivo de una card atenuada (opacity) con color danger"
+    titulo: "Texto rojo de accion o de motivo con contraste bajo: dropdown-item text-danger en tema oscuro (3,23) y motivo 'No disponible' dentro de una card con opacity .72 en tema claro (2,69)"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro, QA M4 2026-09-14 (localhost, Playwright; catalogo de Agentes con menu ⋮ y agente de la empresa con la suscripcion del rubro vencida)"
+    pasos:
+      - "Tema oscuro: abrir el menu ⋮ de una card de agente (o el menu de usuario del topbar) y mirar 'Archivar' / 'Cerrar sesion'."
+      - "Tema claro: quitar la licencia del rubro de un agente de la empresa y abrir Agentes: la card queda atenuada con 'Este agente no esta disponible: la suscripcion a <rubro> no esta vigente.'"
+      - "Medir el contraste efectivo (color del texto compuesto con la opacidad heredada contra el fondo efectivo)."
+    sintoma: "Oscuro: #dc3545 sobre #1e293b = 3,23. Claro: #ef4444 con opacity .72 heredada de la card sobre blanco = 2,69: el motivo, que es justamente lo que explica por que no se puede usar el agente, es lo menos legible de la card."
+    expectativa: "Textos rojos de accion y de motivo con contraste >= 4,5 en ambos temas; la atenuacion de una card no disponible no alcanza al texto que explica el motivo."
+    causa_raiz: "Bootstrap .text-danger (#dc3545, !important) no tiene variante para [data-theme=dark]; y .ov-card-atenuada aplica opacity a toda la card, que se multiplica sobre cualquier color del contenido (incluido el motivo en --ov-danger #ef4444, que en blanco ya ronda 3,8)."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataAgentes.Web/wwwroot/css/site.css
+        motivo: "Opacity de la card atenuada solo en nombre, badges y descripcion; motivo en rojo AA (#b91c1c en claro, #fca5a5 en oscuro) con opacidad plena; [data-theme=dark] .dropdown-item.text-danger con tono claro !important."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "getComputedStyle('.dropdown-menu.show .dropdown-item.text-danger').color con data-theme=dark; getComputedStyle('.ov-motivo-no-disponible').color compuesto con la opacity de .ov-card-atenuada, contra el fondo efectivo, en ambos temas"
+      condicion_falla: "Contraste WCAG efectivo < 4,5 del item rojo del menu en tema oscuro o del motivo de la card atenuada en cualquier tema."
+    criterio_aceptacion:
+      - "Tema oscuro: 'Archivar' y 'Cerrar sesion' legibles (>= 4,5)."
+      - "Ambos temas: motivo 'No disponible' >= 4,5 y la card sigue viendose atenuada (nombre, badges y descripcion)."
+    pruebas_minimas:
+      - "Navegador real: medir el item rojo del menu en oscuro y el motivo de una card no disponible en claro y oscuro, esperando al fin del fundido de pagina (fadeIn 250ms) antes de medir."
+      - "Captura de la card no disponible en ambos temas."
+    nota_generalizacion: "Aplica a todo proyecto del baseline con olvidata-theme.css: cualquier .text-danger/.text-warning de Bootstrap usado como texto (no como fondo) necesita variante oscura, y una atenuacion por opacity sobre un contenedor degrada tambien el texto que explica el estado. Regla: atenuar solo lo decorativo y dejar el mensaje de estado con opacidad plena. Ojo al medir: el layout aplica fadeIn (opacity 0 → 1) al contenido; medir antes de que termine da contraste 1 falso."
+
+  - id: OLV-004
+    modulo: "Tema claro/oscuro / botones outline y enlaces de marca: btn-outline-secondary, btn-outline-info, btn-outline-primary y a con color de marca"
+    titulo: "Botones outline y enlaces con color de Bootstrap/marca sin variante por tema: btn-outline-secondary 3,12 en oscuro, btn-outline-info 1,96 y btn-outline-primary/enlaces 2,70-2,98 en claro"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro, QA M4b 2026-09-14 (localhost, Playwright; Reglas, Configurar conversando, conversacion con tarjetas y detalle de regla)"
+    pasos:
+      - "Tema oscuro: Reglas > Configurar conversando > Nueva conversacion (chips) y una conversacion con tarjetas (Descartar / Ver regla)."
+      - "Tema claro: lista de conversaciones (boton 'Abrir'), encabezado de Reglas ('Configurar conversando'), tarjeta ('Editar y aplicar') y detalle de regla ('Ver conversacion')."
+      - "Medir el contraste efectivo del texto del boton o enlace contra el fondo efectivo, esperando el fin del fadeIn."
+    sintoma: "Oscuro: #6c757d sobre #1e293b = 3,12 (chips, Descartar, Ver regla). Claro: #0dcaf0 sobre blanco = 1,96 ('Abrir'); #2b9de4 sobre blanco = 2,98 y sobre #f0f4f8 = 2,70. El texto de las tarjetas, alertas y badges nuevos cumple; los botones que los accionan son lo menos legible."
+    expectativa: "Texto de botones outline y enlaces con contraste >= 4,5 en ambos temas (o >= 3 si se acepta como texto grande/negrita por decision de diseno documentada)."
+    causa_raiz: "El theme usa los colores por defecto de Bootstrap para .btn-outline-secondary/.btn-outline-info y el color de marca #2b9de4 para .btn-outline-primary y enlaces, sin variante oscura para secondary ni tono AA para info/primary en claro. No lo introduce una feature: son tokens compartidos (58, 10 y 18 usos en las vistas del portal)."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataAgentes.Web/wwwroot/css/site.css
+        motivo: "Propuesto (no aplicado, requiere decision de diseno): [data-theme=dark] .btn-outline-secondary con texto/borde claro (ej. #cbd5e1); .btn-outline-info en claro con tono AA (ej. #0e7490); .btn-outline-primary y enlaces de marca en claro con un tono AA derivado de la marca (ej. #1f6fa8), manteniendo el fondo del hover. btn-primary (blanco sobre #2b9de4 = 2,98) queda a decision de marca."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "getComputedStyle de '.btn-outline-secondary', '.btn-outline-info', '.btn-outline-primary' y enlaces de contenido contra el fondo efectivo, con data-theme=dark y light"
+      condicion_falla: "Contraste WCAG efectivo < 4,5 del texto de un boton outline o enlace de contenido en cualquier tema (sin excepcion de diseno documentada)."
+    criterio_aceptacion:
+      - "Tema oscuro: chips y botones Descartar/Ver regla/Volver >= 4,5."
+      - "Tema claro: 'Abrir', 'Editar y aplicar', 'Configurar conversando' y enlaces 'Ver conversacion' >= 4,5."
+    pruebas_minimas:
+      - "Navegador real: medir los 4 tokens en ambos temas en al menos una grilla, un encabezado con acciones y un detalle, despues del fadeIn."
+      - "Capturas antes/despues en ambos temas para validar que la marca sigue reconocible."
+    nota_generalizacion: "Aplica a todo proyecto del baseline con olvidata-theme.css. Al medir contraste de una feature, separar lo que agrega la feature de los tokens compartidos del theme: un fix de tokens cambia todo el portal y debe pasar por diseno, no por auto-fix de QA."
+
+  # -- Entradas especificas del proyecto crm-olvidata (feature "4 frentes", 2026-09-14) -------------
+
+  - id: CRM-023
+    modulo: "Armar presupuesto por frente — /Modulos/Presupuesto (selector 'Frentes') y modal 'Armar propuesta' de Chats/Detail (selFrentesModal) -> GET /Modulos/Checklist"
+    titulo: "El selector multiple de Frentes no llega al servidor: $.get con un array manda 'frentes[]=2&frentes[]=3', que ASP.NET Core NO bindea desde el query string, y el checklist cae a Build en silencio"
+    severidad: major
+    reproducido_en: "crm-olvidata - working tree sin commitear de la feature '4 frentes — combo con gancho' (2026-09-14), olvidatacrm_dev, app local. Reproducido por HTTP autenticado (Playwright MCP no disponible en la sesion)."
+    pasos:
+      - "Como SuperUsuario abrir /Modulos/Presupuesto, elegir un rubro y en 'Frentes' dejar solo Landing (o Landing + AI Agents + Chatbots)."
+      - "Mirar el checklist que carga. Equivalente por HTTP: GET /Modulos/Checklist?industriaId=2&frentes%5B%5D=2&frentes%5B%5D=4 (lo que serializa jQuery por defecto)."
+      - "Variante: Chats/Detail de un contacto -> 'Armar propuesta' -> el modal arranca con Landing + AI Agents + Chatbots."
+    sintoma: "El checklist sale siempre con los modulos de Build (data-frentes=\"1\"), sin importar que frentes se eligieron. No hay error ni aviso: el usuario cree estar armando el combo y esta armando un presupuesto de gestion. Calcular/GenerarMensaje releen los frentes del data-frentes, asi que todo el circuito queda consistente... con Build."
+    expectativa: "GET /Modulos/Checklist recibe los frentes elegidos: con Landing + AI Agents + Chatbots el checklist se arma con esos frentes (o muestra 'Todavia no hay modulos cargados ... en los frentes elegidos'), data-frentes=\"2,3,4\"."
+    causa_raiz: "jQuery serializa arrays con corchetes por defecto (traditional:false -> 'frentes[]=2'). Del lado de ASP.NET Core, el parametro FrenteComercial[] frentes SI bindea 'frentes[]' en un POST de formulario (verificado: POST /Modulos/Calcular con frentes[]=2 filtra bien), pero NO en el query string de un GET: 'frentes[]=2&frentes[]=4' llega vacio, NormalizarFrentes() cae al default Build y lo oculta. 'frentes=2&frentes=3' (formato tradicional) si bindea: data-frentes=\"1,2\" para frentes=1&frentes=2. El riesgo estaba declarado por el Implementador en 5-implementador.md §7, pero solo para el POST."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataCRM.Web/Views/Modulos/Presupuesto.cshtml
+        motivo: "cargarChecklist(): $.get(url, {...}) -> $.ajax({ url, data: {...}, traditional: true }) para que el array viaje como frentes=2&frentes=3."
+      - path: OlvidataCRM.Web/Views/Chats/Detail.cshtml
+        motivo: "cargarChecklistModal(): mismo cambio."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-14"
+      por: "QA (auto-fix, JS de 2 vistas, sin logica de negocio nueva: hace llegar al servidor el parametro que el servidor ya esperaba)"
+      resultado: "aplicado"
+      archivos:
+        - path: OlvidataCRM.Web/Views/Modulos/Presupuesto.cshtml
+          motivo: "traditional: true en el GET del checklist."
+        - path: OlvidataCRM.Web/Views/Chats/Detail.cshtml
+          motivo: "traditional: true en el GET del checklist del modal."
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "GET /Modulos/Checklist?industriaId=<rubro con matriz>&frentes%5B%5D=2&frentes%5B%5D=4 vs ...&frentes=2&frentes=4; y en navegador, la URL real del XHR que dispara el cambio del selector 'Frentes'"
+      condicion_falla: "Con frentes distintos de Build en la request, la respuesta trae data-frentes=\"1\" (default) o los modulos de Build; o el XHR del selector viaja con 'frentes%5B%5D='."
+    criterio_aceptacion:
+      - "Elegir solo Landing en /Modulos/Presupuesto arma el checklist de Landing (o el aviso de 'sin modulos en los frentes elegidos'), nunca el de Build."
+      - "Elegir Build + Landing arma el checklist agrupado con data-frentes=\"1,2\"."
+      - "Con solo Build el checklist sigue identico al de antes del cambio (R9)."
+      - "El modal de Chats/Detail respeta el default del combo (Landing + AI Agents + Chatbots)."
+    pruebas_minimas:
+      - "Navegador: cambiar el selector de Frentes y confirmar en la pestana Red que el GET viaja como frentes=2&frentes=3."
+      - "Solo Build -> checklist y GenerarMensaje byte a byte iguales a la version anterior."
+      - "Calcular con un moduloId de un frente no elegido -> ignorado (0 modulos)."
+    nota_generalizacion: "Aplica a TODO proyecto del estudio que mande arrays por AJAX GET con jQuery ($.get, $.getJSON, $.ajax sin traditional) a una accion MVC con parametro de coleccion: el binder de ASP.NET Core no reconoce 'nombre[]' en el query string y el parametro llega vacio sin error. Si ademas la accion tiene un default 'sin valor = comportamiento viejo', la falla es completamente silenciosa. Regla: arrays por GET siempre con traditional:true (o $.param(data, true)); y probar el filtro con un valor distinto del default, no solo el camino que coincide con el default. Formalizado en 32-estandares-qa-implementador.instructions.md."

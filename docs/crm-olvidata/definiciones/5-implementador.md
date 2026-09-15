@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: crm-olvidata
-## Ultima actualizacion: 2026-08-27
+## Ultima actualizacion: 2026-09-14
 
 ## Definiciones vigentes
 
@@ -671,7 +671,109 @@ La resolución de `Contacto.Rubro` es el punto delicado y es la otra cara de CRM
 10. **Bot (sin enviar a Meta real):** verificar que `rent`/`rent_other` quedaron en **2 preguntas**; que un rubro con matriz recibe el texto libre con los 3-4 imprescindibles; que "Vinos y bebidas" **sigue** recibiendo el menú de 3 opciones; y que el pitch con prueba social sigue apareciendo para los 7 rubros que cambiaron de mecanismo.
 11. Regresión de `SeedData`: reiniciar la app 2 veces → el log **no** debe volver a decir "Matriz de módulos sembrada" (idempotencia) y los conteos deben seguir en 84/88.
 
+## Feature "4 frentes — combo con gancho" (2026-09-14) — E1 a E7 IMPLEMENTADAS, pendiente QA
+
+Entrada: `1-analista-funcional.md` (CU-30 a CU-35), `2-disenador-funcional.md` §8, `3-arquitecto-mvc.md` §7.2 (A1-a y A2), `4-presupuestador.md` (alcance completo aprobado). Sin deploy, sin commits, sin tocar Meta ni reactivar outbound/Maps/IA en produccion.
+
+### 0. Escaneo de reutilizacion
+
+- `catalogo.yml`: PAT-031 (nacido en el diseño de esta feature, sin codigo). Confirmado e implementado: se le agregaron las rutas reales de codigo y se saco `pendiente_verificar`.
+- `docs/*/definiciones/5-implementador.md`: ningun proyecto clasifica web propia ni asigna oferta por perfil → construccion nueva.
+- Reutilizacion literal intra-repo: `RubroHelpers` (vocabulario + `RubroBase`), `Plural`/`NarrativaByType` y el `BuildComponents` con botones de v13, `GetSaludAsync`/`SaludOutboundDto` (M-C), filtros en `Session` de Contactos/Chats, `ConfigParaEditarAsync`, `SendBriefToAdminAsync`/`NotifyAdminsInAppAsync`, guarda de rename/delete de B5, partial compartido Create/Edit (patron `_CamposCanalYPresupuesto`).
+- **No existe auto-init global de Select2 en este repo** (el pedido lo asumia): cada combo nuevo se inicializa en su vista.
+
+### 1. Alcance resumido
+
+Todo contacto de outbound frio recibe el combo (pagina 3D + agentes de IA + asistente de WhatsApp) con un **gancho** determinístico (web propia + grupo de rubro) que elige la plantilla y la primera pregunta; la IA conoce los 4 frentes y hace venta cruzada una vez despues del dolor; `ai_agents`/`chatbot` entran al vocabulario y `merge` sale; el arbol no se rompe con categorias sin cuestionario; el catalogo de modulos tiene frente y Armar presupuesto arma el combo agrupado por frente.
+
+### 2. Plan ejecutado por etapas
+
+| Etapa | Estado | Nota |
+|---|---|---|
+| E1 Vocabulario y arbol | Hecha | `CategoriaHelpers` fuente unica (3 consumidores), cuestionarios `ai_agents`/`chatbot`, `TryGetValue` + escalada, `merge` solo historico |
+| E2 Prompt | Hecha (codigo) | Identidad 4 frentes, 7 categorias con ejemplos, venta cruzada, web simple, cliente actual → escalar. **Verificacion con mensajes reales al webhook: QA** |
+| E3 Gancho en contacto | Hecha | Enum + 5 props + `AsignarGancho`, `GanchoHelpers`, alta Maps (2 puntos), carga inicial, Contactos Index/Create/Edit/Details, Chats filtro/chip/card |
+| E4 Conversacion por gancho | Hecha | `OnConfirmarContinuarAsync` por gancho, pregunta 1 por frente, oferta del contacto en el bloque NO cacheado del prompt |
+| E5 Envio por gancho | Hecha | `ResolverPlantilla` antes del `Take(cupo)`, 4 casos `BuildComponents` + `TemplateBodies`, card `/Bot` + 2 acciones, `/Bot/Salud`, guardas Templates, A1-a follow-up/frio |
+| E6 Modulos por frente | Hecha | `Frente`, `ModuloCatalogoQueries` compartida, Modulos Index/Create/Edit, Armar presupuesto multi-frente (pantalla + modal de Chats) |
+| E7 Documentacion | Hecha | `arbol-comunicacion-bot.md` (§0, §1, §3.4, §6, §8) y `logica-negocio-bot.md` (A.3-A.5, B.3) |
+
+### 3. Cambios por capa
+
+- **Domain:** `Enums/GanchoContacto.cs` (nuevo), `Enums/FrenteComercial.cs` (nuevo); `Entities/Contacto.cs` (+`Gancho`, `MotivoGancho`, `FechaGancho`, `GanchoAMano`, `PlantillaPrimerContacto`, metodo `AsignarGancho`); `Entities/ModuloCatalogo.cs` (+`Frente`); `Entities/ConfiguracionOutbound.cs` (+4 `PlantillaGancho*`).
+- **Application:** `Helpers/CategoriaHelpers.cs`, `Helpers/GanchoHelpers.cs`, `Helpers/PlantillasCombo.cs` (nuevos); `DTOs/ContactoListItemDto.cs` (+Gancho/Categoria/textos); `DTOs/SaludOutboundDto.cs` (+`GanchosSinEnvio`, `GanchoSinEnvioDto`, `EstadoPlantillaGancho`, `PlantillaGanchoEstadoDto`, `EstadoPlantillasGanchoDto`); `Interfaces/IOutboundCampaignService.cs` (+`GetEstadoPlantillasGanchoAsync`, `AsignarGanchosPendientesAsync`).
+- **Infrastructure:** `Queries/ModuloCatalogoQueries.cs` (nuevo, try/catch CRM-020); `Data/AppDbContext.cs` (mapeos + indice + default Build); `Services/OutboundCampaignService.cs` (red de seguridad del gancho, catalogo/config y `ComboDisponible`, `ResolverPlantilla` antes del `Take`, `PlantillaPrimerContacto`, `PlantillasCombo.TieneBotonContinuar`, log de salteados, `AsignarGanchosFaltantes`, `AsignarGanchosPendientesAsync`, `GetEstadoPlantillasGanchoAsync` + `EvaluarPlantillaGancho` compartido con Salud, 4 casos `BuildComponents`, 4 `TemplateBodies`, A1-a en `ProcessFollowUpsAsync`/`MarkColdAsync`, gancho en `AgregarProspectosNuevosAsync`, `GetSaludAsync` con configuracion en `TemplatesSinCampana` + `GanchosSinEnvio`); `Services/BotFlowService.cs` (Questions desde `CategoriaHelpers` + 2 cuestionarios, `CategoryNames` retirado, `OnConfirmarContinuarAsync` por gancho, `TryGetValue` en `OnAnswerAsync`/`SendCurrentQuestionAsync`, pregunta 1 con modulos del frente, `EscalarPorCategoriaSinCuestionarioAsync`, consulta compartida); `Services/ConversacionIaService.cs` (`CategoriasValidas` desde `ClavesVigentes`, prompt estable con 4 frentes/venta cruzada/cliente actual, bloque del contacto con oferta y modulos del frente, tool `consultar_modulos_del_rubro` por frente, copia duplicada de la consulta retirada).
+- **Migracion:** `Data/Migrations/20260915010357_AddGanchoYFrenteComercial` (+ Designer + snapshot).
+- **Web — Controllers:** `ContactosController` (filtros gancho/interes con Session, proyeccion y orden de 2 columnas, Details Oferta, Create/Edit con `PaginaWeb` + `GanchoElegido`, `ValidarOferta`, `AplicarGanchoDesdeFormulario`); `ChatsController` (filtro gancho con Session, chip, card Oferta, frentes default del modal, etiqueta de evento nueva); `BotController` (card en Index, `GuardarPlantillasGancho`, `AsignarGanchos` JSON, gancho en `BuscarProspectos`); `TemplatesController` (guardas rename/delete + columna "usada por gancho", LP-002); `ModulosController` (Frente en Create/Edit, filtro/orden/Session en listado, `frentes` en Checklist/Calcular/GenerarMensaje, `ModulosDelRubroAsync` por frente, `NormalizarFrentes`, `ValidarFrente`).
+- **Web — Models:** `ContactoViewModels`, `ChatViewModels`, `BotOutboundViewModels`, `ModuloCatalogoViewModels`, `TemplateWhatsAppViewModels`.
+- **Web — Views/JS/CSS:** `Contactos/{Index,Create,Edit,Details,_CamposOferta (nuevo)}`, `Chats/{Index,_ChatListItems,Detail}`, `Bot/{Index,Salud}`, `Modulos/{Index,Create,Edit,Presupuesto,_ChecklistPresupuesto}`, `Templates/Index`, `wwwroot/js/presupuesto-modulos.js`, `wwwroot/css/site.css` (badges `violet`/`slate` con tema oscuro).
+
+### 4. Migracion EF
+
+`AddGanchoYFrenteComercial` — aditiva, **aplicada solo en `olvidatacrm_dev`** (verificado con `dotnet ef migrations list`; destino confirmado con `dbcontext info`: `olvidatacrm_dev@localhost`; user-secrets sin connection string).
+- `Contactos`: `Gancho` int null + `IX_Contactos_Gancho`, `MotivoGancho` varchar(120) null, `FechaGancho` datetime(6) null, `GanchoAMano` tinyint(1) not null default 0, `PlantillaPrimerContacto` varchar(100) null.
+- `ModulosCatalogo`: `Frente` int not null **default 1 (Build)** → todos los modulos existentes quedan en Build.
+- `ConfiguracionesOutbound`: `PlantillaGanchoPresenciaWeb`/`Administracion`/`Consultas`/`Gestion` varchar(100) null.
+- Sin SQL de datos: los contactos existentes quedan sin gancho hasta "Asignar ganchos pendientes" o el primer lote. `Down` elimina todo. **Produccion: NO aplicada.**
+
+### 5. Evidencia de build
+
+`dotnet build OlvidataCRM.slnx -c Release --no-incremental` → **Compilacion correcta, 0 errores, 26 advertencias, todas preexistentes** (16 NU1902 MailKit/MimeKit, 4 CS8620 en `ChatsController` `RouteValueDictionary(filtros.AsRouteValues())`, 4 CS8524 `ToFlag(DayOfWeek)` en `GoogleMapsService`/`OutboundCampaignService`, 2 CS0114 `HomeController`). Vistas Razor compiladas en el mismo build. Sin smoke test propio (rol).
+
+### 6. Desvios respecto de las definiciones (con motivo)
+
+1. **Card "Oferta" con el patron `dl row` de la ficha** y no `.ov-detail-grid`/`.ov-detail-item__value--empty`: esas clases no existen en el CSS de este repo; se usa el mismo patron que las cards vecinas (Datos/Estado) y `text-muted fst-italic` para el vacio.
+2. **Gancho elegido a mano solo para canal Outbound frio** (error de validacion si el canal es otro): la tabla 8.3 evalua la fila 1 (canal) antes que la fila 2 (a mano); la arquitectura no lo explicitaba. Se prefirio avisar en vez de descartar en silencio.
+3. **"Automatico" en Editar no le asigna gancho a un contacto historico que ya recibio el primer mensaje sin gancho**: le cambiaria el follow-up (A1-a) por un combo que nunca recibio. Un gancho elegido a mano si se aplica (con aviso). Tambien solo reescribe si cambia algo, para no mover la fecha en cada guardado.
+4. **`GetEstadoPlantillasGanchoAsync` devuelve `EstadoPlantillasGanchoDto`** (filas + pendientes sin gancho) en vez de una lista: el boton de carga inicial necesita el conteo.
+5. **Categoria sin cuestionario**: el mensaje del prospecto se registra como entrante `"Mensaje recibido (categoría sin cuestionario)"` (evento en /Chats, deja el chat no leido), `DerivadoManual`, **bot pausado 48hs** y notificacion **una sola vez** (guard por etiqueta). La pausa y la idempotencia no estaban en el diseño; evitan re-notificar en cada mensaje.
+6. **Modulos genericos de un frente distinto de Build en Armar presupuesto = imprescindibles (MVP)**: no tienen fila de rubro donde guardar el flag. Supuesto a validar con `olvidata-presupuesto-bot`.
+7. **Pregunta 1 con modulos del frente**: formato de texto definido en implementacion (pregunta fija + "En *{industria}* esto es lo que más nos piden resolver:" + viñetas + "Si lo tuyo es otra cosa, contámelo igual 👇"); el diseño no lo fijaba.
+8. **Contexto de la IA**: la linea de oferta aparece solo si `PlantillaPrimerContacto` esta cargado (combo → linea del gancho; otra → "plantilla de la campaña"). Contactos historicos anteriores al campo no llevan linea.
+9. **/Bot/Salud**: un gancho sin plantilla se lista siempre, pero cuenta como "punto de atencion" solo si tiene contactos esperando.
+10. **Selector de frentes del modal de Chats** va en un bloque propio arriba del checklist (el cuerpo del modal se reemplaza por AJAX).
+11. **Modulos/Index**: se agrego solo el filtro de la columna nueva (Frente, con Session y Limpiar); las columnas preexistentes siguen sin filtro (deuda previa, fuera de alcance).
+
+### 7. Riesgos y supuestos
+
+- **Concordancia de genero en los borradores combo (para `olvidata-marketing`)**: "hoy muchos {{1}}" / "en muchos {{1}}" con `Plural(rubro)` produce "muchos clínicas / inmobiliarias / farmacias / dietéticas y comercios…". Hay que reescribir el marco (ej. "en muchos negocios como {{1}}") antes de mandar a Meta, y ajustar `TemplateBodies`/`BuildComponents` si cambian los placeholders.
+- `TemplateBodies` de las combo son copia de exhibicion de los **borradores**; el envio real usa el texto aprobado en Meta.
+- Mientras las 4 combo no esten aprobadas y asignadas en /Bot, Presencia web / Administración / Consultas **no salen**; con R3 (presencia web dominante) el volumen diario puede quedar muy por debajo del cupo (visible en /Bot y /Bot/Salud). Outbound sigue pausado (S4).
+- Sin modulos cargados de Landing/AI Agents/Chatbots (contenido de `olvidata-presupuesto-bot`), el arbol y la IA usan la pregunta fija.
+- `frentes[]` por jQuery depende del value provider jQuery de ASP.NET Core; si no bindea, `NormalizarFrentes` cae a Build (no rompe, pero ignora la seleccion) — QA lo verifica.
+- `AsignarGanchosPendientesAsync` trae a memoria todos los Pendiente OutboundFrio sin gancho (miles, aceptable) y guarda en un solo SaveChanges.
+- Cache del prompt: el bloque estable cambia una vez al desplegar (reescritura unica, ~USD 0,03).
+
+### 8. Pruebas minimas para QA (obligatorias)
+
+1. `ResolverGancho` (via Contactos/Create canal Outbound frio + Automatico): web vacia → Presencia web "Sin web"; `instagram.com/x` y `x.mitiendanube.com` → Presencia web con el dominio en el motivo; `modalu.com.ar` + `estudio` → Administración; `modalu.com.ar` + `consultorio-palermo` → Consultas; dominio propio + `comercio` → Gestión; canal Ads/Manual → sin gancho; gancho a mano con canal Manual → error de validacion.
+2. **Lote (T1)**: cupo chico con los primeros candidatos de gancho sin plantilla → salen los elegibles que siguen hasta completar el cupo; los salteados quedan Pendiente, no aparecen en `PlantillasEnviadasHoy`, se ven en /Bot ("Esperando") y /Bot/Salud, y queda el log.
+3. Regresion: gancho Gestion sin combo, y contactos sin gancho → sale `v13` con el A/B de la campaña intacto; Referido → `olv_referido_v2`.
+4. Con una combo asignada (template de prueba Activo+Aprobado en dev): `PlantillaPrimerContacto` = combo, fase `ConfirmandoContinuar`, hilo con el texto combo, botones `seguir`/`no_interesa`.
+5. Boton "Sí, contame más" por gancho (webhook de prueba en dev): Presencia web → `landing` + "Partís de cero…"; Administración → `ai_agents`; Consultas → `chatbot`; Gestión/sin gancho → `rent` identico a hoy (incluida la matriz de modulos de Build); "No me interesa" → baja.
+6. IA no disponible con `ai_agents` en `ConversandoConIa` → sigue el cuestionario sin presentarse; categoria sin cuestionario en `AskingQuestions` → DerivadoManual + bot pausado + 1 notificacion, nada al prospecto, sin excepcion.
+7. `set_categoria` con `merge` → rechazada; historicos con `merge` → "Mejoras en sistema Olvidata (discontinuado)". E2 contra el webhook: los 4 mensajes de CA2 de CU-30 y "soy cliente y quiero una mejora" → escalar.
+8. Contactos/Index y Chats/Index: filtros Gancho e Interés detectado filtran, persisten en Session, "Limpiar" los borra; **probar con base vacia** (MH-001). Orden por las 2 columnas nuevas.
+9. Contactos/Edit: combo de gancho pre-seleccionado cuando es a mano, "Automatico" cuando no; aviso si ya se envio; Página web editable y persistida (Create y Edit).
+10. Templates: renombrar o borrar una combo configurada en /Bot → bloqueado; columna "Gancho …" en el listado. /Bot/Salud: la combo configurada no aparece como "template sin campaña".
+11. /Bot: guardar plantillas con valor manipulado (otro nombre, no aprobada) → no guarda nada y avisa; "Asignar ganchos pendientes" → cuenta y es idempotente (segunda corrida 0).
+12. A1-a: contacto Presencia web en MensajeEnviado con 3-6 dias → no recibe follow-up; con 7+ → Frio. Gestion/sin gancho → follow-up como siempre.
+13. Modulos: existentes en Build tras migrar; Create/Edit con Frente (Edit pre-seleccionado); filtro Frente con Session. **Armar presupuesto solo Build → mismo checklist, rangos y mensaje que antes (R9)**; con Landing+AI Agents+Chatbots → agrupado por frente; modal de Chats con default combo (+Build si interes de gestion) y recarga al cambiar frentes; manipular un checkbox con un id de otro frente → ignorado en Calcular.
+14. Tildes y textos de UI en todas las pantallas tocadas.
+
+### 9. Checklist de salida para merge
+
+- [x] `dotnet build -c Release` sin errores (0 errores, 26 advertencias preexistentes).
+- [x] Migracion `AddGanchoYFrenteComercial` generada y aplicada en `olvidatacrm_dev`. [ ] Aplicar en produccion (owner, despues de QA).
+- [ ] QA GO sobre §8 (incluye mensajes de prueba al webhook para E2/E4).
+- [ ] Textos combo corregidos por `olvidata-marketing` (concordancia de genero) y aprobados en Meta; actualizar `TemplateBodies`/`BuildComponents` si cambian.
+- [ ] Deploy verificado (sitio 200, `/Bot`, `/Bot/Salud`, `/Contactos`, `/Chats`, `/Modulos/Presupuesto` sin 500).
+- [ ] Outbound sigue pausado hasta tener al menos una combo aprobada y asignada, y ganchos asignados.
+- [x] `arbol-comunicacion-bot.md` y `logica-negocio-bot.md` actualizados (E7). [x] PAT-031 confirmado en catalogo. [x] Regla nueva en `32-estandares` (filtro antes del `Take(cupo)`).
+- [ ] Commit (no realizado por instruccion).
+
 ## Historial de ajustes
+- 2026-09-14: **Feature "4 frentes — combo con gancho", E1-E7.** 2 enums, 5 props + `AsignarGancho` en Contacto, `Frente` en ModuloCatalogo, 4 plantillas por gancho en configuracion; 3 helpers nuevos en Application y `ModuloCatalogoQueries` compartida; lote con plantilla por contacto antes del `Take(cupo)` y A1-a; arbol/IA por gancho y frente; Contactos/Chats/Bot/Salud/Templates/Modulos. Migracion aditiva `AddGanchoYFrenteComercial` aplicada **solo en dev**. Build Release 0 errores (26 advertencias preexistentes). 11 desvios documentados (§6). Pendiente: QA, textos de marketing (concordancia de genero), aprobacion de Meta, migracion en produccion y deploy.
 - 2026-08-27: **Matriz de módulos valorizados + borrador de propuesta MVP/FULL** (feature nueva, reglas del agente `olvidata-presupuesto-bot`). 2 entidades nuevas + migración `20260828023654_AddModuloCatalogo` (2 tablas nuevas, 0 `ALTER`), aplicada **sólo en dev**; seed de la matriz real (**84 módulos / 88 asignaciones / 9 de 14 rubros**, los otros 5 sin datos a propósito); `IPropuestaMvpFullService` en Application con las 9 reglas de redacción, determinístico y sin IA en runtime; `ModulosController` + 5 vistas + 1 JS; wiring del botón "Sugerir" de `Chats/Detail` sin retirar la funcionalidad vieja; 5 cambios al cuestionario del bot. Build en Release **0 errores / 13 advertencias preexistentes**; app levantada y ejercitada por HTTP real (5 pantallas 200, 0 errores en Serilog); generador y resolver de rubro verificados contra datos reales de dev. **Sin deploy y sin tocar producción**, por instrucción explícita. Ver sección completa arriba. Pendiente: QA funcional, aplicar la migración en producción y deploy.
 - 2026-08-27 (post-QA): Corrección de **CRM-007** (bloqueante), **CRM-010** y **CRM-012**. Se tomó la decisión de diseño que QA escaló: el vocabulario canónico de `Contacto.Rubro` es `CampanaOutboundIndustria.ClaveRubro`, no `IndustriaCatalogo.Nombre`. 1 archivo nuevo en `Application` (`RubroHelpers`, con los 2 mapeos movidos tal cual desde `BotFlowService`), 2 controllers, 2 DTOs/VMs, 4 vistas. **0 migraciones EF.** Build en Release con 0 errores; conteo de impacto verificado contra `olvidatacrm_dev` (deja de dar 0 para las 7 industrias con rubros asociados: 155/104/58/38/35/28/1). CRM-008 descartado por el cliente (falsa alarma: la migración sí está en producción, QA la midió contra dev). CRM-009/011/013 fuera de alcance por decisión explícita. Ver §9. Pendiente: re-test de QA y deploy.
 - 2026-08-27: Implementacion del sprint “correccion de bugs/gaps de auditoria completa + 3 mejoras” — 17 items (7 bugs B1-B7, 7 gaps G1-G7, 3 mejoras M-A/M-B/M-C), **0 migraciones EF**. 2 archivos nuevos en `Application` (`MensajeriaHelpers`, `SaludOutboundDto`), 2 vistas nuevas (`Bot/Salud`, `Contactos/_CamposCanalYPresupuesto`), 8 controllers y 7 vistas modificados. Build en verde con compilacion de vistas Razor verificada explicitamente. La corrida se retomo tras un corte por watchdog a mitad de B3: la auditoria item-por-item contra el codigo en disco detecto que B3 estaba a medio hacer (servidor listo, JS sin escribir) y que el bug seguia reproduciendose pese al build verde. Ver seccion completa arriba. Pendiente: QA funcional y deploy.
