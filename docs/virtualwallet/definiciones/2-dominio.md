@@ -152,3 +152,74 @@ Aviso in-app para un usuario: `Title`, `Message`, `Level`, `IsRead`, `CreatedAt`
    muestran aparte, como proyeccion informativa (cuotas futuras + ingresos por cobrar), en la
    card "Pendientes" de `ResumenGeneral`. Criterio unico: para un mismo periodo, los numeros de
    la portada y los de `ResumenGeneral` deben coincidir.
+
+## Impuestos y percepciones de tarjeta de credito (Argentina) — reglas de negocio
+
+Relevado contra resumenes reales del titular (Banco Provincia Mastercard/Visa 08-2026 y Mercado
+Pago 09-2026). **Distincion central: hay impuestos RECUPERABLES y otros DEFINITIVOS, y el sistema
+los tiene que tratar distinto** — reservar plata para algo que te devuelven sobreestima la reserva.
+
+### Recuperables (pago a cuenta, NO son costo real)
+
+| Concepto | Como figura | Tasa | Por que se recupera |
+|---|---|---|---|
+| Percepcion Ganancias / Bienes Personales | `PERCEP.AFIP RG 4815 30%`, `DB.RG 5617 30%`, `Percepción ganancias RG 5617 (USD)` | 30% sobre el consumo en moneda extranjera | Es pago a cuenta, no impuesto definitivo |
+
+Dos vias de recupero, y la primera es la que usa el titular:
+
+1. **Reembolso del emisor por cancelar en dolares.** Si el saldo en moneda extranjera se cancela
+   EN dolares antes del vencimiento, el emisor reintegra la percepcion por el **monto exacto**.
+   La percepcion grava la compra de divisas que el emisor haria para pesificar la deuda; si el
+   titular aporta los dolares, esa compra no existe. Casos verificados:
+   - Banco Provincia: `DB.RG 5617 30%` $4.030,22 (30-07-2026) -> `DEV.IMP. RG 5617 30%`
+     -$4.030,22 (10-08-2026). Tambien `DEV PER RG 4815 30%` por $112.024,98, $153.740,72 y
+     $93.453,85 en meses previos.
+   - Mercado Pago: `Percepción ganancias RG 5617 (USD)` $250.613,14 (12-09) ->
+     `Reembolso percepción ganancias RG 5617 (USD)` -$250.613,14 (13-09), tras pagar
+     US$ 553,78 en dolares el 11-09. El reembolso salio aunque el pago fue ANTES del cierre.
+2. **Declaracion jurada anual / tramite de devolucion de AFIP**, si no se cancelo en dolares.
+   Anual: se reclama a partir de enero del año siguiente. La plata queda inmovilizada meses.
+
+### Definitivos (costo real, NO se recuperan pagando en dolares)
+
+| Concepto | Como figura | Tasa aprox. |
+|---|---|---|
+| IVA servicios digitales | `IVA servicios digitales RG 4240`, `PERCEPCION IVA DTO 354/18` | 21% |
+| Ingresos Brutos servicios digitales | `IIBB servicios digitales`, `PERC IIBB SERV DIG BS AS`, `IIBB PERCEP-BSAS 2,00%` | 2% |
+| Impuesto de sellos (provincial) | `IMPUESTO DE SELLOS`, `Impuesto al sello Buenos Aires` | sobre el resumen |
+
+Excepcion: si el consumo es de la empresa y el titular es responsable inscripto, el **IVA puede
+computarse como credito fiscal**. Caso real: US$ 542,72 de Google Cloud (gasto de Olvidata)
+generaron $175.429,20 de IVA servicios digitales en el resumen de Mercado Pago 09-2026.
+
+### Pesificacion del saldo en moneda extranjera
+
+Los saldos por consumos en moneda extranjera **no cancelados al vencimiento se pesifican al
+"dolar tarjeta", ~30% mas caro que el oficial** (dato aportado por el titular, consistente con la
+percepcion del 30%). Cancelar en dolares evita el recargo **y** dispara el reembolso de la
+percepcion: son la misma decision, no dos.
+
+### Como entran hoy en los datos (y que distorsiona)
+
+- **Percepcion cobrada**: `Tipo=Egreso`, `EsPagoTarjeta=false`, categoria `Impuestos / Obligaciones`.
+  Cuenta como gasto en las medianas.
+- **Devolucion**: `Tipo=Ingreso`, `EsPagoTarjeta=true`, categoria `Reintegro Tarjeta`.
+
+**Consecuencias conocidas:**
+
+1. **[CORREGIDO 2026-09-16]** El ingreso mediano de "Proyeccion y reserva" contaba los reintegros
+   como ingreso (no excluia `EsPagoTarjeta`): daba U$D 2.597,71 en vez de U$D 2.520,21 en la
+   ventana marzo-agosto 2026, inflando el margen disponible para la deuda en U$D 77,50/mes.
+2. **[ABIERTO]** El importer de resumenes **totaliza todas las lineas de impuestos en un unico
+   movimiento** (`IMPUESTO CREDITO MASTERCARD`), mezclando lo recuperable con lo definitivo. En
+   el resumen Mastercard de 08-2026 ese movimiento fue de $456.942,46, de los cuales **$427.402,20
+   (93,5%) eran percepcion RG 4815 recuperable** y solo $29.540,26 costo real. Mientras siga
+   totalizado, la mediana de `Impuestos / Obligaciones` sobreestima el gasto y la reserva pide
+   guardar plata que va a volver. Separarlo requiere cambiar el importer (solo aplicaria a
+   importaciones futuras).
+
+### Regla para cualquier calculo de deuda o reserva
+
+Una percepcion de Ganancias sobre consumo en moneda extranjera **no es costo** para este titular,
+porque cancela en dolares y se la reembolsan. Solo IVA, IIBB y sellos son costo real (y el IVA
+puede no serlo si es gasto de empresa con credito fiscal).
