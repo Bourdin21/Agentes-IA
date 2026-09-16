@@ -159,26 +159,35 @@ Relevado contra resumenes reales del titular (Banco Provincia Mastercard/Visa 08
 Pago 09-2026). **Distincion central: hay impuestos RECUPERABLES y otros DEFINITIVOS, y el sistema
 los tiene que tratar distinto** — reservar plata para algo que te devuelven sobreestima la reserva.
 
-### Recuperables (pago a cuenta, NO son costo real)
+### Percepcion de Ganancias / Bienes Personales (recuperable, pero NO de la misma forma en cada emisor)
 
-| Concepto | Como figura | Tasa | Por que se recupera |
-|---|---|---|---|
-| Percepcion Ganancias / Bienes Personales | `PERCEP.AFIP RG 4815 30%`, `DB.RG 5617 30%`, `Percepción ganancias RG 5617 (USD)` | 30% sobre el consumo en moneda extranjera | Es pago a cuenta, no impuesto definitivo |
+`PERCEP.AFIP RG 4815 30%`, `DB.RG 5617 30%`, `Percepción ganancias RG 5617 (USD)` — 30% sobre el
+consumo en moneda extranjera. Es **pago a cuenta**, no impuesto definitivo: siempre se recupera,
+pero **cuando** se recupera cambia por emisor, y de eso depende si hay que reservar la plata.
 
-Dos vias de recupero, y la primera es la que usa el titular:
+**Mercado Pago — reversion total, antes de pagar. NO es desembolso.**
+Si se cancela el saldo en moneda extranjera EN dolares, revierte la percepcion completa por el
+monto exacto, dentro del mismo resumen, y el total a pagar ya viene neteado. Verificado
+(resumen 09-2026): `Percepción ganancias RG 5617 (USD)` $250.613,14 el 12-09 ->
+`Reembolso percepción ganancias RG 5617 (USD)` -$250.613,14 el 13-09, tras pagar US$ 553,78 en
+dolares el 11-09 (el pago fue ANTES del cierre y la reversion salio igual). El total a pagar del
+resumen ($207.965,89) no la incluye: **nunca sale de la caja, no hay que reservarla**.
 
-1. **Reembolso del emisor por cancelar en dolares.** Si el saldo en moneda extranjera se cancela
-   EN dolares antes del vencimiento, el emisor reintegra la percepcion por el **monto exacto**.
-   La percepcion grava la compra de divisas que el emisor haria para pesificar la deuda; si el
-   titular aporta los dolares, esa compra no existe. Casos verificados:
-   - Banco Provincia: `DB.RG 5617 30%` $4.030,22 (30-07-2026) -> `DEV.IMP. RG 5617 30%`
-     -$4.030,22 (10-08-2026). Tambien `DEV PER RG 4815 30%` por $112.024,98, $153.740,72 y
-     $93.453,85 en meses previos.
-   - Mercado Pago: `Percepción ganancias RG 5617 (USD)` $250.613,14 (12-09) ->
-     `Reembolso percepción ganancias RG 5617 (USD)` -$250.613,14 (13-09), tras pagar
-     US$ 553,78 en dolares el 11-09. El reembolso salio aunque el pago fue ANTES del cierre.
-2. **Declaracion jurada anual / tramite de devolucion de AFIP**, si no se cancelo en dolares.
-   Anual: se reclama a partir de enero del año siguiente. La plata queda inmovilizada meses.
+**Banco Provincia Mastercard / Visa — devolucion PARCIAL mensual + tramite anual. SI es desembolso.**
+(Confirmado por el titular, 2026-09-16.) La percepcion se cobra entera y se paga con el resumen.
+Una **parte** vuelve automaticamente en el resumen siguiente (lineas `DEV PER RG 4815 30%`,
+`DEV.IMP. RG 5617 30%`) y **el resto se recupera recien por el tramite anual de AFIP**.
+Movimientos reales 2026: devoluciones de $93.453,85 (08-06), $153.740,72 (13-07), $112.024,98
+(07-08) y $4.030,22 (10-08) — esta ultima calzando exacto contra el `DB.RG 5617 30%` de $4.030,22
+cobrado el 30-07. Contra eso, el resumen de agosto cobro $427.402,20 solo de percepcion RG 4815.
+
+> **Regla para la reserva: en Mastercard/Visa hay que reservar la percepcion COMPLETA.** Es plata
+> que sale en el mes aunque despues vuelva en parte. En Mercado Pago no, porque se revierte antes
+> de que salga. Tratar las dos igual subestima la reserva de MC/Visa.
+
+No se puede medir hoy que proporcion vuelve automaticamente: el importer totaliza todas las lineas
+de impuestos en un movimiento unico, asi que la percepcion no queda separada por mes (ver
+"Consecuencias conocidas" mas abajo). Separarla es lo que permitiria calcular ese ratio real.
 
 ### Definitivos (costo real, NO se recuperan pagando en dolares)
 
@@ -213,13 +222,20 @@ percepcion: son la misma decision, no dos.
 2. **[ABIERTO]** El importer de resumenes **totaliza todas las lineas de impuestos en un unico
    movimiento** (`IMPUESTO CREDITO MASTERCARD`), mezclando lo recuperable con lo definitivo. En
    el resumen Mastercard de 08-2026 ese movimiento fue de $456.942,46, de los cuales **$427.402,20
-   (93,5%) eran percepcion RG 4815 recuperable** y solo $29.540,26 costo real. Mientras siga
-   totalizado, la mediana de `Impuestos / Obligaciones` sobreestima el gasto y la reserva pide
-   guardar plata que va a volver. Separarlo requiere cambiar el importer (solo aplicaria a
-   importaciones futuras).
+   (93,5%) eran percepcion RG 4815** y solo $29.540,26 impuestos definitivos. La reserva por el
+   monto total **es correcta** (en MC/Visa la percepcion se desembolsa), pero mientras siga
+   totalizado no se puede medir **que proporcion vuelve** automaticamente al mes siguiente ni
+   proyectar el recupero. Separarlo requiere cambiar el importer y solo aplicaria a importaciones
+   futuras.
 
 ### Regla para cualquier calculo de deuda o reserva
 
-Una percepcion de Ganancias sobre consumo en moneda extranjera **no es costo** para este titular,
-porque cancela en dolares y se la reembolsan. Solo IVA, IIBB y sellos son costo real (y el IVA
-puede no serlo si es gasto de empresa con credito fiscal).
+La percepcion de Ganancias **siempre se recupera**, pero eso no la vuelve gratis: lo que importa
+para una reserva es **si sale de la caja en el mes**.
+
+- **Mercado Pago**: no sale (se revierte antes de pagar) -> no se reserva.
+- **Mastercard / Visa (Banco Provincia)**: sale entera -> **se reserva entera**, aunque una parte
+  vuelva el mes siguiente y el resto por el tramite anual.
+
+IVA, IIBB y sellos son costo real en los dos casos (salvo que el IVA sea credito fiscal por ser
+gasto de empresa con responsable inscripto).
