@@ -219,14 +219,16 @@ percepcion: son la misma decision, no dos.
 1. **[CORREGIDO 2026-09-16]** El ingreso mediano de "Proyeccion y reserva" contaba los reintegros
    como ingreso (no excluia `EsPagoTarjeta`): daba U$D 2.597,71 en vez de U$D 2.520,21 en la
    ventana marzo-agosto 2026, inflando el margen disponible para la deuda en U$D 77,50/mes.
-2. **[ABIERTO]** El importer de resumenes **totaliza todas las lineas de impuestos en un unico
-   movimiento** (`IMPUESTO CREDITO MASTERCARD`), mezclando lo recuperable con lo definitivo. En
+2. **[CORREGIDO 2026-09-16]** El importer de Mastercard **totalizaba todas las lineas de
+   impuestos en un unico movimiento** (`IMPUESTO CREDITO MASTERCARD`), mezclando lo recuperable
+   con lo definitivo. Ahora emite uno por concepto (el parser de Visa ya lo hacia). En
    el resumen Mastercard de 08-2026 ese movimiento fue de $456.942,46, de los cuales **$427.402,20
    (93,5%) eran percepcion RG 4815** y solo $29.540,26 impuestos definitivos. La reserva por el
    monto total **es correcta** (en MC/Visa la percepcion se desembolsa), pero mientras siga
    totalizado no se puede medir **que proporcion vuelve** automaticamente al mes siguiente ni
-   proyectar el recupero. Separarlo requiere cambiar el importer y solo aplicaria a importaciones
-   futuras.
+   proyectar el recupero. **Aplica solo a resumenes importados desde el 2026-09-16**: los
+   historicos siguen totalizados, y reimportar un PDF ya cargado crea las filas nuevas por
+   concepto sin borrar la totalizada vieja (la clave de dedup cambio).
 
 ### Regla para cualquier calculo de deuda o reserva
 
