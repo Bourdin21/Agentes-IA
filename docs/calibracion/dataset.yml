@@ -15,9 +15,13 @@
 # dataset estructurado quede desactualizado respecto de la prosa.
 
 version: 1
-ultima_actualizacion: 2026-08-19
+ultima_actualizacion: 2026-09-16
 tasa_vigente_usd_hora: 35
-formula_vigente: "Costo_modulo = M / 2.5 x 1.20 x tasa_vigente_usd_hora = M x 16.80"
+# FORK de factores desde 2026-09-08 (ver "Modelo de facturacion" en 27-presupuesto-parametros):
+#   Build (sistema nuevo / rewrite para cliente nuevo)    -> M / 4.0 x 1.20 x tasa = M x 10.50
+#   Merge / modulo nuevo post-entrega / Extras opcionales -> M / 2.5 x 1.20 x tasa = M x 16.80
+formula_vigente_build: "Costo_modulo = M / 4.0 x 1.20 x tasa_vigente_usd_hora = M x 10.50"
+formula_vigente_merge_extras: "Costo_modulo = M / 2.5 x 1.20 x tasa_vigente_usd_hora = M x 16.80"
 
 # Descuento de expansion agresiva — solo Build inicial cliente nuevo (o rewrite).
 # factor_tier = MAX(tier por reutilizacion, tier por volumen) — nunca se suman.
@@ -55,12 +59,29 @@ descuento_expansion_agresiva:
       nombre: "Volumen mayor"
       condicion: "Subtotal_lista >= USD 2000"
       descuento_pct: 15
-factor_eficiencia_ia: 2.5
+factor_eficiencia_ia_build: 4.0          # desde 2026-09-08
+factor_eficiencia_ia_merge_extras: 2.5   # fork deliberado, no unificar
 contingencia_temporal_pct: 20
 
 # Cierres reales a nivel PROYECTO (no por modulo) — usar para sanity check del
 # total (Paso 8 del metodo de presupuesto-mvc.agent.md).
 cierres_reales:
+
+  - proyecto: "delicias-naturales - iteracion evolutiva Junio 2026"
+    horas_pert_contingencia: null
+    horas_reales: 4
+    ratio_pert_real: null
+    horas_formula: 4
+    ratio_formula_real: 1.0
+    fecha_cierre: 2026-06-30
+    cierre_real: true
+    notas: >
+      Unico cierre del dataset con estimacion exacta (ratio 1.0): 4 h estimadas, 4 h reales.
+      Workflow complejo con extensiones (solicitudes de ingreso de stock con estados por item
+      + pedidos listos para retirar). Se cobro por horas reales a USD 40/h (tasa de entonces),
+      total USD 160 - para comparar contra la tasa vigente hay que recalcular a USD 35/h.
+      No tiene PERT reconstruido, asi que no aporta ratio PERT/real; su valor es mostrar que
+      con alcance bien delimitado y sin sorpresas tecnicas la estimacion clava el numero.
 
   - proyecto: ShowroomGriffin
     horas_pert_contingencia: 101.1
@@ -112,7 +133,7 @@ cierres_reales:
     cierre_real: true
     items_reconstruidos: 8
     notas: >
-      Record del dataset (ambos ratios). Reconstruccion retroactiva sin presupuesto
+      Fue el record del dataset hasta 2026-08-27, cuando crm-olvidata lo supero (8.18x PERT/real). Sigue siendo la referencia de sprint evolutivo con reconstruccion retroactiva. Reconstruccion retroactiva sin presupuesto
       formal previo — real no desglosado por item (reparto proporcional aproximado).
       Iteracion evolutiva que reutiliza PAT-001, PAT-002, PAT-003 del catalogo de
       patrones — origino la regla de granularidad "modificacion existente vs modulo nuevo".
@@ -143,115 +164,160 @@ cierres_reales:
       en reutilizacion desde el arranque (no como correccion posterior) baja el ratio
       de sobreestimacion de forma consistente.
 
+  - proyecto: "crm-olvidata — sprint bugs/gaps de auditoria + 3 mejoras"
+    horas_pert_contingencia: 22.5
+    horas_reales: 2.75
+    ratio_pert_real: 8.18
+    horas_formula: 10.56
+    ratio_formula_real: 3.84
+    fecha_cierre: 2026-08-27
+    cierre_real: true
+    items_reconstruidos: 17
+    notas: >
+      Nuevo record del dataset en ambos ratios (supera el 7.07x de vinosefue). Sprint de fixes
+      sobre sistema propio del estudio (sin cobro a cliente): 17 items de modificacion sobre
+      modulos existentes, implementacion y QA delegadas a subagentes (1.18 h de ejecucion de
+      subagentes + ~1-1.5 h de orquestacion, deploy y documentacion). El real esta documentado
+      como rango 2.5-3 h: se carga el punto medio 2.75 h y los ratios se calculan sobre el;
+      con los extremos del rango dan 7.5x-9x (PERT) y 3.5x-4.2x (formula).
+      Familia "evolutiva/reutilizacion" sobre el propio repo: NO usarlo para subir el factor
+      global de Build (misma restriccion que el cierre KOI/Ayres). horas_formula calculada con
+      el fork de Merge/post-entrega (M/2.5 x 1.20 = 22.0/2.5 x 1.20 = 10.56 h), que es el que
+      corresponde a trabajo evolutivo. La memoria no desglosa contingencia aparte del PERT:
+      22.5 h es el PERT declarado, no un PERT+20% recalculado. Unico retrabajo: vocabulario de
+      Contacto.Rubro no declarado en Arquitectura.
+
+  - proyecto: "KOI / Ayres POS - integracion REST"
+    horas_pert_contingencia: null
+    horas_reales: 2.6
+    ratio_pert_real: null
+    horas_formula: null
+    ratio_formula_real: null
+    fecha_cierre: 2026-09-08
+    cierre_real: true
+    notas: >
+      Flujo completo (Discovery a Documentacion) en 2.6 h reales contra un ancla previa de 15-18 h,
+      reutilizando PAT-024 (cache de token) y la estructura de integracion ya existente en el propio
+      proyecto. Familia "evolutiva/reutilizacion": NO usarlo para subir el factor global de Build
+      (esa eficiencia ya esta capturada por M chico + descuento por reutilizacion). Detonante, junto
+      con la baja de "Energy Nutrition", del cambio de factor de Build 2.5 -> 4.0.
+
+# Cierres de entrega 100% agentica (2026-09-16).
+# Categoria separada a proposito: estos sprints no tienen horas humanas que medir
+# -- el trabajo lo ejecutan subagentes y lo unico medible es tiempo de computo.
+# Mezclarlos con cierres_reales romperia los ratios (el denominador no es comparable).
+# Se abre con el umbral que marihogar dejo pedido: 2-3 cierres del mismo patron.
+# Mientras tenga 1 sola fila con dato duro, NO se usa para calibrar: es registro.
+cierres_agentic:
+
+  - proyecto: "crm-olvidata - sprint bugs/gaps auditoria"
+    fecha_cierre: 2026-08-27
+    minutos_agente: 70.7          # 2 corridas de Implementador + 2 de QA
+    horas_humanas_orquestacion: 1.5   # estimado, no cronometrado
+    horas_reales_totales: 2.75
+    notas: >
+      Unico de esta familia con tiempo de agente desglosado por corrida. Ver el
+      cierre equivalente en cierres_reales (misma fecha) para los ratios contra PERT.
+
+  # Pendientes de extraer (ya medidos en sus propios docs, falta pasarlos aca):
+  #   marihogar                  -> 6 sprints agenticos, tiempo por sprint en su trazabilidad.md
+  #   olvidata-agentes-multirubro -> M3b / M4 / M4b, cierre sin presupuesto previo (no hay ratio posible)
+
 # Rangos de referencia por tipo de modulo (horas M = caso mas probable PERT).
-# Costo USD ya calculado con la formula vigente (M x 16.80).
+# Costo USD ya calculado con la formula de BUILD vigente (M x 10.50, factor 4.0 desde 2026-09-08).
+# Para Merge / modulo nuevo post-entrega / Extras opcionales usar M x 16.80 (factor 2.5).
 rangos_por_tipo_modulo:
 
   - tipo: "Ajuste puntual (campo, validacion, logica menor)"
     m_horas_min: 0.5
     m_horas_max: 1
-    horas_facturables_min: 0.2
-    horas_facturables_max: 0.5
-    usd_min: 8
-    usd_max: 17
+    horas_facturables_min: 0.15
+    horas_facturables_max: 0.3
+    usd_min: 5
+    usd_max: 11
 
   - tipo: "Deploy inicial hosting compartido (subdominio + vendor + .htaccess)"
     m_horas_min: 2
     m_horas_max: 3
-    horas_facturables_min: 0.96
-    horas_facturables_max: 1.44
-    usd_min: 34
-    usd_max: 50
+    horas_facturables_min: 0.6
+    horas_facturables_max: 0.9
+    usd_min: 21
+    usd_max: 32
     nota: "Usar 3h si el mecanismo de deploy es no estandar (FTP+zip, Passenger WSGI, PHP especifico)."
 
   - tipo: "ABM simple (sin relaciones, sin logica)"
     m_horas_min: 1
     m_horas_max: 2
-    horas_facturables_min: 0.5
-    horas_facturables_max: 1.0
-    usd_min: 17
-    usd_max: 34
+    horas_facturables_min: 0.3
+    horas_facturables_max: 0.6
+    usd_min: 11
+    usd_max: 21
 
   - tipo: "UI pantalla unica sin BD (drag-and-drop, sin framework)"
     m_horas_min: 1
     m_horas_max: 1
-    horas_facturables_min: 0.48
-    horas_facturables_max: 0.48
-    usd_min: 17
-    usd_max: 17
+    horas_facturables_min: 0.3
+    horas_facturables_max: 0.3
+    usd_min: 11
+    usd_max: 11
 
   - tipo: "ABM intermedio (con relaciones y validaciones)"
     m_horas_min: 4
     m_horas_max: 7
-    horas_facturables_min: 1.9
-    horas_facturables_max: 3.4
-    usd_min: 67
-    usd_max: 118
+    horas_facturables_min: 1.2
+    horas_facturables_max: 2.1
+    usd_min: 42
+    usd_max: 74
 
   - tipo: "Modulo con workflow / estados"
     m_horas_min: 4
     m_horas_max: 6
-    horas_facturables_min: 1.9
-    horas_facturables_max: 2.9
-    usd_min: 67
-    usd_max: 100
+    horas_facturables_min: 1.2
+    horas_facturables_max: 1.8
+    usd_min: 42
+    usd_max: 63
 
   - tipo: "Modulo financiero o con logica compleja"
     m_horas_min: 5
     m_horas_max: 8
-    horas_facturables_min: 2.4
-    horas_facturables_max: 3.8
-    usd_min: 84
-    usd_max: 134
+    horas_facturables_min: 1.5
+    horas_facturables_max: 2.4
+    usd_min: 53
+    usd_max: 84
 
   - tipo: "Parser Excel propietario (formato jerarquico, pivot, multi-input)"
     m_horas_min: 4
     m_horas_max: 6
-    horas_facturables_min: 1.9
-    horas_facturables_max: 2.9
-    usd_min: 67
-    usd_max: 100
+    horas_facturables_min: 1.2
+    horas_facturables_max: 1.8
+    usd_min: 42
+    usd_max: 63
 
   - tipo: "ABM complejo (padre/hijos, trazabilidad)"
     m_horas_min: 7.7
     m_horas_max: 11.5
-    horas_facturables_min: 3.7
-    horas_facturables_max: 5.5
-    usd_min: 129
-    usd_max: 193
+    horas_facturables_min: 2.3
+    horas_facturables_max: 3.5
+    usd_min: 81
+    usd_max: 121
 
-  - tipo: "Integracion WS simple (OAuth + mapeo)"
+  - tipo: "Integracion REST documentada (1-2 endpoints, token que vence, sin persistencia nueva)"
     m_horas_min: 3
-    m_horas_max: 4
-    horas_facturables_min: 1.4
-    horas_facturables_max: 1.9
-    usd_min: 50
-    usd_max: 67
+    m_horas_max: 5
+    horas_facturables_min: 0.9
+    horas_facturables_max: 1.5
+    usd_min: 32
+    usd_max: 53
+    nota: "Cierre real KOI/Ayres 2026-09-08 (2.6 h reales, con reutilizacion de PAT-024). El riesgo dominante es la habilitacion de acceso (red + credenciales), no el mapeo de endpoints: cotizarla como item de riesgo aparte."
 
-  - tipo: "Integracion webhook (BackgroundService + HMAC)"
-    m_horas_min: 8
-    m_horas_max: 10
-    horas_facturables_min: 3.8
-    horas_facturables_max: 4.8
-    usd_min: 134
-    usd_max: 168
-
-  - tipo: "Integracion ARCA/AFIP (codigo + cert + homologacion)"
-    m_horas_min: 7
+  - tipo: "Integracion ARCA/AFIP (cert .p12 + homologacion)"
+    m_horas_min: 5
     m_horas_max: 9
-    horas_facturables_min: 3.4
-    horas_facturables_max: 4.3
-    usd_min: 118
-    usd_max: 151
+    horas_facturables_min: 1.5
+    horas_facturables_max: 2.7
+    usd_min: 53
+    usd_max: 95
     ver_tambien_patron: PAT-006
-
-  - tipo: "Integracion batch doble (rate limit + token refresh)"
-    m_horas_min: 15
-    m_horas_max: 18
-    horas_facturables_min: 7.2
-    horas_facturables_max: 8.6
-    usd_min: 252
-    usd_max: 302
 
 # Modificacion sobre modulo existente (iteracion evolutiva) — usar SIEMPRE que
 # el item reutilice un patron ya resuelto en el mismo repo o cross-proyecto

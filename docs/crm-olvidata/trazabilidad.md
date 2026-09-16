@@ -2,70 +2,9 @@
 
 Registro acumulativo de decisiones y ajustes por etapa y agente.
 
+> Entradas anteriores al 2026-07-15: ver `trazabilidad-historico-hasta-2026-07-14.md` (archivo cerrado, 2026-07-14 a 2026-07-14).
+
 ## Entradas
-
-### 2026-07-14 - analista-funcional
-- Etapa: Discovery
-- Cambio: Proyecto nuevo `crm-olvidata` inicializado desde template. Relevado el código real de `C:\Sistemas\BotPublicitario`: 4 proyectos .NET 9 (Webhook, WhatsApp, GoogleMaps, MetaAds-C#) + scripts Python marginales de setup one-off. Investigación solicitada por el cliente ("¿migrar a .NET?") resuelta: el código productivo ya es 100% .NET 9, no requiere migración de lenguaje. La brecha real es ausencia de base de datos (todo es JSON/txt/Excel), de capas Clean Architecture y de UI de administración. Se detectó solape con `docs/meta-ads/` (análisis ya cerrado del bot de calificación N1-N7) que debe resolverse antes de avanzar.
-- Motivo: cliente pidió investigar viabilidad de migración a .NET y evaluar un CRM nuevo sobre `blankproject` para centralizar contactos/clientes/lógica del emprendimiento. Alcance de esta sesión: solo investigación, sin implementación.
-- Impacto en capas: N/A (etapa de Discovery, sin diseño técnico).
-- Riesgos/supuestos: BotPublicitario está en producción activa (outbound diario + webhook real) — cualquier migración de persistencia debe hacerse sin cortar el flujo de ventas en curso. Discovery queda abierto, bloqueado por 2 preguntas al cliente (alcance de "demás lógica del emprendimiento" y relación con el análisis ya cerrado de meta-ads) antes de poder cerrar y pasar a Análisis.
-
-### 2026-07-14 - analista-funcional (cierre de Discovery)
-- Etapa: Discovery — cierre
-- Cambio: Cliente resolvió las 2 preguntas bloqueantes. (1) Alcance = CRM + gestión comercial (contactos/leads/clientes + planes contratados + upsells + recordatorios de renovación + pipeline de proyectos). (2) La lógica de calificación/presupuesto automático ya analizada en `docs/meta-ads/` (N1-N7) se absorbe dentro de este proyecto — el Webhook de Meta pasará a escribir contra las tablas del CRM en vez de JSON.
-- Motivo: destrabar el pase a Análisis funcional evitando duplicar el trabajo ya analizado en meta-ads.
-- Impacto en capas: N/A (aún sin diseño técnico). Amplía el alcance funcional que deberá cubrir Análisis: entidades Contacto/Lead, Cliente, Plan, Upsell, Proyecto/Pipeline.
-- Riesgos/supuestos: Discovery cerrado, habilitado el pase a Análisis. Preguntas #3 (alcance exacto del endpoint webhook), #4 (carga inicial de clientes históricos) y #5 (prioridad vs. proyectos pagos) quedan abiertas para Análisis, no bloquean su inicio.
-
-### 2026-07-14 - implementador (limpieza técnica base, previa a Análisis)
-- Etapa: fuera de secuencia — bootstrap técnico a pedido explícito del cliente, antes de Análisis/Diseño/Arquitectura/Presupuesto formales
-- Cambio: creado `C:\Sistemas\olvidatasoft-crm` (solución/namespace `OlvidataCRM`) como copia de `C:\Sistemas\KoiDumplings` — sistema .NET 10 real y probado del estudio, no el `blankproject` base — y saneado de toda la lógica de negocio específica de KOI Dumplings, conservando únicamente lo pedido: diseño gráfico (Design System `olvidata-theme.css`, layout, wwwroot completo), herramientas del sistema/superusuario (`SystemController`, health checks, exportación Excel/PDF), auditoría (`AuditLog` + trail automático en `AppDbContext.SaveChanges`), notificaciones in-app (`NotificationService`/`NotificationsController`) y usuarios (Identity, roles SuperUsuario/Administrador/Vendedor/Empleado, sin el rol Inversor). Eliminadas ~30 archivos de dominio/aplicación/infraestructura/web de KOI (Inversores, Liquidaciones, Puntos, Estado de Resultados, Rubros/Subgrupos, Cámaras, Reparto General, Importación Inicial, Tipo de Cambio, Notificación de Cierre). Regenerada migración EF `InitialCreate` limpia (solo Identity + AuditLog + Notification + PreferenciaUsuario). Corregidas rutas de `ProjectReference` rotas (arrastraban `KoiDumplings.*` de un rename anterior a medio hacer) y renombrada la cookie de tema `koi-tema` → `crm-tema`. Repo inicializado con `git init` sin historial de KOI.
-- Motivo: el cliente pidió partir de "una base confiable funcionalmente" (un sistema real del estudio, no la plantilla vacía) para el nuevo CRM, y limpiar todo lo que fuera negocio específico de KOI que no aplica a un CRM.
-- Impacto en capas: las 4 (Domain/Application/Infrastructure/Web) — ver detalle arriba. Sin migración a producción; solo se generó el archivo de migración inicial, sin `database update` contra ninguna base real.
-- Riesgos/supuestos: se encontró `appsettings.Production.json` con credenciales reales de producción de KOI (DB MySQL y SMTP) en texto plano — sanitizado con placeholders `[COMPLETAR]`/vacíos (el archivo ya estaba en `.gitignore`, no se había commiteado, pero quedaba expuesto en disco). `HomeController.Index()` redirige temporalmente a `Notifications` (antes redirigía a `Dashboard`, controller eliminado) — el Dashboard real del CRM queda pendiente de Diseño/Arquitectura. Esta limpieza no reemplaza las etapas de Análisis/Diseño/Arquitectura/Presupuesto: las entidades propias del CRM (Contacto, Cliente, Plan, Upsell, Proyecto/Pipeline) todavía no existen y deben definirse ahí antes de implementarlas.
-
-### 2026-07-14 - implementador (migración aplicada en dev)
-- Etapa: fuera de secuencia — verificación técnica de la base
-- Cambio: aplicada la migración `InitialCreate` contra la base de desarrollo local (`olvidatacrm_dev`, `localhost:3306`) con `dotnet ef database update`. Confirmado con `dotnet ef migrations list` que quedó aplicada sin pendientes.
-- Motivo: validar que la base técnica saneada funciona de punta a punta (build + migración real) antes de empezar Análisis.
-- Impacto en capas: Datos (solo entorno local de desarrollo).
-- Riesgos/supuestos: ninguno — base local, sin datos reales.
-
-### 2026-07-14 - analista-funcional (Análisis funcional)
-- Etapa: Análisis
-- Cambio: Análisis funcional cerrado. Resueltas las 3 preguntas pendientes de Discovery: (#3) el webhook de Meta se absorbe como endpoint dentro de `OlvidataCRM.Web`; (#4) el CRM arranca vacío, sin carga de clientes históricos; (#5) el desarrollo se planifica en ventana aparte de los proyectos pagos activos. Definidas 6 entidades nuevas (`Contacto`, `ContactoRespuesta`, `Cliente`, `Upsell`, `Proyecto`, `IndustriaCatalogo`), 12 casos de uso con criterios de aceptación, 3 máquinas de estados relacionadas (FaseConversacion del bot, EstadoEmbudo comercial, EstadoProyecto de pipeline) y el mapa de reutilización de código de BotPublicitario: `WhatsAppClient` y `GoogleMapsService` se reutilizan tal cual; `BotFlowService` y `OutboundCampaignService` se migran adaptados a persistencia en BD (dejan de depender de JSON/Excel).
-- Motivo: traducir las decisiones de Discovery en alcance funcional verificable, listo para Diseño.
-- Impacto en capas: Presentación (nuevos controllers/vistas + endpoint webhook), Negocio (BotFlowService/OutboundCampaignService migrados, cálculo de presupuesto, conversión Contacto→Cliente), Datos (6 entidades nuevas + migración EF).
-- Riesgos/supuestos: pendiente definir en Arquitectura el "día D" de corte de BotPublicitario (dejar de escribir JSON, empezar a escribir en la BD del CRM) sin perder leads en tránsito, y el import único de datos en curso (`outbound_state.json`, `conversations/*.json`, `contactos.xlsx`) si los hubiera al momento del corte. Permisos exactos de Vendedor/Empleado quedan para Diseño, no bloquean su inicio.
-
-### 2026-07-14 - analista-funcional (recorte de alcance)
-- Etapa: Análisis — ajuste post-cierre
-- Cambio: cliente pidió acotar el alcance — "por el momento solo voy a migrar lo que corresponde al bot publicitario". Se posponen a una iteración futura las entidades `Cliente`, `Upsell`, `Proyecto` (gestión comercial) y los casos de uso CU-07 (conversión a Cliente), CU-08 (Upsell), CU-09 (pipeline). El alcance de esta iteración queda en 3 entidades (`Contacto`, `ContactoRespuesta`, `IndustriaCatalogo`) y 9 casos de uso centrados en la migración funcional de BotPublicitario (captación, calificación, presupuesto automático, outbound, notificación).
-- Motivo: priorización del cliente — enfocar primero en tener el bot funcionando sobre el CRM antes de sumar gestión comercial.
-- Impacto en capas: reduce el impacto en Datos de 6 a 3 entidades nuevas; Presentación pierde los controllers/vistas de Clientes/Upsells/Proyectos de esta iteración.
-- Riesgos/supuestos: ninguno nuevo — es una reducción de alcance, no un cambio de dirección. El análisis de `Cliente`/`Upsell`/`Proyecto` ya redactado se conserva en el documento como referencia para la iteración futura, no se descarta.
-
-### 2026-07-14 - disenador-funcional
-- Etapa: Diseño
-- Cambio: Diseño funcional cerrado sobre el Análisis recortado. 5 pantallas (`Contactos` Index/Details/Create/Edit, `Industrias` CRUD, `Bot/Outbound` panel) con wireframe textual aplicando el Design System (`ov-card`, `ov-badge`, DataTables server-side con filtro por cada columna visible, panel de filtros con Select2/daterangepicker). ViewModels definidos por pantalla. 2 máquinas de estados detalladas evento a evento (`FaseConversacion` del bot, `EstadoEmbudo` comercial) en formato tabla (origen/evento/destino/guarda/acción/error). Matriz de permisos por rol y pantalla. 11 historias de usuario con criterios de aceptación. Plan funcional de 5 etapas para Arquitectura (datos base → servicios migrados → webhook+scheduler → pantallas → corte y migración de datos en tránsito).
-- Motivo: convertir el Análisis aprobado en diseño implementable, listo para que Arquitectura evalúe impacto técnico.
-- Impacto en capas: Presentación (5 pantallas nuevas), Negocio (contratos funcionales de `BotFlowService`/`OutboundCampaignService`/cálculo de presupuesto), Datos (requerimientos de `Contacto`/`ContactoRespuesta`/`IndustriaCatalogo` por pantalla).
-- Riesgos/supuestos: el mecanismo exacto de corte de producción (DNS/proxy del webhook de Meta) y el importador de datos en tránsito quedan para Arquitectura, sin pantalla propia (tarea técnica de una sola vez). Permiso de Vendedor para cambiar estado manual de un Contacto queda marcado "a confirmar en Arquitectura" — por defecto no habilitado.
-
-### 2026-07-14 - arquitecto-mvc
-- Etapa: Arquitectura
-- Cambio: Arquitectura técnica cerrada. Definidas 4 entidades Domain (`Contacto`, `ContactoRespuesta`, `IndustriaCatalogo`, `GoogleMapsQueryUsada`, esta última reemplaza `queries_used.txt`) + 4 enums (`CanalOrigen`, `FaseConversacion`, `EstadoEmbudo`, `PlanSistema`). Application: `IWhatsAppClient`, `IGoogleMapsService`, `IBotFlowService`, `IOutboundCampaignService` + 3 clases de Settings (`WhatsAppSettings`/`GoogleMapsSettings`/`BotSettings`, secciones `Olvidata_WhatsApp`/`Olvidata_GoogleMaps`/`Olvidata_Bot`). Mapa completo de reutilización de BotPublicitario: `WhatsAppClient`/`GoogleMapsService` se portan sin cambio de lógica (solo pasan de env vars a `IOptions<T>`); `BotFlowService`/`OutboundCampaignService`/`OutboundSchedulerService` se migran a operar contra `AppDbContext`; `MessageLogService`/`ExcelTrackerService` no se portan (su función la cubre `AuditLog` + la tabla `Contacto`); `TemplateCreationService`/`CatalogService`/`MetaAdsClient` quedan fuera. Web: 3 controllers nuevos reutilizando policies ya existentes (`RequireVendedor`, `RequireAdministracion`, sin policies nuevas), webhook de Meta como Minimal API en `Program.cs` sin autenticación de Identity. 1 migración EF (4 tablas nuevas, ninguna existente modificada), sin paquetes NuGet nuevos.
-- Motivo: traducir el Diseño aprobado en componentes técnicos concretos, listos para Presupuesto.
-- Impacto en capas: las 4 (Domain/Application/Infrastructure/Web) — detalle completo en el documento.
-- Riesgos/supuestos: corte de producción resuelto con runbook operativo (QA en ventana aparte → cambiar URL de callback en Meta App Dashboard → decomisionar el proceso viejo), sin bloquear desarrollo. Deduplicación de webhooks por reintentos de Meta se mantiene con la misma limitación conocida de hoy (HashSet en memoria, no persistente) por decisión explícita de preservar comportamiento legacy — no se resuelve preventivamente (YAGNI). Concurrencia en alta de `Contacto` mitigada por índice único + patrón captura-de-duplicado-y-actualiza.
-
-### 2026-07-14 - orquestador (gate de Presupuesto salteado)
-- Etapa: Presupuesto — omitida a pedido explícito del cliente ("Saltear la etapa de presupuesto. vamos directo a la implementacion")
-- Cambio: no se generó `4-presupuestador.md` para esta iteración. Se pasa directo de Arquitectura (aprobada) a Implementación.
-- Motivo: proyecto interno del propio cliente (no hay una parte externa a la que cotizarle) — el cliente decide conscientemente saltear la estimación formal.
-- Impacto en capas: N/A.
-- Riesgos/supuestos: sin estimación de horas registrada, no hay banda de referencia para el cierre de calibración estimado vs. real de esta iteración. Queda como excepción documentada al flujo estándar del estudio, no como precedente general.
 
 ### 2026-07-17 - implementador (implementación completa de la migración de BotPublicitario)
 - Etapa: Implementación
@@ -1939,3 +1878,99 @@ Mismo formato y tono que `olv_frio_v13` (pain-first, primera persona de Joaquin,
 - **Deploy bloqueado**: el puerto 8172 de Web Deploy de site4now (208.98.35.232) no responde (2 intentos + monitoreo en segundo plano); el sitio sí responde 200. **No se usó el perfil FTP** a propósito: no pone `app_offline` y con el sitio corriendo puede dejar DLLs a medio reemplazar. Producción sigue con `2ad3830`, que es compatible con las columnas nuevas (todas nullable o con default).
 - **Pendiente**: deployar `382ad19` + `2f021b3` cuando vuelva el puerto; fase 5 (medición IA vs. árbol) cuando haya volumen — con el outbound pausado hasta octubre, no antes.
 - **Actualizacion mismo dia — DEPLOY OK**: el puerto 8172 volvio y se publicaron `382ad19` (4 frentes) + `2f021b3` (fase 4) juntos: 88 archivos, `/` y `/Account/Login` 200, pantallas internas 302 al login. La IA conversacional queda contestando tambien el toque de "Sí, contame más" en produccion. Outbound y Maps siguen pausados.
+
+## 2026-09-15 (2) — Bug: el bot contestaba "no llego a escuchar los audios" con el chat en manos de un asesor
+
+- Reporte del cliente: contacto **9931** (Valentino, lead de ads, reventa de servicios IT). La IA lo escaló a humano a las 17:20, Joaquín le escribió a mano a las 18:12 (bot pausado 48hs, contacto `DerivadoManual`), el prospecto mandó una **nota de voz** a las 18:19 y el bot contestó *"Perdón, no llego a escuchar los audios por acá. Me lo escribís en un mensaje?"* por encima del asesor, que sí la estaba escuchando. Aclaración del cliente: el CRM ya recibe y reproduce audios, imágenes y videos; el error es contestar con el bot pausado/derivado (no se pidió transcripción).
+- **Causa raíz**: la rama de multimedia de `BotFlowService.HandleIncomingAsync` (agregada el 14/09 para no dejar leads de ads en silencio) corre **antes** que la guarda de pausa por contacto, que va después del anti-loop a propósito. Su comentario afirmaba lo contrario ("esas guardas corren antes que esta") — el supuesto nunca se verificó.
+- **Fix** (commit del día): si la pausa está vigente (`BotPausado && !PausaBotVencida`) o el contacto está `DerivadoManual`, el archivo se registra igual con su `MediaId` (reproducible desde `/Chats`) y el bot no manda nada. No se movió la guarda de pausa para no alterar el orden del anti-loop. Sin nadie atendiendo, sigue pidiendo que lo escriban.
+- **Verificación**: harness (servicios reales contra `olvidatacrm_dev`, `IWhatsAppClient` falso, rollback): 15/15 PASS en 5 casos — derivado+pausado (el caso real), solo pausado, derivado con pausa vencida → callado; sin pausa y pausa vencida sin derivar → pide texto. Deploy a producción.
+- **Contexto medido**: en toda la historia entraron 5 audios (`audio/ogg`, `audio/mp4`) y 2 imágenes. Si más adelante se quiere que la IA los entienda: imágenes y PDF los procesa Claude directo; el audio necesita un servicio de transcripción aparte (no hay ninguno configurado en el estudio).
+- **Lección para el catálogo 32**: un comentario que afirma el orden de las guardas del webhook ("X corre antes que Y") es un supuesto a verificar contra el código, no documentación confiable.
+
+
+## 2026-09-16 — Reactivacion del outbound por frente: cupo real, 4 plantillas combo y cierre sin demo
+
+- **Etapa**: fuera de secuencia — ejecucion de decisiones comerciales de Joaquin (reactivar el CRM para vender los 4 frentes). Cambios reales en produccion + codigo.
+- **Origen**: Joaquin pidio reactivar todas las campanas "con la configuracion como esta ahora, que manda aprox 10 mensajes por dia".
+
+### Hallazgo 1 — la config NO mandaba 10/dia
+Lectura de `ConfiguracionesOutbound` en produccion: `CupoDiario=100`, `MetaDiaria=30`, `PresupuestoMensualArs=300.000`, **`OutboundPausado=0` (el pause global ya estaba levantado)**, `BusquedaMapsPausada=1`. Los ~10/dia que se percibian eran un efecto del presupuesto agotado (889 frios + 2.201 follow-ups ≈ ARS 282.000 de 300.000): el guard reparte el saldo entre los dias restantes y daba ~12/dia. **El 1/10 el presupuesto se resetea y el techo hubiera saltado a 100/dia (~ARS 268.000/mes).**
+- **Cambio aplicado**: `UPDATE ConfiguracionesOutbound SET CupoDiario = 10`. Verificado post-update.
+- **Nota**: el unico freno que queda sobre el envio son las 284 campanas en `Activa=0`. No hay segunda capa: `OutboundPausado` ya esta en 0.
+
+### Hallazgo 2 — reparto real por gancho (corrige la muestra de QA)
+El analisis de la feature "4 frentes" (14/09) midio 100% gancho Presencia web sobre una muestra de 234 contactos. **Sobre el backlog completo de 3.709 `Pendiente` el reparto es otro** (proyeccion SQL replicando `GanchoHelpers`, aproximada):
+
+| Gancho → frente | Contactos | % |
+|---|---|---|
+| Presencia web → Landing | ~2.109 | 57% |
+| Gestion → Build | ~810 | 22% |
+| Consultas → Chatbot | ~690 | 19% |
+| Administracion → AI Agents | ~100 | 3% |
+
+1.607 sin web + 502 con web en redes/agregadores (instagram, linktree, tiendanube, etc.). **Los 3.709 estan en `Gancho=NULL`: el boton "Asignar ganchos pendientes" nunca se corrio.** Deliberadamente NO se asigno por SQL: replicar `NormalizarHost`/`DominioNoPropio` en SQL persiste valores equivocados que la red de seguridad del lote **no corrige** (solo completa los `NULL`). Tiene que salir del boton de `/Bot`.
+
+### Cambio 1 — las 4 plantillas combo, creadas en Meta
+Sin ellas el 78% del backlog no recibe nada (`SendDailyBatchAsync` saltea antes del `.Take(cupo)`). Dadas de alta via Graph API, las 4 en `PENDING`:
+`olv_frio_combo_web_v1`, `olv_frio_combo_consultas_v1`, `olv_frio_combo_gestion_v1` (id 1412433804183027), `olv_frio_combo_admin_v1` (id 2045711856058665). Todas MARKETING / es_AR con botones `Si, contame mas` / `No me interesa`.
+- Definiciones en `BotPublicitario/WhatsApp/TemplateCreationService.cs`, array propio **`ComboTemplates`** (no pasa por `CreateAllTemplatesAsync`, que tocaria las ya aprobadas en uso). Comando nuevo `dotnet run -- setup-combo-templates`.
+- **Mismo orden de placeholders que `olv_frio_v13`** (`[Plural, Dolor, Area, Mecanismo]`): es el punto fragil, un desalineamiento manda placeholders rotos a miles de contactos.
+- Genero resuelto con **"como el tuyo"** (referido a "tu negocio"), el mismo truco de v13 que Meta ya aprobo — cierra el pendiente de "muchos clinicas/inmobiliarias".
+- **Pendiente**: una vez aprobadas hay que asignarlas en `/Bot` → seccion 5.
+
+### Cambio 2 — el bot ya no ofrece demo
+Decision de Joaquin: *"no ofrecer demo, solo ofrecer el servicio y que el usuario consulte"*. `BotFlowService.MsgClosing` pasa de *"te escribo para mostrarte en una demo de 15 min..."* a *"te escribo con el detalle de como lo resolvemos para un negocio como el tuyo. Cualquier cosa que quieras consultar, escribime tranquilo."* Build 0 errores. **No deployado todavia** (el 15/09 el puerto 8172 de Web Deploy de site4now no respondia).
+- **Consecuencia abierta**: la regla vigente era "el bot no cotiza, el precio se da en la demo". Sin demo, el precio pasa a darse en la propia conversacion de WhatsApp cuando el bot escala el lead. La IA sigue sin decir precio nunca.
+- **Deuda**: `olv_nurturing_v2` (follow-up del gancho Gestion) y `olv_referido_v2` siguen ofreciendo "demo de 15 minutos" en su texto aprobado en Meta. Sacarlo implica version nueva + aprobacion.
+
+### Precios de los 4 frentes — confirmados contra `.claude/agents/olvidata-ceo.md`
+Landing 2D USD 375/ano · Landing 3D USD 600/ano · Build USD 400-1.000 + plan anual (STARTER 300 / PRO 400 / PREMIUM 500 / SCALE 850) · AI Agents por agente y complejidad (Basico 300-400 setup + 400/ano, Intermedio 600-800 + 650, Avanzado 1.200-1.500 + 1.000) · Chatbots por volumen (Starter 400-700 setup + 350/ano, Pro + 550, Scale + 900). **PROMO de entrada hasta 2026-12-31**, grandfathereada en la renovacion.
+
+### 2026-09-16 (2) — Ganchos asignados, combo cargado y reactivacion focalizada (10 campanas AR)
+
+**Ganchos asignados a los 3.709 `Pendiente`.** Se hizo con un harness que llama a la **`GanchoHelpers.ResolverGancho` real** (proyecto temporal referenciando `OlvidataCRM.Infrastructure`), con dry-run previo — deliberadamente NO por SQL, para no persistir valores que la red de seguridad del lote no puede corregir. Reparto final (0 contactos quedan sin gancho):
+
+| Gancho → frente | Contactos | % |
+|---|---|---|
+| Presencia web → Landing | 2.117 | 57,1% |
+| Gestion → Build | 752 | 20,3% |
+| Consultas → Chatbots | 751 | 20,2% |
+| Administracion → AI Agents | 89 | 2,4% |
+
+La proyeccion SQL previa (57/22/19/3) se desvio menos de 2 puntos por bucket.
+
+**Las 4 plantillas combo: APROBADAS por Meta el mismo dia.** Cargadas en `templateswhatsapp` (`Activo=1`, `EstadoAprobacionMeta=3`, acentos verificados en utf8mb4) y asignadas en `configuracionesoutbound` (`PlantillaGanchoPresenciaWeb/Administracion/Consultas/Gestion`).
+
+**HALLAZGO BLOQUEANTE — `CupoDiario=10` dejaba 280 de 284 campanas en cupo 0.**
+`limiteDiario = (int)Math.Round(campana.PorcentajeCupo / 100m * cupoDiario)`. Con `PorcentajeCupo` promedio 0,87% y `cupoDiario=10`: `round(0,087) = 0`. Las **unicas 4** campanas que hubieran enviado eran `Comercio/Dieteticas Santiago Chile` (17,39%, cada 16 dias) y `Comercio/Dieteticas Montevideo` (12,06%, cada 8 dias) — o sea Chile y Uruguay, los mensajes **mas caros** (Chile ARS 128,84 vs Argentina ARS 89,56) y ni siquiera diarios. Activar las 281 hubiera producido ~4 mensajes cada 8-16 dias a mercados que no son el objetivo, con apariencia de estar funcionando.
+- **Leccion para el catalogo**: un tope global chico (`CupoDiario`) es incompatible con un reparto porcentual entre muchas campanas — el redondeo a int mata todas las porciones menores al 50% de un mensaje. Con N campanas activas, `CupoDiario` tiene que ser >= N/(min PorcentajeCupo/100) para que la campana mas chica envie algo.
+
+**Decision (Joaquin): focalizar en Argentina.** Se activaron **10 campanas, todas `Dias=1` y con el 100% de sus pendientes con prefijo +54** (se filtro por telefono, no por el texto de `Region`, porque Meta factura por el numero de destino):
+
+| Id | Campana | Cupo original | Pendientes |
+|---|---|---|---|
+| 27 | Comercio Palermo | 3,77 | 25 |
+| 116 | Comercio Rosario | 1,92 | 22 |
+| 133 | Comercio Mendoza | 2,31 | 34 |
+| 162 | Inmobiliaria Neuquen | 0,20 | 19 |
+| 176 | Dieteticas Rio Gallegos | 0,20 | 29 |
+| 181 | Estudio Rio Gallegos | 0,20 | 15 |
+| 228 | Consultorio Mar del Plata | 0,20 | 35 |
+| 244 | Consultorio Salta | 0,25 | 36 |
+| 272 | Dieteticas Catamarca | 0,15 | 34 |
+| 277 | Estudio Catamarca | 0,15 | 19 |
+
+`PorcentajeCupo` puesto en **10,00** en las 10 → `round(10/100*10) = 1` mensaje/dia cada una = **10/dia reales**. Las otras 274 quedan en `Activa=0`. Seleccion armada para ejercitar las 4 plantillas nuevas: Estudio → Administracion, Consultorio/Inmobiliaria → Consultas, Comercio/Dieteticas → Gestion, y los contactos sin web de cualquiera de ellas → Presencia web.
+- **Para revertir**: los cupos originales estan en la tabla de arriba; `UPDATE CampanasOutbound SET Activa=0` en esos 10 Ids frena todo.
+- **Confirmado con Joaquin**: con `BusquedaMapsPausada=1` la campana consume del backlog `Pendiente` ya buscado (`SendDailyBatchAsync` solo lee contactos en base; Places solo alimenta `RestockCampanasAsync`). 268 pendientes en estas 10 ≈ 27 dias de envio.
+
+**Correccion mismo dia — `Dias` NO es una frecuencia, es una mascara de bits de dias de semana.** La seleccion de las 10 campanas se hizo filtrando `Dias=1` interpretandolo como "cada 1 dia / diaria". `DiasSemana` (`OlvidataCRM.Domain/Enums/DiasSemana.cs`) tiene una numeracion **contraintuitiva**:
+
+```
+Martes = 1 · Miercoles = 2 · Jueves = 4 · Lunes = 8 · Viernes = 16 · Sabado = 32 · Domingo = 64
+```
+
+O sea `Dias=1` = **solo los martes** (y `Lunes` NO es 1, es 8). Las 10 campanas activadas un miercoles quedaron fuera del dia: la ejecucion manual del cliente no mando nada y el scheduler las descarto por dia, antes de llegar a evaluar cupo o presupuesto. **Fix**: `Dias=31` (Lunes 8 | Martes 1 | Miercoles 2 | Jueves 4 | Viernes 16) en las 10 — lunes a viernes, sin fines de semana.
+- **Leccion para el catalogo 32**: un campo entero llamado `Dias` con valor 1 se lee como frecuencia; aca es un flag. Antes de filtrar por el, leer el enum — y ojo que el orden no arranca en lunes.
+- **Presupuesto verificado en la misma pasada** (no era el freno): septiembre lleva **ARS 282.820** de 300.000 — AR 874 frios + 2.009 follow-ups a 89,56; CL 129 a 128,84; UY 60 a 107,24; otros 18 a 87,53. Restante ~ARS 17.180 / 15 dias / ~93 por prospecto = 12 dia, y `CupoDiario=10` es el que corta. `LimiteEfectivoHoy = min(10, 12) = 10`.

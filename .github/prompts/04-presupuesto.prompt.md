@@ -46,7 +46,7 @@ Generar un presupuesto defendible, calibrado y comercialmente entendible en base
 7. Asignar O y P con restriccion de spread: O >= M × 0.65 y P <= M × 1.80 salvo justificacion documentada.
 8. Calcular horas PERT por item: (O + 4M + P) / 6.
 9. Asignar nivel de riesgo por item y contingencia variable (8/15/25%).
-10. Consolidar horas finales y costo final con tasa vigente (USD 30/h).
+10. Consolidar horas finales y costo final con la tasa vigente (USD 35/h; USD 30/h es el PISO de negociacion, no la tarifa — ver 27-presupuesto-parametros).
 
 ## Paso 3 — Calibracion y cierre
 11. Calcular ratio por item = Horas base PERT / Mediana historica base (del Paso 0). Ajustar si ratio > 1.15 o < 0.85.
@@ -86,7 +86,7 @@ Generar un presupuesto defendible, calibrado y comercialmente entendible en base
 12. Exclusiones
 13. Dependencias del cliente
 14. Criterios de aceptacion minimos
-15. Tabla simple para cliente dividida en Etapa 1 (MVP) y Etapa 2 (resto): Area | USD con subtotal por etapa y total del proyecto (sin horas — son internas). Si aplica el descuento de expansion agresiva (Build inicial, cliente nuevo), mostrar linea propia "Descuento por eficiencia de desarrollo" antes de Tokens IA — nunca mencionar "cross-proyecto" ni otros clientes en el documento entregado. El cargo de Tokens IA es el 25% del subtotal de lista SIN descontar (Subtotal Etapa 1 + Subtotal Etapa 2) y se muestra EXPLICITO como linea individual en la seccion "Total del proyecto" — no se prorratea en los modulos ni se oculta.
+15. Tabla simple para cliente dividida en Etapa 1 (MVP) y Etapa 2 (resto): Area | USD con subtotal por etapa y total del proyecto (sin horas — son internas). Si aplica el descuento de expansion agresiva (Build inicial, cliente nuevo), mostrar linea propia "Descuento por eficiencia de desarrollo" antes de Tokens IA — nunca mencionar "cross-proyecto" ni otros clientes en el documento entregado. El cargo de Tokens IA es el 25% del subtotal de lista SIN descontar (Subtotal Etapa 1 + Subtotal Etapa 2) y **se distribuye dentro del precio de cada modulo** (precio mostrado = precio de lista x 1.25) — NUNCA se muestra como linea separada ni se menciona al cliente (regla invertida 2026-08-20). El desglose interno va en `4-presupuestador.md`.
 16. Plan de mantenimiento anual recomendado segun cantidad de tablas del sistema (ver 27-presupuesto-parametros). Presentar como linea separada: "Mantenimiento anual — Plan X: USD Y/año".
 17. Condiciones comerciales (50/50 por etapa; sin clausula de validez de oferta)
 18. Nota de contingencia aplicada

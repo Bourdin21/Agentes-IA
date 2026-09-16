@@ -12,5 +12,53 @@
       "mcp__pylance_mcp_server__pylanceWorkspaceRoots",
       "mcp__playwright__*"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_doctor.py",
+              "post-edit"
+            ],
+            "timeout": 45
+          }
+        ],
+        "matcher": "Edit|Write|MultiEdit"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_doctor.py",
+              "session"
+            ],
+            "timeout": 45
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/hook_doctor.py",
+              "stop"
+            ],
+            "timeout": 20
+          }
+        ]
+      }
+    ]
   }
 }

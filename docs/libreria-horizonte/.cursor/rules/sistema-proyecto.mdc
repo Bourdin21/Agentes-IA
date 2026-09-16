@@ -1,0 +1,16 @@
+---
+description: Enlace al marco operativo del estudio BlankProject para este sistema
+alwaysApply: true
+---
+
+# Sistema — reglas del estudio
+
+Marco central: `C:/Sistemas/Agentes-IA/`
+
+- Operativa y proyectos: `C:/Sistemas/Agentes-IA/.github/copilot-instructions.md`
+- Memoria del proyecto: `C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/`
+- Agentes Cursor: skills `/agentes-ia-*` en `C:/Sistemas/Agentes-IA/.cursor/skills/`
+
+Abrir siempre el workspace multi-carpeta (`C:/Sistemas/<proyecto>.code-workspace`) con **Agentes-IA** incluido.
+
+Personalizar stack, paleta y comandos de build en este repo según las secciones `[Personalizar]` del `copilot-instructions.md` local.

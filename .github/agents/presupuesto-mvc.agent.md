@@ -135,11 +135,12 @@ Politica de contingencia:
 
 Politica de facturacion al cliente (OBLIGATORIO — no usar otro calculo):
 - El precio por modulo se calcula sobre M (caso mas probable), NO sobre las horas PERT finales con contingencia.
-- Formula vigente: Costo modulo = M / 2.5 x 1.20 x $35 = M x $16.80
-- El factor 2.5 es la eficiencia IA calibrada sobre cierres reales (ShowroomGriffin, Ganaderia).
+- Formula vigente de BUILD (sistema nuevo / rewrite para cliente nuevo): Costo modulo = M / 4.0 x 1.20 x $35 = M x $10.50
+- Formula de MERGE / modulo nuevo post-entrega / Extras opcionales (fork deliberado, NO unificar): M / 2.5 x 1.20 x $35 = M x $16.80
+- El factor de Build es 4.0 desde 2026-09-08 (decision de negocio de `olvidata-ceo` confirmada por Joaquin, anclada en el unico cierre greenfield limpio: Ganaderia, 1.93x formula/real). Merge/Extras siguen en 2.5 a proposito: ahi esta el margen real del negocio.
 - El 20% es la contingencia temporal: cubre reentregas y desvios menores; no aplica contingencia adicional.
 - Las horas PERT con contingencia son el techo interno de esfuerzo, no la base del precio.
-- Las horas facturables internas (M / 2.5 x 1.20) no se exponen al cliente.
+- Las horas facturables internas (M / 4.0 x 1.20 en Build; M / 2.5 x 1.20 en Merge/Extras) no se exponen al cliente.
 - Al cliente se presenta solo USD por area funcional agrupada.
 - Verificar tasa vigente y formula en .github/instructions/27-presupuesto-parametros.instructions.md antes de cada presupuesto.
 - Para Build inicial de cliente NUEVO (o rewrite de sistema de terceros): **una vez resuelto el Paso 0.5** (evaluacion de si corresponde consultar a `olvidata-ceo` por perfil de cliente atipico), calcular DOS tiers independientes (seccion "Descuento de expansion agresiva por reutilizacion cross-proyecto" de 27-presupuesto-parametros) — (a) tier por ratio de reutilizacion R (30% / 15% / 0%) y (b) tier por volumen segun Subtotal_lista (15% / 10% / 5% / 0%, umbrales USD 2000/1200/600) — y aplicar `MAX(factor_tier_reutilizacion, factor_tier_volumen)` sobre el Subtotal Etapa1+Etapa2 antes de sumar Tokens IA (nunca sumar los dos descuentos). Tokens IA se calcula siempre sobre el subtotal SIN descontar. Aplicar piso absoluto USD 280. Verificar primero el estado del tablero de ciclos economicos (checkpoint octubre 2027): si esta en rojo, no aplicar ningun tier de ninguno de los dos ejes, cotizar a precio de lista. No aplica a Mantenimiento, Extras opcionales ni Merge.
@@ -149,7 +150,7 @@ Salida minima (presupuesto inicial):
 2. Alcance funcional detallado: descripcion completa de cada modulo funcional incluido en el alcance base, con sus funcionalidades puntuales.
 3. Tabla de especificaciones tecnicas del servicio: tecnologia (ASP.NET Core MVC, EF, MySQL), servidor/hosting, tipo de despliegue, requisitos de entorno y accesos.
 4. Roles y usuarios del sistema: listado de perfiles con descripcion de accesos y permisos por rol. El rol de super usuario queda reservado para uso interno del proveedor; no incluirlo en la documentacion entregada al cliente.
-5. Tabla por modulo funcional con: tipo de modulo, drivers, referencia historica usada (Paso 0), O, M base, M ajustado, P, horas PERT, distribucion interna entre implementacion/pruebas/documentacion/riesgo, riesgo, contingencia, horas finales, horas facturables (M/2.5x1.20) y USD (M x $16.80 — segun politica de facturacion vigente, NO horas PERT x tasa).
+5. Tabla por modulo funcional con: tipo de modulo, drivers, referencia historica usada (Paso 0), O, M base, M ajustado, P, horas PERT, distribucion interna entre implementacion/pruebas/documentacion/riesgo, riesgo, contingencia, horas finales, horas facturables (M/4.0x1.20 en Build, M/2.5x1.20 en Merge/Extras) y USD (M x $10.50 en Build, M x $16.80 en Merge/Extras — segun politica de facturacion vigente, NO horas PERT x tasa).
 6. Bloque de autocorreccion por item: referencia, ratio, ajuste aplicado, motivo.
 7. Sanity check del total del proyecto: proyecto comparable, horas comparables, ratio, decision.
 8. Cierre numerico por dos pasos (Paso A preliminar / Paso B final).

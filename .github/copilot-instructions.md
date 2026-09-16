@@ -27,6 +27,9 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - .github/instructions/30-qa-regresiones.instructions.md
 - .github/instructions/31-formato-documento-cliente.instructions.md
 - .github/instructions/32-estandares-qa-implementador.instructions.md
+- .github/instructions/33-verificacion-automatizada-qa.instructions.md
+- .github/instructions/34-integracion-afip-arca.instructions.md
+- .github/instructions/35-pantalla-control-stock.instructions.md
 
 ## Reglas base que siempre aplican
 - No colocar lógica de negocio compleja en Controllers.
@@ -40,7 +43,7 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - Las pruebas requeridas son funcionales.
 - La documentacion requerida es de alcance para el cliente.
 - El cierre de calibracion estimado vs real es obligatorio.
-- La trazabilidad de la conversacion debe persistirse en /docs/conversaciones con definiciones por agente en archivos .md individuales.
+- La trazabilidad de la conversacion se persiste en `/docs/<proyecto>/trazabilidad.md`, con la memoria de cada agente en `/docs/<proyecto>/definiciones/<n>-<agente>.md`. (El viejo `/docs/conversaciones` esta deprecado desde 2026; no escribir ahi.)
 
 ## Bootstrap de proyectos nuevos
 - Al iniciar un proyecto nuevo, ademas de copiar la plantilla `/docs/templates/proyecto/` a `/docs/<proyecto>/`, copiar `/docs/templates/proyecto/copilot-instructions.md` al repositorio del sistema bajo `.github/copilot-instructions.md`.
@@ -62,40 +65,13 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 
 ---
 
-## Inventario de proyectos (actualizado 2026-05-20)
+## Inventario de proyectos
 
-| Proyecto | Estado | Stack | Produccion | Repo local |
-|---|---|---|---|---|
-| delicias-naturales | cerrado | ASP.NET MVC5 + .NET 4.7.2 + EF6 + MySQL | — | `C:\Sistemas\delicias-naturales` |
-| recotrack | cerrado | .NET 10 + EF Core 10 + MySQL | — | `C:\Sistemas\recotrack` |
-| eleven-la-plata | cerrado | .NET 10 + EF Core + MySQL | — | — |
-| lumitrack | cerrado | .NET 10 + EF Core + MySQL | — | — |
-| piapartments | cerrado | .NET 10 + EF Core + MySQL | — | — |
-| meta-ads | cerrado | — | — | — |
-| ganaderia | abierto (QA pendiente) | .NET 10 + EF Core 10 + MySQL | no | `C:\Sistemas\ganaderia` |
-| ShowroomGriffin | activo | .NET 10 + EF Core + MySQL + QuestPDF | si (v1) | `C:\Sistemas\ShowroomGriffin` |
-| vinosefue | activo | .NET 10 + EF Core + MySQL | si (olvidatasoft-002-site6) | `C:\Sistemas\vino-y-se-fue` |
-| virtualwallet | abierto | .NET 10 + EF Core + MySQL | no (dev) | `C:\Sistemas\virtualwallet` |
-| century-21 | activo | .NET 10 + EF Core + MySQL | no | `C:\Sistemas\Century 21` |
+**Fuente unica: `docs/indice.md`** (estado, produccion, repo local y ultimo hito de cada proyecto). La tabla que vivia aca quedo congelada en 2026-05-20 y contradecia al indice — se retiro en la auditoria del 2026-09-15. Los pendientes abiertos de cada proyecto viven en su `docs/<proyecto>/trazabilidad.md` y en las definiciones del agente correspondiente, no en una lista global aparte.
 
 ### Docs por proyecto
 - **Agentes-IA** (`docs/<proyecto>/definiciones/*.md`): memoria de cada agente (1-analista-funcional, 2-disenador-funcional, 3-arquitecto-mvc, 4-presupuestador, 5-implementador, 6-qa, 7-documentador).
 - **Repo del sistema** (`C:\Sistemas\<proyecto>\docs\`): documentacion tecnica (alcances, scripts SQL, migraciones, manual usuario).
-
-### Items pendientes activos
-
-**vinosefue:**
-- Migraciones `AddReversionPedidoYHistorial` + `AddProductosPropiosYStock` pendientes en produccion.
-- DEF-003 abierto: boton "Registrar pago" no bloqueado en compra espejo de concesion CerradaManual.
-
-**ShowroomGriffin:**
-- V2-V7 (refactor taxonomia Producto/Modelo/Variante) implementados localmente, QA pendiente.
-- Scripts SQL V6 generados para produccion — pendiente aplicar.
-
-**ganaderia:**
-- 7 etapas completas (build OK), QA funcional pendiente de ejecutar.
-
----
 
 ## Modo de ejecucion de agentes
 

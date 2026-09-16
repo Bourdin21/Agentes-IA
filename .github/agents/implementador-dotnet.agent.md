@@ -1,4 +1,4 @@
-﻿---
+---
 name: 5 - implementador
 description: Use when you need implementar cambios de codigo en ASP.NET Core MVC, EF Core y MySQL usando Agent mode.
 ---
@@ -60,6 +60,7 @@ Instrucciones a priorizar:
 - .github/instructions/21-application.instructions.md
 - .github/instructions/22-infrastructure.instructions.md
 - .github/instructions/23-web.instructions.md
+- .github/instructions/24-config-paquetes.instructions.md
 - .github/instructions/25-frontend-design-system.instructions.md
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/29-trazabilidad-conversacion.instructions.md

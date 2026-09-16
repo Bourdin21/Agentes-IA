@@ -2543,7 +2543,16 @@ regresiones:
     pruebas_minimas:
       - "Navegador real en tema oscuro: medir fondo de selection, dropdown abierto y daterangepicker abierto."
       - "Mismo recorrido en tema claro para descartar regresion."
-    nota_generalizacion: "Aplica a TODO proyecto del baseline con tema oscuro (PAT-009) y Select2 global (regla 25): la-platense tiene las dos cosas y no tiene estos overrides. Regla: cualquier libreria que dibuja su propio widget (Select2, daterangepicker, DataTables, SweetAlert2) necesita su bloque [data-theme=dark]; no alcanza con el override de los controles nativos de Bootstrap."
+    nota_generalizacion: "Aplica a TODO proyecto del baseline con tema oscuro (PAT-009) y Select2 global (regla 25): la-platense tiene las dos cosas y no tiene estos overrides. Regla: cualquier libreria que dibuja su propio widget (Select2, daterangepicker, DataTables, SweetAlert2) necesita su bloque [data-theme=dark]; no alcanza con el override de los controles nativos de Bootstrap. Ampliacion QA M5 2026-09-15: el primer fix cubrio solo el Select2 simple; en los multiples (documentos para la tarea, etiquetas de reglas) los chips .select2-selection__choice quedaban con texto #212529 sobre fondo transparente (contraste 1,05) y la X negra. Medir tambien un Select2 multiple con valores elegidos."
+    fix_aplicado:
+      fecha: "2026-09-15"
+      por: "QA M5 (auto-fix, extension del fix catalogado)"
+      resultado: "aplicado"
+      archivos:
+        - path: OlvidataAgentes.Web/wwwroot/css/site.css
+          motivo: "[data-theme=dark] .select2-selection--multiple .select2-selection__choice con color/borde/fondo por tokens, X invertida y campo de busqueda con --ov-text."
+        - path: OlvidataAgentes.Web/wwwroot/css/site.css
+          motivo: "REINCIDENCIA en QA M8 2026-09-16 (tercera libreria con markup propio): el .accordion de Bootstrap 5.1 fija background-color: #fff a mano (no usa variables), asi que la pantalla de casos de prueba —unico uso de .accordion del portal— quedaba blanca en tema oscuro con todo su contenido ilegible (176 mediciones bajo 4,5). Bloque [data-theme=dark] para .accordion-item/.accordion-button/.accordion-body con los tokens --ov-*."
 
   - id: OLV-002
     modulo: "Tema oscuro / alertas .ov-alert (danger, warning, info, success) y badge bg-info text-dark"
@@ -2631,6 +2640,264 @@ regresiones:
       - "Navegador real: medir los 4 tokens en ambos temas en al menos una grilla, un encabezado con acciones y un detalle, despues del fadeIn."
       - "Capturas antes/despues en ambos temas para validar que la marca sigue reconocible."
     nota_generalizacion: "Aplica a todo proyecto del baseline con olvidata-theme.css. Al medir contraste de una feature, separar lo que agrega la feature de los tokens compartidos del theme: un fix de tokens cambia todo el portal y debe pasar por diseno, no por auto-fix de QA."
+
+  - id: OLV-005
+    modulo: "Formularios MVC con asp-for sobre una coleccion opcional no anulable (select multiple / Select2) — Agentes/Ejecutar 'Documentos para esta tarea'"
+    titulo: "Una List<int> no anulable en el ViewModel recibe [Required] implicito: el tag helper emite data-val-required en ingles y el navegador bloquea el envio cuando el campo opcional queda vacio"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro, QA M5 2026-09-15 (localhost, Playwright; Agentes > Ejecutar con cliente de cartera elegido y sin documentos adjuntos)"
+    pasos:
+      - "Agentes > inmo-cm > Nueva tarea. Elegir un cliente de cartera (aparece 'Documentos para esta tarea')."
+      - "No elegir documentos, escribir el pedido y pulsar 'Enviar tarea'."
+    sintoma: "La tarea no se envia: queda en la misma pantalla con 'The Documentos para esta tarea field is required.' (en ingles) bajo el campo. Sin cliente si se envia (el bloque oculto no se valida) y un POST directo sin el campo tambien crea la tarea: el bloqueo es solo de validacion del navegador. Regresion del flujo principal de M3 (tarea sobre un cliente)."
+    expectativa: "Adjuntar documentos es opcional: con cliente y sin documentos la tarea se crea igual que antes de M5; solo se valida el maximo de 10."
+    causa_raiz: "Con Nullable habilitado, MVC trata toda propiedad de tipo referencia no anulable como [Required] implicito (SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = false por defecto). `public List<int> DocumentoIds { get; set; } = new();` con asp-for genera data-val-required con el mensaje por defecto en ingles; jQuery Validate lo aplica al select (Select2 lo oculta con select2-hidden-accessible, que no cuenta como :hidden). Los tests de servicio no pasan por el model binding ni por la vista, por eso 159/159 no lo detecto."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataAgentes.Web/Models/AgentesViewModels.cs
+        motivo: "EjecutarAgenteViewModel.DocumentoIds pasa a List<int>? (opcional); se conserva [MaxLength(10)]."
+      - path: OlvidataAgentes.Web/Controllers/AgentesController.cs
+        motivo: "Al recargar la vista tras un error, (vm.DocumentoIds ?? []) antes de filtrar los vigentes."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-15"
+      por: "QA (auto-fix, sin logica de negocio nueva: el campo ya era opcional para el servicio)"
+      resultado: "aplicado"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "atributos del <select asp-for> / <input asp-for> de campos opcionales: buscar data-val-required=\"The ... field is required.\"; enviar el formulario con el campo vacio"
+      condicion_falla: "Un campo opcional renderiza data-val-required o el formulario no se envia con el campo vacio; cualquier mensaje 'The ... field is required.' en ingles visible."
+    criterio_aceptacion:
+      - "Con cliente y sin documentos, 'Enviar tarea' crea la tarea."
+      - "Con 11 documentos sigue apareciendo 'Podes adjuntar hasta 10 documentos por mensaje.'"
+    pruebas_minimas:
+      - "Navegador: enviar con cliente y sin documentos; enviar con 2 documentos; POST con 11."
+      - "Barrido de la vista: ningun data-val-required en ingles."
+    nota_generalizacion: "Aplica a TODO proyecto del estudio con <Nullable>enable</Nullable> y ViewModels: una coleccion o string opcional declarada no anulable queda requerida en cliente y servidor con mensaje en ingles. Regla: propiedades opcionales de formulario siempre anulables (List<int>?, string?) o [ValidateNever] explicito; y en QA barrer data-val-required en ingles en cada formulario nuevo. Los tests de servicio no lo cubren: solo aparece en navegador."
+
+  - id: OLV-006
+    modulo: "Grillas DataTables server-side con columnas formateadas en servidor (tamano '14 KB', '3,9 MB') — Documentos de un cliente y Documentos de la organizacion (staff)"
+    titulo: "La busqueda global no encuentra por la columna Tamano visible: el valor se guarda en bytes y se formatea al proyectar, y la busqueda solo compara nombre, autor, tipo, lectura, partes y fecha"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro, QA M5 2026-09-15 (localhost, Playwright; /Documentos?clienteId=41 buscando '14 KB')"
+    pasos:
+      - "Abrir Documentos de un cliente con varios documentos."
+      - "Escribir en la busqueda global el tamano que muestra una fila (ej. '14 KB')."
+    sintoma: "0 resultados, aunque la columna Tamano de una fila dice exactamente '14 KB'."
+    expectativa: "Checklist 26 regla 10a: la busqueda global matchea contra cualquier columna visible, incluidos importes/tamanos y fechas."
+    causa_raiz: "DocumentoCarteraService.IdsBusquedaGlobalAsync cubre partes (entero), fecha, tipo y lectura, pero no TamanoBytes: el texto visible sale de NombreDocumentoHelper.FormatoTamano en la proyeccion y no hay equivalente en SQL."
+    capa: Infrastructure
+    archivos_fix:
+      - path: OlvidataAgentes.Infrastructure/Services/Documentos/DocumentoCarteraService.cs
+        motivo: "Si la busqueda tiene digitos, traer Id + TamanoBytes del alcance (cliente, max. 200; u organizacion para staff) y comparar contra FormatoTamano en memoria."
+      - path: OlvidataAgentes.Infrastructure/Services/Evaluacion/CorridaEvaluacionService.cs
+        motivo: "REINCIDENCIA en QA M8 2026-09-16 (listado de corridas de pruebas): las columnas Tipo ('Sin costo' / 'Real'), Resultado ('No paso las pruebas') y Version ('v1') se ven en palabras pero se guardan como enum o entero, y la busqueda global solo miraba nombre del artefacto, rubro, modelo y fecha. Se traduce lo escrito a los valores guardados (ModosQueDicen / EstadosQueDicen / ResultadosQueDicen / NumeroVersionQueDice, normalizando sin tildes) y a la consulta viajan solo los enums."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-15"
+      por: "QA (auto-fix, sin logica de negocio nueva)"
+      resultado: "aplicado"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "DataTable().search('<tamano visible de una fila>') en /Documentos?clienteId= y /Clientes/Documentos/<tenant>"
+      condicion_falla: "0 filas buscando el texto exacto de la columna Tamano de una fila visible."
+    criterio_aceptacion:
+      - "Buscar '14 KB' encuentra la planilla de 14 KB en ambas grillas."
+    pruebas_minimas:
+      - "Navegador: buscar un tamano en KB y otro en MB; buscar texto sin digitos sigue igual."
+    nota_generalizacion: "Aplica a toda grilla del estudio con columnas cuyo texto visible se arma en servidor a partir de un numero (tamanos, duraciones, porcentajes): la busqueda global tiene que comparar contra el mismo formateador que la columna, no contra el valor crudo."
+
+  - id: OLV-007
+    modulo: "Grillas con filtros Select2 automaticos (ovAplicarSelect2 aplica Select2 a todo <select>) — bandeja Aprobaciones (M6)"
+    titulo: "Un <select> marcado con el atributo data-select2 rompe la inicializacion de Select2 y la pagina no carga la grilla: 'GetData(...).destroy is not a function'"
+    severidad: blocker
+    reproducido_en: "olvidata-agentes-multirubro, QA M6 2026-09-15 (localhost, Playwright; /Aprobaciones como Empleado y como Director)"
+    pasos:
+      - "Entrar a /Aprobaciones con pedidos pendientes."
+    sintoma: "La grilla queda sin filas ni 'No hay acciones esperando aprobación', la consola muestra 'pageerror: r.GetData(...).destroy is not a function' y no sale ninguna llamada a /Aprobaciones/Listar: no se puede aprobar ni ver el historial desde la bandeja."
+    expectativa: "La bandeja carga por AJAX con filtros Select2 y acciones."
+    causa_raiz: "Select2 guarda su instancia con Utils.GetData(el, 'select2'), que tambien lee atributos data-*. Con data-select2 presente devuelve '' (no null) y el constructor llama ''.destroy(), la excepcion corta el $(function) antes de crear el DataTable. Las demas vistas no usan ese atributo (ovAplicarSelect2 ya toma todos los select; la excepcion es data-select2-manual)."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataAgentes.Web/Views/Aprobaciones/Index.cshtml
+        motivo: "Quitar el atributo data-select2 de fPedidaPor, fCliente y fResueltaPor."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-15"
+      por: "QA (auto-fix, sin logica de negocio nueva)"
+      resultado: "aplicado"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "grep 'data-select2[ >]' en Views/**/*.cshtml; en navegador, consola de la pagina + request a la accion Listar"
+      condicion_falla: "Algun <select> con data-select2 (sin -manual) o pageerror 'GetData(...).destroy' al cargar."
+    criterio_aceptacion:
+      - "La bandeja (Pendientes e Historial) carga filas y los filtros Select2 funcionan sin errores de consola."
+    pruebas_minimas:
+      - "Navegador: /Aprobaciones y /Aprobaciones?pestana=historial como Director y Empleado, sin pageerror y con XHR a Listar 200."
+    nota_generalizacion: "Nunca usar data-select2 como marcador en vistas del template Olvidata ni en otros proyectos con Select2 4.x: colisiona con la clave interna del plugin. Usar una clase o data-ov-*."
+
+  - id: OLV-008
+    modulo: "Vista reutilizada desde otro controller con View(\"~/Views/<Otro>/Index.cshtml\") — Consumo de la organizacion en el backoffice (Clientes/Consumo, M6)"
+    titulo: "La vista compartida usa <partial name=\"_Parcial\"> con nombre corto: desde el otro controller el parcial no se encuentra y la pagina da 500"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro, QA M6 2026-09-15 (localhost, Playwright; staff Administrador en /Clientes/Consumo/1)"
+    pasos:
+      - "Como staff abrir Organizaciones -> Detalle -> card Gasto -> 'Ver consumo'."
+    sintoma: "500: InvalidOperationException 'The partial view _BarraGasto was not found. The following locations were searched: /Views/Clientes/_BarraGasto.cshtml /Views/Shared/_BarraGasto.cshtml'."
+    expectativa: "La misma vista del Director en solo lectura (P-M6-08)."
+    causa_raiz: "Los nombres cortos de parciales se resuelven contra la carpeta del controller que ejecuta la accion (Clientes), no contra la carpeta del archivo de la vista. Los tests de servicio no renderizan vistas y el Director entra por ConsumoController, donde si resuelve."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataAgentes.Web/Views/Consumo/Index.cshtml
+        motivo: "_BarraGasto, _TablasConsumo y _ModalLimite con ruta completa ~/Views/Consumo/..."
+      - path: OlvidataAgentes.Web/Views/Consumo/_TablasConsumo.cshtml
+        motivo: "_TablaGrupo con ruta completa ~/Views/Consumo/_TablaGrupo.cshtml"
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-15"
+      por: "QA (auto-fix, sin logica de negocio nueva)"
+      resultado: "aplicado"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "grep 'View(\"~/Views/' en Controllers y, para cada vista reutilizada, sus <partial name=\"_...\"> sin '~/'; navegador: abrir la accion del otro controller"
+      condicion_falla: "500 'partial view ... was not found' o parciales con nombre corto en una vista que se devuelve desde mas de un controller."
+    criterio_aceptacion:
+      - "/Clientes/Consumo/<id> muestra barra, tablas por miembro/area/agente/cliente sin boton 'Cambiar limite'; /Consumo del Director sigue igual."
+    pruebas_minimas:
+      - "Navegador: staff en /Clientes/Consumo/1 (200, sin [data-cambiar-limite]) y Director en /Consumo (200, con modal)."
+    nota_generalizacion: "Toda vista que se reutiliza desde otro controller (backoffice que muestra la pantalla del cliente en solo lectura) tiene que referenciar sus parciales con ruta completa."
+
+  - id: OLV-009
+    modulo: "Tema oscuro / elementos agregados por JS dentro de un popup SweetAlert2 (fondo blanco en ambos temas) — contador del motivo de rechazo (Aprobaciones, M6)"
+    titulo: "Texto con clases de Bootstrap que cambian por tema (text-muted) dentro del popup blanco de SweetAlert2: en tema oscuro queda gris claro sobre blanco (2,56)"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro, QA M6 2026-09-15 (localhost, Playwright con cookie de tema oscuro; tarjeta de aprobacion -> Rechazar)"
+    pasos:
+      - "Tema oscuro. Abrir una tarea con un pedido de aprobacion y tocar Rechazar."
+      - "Mirar el contador '0 / 500' debajo del motivo."
+    sintoma: "Contador en #94a3b8 sobre #ffffff: contraste 2,56 (minimo 4,5)."
+    expectativa: "Texto del popup legible en ambos temas (el popup de SweetAlert2 no cambia de fondo)."
+    causa_raiz: "El contador se crea con 'small text-muted' y 'text-danger'; en tema oscuro esas clases toman los tokens claros pensados para fondo oscuro, pero el popup sigue blanco."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataAgentes.Web/Views/Tareas/_ScriptAprobaciones.cshtml
+        motivo: "Contador sin text-muted/text-danger: color explicito #545454 (texto del popup) y #b91c1c al superar el maximo."
+      - path: OlvidataAgentes.Web/Views/Asignaciones/_ScriptAcciones.cshtml
+        motivo: "REINCIDENCIA en QA M7b 2026-09-15: el contador 0/500 de 'Marcar como hecha' y 'Cancelar la asignacion' usaba .ov-field-hint (token del tema) y en oscuro daba 2,56 sobre el popup blanco; pasa a color explicito #545454."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-15"
+      por: "QA (auto-fix, sin logica de negocio nueva)"
+      resultado: "aplicado"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: ".swal2-popup .small (y cualquier .text-muted/.text-danger dentro de .swal2-popup) medido con cookie de tema oscuro"
+      condicion_falla: "Contraste < 4,5 del texto dentro de .swal2-popup en tema oscuro."
+    criterio_aceptacion:
+      - "Contador '0 / 500' con contraste >= 4,5 en ambos temas y rojo legible al pasar de 500."
+    pruebas_minimas:
+      - "Navegador: medir el contador en claro y oscuro con 0 y con 501 caracteres."
+    nota_generalizacion: "Dentro de popups de SweetAlert2 (fondo fijo) no usar clases de color de Bootstrap que el theme oscuro redefine; usar colores fijos pensados para fondo blanco o tematizar el popup completo."
+
+  - id: OLV-010
+    modulo: "Acciones destructivas sobre datos de un cliente que reusan la consulta de VISIBILIDAD como si fuera de PERMISO — Tareas/Cancelar (M3b, con cascada a las partes desde M7a)"
+    titulo: "El staff de Olvidata (rol de solo lectura) cancela por POST la tarea de una organizacion y, con M7a, tambien todas sus partes: la accion solo filtraba por 'la puedo ver'"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro, QA M7a 2026-09-15 (localhost, Playwright; adminqa@qa.test = staff Administrador sobre la tarea #120 de laura@qa.test, en estado 'Esperando a otros agentes')"
+    pasos:
+      - "Como miembro crear una tarea con un agente coordinador y pedido 'Delega esto en dos partes'; esperar a que quede 'Esperando a otros agentes' con 2 partes vivas."
+      - "Con una sesion de staff (Administrador de Olvidata, sin menu de Tareas propio pero con acceso de lectura) hacer POST a /Tareas/Cancelar/<id> con el antiforgery de cualquier pagina."
+      - "Mirar el estado de la tarea y de sus partes en la base."
+    sintoma: "La principal queda Cancelada y sus 2 partes tambien (cascada de RF-M7a-10), pedidas por un usuario que en la matriz de permisos figura con 'Cancelar principal o subtarea: ❌'. La UI no muestra el boton (bien), pero el endpoint no valida nada."
+    expectativa: "Cancelar es del autor de la tarea o de un Director de esa organizacion; el staff mira y no cancela (403/mensaje de permiso), y no se toca ninguna parte."
+    causa_raiz: "CancelarAsync resolvia la tarea con la consulta de visibilidad (Visibles(), que para staff y Director devuelve todas las tareas del tenant) y no volvia a preguntar quien es el que cancela. La consulta de visibilidad responde 'que puedo ver', no 'que puedo hacer'; el resto de las acciones de la conversacion (EnviarSeguimiento) si chequeaban EsAutor."
+    capa: Infrastructure
+    archivos_fix:
+      - path: OlvidataAgentes.Infrastructure/Services/Motor/ServicioTareas.cs
+        motivo: "PuedeCancelar(tarea) = EsMiembro && !EsStaff && mismo tenant && (EsAutor || EsDirector), chequeado apenas se resuelve la tarea en CancelarAsync; mensaje MensajeNoPuedeCancelar."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-15"
+      por: "QA (auto-fix, sin logica de negocio nueva: aplica la matriz de permisos ya definida en el analisis M7)"
+      resultado: "aplicado"
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /Tareas/Cancelar/<id de una tarea viva de otro usuario> con sesion de staff y con sesion de un Empleado que no es el autor"
+      condicion_falla: "La tarea (o alguna parte) queda Cancelada despues del POST del staff."
+    criterio_aceptacion:
+      - "Staff: POST de cancelar no cambia el estado de la tarea ni de sus partes y devuelve el mensaje de permiso."
+      - "Autor y Director de la misma organizacion siguen cancelando, con la cascada a las partes."
+      - "Empleado que no es el autor sigue recibiendo 404 (no ve la tarea)."
+    pruebas_minimas:
+      - "Navegador/HTTP: cancelar la misma tarea con staff (rechazado), con el autor (cancelada + partes) y con un Director (cancelada + partes)."
+      - "Suite de tests del proyecto verde (las pruebas que cancelan lo hacen con el autor)."
+    nota_generalizacion: "Patron cross-proyecto: cuando una accion de escritura resuelve la entidad con el mismo IQueryable que usan los listados/detalles (Visibles(), ConsultaBase(), filtro por tenant), el 'rol espectador' (staff, auditor, supervisor de solo lectura) hereda permiso de escritura sin que se note, porque la UI no le muestra el boton. Regla: toda accion destructiva vuelve a preguntar QUIEN es el que actua (autor/rol), aunque ya haya pasado por la consulta de visibilidad; y QA la prueba SIEMPRE por POST directo con el rol de solo lectura, no solo mirando si aparece el boton. Se agrava cuando la accion tiene cascada (cancelar/eliminar en cadena): un solo POST del rol equivocado toca N registros."
+
+  - id: OLV-011
+    modulo: "Formularios de EDICION con un campo fecha que el servidor solo valida cuando cambia — Asignaciones/Editar (M7b, input date con min=hoy)"
+    titulo: "Editar una asignacion ya vencida es imposible: el atributo min=hoy del input date bloquea el submit con 'Please enter a value greater than or equal to 2026-09-15.' (en ingles) aunque la fecha no se toque"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro, QA M7b 2026-09-15 (localhost, Playwright; /Asignaciones/Editar/{id} de una asignacion con VenceEl en el pasado)"
+    pasos:
+      - "Crear una asignacion con vencimiento y dejar pasar la fecha (en QA: UPDATE TareasAsignadas SET VenceEl = CURDATE() - INTERVAL 10 DAY WHERE Id = <id>)."
+      - "Abrir /Asignaciones/Editar/<id>, cambiar solo el titulo (o la persona) SIN tocar la fecha y pulsar Guardar."
+      - "Comparar con un POST directo a /Asignaciones/Editar/<id> con el MISMO valor de VenceEl: el servidor lo acepta."
+    sintoma: "El formulario no se envia nunca: queda en pantalla 'Please enter a value greater than or equal to <hoy>.' (en ingles, del bundle de jquery-validate) bajo el campo Vence. El Director no puede reasignar, corregir el titulo ni cambiar el cliente de una asignacion vencida sin ADEMAS moverle el vencimiento. El servidor si acepta el guardado (verificado por POST con el mismo valor persistido): el bloqueo es solo del navegador."
+    expectativa: "El servidor exige 'hoy o mas adelante' SOLO cuando el vencimiento cambia (regla de diseno D-M7-15); el cliente tiene que hacer lo mismo: se puede guardar una asignacion vencida sin tocar la fecha, y si la persona SI la cambia se vuelve a exigir hoy o mas adelante, con el mensaje en castellano."
+    causa_raiz: "La vista renderiza siempre min=\"@hoy\" en el <input type=date>. jquery-validate deriva una regla 'min' de ese atributo HTML5 y la aplica al valor PERSISTIDO al reabrir el registro, aunque el usuario no lo haya tocado; el mensaje sale del bundle en ingles porque el proyecto no localiza $.validator.messages. Como en GAN-006 (step vs decimal(9,4)), el alta no lo detecta: el campo arranca vacio o con una fecha futura y solo falla al REABRIR un registro guardado. Los tests de servicio no lo ven: el servicio acepta el guardado."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataAgentes.Web/Views/Asignaciones/Form.cshtml
+        motivo: "min solo cuando el valor cargado NO quedo en el pasado (venceViejo => min vacio); listener change que repone min=hoy apenas la persona cambia la fecha; $.validator.messages.min en castellano con el mismo texto del servidor."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-15"
+      por: "QA (auto-fix, sin logica de negocio nueva: el cliente pasa a replicar la regla que el servidor ya tenia)"
+      resultado: "aplicado"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "pantalla de EDICION con <input type=date ... min/max>: abrir un registro cuya fecha persistida queda fuera del rango y guardar sin tocarla"
+      condicion_falla: "El submit no se envia, o aparece cualquier mensaje 'Please enter a value ...' en ingles."
+    criterio_aceptacion:
+      - "Editar una asignacion vencida cambiando solo el titulo guarda sin errores y deja VenceEl igual."
+      - "Si se cambia la fecha a una pasada, se rechaza con 'La fecha tiene que ser hoy o mas adelante.' (castellano) en cliente y en servidor."
+      - "El alta sigue con min=hoy y rechaza la fecha de ayer."
+    pruebas_minimas:
+      - "Navegador: editar una asignacion vencida sin tocar la fecha (guarda); cambiar la fecha a 2020-01-01 (rechaza en castellano); alta con la fecha de ayer (rechaza); chips Hoy / Manana / En una semana / Sin fecha."
+      - "POST directo con el mismo VenceEl persistido: el servidor lo acepta."
+    nota_generalizacion: "Familia de GAN-006 y OLV-005: un atributo de validacion HTML5 (min, max, step, pattern) que expresa la regla del ALTA se aplica igual en la EDICION, donde el valor persistido puede haber quedado fuera del rango legitimamente (fechas que pasan, precios que cambian de escala, estados heredados). Regla para todo proyecto del estudio: (a) cuando el servidor valida un campo SOLO si cambia, la vista tiene que emitir el atributo SOLO si el valor cargado ya cumple, y reponerlo en el evento change; (b) todo mensaje de jquery-validate derivado de atributos HTML5 sale en ingles salvo que se sobreescriba $.validator.messages, asi que el barrido de QA de cada formulario nuevo incluye disparar la validacion del cliente, no solo leer los data-val-*. Se detecta unicamente reabriendo un registro guardado con el valor fuera de rango."
+
+  - id: OLV-012
+    modulo: "Listados con filtros persistidos en Session que la vista repone desde el servidor (PAT-016 parte 2) — Nucleo/Pruebas (M8), mismo patron que Cartera y Areas"
+    titulo: "Los filtros vuelven guardados del servidor pero la vista no los repone: se serializa el FILTRO TIPADO en vez del diccionario crudo, y las claves (rubroSlug vs Rubro) y los formatos (fecha UTC ISO en un campo dd/mm/aaaa) no coinciden con los ids de los controles"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro, QA M8 2026-09-16 (localhost, Playwright; /Nucleo/Pruebas filtrando por Rubro y por rango de fechas, saliendo a otra pantalla y volviendo)"
+    pasos:
+      - "Abrir el listado y elegir un filtro de combo y un rango de fechas."
+      - "Ir a otra pantalla del mismo modulo y volver al listado."
+      - "Mirar los controles: la grilla vuelve filtrada (el servidor si tiene el filtro) pero el combo aparece en 'Todos' y el campo de fecha con un texto raro."
+    sintoma: "El combo de Rubro vuelve vacio y 'Desde' muestra '2026-09-01T03:00:00Z' en un campo con placeholder dd/mm/aaaa; el usuario no sabe por que ve menos filas."
+    expectativa: "Los controles vuelven con lo mismo que guardo la sesion, como en Cartera y Areas (regla 25 / PAT-016)."
+    causa_raiz: "La accion serializaba el objeto de filtros TIPADO (propiedades del DTO: rubroSlug, desde como DateTime UTC) al ViewBag que consume Filtros.reponer(), que busca por las claves con las que ListarX guarda en Session ('Rubro', 'Desde') y espera el texto tal cual se tipeo. Hay que pasar a la vista el diccionario crudo de FiltrosSesion.LeerTodos, no el filtro tipado."
+    capa: Web
+    archivos_fix:
+      - path: OlvidataAgentes.Web/Controllers/NucleoController.cs
+        motivo: "Pruebas(): ViewBag.FiltrosGuardados = el diccionario que devuelve FiltrosSesion.LeerTodos (claves y textos tal cual se guardaron); el filtro tipado se sigue usando solo para la consulta."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-16"
+      por: "QA (auto-fix, sin logica de negocio nueva: reponer en pantalla lo que la sesion ya guardaba)"
+      resultado: "aplicado"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "window.filtrosGuardados en la pantalla del listado, y el value de cada control despues de salir y volver"
+      condicion_falla: "window.filtrosGuardados trae claves distintas de las que usa Filtros.reponer(), o un control queda vacio / con una fecha ISO despues de volver al listado."
+    criterio_aceptacion:
+      - "Filtrar, salir del listado y volver: cada control muestra su valor y la grilla trae las mismas filas."
+      - "'Limpiar filtros' devuelve el total y vacia los controles."
+    pruebas_minimas:
+      - "Navegador: un combo + un rango de fechas, salir y volver; comparar filas y valores de los controles; despues Limpiar."
+    nota_generalizacion: "Aplica a TODO listado del estudio con filtros en Session (PAT-016): lo que la vista repone tiene que ser EXACTAMENTE el diccionario que la accion Listar guardo (mismas claves, mismo texto), nunca una reserializacion del filtro tipado. En QA no alcanza con ver que la grilla vuelve filtrada: hay que mirar el value de cada control. Ojo tambien con los <select> cuyo value es el NOMBRE del enum ('Simulada'), no su numero: un script de QA que setea '1' deja el control vacio y parece un defecto del sistema."
 
   # -- Entradas especificas del proyecto crm-olvidata (feature "4 frentes", 2026-09-14) -------------
 

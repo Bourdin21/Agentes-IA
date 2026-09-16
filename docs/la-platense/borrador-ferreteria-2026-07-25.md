@@ -1,3 +1,7 @@
+<!-- Borrador original de la propuesta de ferreteria (2026-07-25), movido desde /docs/ el 2026-09-15.
+Es la version PREVIA al ajuste del 2026-07-29 (ver 27-presupuesto-parametros.instructions.md, "borrador 2026-07-25").
+La propuesta vigente y enviada al cliente es /docs/la-platense/presupuesto-cliente.md (USD 1.500 aprobados el 2026-07-30). -->
+
 # Olvidata**Soft**
 
 ---

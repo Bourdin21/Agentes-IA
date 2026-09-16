@@ -89,7 +89,27 @@ Leer según el agente activo:
 - `30-qa-regresiones` — regresiones y pruebas funcionales
 - `31-formato-documento-cliente` — formato y estilo obligatorio de todo documento entregado al cliente (presupuesto, resumen de sprint)
 - `32-estandares-qa-implementador` — estandares de implementacion derivados del barrido de errores QA cross-proyecto
+- `34-integracion-afip-arca` — circuito completo de facturacion electronica AFIP/ARCA (WSAA, certificado, WSFEv1, Notas de Credito), depurado contra produccion real
+- `35-pantalla-control-stock` — patron de pantalla de control de stock/inventario (listado editable inline vs. formulario de ajuste)
 - `33-verificacion-automatizada-qa` — QA ejecuta verificacion automatizada por navegador para casos objetivamente chequeables (catalogo de regresiones + estandares 32 + criterios de aceptacion criticos); el resto sigue siendo manual
+
+## Skills (carga bajo demanda)
+
+Las instrucciones modulares de arriba son la **fuente completa**; las skills de `.claude/skills/` son el indice fino que se carga solo cuando hace falta (al inicio solo entra su descripcion, el cuerpo recien al invocarse). No duplican contenido: apuntan al archivo de instrucciones y dicen que seccion leer.
+
+| Skill | Cubre | Se activa con |
+|---|---|---|
+| `estandares-qa` | catalogo de bugs recurrentes (32 + regresiones) | archivos `.cs` / `.cshtml` |
+| `presupuesto-parametros` | tasa, factores, rangos, descuentos (27 + dataset) | invocacion explicita |
+| `design-system` | vistas MVC, DataTables, Select2, importes (25) | vistas, css, js |
+| `checklists-modulo` | checklists de salida por tipo de trabajo (26) | archivos `.cs` / `.cshtml` |
+| `memoria-documental` | donde va cada dato, regla vigente vs. historial (29) | archivos de `docs/` |
+
+## Chequeo de consistencia (`scripts/doctor.py`)
+
+`python scripts/doctor.py` verifica en segundos que la memoria no se haya desincronizado: numeros de precio contradictorios entre archivos, estado de proyecto declarado fuera de `docs/indice.md`, IDs de regla duplicados, cierres reales que quedaron sin cargar en `docs/calibracion/dataset.yml`, archivos de mas de 300 KB y huerfanos. `--fast` corre solo los chequeos baratos.
+
+Esta enganchado a 3 hooks (`.claude/settings.json` -> `.claude/hooks/hook_doctor.py`): avisa al editar `docs/` o `.github/`, al abrir sesion y al terminar si quedaron muchos cambios sin commitear. **Errores** (rojo) son contradicciones que hay que arreglar; **avisos** son deuda documental. Corre tambien antes de dar por cerrada cualquier etapa.
 
 ## Trazabilidad documental
 
@@ -114,13 +134,8 @@ Leer según el agente activo:
 
 ## Proyectos activos
 
-| Proyecto | Estado | Repo local |
-|---|---|---|
-| ShowroomGriffin | activo | `C:\Sistemas\ShowroomGriffin` |
-| vinosefue | activo | `C:\Sistemas\vino-y-se-fue` |
-| virtualwallet | abierto | `C:\Sistemas\virtualwallet` |
-| ganaderia | QA pendiente | `C:\Sistemas\ganaderia` |
-| contadores-bma-conversor | activo | `C:\Sistemas\Contadores BMA - Conversor` |
-| century-21 | activo | `C:\Sistemas\Century 21` |
+**Fuente unica de estado de proyectos: `docs/indice.md`.** Ahi vive, por proyecto, el estado real (activo / cerrado / en produccion), la URL productiva, el repo local y el ultimo hito. No duplicar esa tabla aca ni en `.github/copilot-instructions.md`: cada copia se desincronizo (auditoria 2026-09-15 — ganaderia figuraba a la vez como "QA pendiente" y "en produccion").
 
-Ver `.github/copilot-instructions.md` para el detalle completo de items pendientes por proyecto.
+- Estado y repo de cada proyecto: `docs/indice.md`
+- Metadata propia de cada uno (owner, hosting, `ruta_repositorio`): `docs/<proyecto>/metadata.md`
+- Historial de decisiones: `docs/<proyecto>/trazabilidad.md`

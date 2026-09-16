@@ -21,6 +21,24 @@
 
 ---
 
+## Estado del ciclo por agente
+
+(Movido desde `trazabilidad.md` el 2026-09-15 al normalizar el log al formato canónico: es estado vigente, no log.)
+
+**Fecha inicio del proyecto:** 2026-04-23
+**Última actualización declarada en `trazabilidad.md` al momento del movimiento:** 2026-08-11 (el log tiene entradas hasta 2026-08-16)
+
+| Agente | Archivo | Estado |
+|--------|---------|--------|
+| **Analista Funcional** | `1-analista-funcional.md` | ✅ Creado (2026-04-23) |
+| **Diseñador Funcional** | `2-disenador-funcional.md` | ✅ Completado |
+| **Arquitecto MVC** | `3-arquitecto-mvc.md` | ✅ Completado |
+| **Presupuestador** | `4-presupuestador.md` | ✅ Cerrado (2026-05-20) |
+| **Implementador** | `5-implementador.md` | ✅ Completado |
+| **QA** | `6-qa.md` | ✅ Completado (2026-05-18, BLOCKED items pendientes smoke manual) |
+
+---
+
 ## Stack tecnológico
 
 | Componente             | Tecnología / Versión                          |

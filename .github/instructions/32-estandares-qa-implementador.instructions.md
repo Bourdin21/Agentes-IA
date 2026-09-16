@@ -7,7 +7,7 @@ applyTo: "**/*.{cs,cshtml,js}"
 
 Fuente: barrido completo de `docs/qa/regresiones-manuales.yml` y los `6-qa.md` de todos los proyectos (ShowroomGriffin, KOI, delicias-naturales, ganaderia, vinosefue) al 2026-07-03, mas fixes cargados directamente desde sesiones de trabajo sobre proyectos en produccion (no solo del flujo formal de subagentes — ver "Alcance" en `30-qa-regresiones.instructions.md`, regla agregada 2026-08-20 tras crm-olvidata). Cada regla abajo tiene su(s) id(s) de origen entre parentesis — ver el catalogo para el detalle completo del caso.
 
-## Combos select / select-multiple en edicion de entidades (regla nueva, patron recurrente no catalogado hasta ahora)
+## Combos select / select-multiple en edicion de entidades (REG-011)
 
 - **Regla:** toda vista de Editar que expone una relacion configurable por combo (Select2 simple o multiple, tags, catalogo many-to-many) DEBE inicializarse con los valores ya asignados a la entidad. Nunca renderizar el combo vacio en Editar cuando la entidad ya tiene datos cargados.
 - **Como implementarlo:**
@@ -16,7 +16,7 @@ Fuente: barrido completo de `docs/qa/regresiones-manuales.yml` y los `6-qa.md` d
   - Para selects multiples (tags/many-to-many), el POST de Editar debe reconciliar la seleccion enviada contra la relacion existente (altas y bajas), no solo agregar.
 - **Como detectarlo en QA:** abrir Editar de una entidad con la relacion ya cargada → el combo debe mostrar los valores existentes ya seleccionados, no en blanco. Si el combo aparece vacio pese a que la entidad tiene datos, es bug bloqueante de esta regla.
 
-## Todas las propiedades de la entidad deben ser editables en Alta y Edicion, salvo auditoria (regla nueva, patron preventivo)
+## Todas las propiedades de la entidad deben ser editables en Alta y Edicion, salvo auditoria (REG-012)
 
 - **Regla:** todo campo/propiedad de negocio de una entidad (Domain) debe existir en el ViewModel y en la vista tanto de `Create` como de `Edit`, y debe poder cargarse/modificarse por el usuario en ambas — no alcanza con que exista en el modelo o en el detalle de solo lectura. Unica excepcion: las propiedades de auditoria/sistema (`Id`, `CreatedAt`, `UpdatedAt`, `DeletedAt`, `RowVersion`, y equivalentes gestionados automaticamente por el framework/DbContext — ver `20-domain.instructions.md`), que nunca se exponen como campo editable del formulario.
 - **Por que:** es un patron de omision facil de cometer al revés de la regla de combos (arriba) — ahi el bug es un combo que llega vacio en Editar pese a tener datos; aca el bug es un campo que directamente **no existe** en el formulario (ni en Alta ni en Edicion, o solo en uno de los dos), quedando fijo en su valor por default o solo cargable por script/consola. El sintoma para el usuario final es peor que un error visible: el dato "no se puede cambiar" sin ningun mensaje que lo explique.
@@ -79,7 +79,7 @@ Fuente: barrido completo de `docs/qa/regresiones-manuales.yml` y los `6-qa.md` d
 
 - No usar `<input list>` + `<datalist>` nativo para autocomplete — tiene quirks de refresco de desplegable no confiables entre navegadores tras poblar asincronicamente. Usar siempre Select2 (ya establecido en el design system, `25-frontend-design-system.instructions.md`) para cualquier campo de autocomplete/sugerencias.
 
-## Backfills que no filtran por el estado de la entidad relacionada (VSF-001)
+## Backfills que no filtran por el estado de la entidad relacionada (VSF-003)
 
 - Scripts de backfill/migracion que propagan FK o estado desde una entidad padre a sus hijos filtran/validan contra el estado **actual** de la entidad relacionada en el momento del backfill — nunca copian el valor ciegamente sin considerar que la entidad de destino puede estar en un estado terminal (Cancelada, Cerrada) que cambia el comportamiento esperado.
 
@@ -231,7 +231,7 @@ Circuito completo (semantica reemplaza-vs-delta, guardado por fila, motivo opcio
 - **Ante un error al leer el flag, no operar.** Si la consulta a la configuracion falla, el proceso debe saltear el tick, no asumir "no estaba pausado".
 - **Origen (CRM-018, crm-olvidata, 2026-09-13):** `OutboundSchedulerService.IsStandby` era un `public static volatile bool` y el boton "Pausar outbound" solo lo escribia ahi. Pausar el bot era una decision que duraba hasta el proximo deploy. El mismo proyecto ya habia aprendido la leccion con `BusquedaMapsPausada` (persistida en base tras una factura real de USD 542,72 de Google Places) pero no se habia propagado al flag mas importante. Sin item YAML asociado.
 
-## `string.StartsWith` / `EndsWith` traducido a SQL contra MySQL: 500 garantizado (MH-001, variante nueva)
+## `string.StartsWith` / `EndsWith` traducido a SQL contra MySQL: 500 garantizado (CRM-019, misma familia que MH-001)
 
 - **Regla:** al proveedor MySQL de EF Core 10 tampoco se le puede traducir `StartsWith`/`EndsWith` con una constante dentro de una query. EF emite un `COLLATE utf8mb4_bin` para forzar la comparacion ordinal y despues no le asigna type mapping: `InvalidOperationException: Expression '[SqlExpressions.SqlConstantExpression] COLLATE utf8mb4_bin' in the SQL tree does not have a type mapping assigned`. Es la misma familia que el `List<string>.Contains` ya catalogado, con otro disparador.
 - **Como implementarlo:** usar `EF.Functions.Like(campo, "prefijo%")` (o `"%sufijo"`), que traduce a un LIKE limpio. Ojo con los comodines: en MySQL solo `%` y `_` son especiales dentro de LIKE, asi que un corchete o un parentesis literal no hay que escaparlos, pero un `%` o `_` dentro del prefijo buscado si.
@@ -259,7 +259,7 @@ Circuito completo (semantica reemplaza-vs-delta, guardado por fila, motivo opcio
 - **Agravante a chequear:** si la logica vieja LEE alguno de los campos que la logica nueva escribe, la sombra cambia el comportamiento de lo que si se le entrega al usuario — y deja de ser una comparacion valida entre las dos.
 - **Origen (CRM-022, crm-olvidata, 2026-09-13):** el modo sombra de la conversacion con IA no le mandaba la respuesta al prospecto (contestaba el arbol), pero sus herramientas si escribian rubro, categoria, nombre del negocio y zona del contacto, y agregaban filas al hilo. Ademas el arbol lee `Contacto.Rubro` para elegir su propio camino. Verificado el fix con una prueba real: tras el cambio, el contacto queda con esos 4 campos en NULL y solo se persiste el transcript tecnico y la telemetria de costo. Sin item YAML asociado.
 
-## Lote con cupo: todo filtro de elegibilidad va ANTES del Take(cupo) (crm-olvidata, preventiva)
+## Lote con cupo: todo filtro de elegibilidad va ANTES del Take(cupo) (CRM-024)
 
 - **Regla:** cuando un proceso por lotes toma los primeros N candidatos (`.Take(cupo)`, `LIMIT`, "los primeros X del dia") y despues puede SALTEAR alguno por una condicion propia del registro (sin plantilla disponible, sin dato obligatorio, bloqueado por configuracion), esa condicion se evalua en el filtro de candidatos, **antes** del corte. Si se evalua despues (dentro del `foreach`, con un `continue`), cada salteado ocupa un lugar del cupo que nadie usa: el lote manda menos de lo que puede, sin error y sin log que lo explique.
 - **Como implementarlo:** resolver por registro lo que decide si se procesa (ej. `ResolverPlantilla(contacto)` devolviendo null = no se envia) en un `Select` previo, filtrar los null, recien ahi ordenar y cortar. Contar los salteados por motivo para el log y para el panel de salud.
@@ -275,5 +275,7 @@ Circuito completo (semantica reemplaza-vs-delta, guardado por fila, motivo opcio
 - **Origen:** crm-olvidata, QA de la feature "4 frentes — combo con gancho" (2026-09-14): el selector multiple "Frentes" de `/Modulos/Presupuesto` y del modal de `Chats/Detail` armaba siempre el checklist de Build. Ver CRM-023 en `docs/qa/regresiones-manuales.yml`.
 
 ## Mantenimiento de este catalogo
+
+**Los IDs son un namespace unico por proyecto.** `<PROY>-NNN` (CRM-014, MH-021, KOI-006...) identifica una sola cosa, sin importar donde viva: una regla preventiva de este catalogo, un item reproducible de `docs/qa/regresiones-manuales.yml` o un defecto puntual registrado en el `6-qa.md` de ese proyecto. Antes de asignar uno nuevo, buscar el ultimo usado en los TRES lugares — no reiniciar la numeracion por archivo. Ejemplo real: `CRM-007` a `CRM-014` son defectos del `6-qa.md` de crm-olvidata y `CRM-017` en adelante son reglas de este archivo; el rango 015-016 quedo en el yml. `python scripts/doctor.py` avisa cuando un ID citado no existe en ningun catalogo y corta si uno titula dos reglas distintas.
 
 - Cuando el agente QA confirma un bug funcional nuevo y su fix (ver `30-qa-regresiones.instructions.md`), evaluar si el patron de causa raiz es generalizable (no especifico de un solo proyecto). Si lo es, agregar una seccion nueva a este archivo ademas del item en `docs/qa/regresiones-manuales.yml` — este archivo es el que efectivamente lee el implementador en cada implementacion nueva, el YAML es el catalogo de deteccion/reproduccion de QA.
