@@ -2943,3 +2943,261 @@ regresiones:
       - "Solo Build -> checklist y GenerarMensaje byte a byte iguales a la version anterior."
       - "Calcular con un moduloId de un frente no elegido -> ignorado (0 modulos)."
     nota_generalizacion: "Aplica a TODO proyecto del estudio que mande arrays por AJAX GET con jQuery ($.get, $.getJSON, $.ajax sin traditional) a una accion MVC con parametro de coleccion: el binder de ASP.NET Core no reconoce 'nombre[]' en el query string y el parametro llega vacio sin error. Si ademas la accion tiene un default 'sin valor = comportamiento viejo', la falla es completamente silenciosa. Regla: arrays por GET siempre con traditional:true (o $.param(data, true)); y probar el filtro con un valor distinto del default, no solo el camino que coincide con el default. Formalizado en 32-estandares-qa-implementador.instructions.md."
+
+  - id: OLV-013
+    modulo: "Programaciones - detalle e historial de vueltas (/Programaciones/Detalle/{id}), columna TAREA"
+    titulo: "Pantalla nueva pinta el enum crudo (EsperandoAprobacion) en vez del rotulo llano, teniendo el partial del design system ya hecho"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - commit f1be7aa (M12), olvidata_agentes_dev, portal local en Development con modelo simulado. Reproducido por navegador (Playwright MCP)."
+    pasos:
+      - "Como Director crear una programacion con la casilla 'Puede usar acciones que necesitan aprobacion' TILDADA y un pedido que dispare una accion que requiere aprobacion (ej. una conexion de M11 con 'Permitir consultas sin aprobacion' destildado)."
+      - "Apretar 'Ejecutar ahora' y esperar el barrido del motor."
+      - "Abrir /Programaciones/Detalle/{id} y mirar la columna TAREA del historial de vueltas."
+    sintoma: "Al lado del enlace #177 dice 'EsperandoAprobacion' — el nombre del enum, todo junto y sin tilde. En el resto del portal ese mismo estado se muestra como 'Espera aprobacion' con su badge y su icono. Los otros estados disimulan el bug porque el nombre del enum coincide con el rotulo (Completada, Cancelada), salvo Pendiente ('En cola') y EsperandoSubtareas ('Esperando a otros agentes'), que tambien salen mal."
+    expectativa: "La columna TAREA muestra el estado con el mismo rotulo llano que el resto del producto: 'Espera aprobacion' / 'En cola' / 'Esperando a otros agentes', usando el componente que ya existe."
+    causa_raiz: "Views/Programaciones/Detalle.cshtml linea 203 hace '<span class=\"small text-muted ms-1\">@estadoTarea</span>': interpola el enum, que llama a ToString(). El partial Views/Tareas/_EstadoTarea.cshtml ya resuelve (clase, texto, icono) para los 7 valores de EstadoTarea y se usa en Tareas, pero la pantalla nueva de M12 no lo reutilizo."
+    capa: Web
+    archivos_fix:
+      - path: src/OlvidataAgentes.Web/Views/Programaciones/Detalle.cshtml
+        motivo: "Reemplazar la interpolacion del enum por el partial _EstadoTarea, que ya tiene el rotulo, el icono y la clase de cada estado."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-16"
+      por: "QA (auto-fix, 1 vista, sin logica de negocio nueva: reutiliza el partial del design system que ya existia)"
+      resultado: "aplicado"
+      archivos:
+        - path: src/OlvidataAgentes.Web/Views/Programaciones/Detalle.cshtml
+          motivo: "await Html.PartialAsync(\"~/Views/Tareas/_EstadoTarea.cshtml\", estadoTarea) en lugar de @estadoTarea."
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /Programaciones/Detalle/{id} con al menos una vuelta cuya tarea NO este Completada; mirar la celda de la columna TAREA"
+      condicion_falla: "El texto visible contiene 'EsperandoAprobacion', 'EsperandoSubtareas' o 'Pendiente' (nombres de enum) en vez de 'Espera aprobacion', 'Esperando a otros agentes' o 'En cola'."
+    criterio_aceptacion:
+      - "Una vuelta cuya tarea quedo esperando aprobacion muestra 'Espera aprobacion', no 'EsperandoAprobacion'."
+      - "Una vuelta con la tarea completada sigue mostrandose igual que antes."
+      - "El rotulo coincide exactamente con el que muestra /Tareas para la misma tarea."
+    pruebas_minimas:
+      - "Navegador: detalle de una programacion con autonomia encendida y una vuelta esperando aprobacion."
+      - "Comparar el rotulo con el de /Tareas para la misma tarea: deben decir lo mismo."
+      - "Tema claro y oscuro: el estado se distingue por icono y texto, no solo por color."
+    nota_generalizacion: "Regla general para TODA pantalla nueva del estudio que muestre un enum de dominio ya existente: no interpolar el enum (@estado) ni depender de que el nombre coincida con el rotulo. Antes de escribir la celda, buscar si ya hay un partial/helper que traduzca ese enum (en este stack, Views/<Modulo>/_Estado*.cshtml o un *Textos.cs en Web/Helpers) y reutilizarlo. El bug es especialmente facil de pasar por alto porque los valores mas frecuentes suelen tener nombre igual al rotulo (Completada, Cancelada, Activa) y solo se nota en los estados compuestos. En QA: forzar al menos un estado cuyo nombre de enum NO sea una palabra sola."
+
+  - id: OLV-014
+    modulo: "Motor de agentes - 'Ver pasos' de una tarea (/Tareas/Detalle/{id}), rama de ERROR de los rotulos llanos"
+    titulo: "El rotulo llano de un paso fallido interpola el mensaje de error crudo de la herramienta, que esta escrito para el modelo y nombra herramientas y codigos internos"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - commit 08cfcf7 (correcciones de la ronda 1 de QA integral), olvidata_agentes_dev, portal local en Development con modelo simulado. Reproducido por navegador (Playwright MCP), conversacion #187."
+    pasos:
+      - "Publicar en dev el prompt del configurador de reglas y entrar como Director a /ConfiguracionReglas/Nueva."
+      - "Preparar el disparador determinista: crear una regla de la empresa con el titulo de EXACTAMENTE el largo maximo (150) terminado en ' (ajustada)', de modo que la propuesta de cambio del configurador quede identica a la regla y la herramienta falle."
+      - "Arrancar una conversacion con 'Revisa mis reglas actuales' y abrir 'Ver pasos'."
+    sintoma: "El paso fallido dice 'No pudo registrar la propuesta: la propuesta no cambia nada de la regla. Indica el titulo, el texto, el modo, el tipo o las etiquetas nuevos.' El envoltorio esta bien redactado, pero lo que sigue a los dos puntos es el mensaje que la herramienta le devuelve AL MODELO: imperativo dirigido al agente. Otros mensajes de la misma familia, alcanzables con el modelo real, llegan peor: 'Esa persona no esta activa en la organizacion. Consulta equipo_listar.', 'El area indicada no existe en la organizacion. Consulta estructura_empresa.', 'El cliente indicado no existe en la organizacion. Buscalo con clientes_buscar.', 'No modifica la regla. Leela antes con regla_obtener.', 'Alcance desconocido. Usa empresa, area, agente, cliente, cliente_agente o mis_preferencias.', 'Indica regla_id.' Son 14 mensajes que nombran una herramienta o vuelcan un codigo crudo de alcance/modo."
+    expectativa: "Lo que lee la persona en 'Ver pasos' nunca nombra una herramienta ni un codigo interno, tampoco en la rama de error. El mensaje para el modelo y el mensaje para la persona son dos textos distintos."
+    causa_raiz: "En la rama de error, ResumenHerramientasConfigurador.Resultado y ResumenHerramientasAsistente.Resultado hacen Error($\"No pudo ...: {motivo}\") con motivo = MinusculaInicial(resultado.Trim()), donde 'resultado' es el string que la herramienta devolvio al modelo. El camino feliz si tiene rotulos redactados aparte; la rama de error no."
+    capa: Infrastructure
+    archivos_fix:
+      - path: src/OlvidataAgentes.Infrastructure/Services/Configurador/ResumenHerramientasConfigurador.cs
+        motivo: "La rama esError no debe volcar el texto para el modelo. Opciones: (a) que el fallo lleve dos mensajes (uno para el modelo, uno para la persona) y el rotulo use el segundo; (b) una lista blanca de motivos publicables y un generico para el resto."
+      - path: src/OlvidataAgentes.Infrastructure/Services/Asistente/ResumenHerramientasAsistente.cs
+        motivo: "Idem para las 5 herramientas de M7b."
+      - path: src/OlvidataAgentes.Application/DTOs/AsignacionesDtos.cs
+        motivo: "MensajesAsistente.PersonaNoExiste / AgenteNoExiste / ClienteNoExiste nombran la herramienta a consultar: separar el texto para el modelo del texto para la persona."
+      - path: src/OlvidataAgentes.Infrastructure/Services/Configurador/HerramientasConfigurador.cs
+        motivo: "Mismos mensajes, para las 9 herramientas de M4b."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /Tareas/Detalle/{id} de una conversacion de plataforma con al menos un paso fallido; abrir 'Ver pasos' y leer el texto del paso en error"
+      condicion_falla: "El texto visible de un paso fallido contiene un nombre de herramienta en snake_case (equipo_listar, estructura_empresa, clientes_buscar, regla_obtener, agentes_disponibles) o un codigo crudo (cliente_agente, salvo_indicacion, mis_preferencias, regla_id, sugerencia_id, area_id)."
+    criterio_aceptacion:
+      - "Un paso fallido de cualquier herramienta de plataforma se lee sin un solo snake_case ni codigo interno."
+      - "El camino feliz no cambia."
+      - "Si no hay un texto para la persona, el rotulo cae en un generico honesto en vez de volcar el del modelo."
+    pruebas_minimas:
+      - "Navegador: el disparador determinista de los pasos (titulo de 150 caracteres terminado en ' (ajustada)') y verificar que el paso fallido no tiene snake_case."
+      - "Regex sobre el innerText de la zona de pasos: /\b[a-z]{3,}_[a-z_]{2,}\b/ debe dar 0 coincidencias, igual que en el camino feliz."
+      - "Barrido de los mensajes de error de las herramientas: ninguno que pueda llegar a pantalla nombra una herramienta."
+    nota_generalizacion: "Aplica a TODO proyecto del estudio donde una herramienta de un agente devuelve un string que se le muestra a la persona. Regla: un mensaje de error de herramienta tiene DOS lectores (el modelo, que necesita saber que herramienta usar para arreglarlo, y la persona, que no tiene que enterarse de que existen herramientas) y por lo tanto necesita DOS textos. Cuando se redactan rotulos llanos para 'lo que hizo el agente', el camino feliz se redacta con cuidado y la rama de error se resuelve con una interpolacion del mensaje crudo: hay que revisar la rama de error con el mismo criterio. En QA: no alcanza con verificar el camino feliz, hay que forzar al menos un fallo de herramienta y mirar el rotulo."
+
+  - id: OLV-015
+    modulo: "Cualquier flujo donde una pantalla ofrece un boton 'convertir/derivar esto' hacia una accion de otro controller"
+    titulo: "Dos guardas mutuamente excluyentes sobre el mismo flujo: el boton solo se muestra cuando la condicion es X y la accion de destino solo acepta NO-X, asi que el boton siempre da 404"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - commit 05d6ba7 (M14), olvidata_agentes_dev, portal local en Development con modelo simulado. Reproducido por navegador (Playwright MCP) como Directora de la org 19."
+    pasos:
+      - "Guardar una regla de tipo 'Regla' cuyo texto tenga pasos numerados (dispara la deteccion blanda de D-M14-6)."
+      - "En el aviso que aparece despues de guardar, apretar 'Convertirlo en instructivo'."
+    sintoma: "Se navega a /Instructivos/Crear?convertirRegla={id} y la pantalla es un 404 'Pagina no encontrada'. El unico dispositivo que el diseno puso para reencauzar un procedimiento cargado como regla no funciona nunca, y ademas la persona termina en una pagina de error."
+    expectativa: "El boton que la pantalla muestra lleva a un formulario precargado. Si la accion de destino no puede atender ese caso, el boton no se muestra."
+    causa_raiz: "ReglasController.AvisarSiPareceInstructivo hace 'if (model.Tipo != TipoRegla.Regla) return;' â€” solo pone el aviso para reglas de tipo Regla. InstructivoService.ReglaConvertibleAsync hace 'if (regla.Tipo != TipoRegla.Procedimiento) return NotFound()' â€” solo acepta reglas de tipo Procedimiento. Las dos condiciones no se pueden cumplir a la vez. El camino desde el detalle de una regla que YA es Procedimiento si funciona, y es el que se probo durante la implementacion; el de la deteccion blanda no se probo."
+    capa: Infrastructure
+    archivos_fix:
+      - path: src/OlvidataAgentes.Infrastructure/Services/Instructivos/InstructivoService.cs
+        motivo: "ReglaConvertibleAsync tiene que aceptar tambien Tipo == Regla (es el caso de la deteccion blanda). El resto de las guardas â€”organizacion, permiso, alcance propioâ€” no cambian."
+      - path: src/OlvidataAgentes.Application/DTOs/InstructivosDtos.cs
+        motivo: "MensajesInstructivos.ConvertidoDesdeRegla dice 'la regla de tipo procedimiento se desactivo': hace falta una variante para una regla comun, o una redaccion que sirva para las dos. Es decision de redaccion, por eso el fix no se auto-aplica."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Todo enlace que una vista renderiza dentro de un aviso condicional y que apunta a una accion de OTRO controller que vuelve a resolver la entidad contra la base"
+      condicion_falla: "La condicion que decide mostrar el enlace y la condicion que la accion de destino exige sobre la misma entidad son distintas (o contradictorias). Se detecta en codigo comparando las dos guardas, y por navegador haciendo clic en el boton y viendo un 404/403."
+    criterio_aceptacion:
+      - "Todo boton visible lleva a una pantalla que carga; ningun camino nuevo termina en 404."
+      - "Las dos guardas (la que muestra el boton y la que atiende la accion) se leen juntas y son compatibles."
+    pruebas_minimas:
+      - "Navegador: disparar el aviso y hacer clic en su boton; tiene que abrir el formulario precargado."
+      - "Navegador: el camino que ya funcionaba (desde el detalle de una entidad que ya cumple la condicion) sigue funcionando."
+    nota_generalizacion: "Regla para QA: cuando el diseno define un dispositivo con un boton ('esto parece X, converti'), no alcanza con verificar que el aviso aparece â€” hay que APRETAR el boton. Y regla para el implementador: cuando una accion de destino revalida la entidad contra la base, la guarda de la accion y la guarda que decide mostrar el enlace tienen que escribirse en el mismo momento, mirando las dos."
+
+  - id: OLV-016
+    modulo: "Cualquier aviso 'blando' que el diseno pide mostrar AL GUARDAR (sugerencias, 'esto parece otra cosa', 'te conviene usar X')"
+    titulo: "El aviso posterior al guardado se calcula solo en la rama de validacion fallida, asi que en el camino normal (guardado exitoso con redirect) no aparece nunca"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - commit 05d6ba7 (M14), olvidata_agentes_dev, portal local en Development. Reproducido por navegador (Playwright MCP)."
+    pasos:
+      - "Crear un instructivo cuyos 'pasos' sean una sola oracion sin numerar (el caso que D-M14-6 quiere detectar)."
+      - "Guardar."
+    sintoma: "Se redirige al detalle sin ningun aviso. El texto 'Esto parece una regla: algo que vale siempre, no los pasos de una tarea.' existe y esta bien redactado, pero solo se ve si despues se vuelve a abrir la pantalla de Editar. El dispositivo es invisible justo en el momento en que se comete el error."
+    expectativa: "El aviso aparece al guardar, sobre el resultado del guardado, y nunca bloquea."
+    causa_raiz: "La bandera del aviso (InstructivoFormViewModel.PareceRegla) se setea en CompletarAsync, que el controller llama solo cuando ModelState es invalido o al abrir Editar. El POST exitoso hace RedirectToAction y se saltea el calculo. El lado simetrico (la deteccion sobre una REGLA) si esta bien resuelto: TempData sobrevive el redirect y un partial lo pinta en el destino."
+    capa: Web
+    archivos_fix:
+      - path: src/OlvidataAgentes.Web/Controllers/InstructivosController.cs
+        motivo: "Tras un Crear/Editar exitoso, dejar la marca en TempData igual que ReglasController.AvisarSiPareceInstructivo, para que sobreviva el redirect."
+      - path: src/OlvidataAgentes.Web/Views/Instructivos/Detalle.cshtml
+        motivo: "Pintar el aviso en el destino del redirect. Donde va exactamente y que ofrece el boton (hoy 'Cargarlo como regla' manda a un formulario VACIO y se pierde el texto escrito) es decision de diseno: por eso el fix no se auto-aplica."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "POST de alta/edicion que termina en RedirectToAction y cuya vista tiene un aviso condicional alimentado por una propiedad del ViewModel"
+      condicion_falla: "La propiedad que enciende el aviso se calcula en un metodo que solo corre cuando ModelState es invalido. Se confirma por navegador: guardar el caso que deberia disparar el aviso y no verlo."
+    criterio_aceptacion:
+      - "Guardando el caso que el diseno describe, el aviso se ve sin tener que reabrir la pantalla."
+      - "El aviso nunca bloquea: la entidad ya quedo guardada."
+    pruebas_minimas:
+      - "Navegador: guardar el caso limite y verificar el aviso en la pantalla de destino."
+      - "Navegador: guardar un caso normal y verificar que el aviso NO aparece."
+    nota_generalizacion: "Regla para QA: un aviso que el diseno pide 'al guardar' se prueba guardando, no abriendo el formulario. Regla para el implementador: el estado que tiene que sobrevivir a un redirect va en TempData, no en el ViewModel; si en el mismo modulo hay un caso simetrico ya resuelto con TempData, hay que copiarlo."
+
+  - id: OLV-017
+    modulo: "Vistas Razor que imprimen un prefijo pegado a una expresion (v arroba Model.Version, x arroba item.Id)"
+    titulo: "Razor lee 'letra-arroba-Expresion' como una direccion de email y la imprime literal: en pantalla se ve el codigo fuente"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - commit 05d6ba7 (M14), /Instructivos/Detalle/{id}. Reproducido por navegador (Playwright MCP)."
+    pasos:
+      - "Entrar al detalle de la entidad versionada."
+      - "Mirar el campo 'Version' y la columna 'Version' del historial."
+    sintoma: "Se lee el codigo fuente de la vista en vez del numero. No hay error de compilacion ni de runtime: Razor lo toma como texto porque el patron 'algo-arroba-algo' le parece un email."
+    expectativa: "Se lee 'v1'."
+    causa_raiz: "Falta parentizar la expresion. En el mismo repo hay 13 usos correctos con parentesis (Views/Nucleo/*, Views/Shared/_ReglasEfectivas.cshtml) y solo los dos nuevos sin ellos: el patron ya estaba resuelto y la vista nueva no lo copio."
+    capa: Web
+    archivos_fix:
+      - path: src/OlvidataAgentes.Web/Views/Instructivos/Detalle.cshtml
+        motivo: "Parentizar las dos expresiones de version."
+    migracion_ef: null
+    fix_aplicado: "QA M14 (2026-09-17), olvidata-agentes-multirubro: parentizadas las dos expresiones. Verificado por navegador: el detalle muestra 'v1' y el historial 'v1'."
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "grep del patron letra-arroba-identificador sobre Views/ (fuera de un mailto)"
+      condicion_falla: "El innerText de la pantalla contiene una arroba seguida de un identificador con punto (Model. , item.)."
+    criterio_aceptacion:
+      - "Ninguna pantalla imprime una expresion Razor como texto."
+    pruebas_minimas:
+      - "Navegador: el innerText de cada pantalla nueva no contiene 'Model.' ni 'Html.' ni el nombre de la variable del foreach."
+      - "grep del patron sobre todas las vistas nuevas del entregable."
+    nota_generalizacion: "Aplica a TODO proyecto MVC del estudio. Es un error silencioso: compila, no tira excepcion y solo se ve mirando la pantalla. Conviene barrerlo con grep en cada entrega que agrega vistas, y en QA leer el innerText de cada pantalla nueva buscando el simbolo de arroba."
+
+  - id: OLV-018
+    modulo: "Vistas que usan una clase utilitaria de Bootstrap como UNICO diferenciador visual de un estado (leido/no leido, activo/inactivo)"
+    titulo: "La clase utilitaria no existe en el CSS que sirve el proyecto (fw-semibold) y el estado queda sin distinguir, sin ningun error"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - commit 05d6ba7 (M14), /Programaciones/Resultados. Reproducido por navegador (Playwright MCP) midiendo getComputedStyle."
+    pasos:
+      - "Tener al menos un resultado sin ver en la bandeja."
+      - "Medir el font-weight de la fila sin ver y el de una fila ya vista."
+    sintoma: "Las dos dan 400. La fila lleva class='fw-semibold' pero esa clase no esta en el bundle; 'fw-bold' si esta. El diseno pedia negrita para lo no visto."
+    expectativa: "La fila no vista se ve mas fuerte que la vista."
+    causa_raiz: "'fw-semibold' es una utilidad que Bootstrap agrego en 5.3; el design system del proyecto sirve una compilacion que no la incluye. Se usa en decenas de vistas del repo y en todas es inerte: nadie lo noto porque en el resto de los casos es decorativa, no el unico diferenciador de un estado."
+    capa: Web
+    archivos_fix:
+      - path: src/OlvidataAgentes.Web/Views/Programaciones/Resultados.cshtml
+        motivo: "fw-semibold -> fw-bold en la fila no vista."
+    migracion_ef: null
+    fix_aplicado: "QA M14 (2026-09-17), olvidata-agentes-multirubro: cambiada a fw-bold. Verificado por navegador: getComputedStyle de la fila sin ver da 700 y la vista 400."
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "getComputedStyle del elemento que deberia verse distinto, comparado contra el del estado opuesto"
+      condicion_falla: "Los dos estados dan el mismo valor de la propiedad que los tenia que distinguir."
+    criterio_aceptacion:
+      - "Los dos estados se distinguen midiendo, no solo mirando el HTML."
+    pruebas_minimas:
+      - "Navegador: comparar getComputedStyle de una fila en cada estado."
+      - "Comprobar que la clase existe de verdad: crear un elemento con la clase y medir."
+    nota_generalizacion: "Regla para QA: cuando el diseno pide 'se distingue en negrita / en gris / mas chico', NO alcanza con ver la clase en el HTML â€” hay que medir getComputedStyle en los dos estados. Una clase utilitaria que no esta en el bundle es invisible para el compilador, para el linter y para la revision de codigo."
+
+  - id: OLV-019
+    modulo: "Cualquier valor de enum que el producto decide 'dejar de ofrecer al crear' manteniendo los registros viejos"
+    titulo: "La baja del valor se implementa solo en el combo de la vista: un POST armado a mano lo sigue creando"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - commit 05d6ba7 (M14), POST a /Reglas/Create con Tipo=Procedimiento y el antiforgery real de la pagina. Reproducido por navegador (Playwright MCP) como Directora."
+    pasos:
+      - "Abrir el formulario de alta y quedarse con el token antiforgery."
+      - "Mandar el POST con todos los campos validos y el valor dado de baja."
+      - "Verificar en la base que la entidad quedo con ese valor."
+    sintoma: "La entidad se crea con el tipo que el diseno dio por discontinuado, y despues muestra el aviso 'esto ya no se carga asi' â€” un registro nuevo naciendo deprecado."
+    expectativa: "El servidor no deja crear el valor discontinuado; en una edicion, el valor se conserva si la entidad ya lo tenia."
+    causa_raiz: "El combo de la vista filtra la opcion (solo la ofrece si la entidad ya la tiene) pero el servicio de alta no valida nada sobre el tipo. La guarda es de presentacion, no de negocio."
+    capa: Infrastructure
+    archivos_fix:
+      - path: src/OlvidataAgentes.Infrastructure/Services/Reglas/ReglaService.cs
+        motivo: "En el alta, forzar o validar el tipo vigente. OJO: hay que decidir antes que pasa con las altas que NO vienen de la pantalla (en este proyecto, las propuestas del configurador de M4b, cuyo guion propone procedimientos). Es decision de alcance, por eso el fix no se auto-aplica."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "POST forzado a la accion de alta con el valor que el combo no ofrece, usando el antiforgery real"
+      condicion_falla: "La entidad se crea con el valor discontinuado (se verifica en la base, no en la pantalla)."
+    criterio_aceptacion:
+      - "El POST forzado no crea la entidad con el valor discontinuado."
+      - "Editar una entidad que ya lo tiene no le cambia el tipo en silencio."
+    pruebas_minimas:
+      - "POST forzado en el alta: rechazado o normalizado."
+      - "POST forzado en la edicion de una entidad que NO lo tenia: rechazado."
+      - "Edicion normal de una entidad que SI lo tenia: conserva el valor."
+    nota_generalizacion: "Regla del estudio: 'esta opcion ya no se ofrece' es una regla de negocio, no de presentacion. Filtrar el combo evita el error honesto; no evita el POST forzado, ni una integracion, ni un agente que crea la entidad por otra via. En QA: toda vez que una entrega diga 'este valor ya no se ofrece', probar el POST forzado."
+
+  - id: OLV-020
+    modulo: "Informes y dashboards de staff que agregan datos de TODAS las organizaciones con IgnoreQueryFilters"
+    titulo: "El GROUP BY agrupa por NOMBRE (de agente, de cliente) sin el TenantId, asi que dos organizaciones distintas pueden caer en la misma fila y la pantalla no tiene columna para notarlo"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - commit 05d6ba7 (M14), /Uso/Automatizar. Verificado POR CODIGO (InformeAutomatizacion.ArmarAsync) y por la ausencia de columna de organizacion en la pantalla; no reproducido por navegador porque hacia falta crear agentes homonimos en dos organizaciones que esta corrida tenia que dejar intactas."
+    pasos:
+      - "Tener dos organizaciones que usen el mismo agente de la plataforma (o dos agentes propios con el mismo nombre) y que hayan pedido lo mismo."
+      - "Abrir el informe del periodo."
+    sintoma: "Las tareas de las dos organizaciones se cuentan en un solo grupo: 'corrio N veces, USD X'. Como no hay columna de organizacion, no hay forma de darse cuenta, y la conclusion del informe ('esto conviene pasarlo a codigo') se toma sobre un numero que no es de nadie."
+    expectativa: "Un grupo pertenece a una organizacion. La fila dice de cual."
+    causa_raiz: "La consulta usa IgnoreQueryFilters del filtro de tenant â€” correcto, es un informe de staff â€” pero el GroupBy es (Agente, Cliente, HashPedido) con Agente y Cliente resueltos a NOMBRE. Al sacar el filtro de tenant hay que volver a meter el TenantId en la clave a mano: el filtro global era lo unico que separaba las organizaciones."
+    capa: Infrastructure
+    archivos_fix:
+      - path: src/OlvidataAgentes.Infrastructure/Services/Uso/InformeAutomatizacion.cs
+        motivo: "Agregar TenantId a la proyeccion y a la clave del GroupBy, y traer el nombre de la organizacion."
+      - path: src/OlvidataAgentes.Application/DTOs/UsoOlvidataDtos.cs
+        motivo: "GrupoAutomatizacionDto necesita la organizacion."
+      - path: src/OlvidataAgentes.Web/Views/Uso/Automatizar.cshtml
+        motivo: "Columna 'Organizacion' en la grilla. Es cambio de pantalla, por eso el fix no se auto-aplica."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: consulta
+      selector_o_endpoint: "grep de IgnoreQueryFilters en servicios de informes; revisar la clave de cada GroupBy posterior"
+      condicion_falla: "Hay un IgnoreQueryFilters del filtro de tenant y la clave del GroupBy que sigue no incluye TenantId."
+    criterio_aceptacion:
+      - "Cada fila del informe pertenece a una sola organizacion y lo dice."
+      - "Dos organizaciones con el mismo agente y el mismo pedido dan dos filas."
+    pruebas_minimas:
+      - "SQL: reproducir el GROUP BY del informe y verificar que ningun grupo tiene mas de un TenantId distinto."
+      - "Navegador: la grilla tiene columna de organizacion."
+    nota_generalizacion: "Regla del estudio: en cuanto una consulta saca el filtro global de tenant, TODO lo que venga despues (GroupBy, Distinct, Any, joins por nombre) perdio la separacion entre organizaciones y hay que reponerla explicitamente. El caso mas traicionero es agrupar por un nombre que el usuario elige, porque dos organizaciones pueden elegir el mismo. En QA: ante cualquier informe cross-tenant, leer la clave del GroupBy antes que la pantalla."

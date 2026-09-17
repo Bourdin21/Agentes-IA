@@ -2129,3 +2129,62 @@ patrones:
       para registrar si la accion paso por aprobacion). Tiene que ser barata y sin efectos. Y hay que acordarse de
       cubrirla tambien en la creacion de los pedidos del paso: si ahi se sigue leyendo la propiedad estatica, se crean
       pedidos de aprobacion para llamadas que no la necesitaban.
+
+  - id: PAT-045
+    nombre: "Tarea repetitiva reanudable: programacion + ocurrencia reservada con indice unico"
+    categoria: agentes-ia
+    descripcion: >
+      Como hacer que un trabajo se repita cada X tiempo en una app web alojada en hosting compartido, donde el proceso se
+      recicla cuando quiere y puede haber mas de una instancia. NO es un scheduler: es una tabla "programacion" (que
+      pide, a quien, cada cuanto, responsable, activa/pausada/terminada, proxima ejecucion) mas una tabla "ejecucion"
+      inmutable con UN INDICE UNICO (ProgramacionId, Ocurrencia) — esa clave es todo el mecanismo.
+      El barrido corre dentro del worker que ya existe y va en DOS FASES:
+      (1) RESERVAR: inserta la fila de la ocurrencia y adelanta ProximaEjecucion en el MISMO guardado, protegido ademas
+      por un token de concurrencia. Dos instancias barriendo a la vez: una gana, la otra recibe 1062 y se retira.
+      (2) EJECUTAR: recien ahi se hace el trabajo caro (crear la tarea, llamar a otros servicios) y se cierra la vuelta.
+      Si el proceso muere entre las dos fases, la vuelta queda "Reservada" y un barrido posterior la termina — sin volver
+      a reservar esa ocurrencia, porque el unico ya la tiene.
+      Dos decisiones de calendario que hay que tomar a proposito: la proxima ocurrencia se recalcula desde AHORA y no
+      desde la ocurrencia vencida (un proceso dormido una semana dispara UNA vuelta, no siete), y el dia 31 en un mes mas
+      corto cae el ultimo dia del mes en vez de saltearse el mes. Todo el calculo se hace en la zona horaria del negocio
+      y se guarda en UTC; la hora del dia se guarda como minutos desde la medianoche LOCAL, no como hora del servidor.
+    cuando_usar: >
+      Cuando el cliente pide "que esto se haga solo cada X" y no hay (o no conviene) un scheduler externo: hosting
+      compartido, un solo proceso, o cuando el trabajo repetitivo tiene que quedar registrado y auditado como cualquier
+      otra operacion del sistema. Si el trabajo repetitivo es puro efecto lateral barato (limpiar una tabla, vencer
+      pedidos) alcanza con un barrido simple en el worker; PAT-045 aparece cuando cada vuelta cuesta plata, genera datos
+      del cliente y tiene que poder verse y auditarse una por una.
+      No usar para "cada N minutos con precision": el ritmo real lo marca el barrido del worker y, sin AlwaysRunning, el
+      sitio se duerme y las vueltas se atrasan.
+    proyecto_origen: olvidata-agentes-multirubro (M12, implementado 2026-09-16)
+    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    archivos_referencia:
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Programaciones/EjecutorProgramaciones.cs"
+        motivo: "Las dos fases completas: ReservarAsync (unico + token) y EjecutarUnaAsync, mas el barrido de vueltas colgadas"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Application/Helpers/CalendarioProgramacion.cs"
+        motivo: "Calculo de la proxima ocurrencia en hora local, con el recorte del dia 31 y el 'estrictamente despues'"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Data/Configurations/ProgramacionesConfigurations.cs"
+        motivo: "El indice unico (ProgramacionTareaId, Ocurrencia) y el indice (Estado, ProximaEjecucionAt) del barrido"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "tests/OlvidataAgentes.Tests/ProgramacionesTests.cs"
+        motivo: "Los tres casos que hay que copiar: dos workers a la vez, reinicio entre fases, y despertar despues de dias"
+        pendiente_verificar: false
+    dependencias: [PAT-034]
+    notas: >
+      Gotchas CONFIRMADOS al implementar: (1) el orden importa — si la marca de "ya corri" se escribe JUNTO con el
+      trabajo, un corte en el medio habilita la doble ejecucion; hay que reservar primero y trabajar despues;
+      (2) el indice unico solo no alcanza si la misma instancia reintenta: hace falta el estado intermedio "Reservada"
+      con su barrido de recuperacion, o la ocurrencia queda huerfana para siempre; (3) el token de concurrencia se
+      incrementa en la FASE 1, nunca en la 2: si la fase 2 lo tocara, una edicion desde la pantalla a mitad de vuelta la
+      haria fallar sin motivo real (mismo gotcha que PAT-043); (4) al cerrar una vuelta que no pudo, la programacion NO
+      se mata: se cuenta una falla seguida y recien tras N (5 por defecto) se corta y se avisa — si no, una caida del
+      proveedor apaga en silencio todo lo que el cliente tenia programado; (5) el costo acumulado se CALCULA sumando el
+      costo de lo que produjo cada vuelta, nunca se guarda en la programacion; (6) el "ejecutar ahora" de la pantalla
+      solo adelanta ProximaEjecucion, no crea nada: asi el camino de creacion es UNO solo y lo que se prueba a mano es
+      exactamente lo que va a pasar sola de noche.

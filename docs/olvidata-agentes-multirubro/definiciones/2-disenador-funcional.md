@@ -5,6 +5,128 @@
 
 ## Definiciones vigentes
 
+# M14 — Criterio de programación Claude: proyectos, skills, búsqueda web y control de gasto
+
+Estado: **Diseño cerrado, esperando gate de Joaquín**. Entrada: `1-analista-funcional.md` M14 (RF-M14-01..33, CA 12, R-M14-01..06).
+
+**Criterio rector, fijado por Joaquín 2026-09-17:** *"la idea es que esto sea totalmente entendible para el usuario, explicando qué es cada cosa para no cometer errores de configuración"*. R-M14-01 (confusión de vocabulario) deja de ser un riesgo a mitigar y pasa a ser **el requisito que manda sobre el resto del diseño**. Todo lo que sigue se ordena alrededor de eso.
+
+## El hallazgo que hay que resolver primero: ya hay una colisión
+
+Las reglas de M3 tienen un campo **Tipo** con dos valores: `Regla` y **`Procedimiento`**, con la ayuda *"Procedimiento: pasos numerados que el agente sigue en orden"*. O sea que **el producto ya tiene una forma de cargar un procedimiento**, y M14 estaría agregando una segunda con el mismo propósito aparente. Pedirle a un Director que distinga entre "una regla de tipo procedimiento" y "una skill" es exactamente el error de configuración que Joaquín quiere evitar, y ninguna pantalla de ayuda lo salva.
+
+**D-M14-1 (requiere OK de Joaquín): se unifica.** El concepto nuevo se llama **Instructivo** y absorbe el caso; el tipo `Procedimiento` de las reglas queda **en desuso**: no se ofrece más al crear, las reglas existentes de ese tipo siguen funcionando sin cambios, y su pantalla muestra un aviso no bloqueante *"Esto es un procedimiento. Ahora se cargan como instructivos, que el agente consulta cuando le toca esa tarea."* con un botón **Convertirlo en instructivo**. Sin migración forzada y sin romper nada.
+
+**D-M14-2: el nombre es "Instructivo", no "skill".** "Skill" es jerga en inglés para un contador o un martillero. "Instructivo" es una palabra que ya se usa en un estudio y dice exactamente lo que es. En la documentación interna se puede seguir diciendo skill; **en el producto, nunca**.
+
+## Los cuatro conceptos, dichos en una línea
+
+**D-M14-3: una sola tabla de referencia, repetida donde haga falta.** Este es el texto canónico; no se reescribe en cada pantalla.
+
+| | Qué es | Cuándo lo usás | Ejemplo |
+|---|---|---|---|
+| **Regla** | Cómo queremos que se comporten **siempre** | Vale para todo lo que hagan, sea la tarea que sea | "Nunca prometemos plazos" |
+| **Instructivo** | Cómo se hace **una tarea**, paso a paso | Se usa solo cuando alguien pide esa tarea | "Cómo armamos el IVA de un cliente" |
+| **Agente** | **Quién** hace el trabajo | Elegís uno cada vez que pedís algo | "Liquidación de sueldos" |
+| **Material de Olvidata** | Información del rubro, para consultar | No lo cargás vos: lo mantiene Olvidata | Procedimientos de cierre de ejercicio |
+
+**La pregunta que desempata, en criollo:** *¿esto vale siempre, o solo cuando hago esta tarea?* Siempre → regla. Solo para esa tarea → instructivo.
+
+## Cómo se evita el error de configuración
+
+Cuatro dispositivos, del más liviano al más fuerte. La apuesta es que **el producto guíe en el momento**, no que haya un manual aparte que nadie lee.
+
+**D-M14-4 — Bajada permanente en cada pantalla.** Reglas, Instructivos y Agentes llevan arriba una línea con su definición y un ejemplo, y un enlace *"¿Cuál me conviene?"* que abre la tabla de D-M14-3. Cuesta nada y está siempre.
+
+**D-M14-5 — Desambiguador al crear.** El botón **Nuevo instructivo** y el botón **Nueva regla** llevan primero a una pregunta, no a un formulario: *"¿Qué querés cargar?"* con dos tarjetas —"Algo que tienen que tener en cuenta siempre" y "Los pasos de una tarea que se hace seguido"—, cada una con su ejemplo. Elegir lleva al formulario correcto. Se puede saltear con *"Ya sé, llevame al formulario"*, y la elección **no se recuerda**: es barata y evita el error justo donde se comete.
+
+**D-M14-6 — Detección blanda, en los dos sentidos.** Al guardar una **regla** cuyo texto tiene pasos numerados o supera los ~600 caracteres: *"Esto parece un procedimiento. Un instructivo se consulta solo cuando se hace esa tarea, así que no ocupa lugar en todas las demás. ¿Lo cargamos como instructivo?"* con **Convertirlo** / **Dejarlo como regla**. Al guardar un **instructivo** de una sola oración sin pasos: *"Esto parece una regla: algo que vale siempre, no los pasos de una tarea."* **Nunca bloquea**, siempre se puede seguir.
+
+**D-M14-7 — Se aprende mirando.** En "Ver pasos" de una tarea, cuando el agente consulta un instructivo se lee *"Siguió el instructivo «Cómo armamos el IVA», paso 1 a 4"*. Es la forma más efectiva de que se entienda qué hace un instructivo: verlo funcionando sobre el propio trabajo.
+
+**D-M14-8 — El configurador también propone instructivos.** El agente configurador de M4b gana una herramienta para proponerlos, con el mismo circuito de tarjeta y botón. Si el Director le cuenta un procedimiento conversando, el configurador propone un instructivo y no una regla. **Requiere tocar su prompt**, que todavía está sin publicar (PA-13): conviene hacerlo antes de publicarlo, no después.
+
+## Pantallas
+
+**P-M14-01 — Espacio del cliente** (`Cartera/Espacio/{id}`, entrada desde la ficha). Cuatro cards de solo lectura, cada una con su acceso a la pantalla de origen: *Cómo trabajamos con este cliente* (sus reglas activas, con el modo en palabras) · *Documentos* (con el estado de lectura) · *Instructivos que aplican* · *Trabajo* (tareas recientes y programaciones con su última vuelta). Respeta la visibilidad de M2: un Empleado ve ahí solo las tareas que pidió él. **No se escribe nada desde acá** — una sola forma de hacer cada cosa.
+
+**P-M14-02 — Instructivos, listado.** Grilla con Título, Para qué sirve, Quién lo usa (Toda la empresa / Solo yo), Estado, Versión, Modificado. Filtros por columna. Bajada: *"Los pasos de las tareas que hacen seguido. El agente consulta el que corresponde cuando le pedís esa tarea."* Vacío: *"Todavía no hay instructivos. Escribí uno contando cómo hacen una tarea que se repite, como se lo explicarías a alguien que entra al equipo."*
+
+**P-M14-03 — Nuevo / Editar instructivo.** Dos cards. *¿Qué tarea es?*: **Título** (obligatorio) y **Para qué sirve** (obligatorio, con la ayuda *"Esto es lo único que lee el agente para decidir si lo usa. Escribilo como el nombre de la tarea: «Armar el IVA mensual de un cliente»"*). *Los pasos*: textarea con contador y la ayuda *"Numerá los pasos en el orden en que se hacen. Escribilo como si se lo explicaras a alguien que entra al equipo."* Al pie, *Quién lo usa* (Solo yo / Toda la empresa) y la nota fija **"Un instructivo orienta al agente; no le da permisos."**
+
+**P-M14-04 — Detalle del instructivo** con historial de versiones, igual que una regla.
+
+**P-M14-05 — Nueva tarea (ajuste).** Casilla **"Buscar en internet si hace falta"**, apagada, con la ayuda *"Solo si el pedido necesita información que el agente no tiene. Cada búsqueda tiene un costo aparte."* Misma casilla en el cuadro de Seguir conversando. Si el límite de gasto está alcanzado, aparece deshabilitada con el motivo.
+
+**P-M14-06 — Detalle de tarea (ajustes).** En "Ver pasos": *"Buscó en internet «vencimiento IVA setiembre 2026» y encontró 3 resultados"*, con las fuentes citadas, **enlazables y marcadas como externas**, y el texto traído **escapado y plegado** bajo *"Ver lo que trajo"*, con el rótulo *"Información de internet: puede estar equivocada o desactualizada."*
+
+**P-M14-07 — Resultados** (`Programaciones/Resultados`). Lo que produjeron las programaciones del responsable, por fecha, más nuevo arriba: qué programación, cuándo corrió, cómo salió y las primeras líneas de la respuesta, con **Abrir la tarea**. Lo no visto se distingue en negrita y hay **Marcar todo como visto**. Contador en el ítem de menú solo cuando hay resultados sin ver. Vacío: *"Todavía no hay resultados. Cuando tus programaciones corran, van a aparecer acá."*
+
+**P-M14-08 — Backoffice, Uso y consumo (ajuste).** Cards de totales del período —**llamadas a la API**, tokens de entrada, tokens de salida, USD— y grilla por organización con las mismas cuatro columnas, con apertura por canal (tarea, configuración, asistente, evaluación, búsqueda) y por agente. Selector de período. Solo staff.
+
+**P-M14-09 — Backoffice, Candidatas a automatizar.** Informe del mes: una fila por grupo de tareas repetidas (agente + cliente + pedido equivalente), con **cuántas veces corrió**, tokens, USD acumulado y **la evidencia** desplegable con las tareas concretas. Ordenado por gasto. Encabezado: *"Tareas que se repiten siempre igual. Las de arriba son las que más plata consumen: son las que más conviene pasar a código."* Sin acciones: informa.
+
+**P-M14-10 — Reglas (ajustes).** La bajada suma el enlace *"¿Cuál me conviene?"*; el combo **Tipo** ya no ofrece `Procedimiento`; las reglas existentes de ese tipo muestran el aviso de D-M14-1 con **Convertirlo en instructivo**.
+
+## Estados
+
+**Instructivo**: `Activo` ↔ `Inactivo` (manual). Versionado como una regla: cambio de título, "para qué sirve", pasos o alcance → versión nueva con autor y fecha; activar/desactivar queda como evento **sin** versión nueva. Un instructivo inactivo **no se le ofrece al agente**. Sin estado derivado "no se aplica" (no cuelga de un área ni de un cliente).
+
+**Resultado de programación**: `Sin ver` → `Visto` (por persona, no global).
+
+**Búsqueda web**: no tiene estados; es una marca de la tarea (`PermiteBusquedaWeb`) que se **congela al crearla**, igual que la autonomía de M12: cambiar la casilla después no altera una tarea en curso.
+
+## Historias
+
+Un Director carga el primer instructivo y ve que el agente lo sigue · Un Empleado escribe uno personal para su forma de trabajar · Alguien intenta cargar un procedimiento como regla y el producto lo redirige sin bloquearlo · Un Director convierte una regla vieja de tipo procedimiento · Alguien pide algo que necesita un dato de internet y marca la casilla · Un responsable entra a la mañana y ve de un vistazo qué salió de sus programaciones · Joaquín mira el consumo del mes por organización y detecta la que más gasta · Joaquín lee el informe y elige qué automatizar.
+
+## Riesgos de diseño
+
+**R-M14-07 (medio) — la tabla de cuatro conceptos se vuelve ruido** si aparece en todas las pantallas desplegada: va como una línea con enlace, no como un bloque. **R-M14-08 (medio) — el desambiguador molesta** a quien ya entendió: se saltea con un clic y no se recuerda, a propósito, porque recordarlo lo haría inútil para el que todavía se confunde. **R-M14-09 (bajo) — enlaces externos en "Ver pasos"**: van con `rel="noopener noreferrer"`, marcados como externos y sin previsualización.
+
+# M12 — Tareas programadas y autonomía gradual por rol
+
+Estado: **aprobado sin gate por autorización de Joaquín 2026-09-14**. Entrada: `1-analista-funcional.md` M12 (RF-M12-01..17, CA-M12-01..16). Última etapa del roadmap.
+
+## Idea rectora del diseño
+
+Una programación **no es una tarea**: es la receta que crea tareas. Todo lo que la persona ya sabe hacer con una tarea —leerla, seguir conversando, ver el costo, cancelarla— sigue funcionando igual, porque la vuelta produce **una tarea normal**. Entonces la pantalla nueva no compite con Tareas: la alimenta. En Tareas aparece un chip de origen y un filtro; en Programaciones se maneja la receta.
+
+Lo único genuinamente nuevo para el usuario son dos ideas, y las dos se explican en una línea en la pantalla:
+
+- **"Cada vuelta usa las reglas de ese día."** Es la diferencia con una tarea individual y hay que decirla donde se escribe el pedido, no en un manual.
+- **"Sin nadie mirando, no se hacen cosas que necesitan aprobación."** Es el default y el formulario lo dice con esas palabras.
+
+## Decisiones de diseño M12
+
+- **D-M12-1 Una sola pantalla de Programaciones, sin pestañas.** M7b usó pestañas ("Asignadas a mí" / "Del equipo") porque ahí la diferencia es de rol y de acción. Acá el Director ve todas con una columna "Responsable" y su filtro, y el Empleado ve las suyas sin esa columna. Menos superficie, misma información.
+- **D-M12-2 Entra en el menú de todo miembro**, entre Reglas y Aprobaciones, con ícono de reloj. Sin contador: una programación no es algo pendiente de resolver.
+- **D-M12-3 La frecuencia se muestra siempre en palabras** ("Todos los lunes a las 08:00", "El día 5 de cada mes a las 09:30"), en la grilla, en el detalle y en la consola. Un solo helper (`MensajesProgramaciones.Frecuencia`) para que nunca haya dos redacciones.
+- **D-M12-4 Estado con ícono + texto, nunca solo color** (misma regla que M7b y M8): Activa (▶ verde), Pausada (⏸ ámbar), Terminada (⏹ gris). Tokens de contraste ya verificados en DI-M5-17.
+- **D-M12-5 El origen se ve en los dos lugares.** En la grilla de Tareas, un chip "Programada · «Nombre»" que enlaza a la programación. En el detalle, un aviso arriba de la conversación: "La creó la programación «X», no una persona." Saber que el pedido no lo escribió nadie esa mañana cambia cómo se lee la respuesta.
+- **D-M12-6 Filtro "Origen" en Tareas** con tres valores (todas / la pidió una persona / la creó una programación), más el enlace "Ver sus tareas" del detalle que fija la programación. Regla 25: la columna que se ve (el chip) tiene su filtro.
+- **D-M12-7 El formulario en tres cards, en el orden en que se piensa**: (1) qué le pedimos y a quién, (2) cada cuánto, (3) quién responde y hasta cuándo. Día de la semana y día del mes solo aparecen cuando la frecuencia los usa.
+- **D-M12-8 La hora es un `input type="time"` con la aclaración "Hora de Argentina"** debajo. No hay selector de zona: el producto es argentino y decirlo evita la pregunta.
+- **D-M12-9 El aviso de la avalancha va en el formulario, no en un tooltip.** Debajo de la frecuencia: "Si el sistema estuvo apagado, al volver crea **una sola** vuelta, no todas las que se perdió." Es una expectativa que hay que fijar antes, no explicar después.
+- **D-M12-10 La casilla de autonomía solo existe para el Director**, con el texto largo abajo y en dos mitades: qué pasa apagada (lo recomendado) y qué pasa encendida (**nunca se aprueban solas**). Al Empleado se le dice en una línea por qué no la ve.
+- **D-M12-11 "Ejecutar ahora" es un botón del detalle, con confirmación** que aclara dos cosas: que la tarea la crea el motor en su próximo barrido (hasta un minuto) y que **consume como cualquier otra**. Es el camino de prueba de QA y también el atajo real de un usuario apurado.
+- **D-M12-12 El historial de vueltas es una tabla plana de las últimas 100**, como el historial de uso de M11 y Consumo de M6, no DataTables: se mira, no se filtra.
+
+## Pantallas M12
+
+- **P-M12-01 Programaciones (listado).** Columnas: Nombre (enlace), Agente, Cliente, Responsable (solo Director, con badge "Ya no está activa"), Cada cuánto, Próxima, Estado, Costo del mes. Un filtro por cada una (regla 25) más búsqueda global que recorre las mismas columnas (OLV-006). Orden por defecto: la que corre antes; las que no corren (pausadas, terminadas), al final. Mobile: bajo el nombre, la frecuencia. Vacío: "Todavía no hay nada programado. Creá una programación para que un agente repita un pedido cada tanto."
+- **P-M12-02 Alta y edición.** Las tres cards de D-M12-7. Contador de caracteres del pedido. Bajo el pedido: "Es el mismo texto en todas las vueltas. Las reglas, en cambio, son las que estén vigentes ese día." Fecha de fin y tope de ejecuciones con su ayuda ("Vacío: no termina sola" / "Vacío: sin tope").
+- **P-M12-03 Detalle.** Encabezado con estado y frecuencia; acciones Editar, Ejecutar ahora, Pausar/Reanudar y Dar de baja. Tres avisos posibles arriba: terminada con su motivo, responsable inactivo, cliente dado de baja. Card "Qué le pedimos" (pedido completo, agente, cliente, responsable y qué pasa con las acciones que piden aprobación, en palabras). Card "Cuándo y cuánto" (frecuencia, próxima, última, vueltas hechas sobre el tope, fecha de fin, fallas seguidas si las hay, costo del mes y total). Tabla "Vueltas" con cuándo, cómo salió (ícono + texto + motivo si lo hay), la tarea y su costo, y el enlace "Ver sus tareas".
+
+## Textos que importan (extractos)
+
+- Frecuencia apagada: "No corre" (no "—"): dice el estado, no la ausencia de dato.
+- Vuelta bloqueada: "«Resumen semanal» no creó la tarea de esta vuelta: <motivo>". El motivo es el mismo texto que vería la persona si hubiera apretado el botón (el del límite de gasto de M6, el del cliente inexistente, el del agente no disponible).
+- Corte por fallas: "Se cortó después de 5 vueltas seguidas sin poder crear la tarea. Revisá el motivo y reanudala."
+- Aviso de costo: "«X» lleva gastados USD 12,40 este mes, sobre un tope de USD 25,00 de toda la empresa. Si no la necesitás tan seguido, bajale la frecuencia o pausala." — dice el problema y la salida, no solo el número.
+
+---
+
 # M11 — Conectores con credenciales por organización
 
 Estado: **aprobado sin gate por autorización de Joaquín 2026-09-14** (decisiones D-M11-1..12 tomadas con la opción más

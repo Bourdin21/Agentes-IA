@@ -231,7 +231,14 @@ Research de mercado sobre qué hace que un Reel retenga y llegue lejos — no es
 
 ### Compaginado final automático — `C:\Sistemas\BotPublicitario\Veo\compose_video.py` (2026-09-10, reutilizable para toda campaña futura)
 
-Joaquín no quiere editar nada a mano — el objetivo es entregar el video final listo para publicar, no piezas sueltas para que él arme en un editor. Este script arma automáticamente, con `ffmpeg` local (sin costo de API, es procesamiento en la propia máquina):
+> **REVERSADO EL 2026-09-16 — LEER ESTO ANTES QUE EL RESTO DE LA SECCIÓN.** Joaquín ahora **sí compone él**, en la herramienta de Instagram. Motivo real y verificado: el `.mp4` unificado **renderiza mal las grabaciones de pantalla** (el tratamiento de "pantalla flotante" con escalado + perspectiva degrada la captura). Regla vigente:
+>
+> - **Entregar los clips de avatar SUELTOS**, uno por beat. No concatenar, no insertar reveal, no agregar end card.
+> - **Las grabaciones de pantalla NO se tocan.** Viven en `C:\Sistemas\BotPublicitario\Veo\reveals\` (hoy: `chatbot.mp4` y `web 3d.mp4`) y las inserta Joaquín al componer, en calidad original.
+> - `compose_video.py` / `compose_chatbot_ad.py` quedan **solo** para cuando una pieza no lleve grabación de pantalla. Si lleva reveal, no se compagina acá.
+> - Lo que sigue describe el compaginado automático y se mantiene como referencia de lo que el script hace, no como el entregable por defecto.
+
+Este script arma automáticamente, con `ffmpeg` local (sin costo de API, es procesamiento en la propia máquina):
 
 1. **Clips de avatar (Veo)**, normalizados a 1080x1920/30fps/audio consistente, en el orden que corresponda.
 2. **Segmento de reveal**: toma la grabación de pantalla real (nunca generada por IA), la trata como "pantalla flotante" — escalada, con sombra y una perspectiva 3D leve sobre fondo de marca (`#05070d`, el tono oscuro real del sitio) — ajusta velocidad para caber en la duración objetivo, y quema los captions de texto en las ventanas de tiempo indicadas.

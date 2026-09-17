@@ -1,9 +1,896 @@
 # Memoria - Implementador
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-09-16
+## Ultima actualizacion: 2026-09-17 (correcciones de la QA de M14)
 
 ## Definiciones vigentes
+
+# Correcciones de la QA de M14 (DEF-M14-1, 2, 4, 6, 7 y 12)
+
+Estado: **corregido 2026-09-17**. Entrada: `6-qa.md` sección *QA M14* (commit `8394afa`, línea base 569 tests / 2
+advertencias tras los 4 auto-fixes de QA). Repo: `C:\Sistemas\Olvidata Agentes Multi-rubro`.
+**Sin migración, sin commits.** `Mcp` y `Cli` sin tocar. Costo cero: modelo simulado, ninguna llamada a la API real.
+
+QA dictaminó que el vocabulario de M14 quedó impecable pero que **los tres dispositivos que actúan en el momento exacto
+en que se comete el error de configuración llegaban rotos o a medias**. Eso —y no un defecto más— es lo que se corrigió:
+sin esos tres, el criterio rector de Joaquín no se cumple aunque los 12 CA den PASS.
+
+### Los tres major
+
+- **DEF-M14-1 — "Convertirlo en instructivo" daba 404 siempre.** La raíz no era una guarda mal escrita sino **dos
+  condiciones distintas para la misma acción**: la vista ofrecía el botón con `Tipo == Regla && ParecePasos(texto)`
+  (la detección blanda de D-M14-6) y el servicio solo aceptaba `Tipo == Procedimiento` (la conversión de D-M14-1).
+  El arreglo **unifica el criterio en un solo lugar**, `InstructivoService.EsConvertible`: se convierte un
+  `Procedimiento` viejo **o** una regla común cuyo texto parece los pasos de una tarea — que es, literalmente, la misma
+  condición que hace aparecer el botón. Así no pueden volver a separarse.
+  `MensajesInstructivos.ConvertidoDesdeRegla` dejó de decir *"la regla de tipo procedimiento"* (falso en el caso nuevo)
+  y ahora dice *"la regla que le dio origen"*, que sirve para los dos.
+- **DEF-M14-2 — el aviso "Esto parece una regla" no aparecía al guardar.** Se copió el patrón que el lado de la regla ya
+  tenía resuelto en el mismo commit: `InstructivosController.AvisarSiPareceRegla` marca `TempData["AvisoPareceRegla"]`
+  en **las dos** salidas exitosas (alta y edición) y el detalle lo muestra con el parcial nuevo
+  `Views/Shared/_AvisoPareceRegla.cshtml`, espejo exacto de `_AvisoPareceInstructivo`. Sigue sin bloquear: el
+  instructivo ya quedó guardado y *"Dejarlo como instructivo"* es cerrar el aviso.
+- **DEF-M14-6 — el informe de automatización podía mezclar organizaciones.** `TenantId` entra **en la clave del
+  `GroupBy`**, no solo en la grilla: el informe corre con `IgnoreQueryFilters([FiltroTenant])` y el agente de Olvidata
+  se llama igual en todas las organizaciones, así que agrupar por nombre hacía que dos empresas se leyeran como una
+  sola gastando el doble. El grupo además **lleva el nombre de la organización** y la grilla tiene su columna, que es
+  como se nota. Verificado por test y no por navegador, como pidió QA: reproducirlo a mano exigía crear agentes
+  homónimos en organizaciones que hay que dejar intactas.
+
+### Los minor cerrados
+
+- **DEF-M14-4 — "Nueva regla" no pasaba por el desambiguador.** La pregunta de D-M14-5 pasó a
+  `Views/Shared/_Desambiguador.cshtml`, **una sola vista para los dos botones** (dos copias se despegan con el tiempo),
+  con `DesambiguadorViewModel`: lo único que cambia es cuál tarjeta viene destacada y a dónde va el salteo de un clic.
+  `Reglas/Nueva` repite la guarda de permiso del formulario. Los botones contextuales ("Nueva regla para este
+  agente / esta área / este cliente") **siguen yendo derecho**: ahí la persona ya eligió qué está configurando.
+- **"Cargarlo como regla" mandaba a un formulario vacío.** El botón arrastra título y texto por la URL, y
+  `ReglasController.Create` los precarga con tope (150 / 2.000 caracteres: una precarga que viene por la URL no puede
+  pasar los topes del formulario). El aviso solo aparece con textos de hasta 200 caracteres, así que la URL nunca crece.
+- **DEF-M14-7 — el dashboard abría "por canal" por transporte.** La apertura pasó a ser **para qué** fue la llamada
+  (`MensajesUsoOlvidata.CanalFuncional`): Tareas, Configuración, Asistente, Evaluación de prompts, Búsqueda en
+  internet, Licencias y Material del rubro. Las categorías son **disjuntas** a propósito, para que la suma de la
+  apertura siga siendo exactamente el total de llamadas (verificado en el navegador: 455 = 455). Sigue siendo
+  agregación sobre `EventoUso.Accion`, sin registro nuevo. Un solo ajuste en el camino de escritura:
+  `ProcesadorTareas` nombra el paso según el tipo de tarea (`paso_configuracion` / `paso_asistente`), porque si no las
+  vueltas del configurador y del asistente caían dentro de "Tareas" y el dashboard —que existe para saber en qué se
+  gasta— habría atribuido mal la plata. **Las tareas de trabajo siguen siendo `paso_modelo`**, como todo lo ya
+  registrado desde M1.
+- **DEF-M14-12 — advertencia `CS8619`.** `InstructivosIndexViewModel.Filtros` pasó a `Dictionary<string, string>` con
+  `OrdinalIgnoreCase`, que es lo que devuelve `FiltrosSesion.LeerTodos` y lo que usan los otros 8 ViewModels del repo.
+
+### Archivo por archivo
+
+**Application.** `DTOs/InstructivosDtos.cs`: `ConvertidoDesdeRegla` sirve para los dos caminos (+ comentarios de
+`ConvertirReglaId` y `ReglaProcedimientoDto`). `DTOs/UsoOlvidataDtos.cs`: `GrupoAutomatizacionDto` suma `TenantId` y
+`Organizacion`; `MensajesUsoOlvidata.CanalFuncional(accion, conBusqueda)` nuevo (`Canal(...)` queda, es el transporte).
+`Interfaces/IInstructivoService.cs`: contrato de `ReglaParaConvertirAsync` al día.
+
+**Infrastructure.** `Services/Instructivos/InstructivoService.cs`: `EsConvertible` + `ReglaConvertibleAsync`.
+`Services/Uso/InformeAutomatizacion.cs`: `TenantId` en el `Select` y en la clave del `GroupBy`, `OrganizacionesAsync`.
+`Services/Uso/DashboardUso.cs`: agrupa por `(TenantId, Accion, Busquedas > 0)` y traduce a la etiqueta en memoria.
+`Services/Motor/ProcesadorTareas.cs`: `AccionDelPaso(tipo)`.
+
+**Web.** `Controllers/InstructivosController.cs`: `AvisarSiPareceRegla` + `ClaveAvisoPareceRegla`, las dos salidas
+exitosas, `Nuevo()` con el parcial compartido. `Controllers/ReglasController.cs`: `Nueva(alcance)` y la precarga
+`titulo`/`texto` en `Create`. `Models/InstructivosViewModels.cs`: `DesambiguadorViewModel` y el tipo del diccionario de
+filtros. Vistas: `Shared/_AvisoPareceRegla.cshtml` (nueva), `Shared/_Desambiguador.cshtml` (movida desde
+`Instructivos/`, ahora con modelo), `Instructivos/Detalle.cshtml` (el aviso), `Instructivos/Form.cshtml` (el botón con
+el texto), `Reglas/Index.cshtml` (el botón a `Nueva`), `Uso/Automatizar.cshtml` (columna Organización) y
+`Uso/Index.cshtml` (el rótulo "Para qué").
+
+### Lo que NO se tocó, a pedido de Joaquín
+
+- **DEF-M14-5, el POST forzado con `Tipo=Procedimiento`.** El fix choca con el configurador de M4b, que hoy propone
+  procedimientos; se resuelve junto con su prompt, que sigue sin publicar (PA-13, D-M14-8).
+- **DEF-M14-9, el "visto" por persona.** Es la deuda aceptada en Arquitectura; queda dicho el costo, no implementado.
+
+### Evidencia
+
+`dotnet build OlvidataAgentes.slnx --no-incremental` → **0 errores, 2 advertencias** (las preexistentes:
+`HomeController.StatusCode` y el `xUnit2013` de M7a); la `CS8619` de M14 desapareció. `dotnet test` → **587/587**
+(569 de línea base + 18 nuevos). **Los 4 goldens de hash de contexto intactos** (las constantes no se tocaron: el
+`git diff` de `tests/` no cambia una sola línea con `HashGolden`). Verificación en el navegador con el portal en
+Development y **MODELO SIMULADO** confirmado en el arranque, como Director de la org 1 y como SuperUsuario: la regla
+común con pasos numerados guardada → aviso → *Convertirlo en instructivo* abre el formulario precargado (200, no 404) →
+al guardar queda el instructivo y la regla en **Inactiva** con su evento `Desactivada`; el instructivo de una sola
+oración muestra el aviso **en el detalle, al guardar** (en alta y en edición), una sola vez, y su botón abre el
+formulario de regla ya escrito; el informe de automatización con la columna **Organización**; el dashboard con la
+apertura *Para qué* (Tareas 432 · Asistente 11 · Configuración 10 · Licencias 1 · Material del rubro 1 = **455**, el
+total exacto de la organización). **Entorno restaurado y verificado por SQL**: 0 instructivos, 154 tareas, 493 eventos
+con `Busquedas = 0` y `CostoUsd = 0`, 4 reglas `Procedimiento`, ninguna regla `FIX-M14` — exactamente como lo dejó QA.
+
+### Pendientes que siguen abiertos
+
+- **DEF-M14-5** y **DEF-M14-9**, arriba, esperando decisión de Joaquín.
+- **DEF-M14-3, 8, 10 y 11** ya los cerró QA con auto-fix en el commit `8394afa`.
+- La apertura *Para qué* de los eventos **ya registrados** antes de este cambio cuenta los pasos del configurador y del
+  asistente dentro de "Tareas": no se reescribe el histórico (los eventos son append-only). Se corrige solo hacia
+  adelante, y las conversaciones se siguen viendo por sus eventos de inicio.
+
+# M14 — Instructivos, búsqueda web, espacio del cliente y control de gasto
+
+Estado: **implementado 2026-09-17, QA cerrada; los defectos abiertos de QA se corrigieron en la sección de arriba**. Entrada: `1-analista-funcional.md` M14 (RF-M14-01..33, 12 CA,
+R-M14-01..06), `2-disenador-funcional.md` M14 (D-M14-1..8, P-M14-01..10) y `3-arquitecto-mvc.md` M14 (RT-M14-01..06).
+Repo: `C:\Sistemas\Olvidata Agentes Multi-rubro`. **Una migración: `InstructivosM14`.**
+**Ninguna llamada a la API real de Anthropic, ninguna salida a internet, sin commits.** `Mcp` y `Cli` sin tocar.
+
+Criterio rector de Joaquín: *"que esto sea totalmente entendible para el usuario, explicando qué es cada cosa para no
+cometer errores de configuración"*. Ante dos implementaciones posibles se eligió siempre la que deja más claro **cuándo
+se usa cada cosa**.
+
+### Escaneo de reutilizacion
+
+| Fuente | Que se tomo | Grado |
+|---|---|---|
+| M10 `HerramientasConocimiento` | La forma entera de una familia de herramientas de solo lectura: clase base con las guardas, "no está disponible" como única respuesta para todo lo que no corresponde, aviso fijo en cada resultado y resumidor propio para "Ver pasos". `HerramientasInstructivos` es esa pieza con otra fuente de datos | Literal (patrón) |
+| M4 `AgenteOrganizacion` | `VisibilidadAgente` (`SoloYo` / `TodaLaEmpresa`) **se reusa, no se clona**: es la misma decisión de producto y el usuario ya la conoce con esas palabras. También el `VersionToken` como token de concurrencia y el criterio de permisos (cualquiera crea los suyos, el Director los de la empresa) | Literal |
+| M3 `Regla` / `ReglaEvento` | El versionado: versión vigente en la entidad + historial inmutable con los campos que cambiaron; activar/desactivar **no** versiona | Literal (patrón) |
+| M2/M4/M11 columna generada `*Vigente` | Unicidad entre los vigentes con columna generada STORED + índice único, y la migración escrita a mano porque el proveedor ignora `stored: true` | Literal (cuarta vez) |
+| M6 `AvisoGasto` / M12 `EjecucionProgramada` | Cómo se cuelga un dato nuevo de un registro inmutable sin tocar su ciclo de vida (el "visto" de los resultados) | Literal (criterio) |
+| M8 gate de corridas reales | **Fail-closed por precio**: sin precio configurado la función no se ofrece. Es el mismo criterio, aplicado a la búsqueda web | Literal (criterio) |
+| M7b `ContadorAsignaciones` | El contador del ítem del menú (COUNT indexado por request, sin contador si es 0) | Literal |
+| Escaneo `docs/*/definiciones/5-implementador.md` del estudio | Ningún otro proyecto del estudio tiene instructivos, búsqueda web del proveedor ni informe de repetición de pedidos. Lo más cercano son ABMs versionados de textos, que ya están cubiertos por M3/M4 dentro de este mismo repo | Sin match |
+
+### Que se hizo, archivo por archivo
+
+**Domain.** `Entities/Instructivos.cs` (nuevo): `Instructivo` (`SoftDestroyable`, `ITenantOwned`) e `InstructivoVersion`.
+`Entities/Tareas.cs`: `TareaAgente.PermiteBusquedaWeb`. `Entities/Programaciones.cs`: `EjecucionProgramada.VistoAt` y
+`VistoPorId`. `Entities/Uso.cs`: `EventoUso.Busquedas`.
+
+**Application.** `DTOs/InstructivosDtos.cs` (nuevo) con los DTOs, `MensajesInstructivos`, **`TextosConceptos`** (la tabla
+canónica de los cuatro conceptos de D-M14-3, que no se reescribe en ninguna pantalla) y **`DeteccionInstructivo`** (la
+detección blanda de D-M14-6, en los dos sentidos). `DTOs/UsoOlvidataDtos.cs` (nuevo): dashboard e informe.
+`DTOs/ProgramacionesDtos.cs`: bandeja de resultados. `Interfaces/IInstructivoService.cs` e `Interfaces/IUsoOlvidata.cs`
+(nuevos). `Settings/InstructivosOptions.cs` y `Settings/BusquedaWebOptions.cs` (nuevos). `Helpers/HashPedido.cs` (nuevo).
+`Motor/NombresHerramientasInstructivos.cs` (nuevo). `Motor/ModeloConversacion.cs`: dos bloques nuevos
+(`BloqueBusquedaWeb`, `BloqueResultadoBusquedaWeb` con sus `FuenteWeb`), `SolicitudModelo.BusquedaWeb`,
+`RespuestaModelo.Busquedas` y `MotivoFin.PausaTurno`. `Motor/IMotorAgentes.cs`: `PasoVisibleDto.Busquedas`,
+`BusquedaWebVistaDto`, la casilla en `CrearTareaDto` y la sobrecarga de `EnviarSeguimientoAsync`.
+
+**Infrastructure.** `Services/Instructivos/InstructivoService.cs` y `Services/Instructivos/HerramientasInstructivos.cs`
+(nuevos). `Services/Uso/DashboardUso.cs` e `Services/Uso/InformeAutomatizacion.cs` (nuevos).
+`Services/Motor/ProveedorModeloAnthropic.cs`: mapeo de la herramienta del proveedor y de sus bloques, en los dos
+sentidos, más el conteo de búsquedas de `usage.server_tool_use`. `Services/Motor/ProcesadorTareas.cs`: oferta de las
+herramientas de instructivos, decisión de búsqueda web, costo y `pause_turn`. `Services/Motor/ProveedorModeloSimulado.cs`:
+dos guiones nuevos. `Services/Motor/ResumenPasos.cs`: instructivos en la cadena y `Busquedas(...)`.
+`Services/Motor/ServicioTareas.cs` y `Services/Motor/PreparadorTareaTrabajo.cs`: la marca de búsqueda.
+`Services/Programaciones/ProgramacionTareaService.cs`: bandeja de resultados. `Data/Configurations/InstructivosConfigurations.cs`
+(nuevo) y la migración `20260917150924_InstructivosM14`.
+
+**Web.** `Controllers/InstructivosController.cs` + `Views/Instructivos/{Index,Form,Detalle,_Desambiguador}.cshtml`,
+`Views/Shared/_ConceptosAyuda.cshtml` y `Views/Shared/_AvisoPareceInstructivo.cshtml` (nuevos).
+`CarteraController.Espacio` + `Views/Cartera/Espacio.cshtml`. `ProgramacionesController.Resultados` / `MarcarVisto` +
+`Views/Programaciones/Resultados.cshtml` + `ContadorResultadosViewComponent`. `UsoController` (cards + `Automatizar`) +
+`Views/Uso/Automatizar.cshtml`. Ajustes: `Reglas/_Form.cshtml` (el combo), `Reglas/Detalle.cshtml` e `Index.cshtml` (los
+avisos y la bajada), `ReglasController` (detección blanda al guardar), `Agentes/Ejecutar` y `Tareas/_CuadroSeguimiento`
+(la casilla), `Tareas/_PasosTurno.cshtml` (las búsquedas con sus fuentes) y `_Layout.cshtml` (Instructivos y Resultados).
+
+### Decisiones de implementacion (ambiguedades resueltas)
+
+- **DI-M14-1 El contenido de las páginas que vuelven de la búsqueda no se puede mostrar.** Verificado contra el SDK: cada
+  fuente trae `title`, `url`, `page_age` y **`encrypted_content`**, que es opaco. Se guarda para poder reenviar el turno y
+  nunca se muestra. Consecuencia sobre P-M14-06: *"Ver lo que trajo"* despliega **las fuentes citadas**, no el texto de la
+  página. Se mantiene el rótulo *"Información de internet: puede estar equivocada o desactualizada"* y el escapado, porque
+  el título y la URL también vienen de internet. `FuenteWeb.Extracto` queda para los proveedores que sí devuelven texto
+  (hoy, el modelo simulado de QA).
+- **DI-M14-2 El `type` de la herramienta se toma del SDK, no de la configuración.** `BusquedaWeb:TipoHerramienta` solo
+  puede pedir una versión **conocida**; un valor desconocido se ignora y se usa la del SDK. Nunca se arma un `type` a
+  mano: es exactamente el error que RT-M14-01 manda evitar.
+- **DI-M14-3 La búsqueda no lleva una segunda compuerta de gasto.** El motor ya verifica el límite antes de **cada**
+  llamada (RF-M6-08): con el límite alcanzado no llama al modelo y por lo tanto no hay búsqueda. Agregar otra compuerta
+  sería una segunda verdad sobre lo mismo.
+- **DI-M14-4 El costo de la búsqueda se suma al `PasoTarea`, no solo al `EventoUso`.** El control de gasto de M6 suma
+  `PasoTarea.CostoUsd`; poner el costo solo en el evento lo habría dejado fuera del límite. Un solo número, en los dos
+  lados.
+- **DI-M14-5 Solo se cuentan búsquedas si esa llamada las ofrecía.** Si la tarea no tenía la casilla, un proveedor que
+  informe búsquedas no puede inventar costo.
+- **DI-M14-6 El tipo `Procedimiento` sigue visible en el combo de una regla que ya lo tiene.** Sacarlo del todo le
+  cambiaría el tipo en silencio al editarla. En un alta no aparece nunca, y hay test que lo verifica.
+- **DI-M14-7 La detección blanda de la regla aparece DESPUÉS de guardar.** La regla queda guardada y el aviso ofrece
+  convertirla; *"Dejarlo como regla"* es cerrar el aviso. Así se cumple *"nunca bloquea"* al pie de la letra.
+- **DI-M14-8 El espacio del cliente no tiene ni un `<form>`.** Es la forma más barata de garantizar "no se escribe nada
+  desde acá", y el test lo verifica sobre la vista.
+- **DI-M14-9 `pause_turn` se maneja en el bucle del motor.** Es el único estado nuevo que puede devolver el proveedor
+  cuando corre su propia herramienta: se reenvía la conversación y sigue donde quedó, acotado por el máximo de pasos del
+  turno como cualquier otra vuelta.
+
+### Evidencia
+
+`dotnet build OlvidataAgentes.slnx` 0 errores / 2 advertencias preexistentes. `dotnet test` **569/569** (509 de línea base
++ 60 nuevos: `InstructivosTests`, `BusquedaWebTests`, `M14GoldenYPantallasTests`). **Los 4 goldens de hash de contexto,
+intactos**, con instructivos cargados y con la búsqueda encendida; el test nuevo además compara el prompt de sistema byte
+a byte entre la tarea con y sin las herramientas. Migración aplicada a `olvidata_agentes_dev`: `TituloVigente` verificada
+como `STORED GENERATED` y el índice único `(TenantId, TituloVigente)` creado. Organizaciones 1, 4, 18, 19 y 20 intactas
+(154 tareas con `PermiteBusquedaWeb = 0`, 493 eventos con `Busquedas = 0`). Recorrido en el navegador con el modelo
+simulado: instructivos, desambiguador, formulario, resultados, espacio del cliente (org 19), dashboard (493 llamadas,
+que es exactamente el conteo de filas de `EventoUso`), informe de automatización y una tarea con búsqueda de punta a
+punta — 1 búsqueda, USD 0,01 en el paso y en el evento, fuentes enlazables con `rel="noopener noreferrer nofollow"`.
+La tarea de humo se borró para dejar la demo del tenant 19 como estaba.
+
+### Lo que queda pendiente
+
+- **Verificar el precio por búsqueda de Anthropic** antes de facturar. Mientras `BusquedaWeb:PrecioPorBusquedaUsd` sea
+  `null`, la función queda apagada en producción (fail-closed). En Development hay un precio de prueba de USD 0,01.
+- **El camino del proveedor real nunca se ejecutó** (decisión de costo, PA-18/PA-02): lo verificado es el del modelo
+  simulado, que reproduce los mismos bloques.
+- **D-M14-8 (el configurador propone instructivos) quedó fuera de esta entrega**: requiere tocar el prompt del
+  configurador de M4b, que sigue sin publicar (PA-13), y conviene hacerlo antes de publicarlo, no después.
+- **Deuda anotada**: el "visto" de los resultados es del registro y no por persona.
+
+# Cinco pendientes abiertos: PA-35, PA-34, PA-33, PA-29 y el `catch` mudo del importador
+
+Estado: **implementados 2026-09-16, pendientes de QA**. Entrada: `metadata.md` (PA-29/33/34/35), `6-qa.md` → ronda 2
+(DEF-R2-1 / OLV-014) y la seccion de abajo del escenario BMA (DEF-BMA-1/2/3). Repo: `C:\Sistemas\Olvidata Agentes Multi-rubro`.
+**Sin migracion EF** (el unico tipo nuevo, `TipoDocumento.TablaHtml`, es un valor mas en una columna `int` que ya existe).
+**Ninguna llamada a la API real de Anthropic, ninguna salida a internet, sin commits.** `Mcp` y `Cli` sin tocar.
+
+### Escaneo de reutilizacion
+| Fuente | Que se tomo | Grado |
+|---|---|---|
+| Template M5 `ExtractorPlanilla` (.xlsx) | La forma de una tabla leida por partes: una celda por columna separada por tabulador, bloques de `FilasPorParte` filas con el encabezado repetido y el rotulo "…, filas 1–200". `ExtractorHtml` es la misma pieza con otra fuente de datos | Literal (patron) |
+| Template M5 `AcumuladorPartes` | El acumulador con tope de caracteres; se le sumo un segundo motivo de "lee solo una parte" sin tocar el existente | Literal |
+| Template M5 `ValidadorContenidoArchivo` | La estructura "extension + contenido real": PA-35 agrega una rama, no un camino paralelo | Literal |
+| Correcciones ronda 1 `ResumenPasos` (DI-R1-1) | "Nunca llega texto tecnico a la pantalla", y el lugar unico donde se decide. PA-29 aplica exactamente ese criterio a la rama de error | Literal (criterio) |
+| PdfPig 0.1.16 (ya instalada) | `Page.GetWords()` con `BoundingBox` y `Letter.StartBaseLine`: **no hizo falta cambiar de biblioteca** para PA-33 | Literal |
+| Escaneo `docs/*/definiciones/5-implementador.md` del estudio | Ningun otro proyecto del estudio lee PDF ni HTML para un modelo. Lo mas cercano son importadores de Excel de CRM, que leen un formato fijo con ClosedXML y no tienen el problema de la estructura | Sin match |
+| Escaneo `docs/patrones/catalogo.yml` | PAT-033 (rotulos llanos) ya cubre PA-29 como criterio; esto lo extiende a la rama de error. Nada cubre extraccion de documentos | Sin patron nuevo |
+
+### Que se hizo
+
+1. **PA-35 — los exports de sistemas contables entran (cierra DEF-BMA-1).** Un `.xls` (o `.doc`) ya **no se rechaza por la
+   extension**: decide el contenido. Si adentro hay una tabla HTML — lo que exportan SOS Contador y companhia — entra como
+   `TipoDocumento.TablaHtml` ("Tabla web") y se lee **como tabla**: `ExtractorHtml` arma una fila por renglon con las celdas
+   separadas por tabulador, en bloques de `FilasPorParte` con el encabezado de columnas repetido. El encabezado se detecta
+   como la primera de las diez primeras filas que tiene tantas columnas como la mas ancha de ellas, porque en un export
+   contable las primeras filas son el titulo y el periodo. Tambien se aceptan `.html` y `.htm`.
+   Si el `.xls` **si** es un Excel viejo binario, el mensaje ahora describe el problema:
+   *"Este archivo es un Excel viejo (.xls) y no se puede leer. Abrilo con Excel y usa «Guardar como» .xlsx. **Cambiarle el
+   nombre al archivo no alcanza: se revisa el contenido.**"*
+2. **Nada de HTML activo (la mitad de seguridad de PA-35).** `HtmlDeTablas` es un lector de **solo texto**: descarta
+   `script`, `style`, `iframe`, `object`, `embed`, `svg`, `applet`, `noscript`, `template`, `frameset`, `head`, `title`,
+   `canvas` y `math` **con su contenido adentro**, no lee **ningun atributo** (asi que un `src`, un `onclick` o una URL no
+   tienen por donde llegar), resuelve entidades con `WebUtility.HtmlDecode` y no resuelve nada remoto: es recorrer una
+   cadena. Ademas lo guardado **nunca se sirve como HTML**: `TipoContenidoHtml` es `text/plain` y la descarga ya era
+   siempre adjunto, con `X-Content-Type-Options: nosniff` global.
+3. **PA-33 — el PDF conserva los renglones (cierra DEF-BMA-2).** `TextoPdfPorRenglones` reemplaza a
+   `ContentOrderTextExtractor` como primera opcion: agrupa las palabras por **linea de base** (la de su primera letra, no el
+   borde inferior de la caja, que baja con las colas) con tolerancia de 0,45 altos de letra, ordena cada renglon de
+   izquierda a derecha y marca **salto de columna con un tabulador** cuando el hueco supera 2,5 anchos de caracter del
+   renglon. Dos renglones separados por mas de 1,9 altos de letra dejan una linea en blanco. Si esa lectura falla se cae al
+   extractor de siempre y, ultimo recurso, al texto crudo: **ninguna pagina se pierde por esto**.
+4. **PA-34 — las paginas sin texto se avisan (cierra el hallazgo suelto del escenario BMA).** `ExtractorPdf` junta las
+   paginas que no dieron texto y deja el documento en **"El agente lee solo una parte"** con el motivo redactado
+   (`MensajesDocumentos.PaginasSinTexto`, acotado a los 300 caracteres de `MotivoNoLegible`). Se ve en los cuatro lugares:
+   el mensaje de la subida, el tooltip de la grilla, el cartel del detalle y — lo que faltaba — **el agente**:
+   `documentos_listar` dice *"se puede leer solo una parte (la pagina 8 de 12 no tiene texto…)"* en vez del falso "el
+   documento es muy largo", y `documento_leer` devuelve `falta_del_documento`. `TextoRecortado` sigue siendo **solo** el
+   recorte por largo: son dos motivos distintos y se muestran distinto (o los dos juntos).
+5. **PA-29 / OLV-014 — dos textos por error.** `MensajesAlModelo` (Application) junta los mensajes de error que llevan el
+   detalle tecnico que el agente necesita para corregirse; `MotivosParaLaPersona` (Infrastructure) tiene, al lado de cada
+   uno, **el texto que lee la persona**. `ResumenPasos.Resultado` traduce en la rama de error, en **un solo lugar**, para
+   las seis familias a la vez. Ejemplo del disparador de QA: *"…: la propuesta no cambia nada de la regla. Indica el titulo,
+   el texto, el modo, el tipo o las etiquetas nuevos"* → **"…: la propuesta no cambiaba nada de la regla"**.
+   Hay una **segunda capa mecanica**: si un mensaje sin par redactado nombra una herramienta o un codigo interno
+   (lista cerrada armada con los `Nombres*` de todas las familias + los codigos de argumento y de alcance), **no se muestra**
+   y sale un generico. Un mensaje que ya esta en castellano llano pasa tal cual, que es el caso de la mayoria.
+6. **El `catch` mudo del importador.** `SepararFrontmatter` devuelve ahora `ErrorFrontmatter` y `ImportarAsync` lo suma a
+   las advertencias con **el archivo y el motivo**: *"El front matter de 'cont-sueldos.md' no es YAML valido (…): se importo
+   el cuerpo, pero 'cont-sueldos' queda sin nombre, sin descripcion y sin herramientas. Revisa las comillas…"*. Ademas la
+   metadata a medias se **descarta entera** (`meta.Clear()`) en vez de quedar con lo que YamlDotNet alcanzo a leer.
+
+### Decisiones de implementacion (ambiguedades resueltas)
+- **DI-PA35-1 Un `.xls` que es HTML **sin** `<table>` se rechaza igual.** Se exige la tabla para la extension de Office
+  viejo, porque "esto en realidad es una pagina web" no es lo que el usuario cree que subio. Para `.html`/`.htm` alcanza con
+  que sea HTML: ahi el usuario sabe lo que esta subiendo.
+- **DI-PA35-2 `TipoDocumento.TablaHtml` nuevo en vez de reusar `Planilla`.** Reusar `Planilla` habria evitado tocar el enum,
+  pero la validacion de `Planilla` exige ZIP y habria que sniffear dos veces; y en pantalla decir "Excel" de algo que no lo
+  es es justo el malentendido que origino PA-35. Los filtros de las dos grillas recorren `Enum.GetValues<TipoDocumento>()`,
+  asi que la opcion "Tabla web" aparecio sola. **Sin migracion**: la columna ya es `int`.
+- **DI-PA33-1 Tabulador para la columna, no relleno con espacios.** La alternativa era emular `pdftotext -layout` y rellenar
+  con espacios para conservar la alineacion; asi, **de que columna es un importe** se recuperaria por posicion. Se descarto:
+  "se distinguen por cantidad de espacios" es justamente lo que QA marco como material peligroso, y el relleno vuelve a
+  depender de contar espacios. **Costo asumido y explicito: con un tabulador, un renglon con la columna DEBITO vacia no
+  marca cual de las dos es.** Eso lo resuelve PA-36 (el cruce hecho en codigo), no la extraccion.
+- **DI-PA33-2 No se cambio de biblioteca.** PdfPig 0.1.16 ya expone lo necesario. Verificado contra los cinco extractos
+  reales: el **multiconjunto de caracteres sin espacios es identico** al del extractor viejo, pagina por pagina — no se
+  pierde ni se inventa nada, solo cambia donde se corta.
+- **DI-PA33-3 Un documento a dos columnas se leeria entrelazado.** Agrupar por coordenada vertical junta las dos columnas de
+  una pagina a dos columnas en un mismo renglon. No se agrego deteccion de columnas (XY-cut) porque agrega mas modos de
+  falla que los que resuelve, y los documentos del caso — extractos, mayores, facturas, contratos — son de una sola columna.
+  El tabulador deja el corte visible, asi que el caso es recuperable a ojo.
+- **DI-PA34-1 "Lee solo una parte" con motivo, en vez de un estado nuevo.** Se evaluo un `LegibleConFaltantes`. Se descarto:
+  el estado que ya existe dice exactamente eso y ya tiene sus textos, su icono y su color; lo que faltaba era **el porque**.
+- **DI-PA29-1 Se traduce al mostrar, no se guarda una segunda columna.** La alternativa (que `ResultadoHerramienta` llevara
+  los dos textos y `EjecucionHerramienta` guardara el de la persona) necesitaba migracion y **solo habria arreglado los pasos
+  futuros**. Traducir al mostrar arregla tambien los que ya estan en la base: verificado sobre la conversacion **#187**, la
+  que uso QA para reportar el defecto, sin tocar un solo dato.
+- **DI-PA29-2 La red de seguridad mira una lista cerrada, no `snake_case` generico.** Un patron generico de guion bajo
+  borraria mensajes legitimos (el nombre de un documento o el codigo de una conexion pueden tener guiones bajos). La lista
+  cerrada de nombres de herramienta y codigos de argumento no tiene falsos positivos.
+
+### Archivos tocados
+| Archivo | Que |
+|---|---|
+| `src/…Domain/Enums/EnumsDocumentos.cs` | `TipoDocumento.TablaHtml = 7` |
+| `src/…Application/Helpers/NombreDocumentoHelper.cs` | `.html`/`.htm` en `Permitidas`, `TipoContenidoHtml`, `FormatosViejos` → **`OfficeViejo`** (ya no es "prohibido" sino "lo decide el contenido"), texto de permitidos y "Tabla web" |
+| `src/…Application/DTOs/DocumentosDtos.cs` | `FormatoViejo(extension)` (era constante), `PaginasSinTexto(...)`, `SubidoParcial(partes, recortado, aviso)` |
+| `src/…Application/Motor/MensajesAlModelo.cs` | **Nuevo.** Los mensajes de error escritos para el modelo, como constantes |
+| `src/…Infrastructure/…/Documentos/Extractores/HtmlDeTablas.cs` | **Nuevo.** Lector de HTML de solo texto (tablas + texto suelto), sin HTML activo |
+| `src/…Infrastructure/…/Documentos/Extractores/ExtractorHtml.cs` | **Nuevo.** Partes "Tabla, filas 1–200" con encabezado repetido |
+| `src/…Infrastructure/…/Documentos/Extractores/TextoPdfPorRenglones.cs` | **Nuevo.** Renglones por linea de base y columnas por hueco (PA-33) |
+| `src/…Infrastructure/…/Documentos/Extractores/ExtractorPdf.cs` | Usa el nuevo lector con respaldo; junta las paginas sin texto y arma el aviso (PA-34) |
+| `src/…Infrastructure/…/Documentos/Extractores/ComunesExtraccion.cs` | `AcumuladorPartes.Resultado(motivoSinTexto, avisoFaltante)` |
+| `src/…Infrastructure/…/Documentos/ValidadorContenidoArchivo.cs` | `.xls`/`.doc` por contenido; `ValidarHtml` |
+| `src/…Infrastructure/…/Documentos/LectorDocumentos.cs` | Despacha `TablaHtml` |
+| `src/…Infrastructure/…/Documentos/DocumentoCarteraService.cs` | Mensaje de subida con los dos motivos de "lee solo una parte" |
+| `src/…Infrastructure/…/Documentos/HerramientasDocumentos.cs` | `LecturaParaAgente(estado, motivo)` y `falta_del_documento` en `documento_leer` |
+| `src/…Infrastructure/Services/Motor/MotivosParaLaPersona.cs` | **Nuevo.** Los pares modelo→persona y la red de seguridad (PA-29) |
+| `src/…Infrastructure/Services/Motor/ResumenPasos.cs` | Traduce la rama de error antes de pasarsela a los resumidores |
+| `src/…Infrastructure/Services/Motor/ProcesadorTareas.cs` | "La herramienta 'X' no esta disponible" pasa a `MensajesAlModelo` |
+| `src/…Infrastructure/Services/Configurador/HerramientasConfigurador.cs` · `Conocimiento/HerramientasConocimiento.cs` · `Conectores/HerramientasConectores.cs` · `Reglas/HerramientaProponerRegla.cs` | Los 14 mensajes pasan a constantes de `MensajesAlModelo` (mismo texto para el modelo) |
+| `src/…Infrastructure/Services/Nucleo/ImportadorRubro.cs` | `SepararFrontmatter` devuelve el motivo; el import lo suma a las advertencias |
+| `src/…Web/Helpers/DocumentosTextos.cs` | Icono de "Tabla web", `accept` con `.xls`/`.doc`, tooltip con el motivo |
+| `src/…Web/Views/Documentos/Ver.cshtml` · `_ZonaSubida.cshtml` | Cartel con los dos motivos; el listado de formatos sale de `TiposArchivoDocumento` |
+| `src/…Web/wwwroot/js/documentos.js` | El navegador ya no rechaza `.xls`/`.doc` (no puede mirar el contenido: lo decide el servidor); icono de `TablaHtml` |
+| `tests/…/LectorDocumentosTests.cs` | 9 casos nuevos: tabla HTML, `.xls` binario, HTML activo, renglones del PDF, paginas sin texto |
+| `tests/…/HerramientasDocumentosTests.cs` | 1 caso: el agente se entera de las paginas sin texto |
+| `tests/…/ResumenPasosTests.cs` | 22 casos: los 14 mensajes + la red de seguridad + el texto llano que pasa tal cual |
+| `tests/…/NucleoTests.cs` | 1 caso: front matter invalido avisa con archivo y motivo |
+| `tests/…/DocumentosTests.cs` | El rechazo de `.doc` ahora usa un binario de Office de verdad |
+
+### Evidencia
+- `dotnet build OlvidataAgentes.slnx --no-incremental`: **0 errores, 2 advertencias** — las dos preexistentes de la linea
+  base (`HomeController.StatusCode` y el `xUnit2013` de M7a). Las vistas compilan en el build.
+- `dotnet test tests/OlvidataAgentes.Tests`: **509/509**. Linea base 478 + **31 nuevos**.
+- **Los 4 goldens de hash de contexto intactos**: `HashGoldenCmPanaderia`, `HashGoldenTasadorFerreteria`,
+  `HashGoldenFormato2/3` y `HashGoldenFormato4`. Los tres archivos que los contienen **no aparecen en el diff**. Tiene que
+  ser asi: nada de esto toca el armado del contexto.
+- **Verificacion contra los archivos reales** (no solo fixtures). Los 6 del escenario BMA, por el camino real del portal,
+  al cliente 64 de la organizacion 20, con el modelo simulado:
+  - **El `.xls` de SOS Contador entra**: "Documento subido. El agente lo puede leer.", tipo **Tabla web**, **93 filas** con
+    Cuenta / Fecha / Comprobante / CUIT / Razon Social / Concepto / Debe / Haber / Saldo separadas por tabulador. La primera
+    linea trae `Imputaciones Contables - CUIT 30-70823732-5 - <razon social>`: **el dato que el producto nunca habia podido
+    leer**.
+  - **Los 5 PDF**: primero dieron *"Este archivo ya esta cargado…"* (control de duplicado por hash, correcto). Se les dio de
+    baja y se volvieron a subir: los 5 avisan **"Documento subido, pero no entero. La pagina 8 de N no tiene texto…"** con
+    su N correcto (8, 10, 8, 12, 8) y quedan en "El agente lee solo una parte".
+  - **Renglones**: el resumen de abril paso de **5 saltos de linea para 7.878 caracteres** (pagina 2) a **74 saltos**, con
+    cada movimiento en su renglon. Total del archivo: 292 → **678 saltos**. Los otros cuatro, igual (105→473, 230→592,
+    103→459, 103→459). **Sin perdida de contenido**: el multiconjunto de caracteres sin espacios es identico pagina por
+    pagina en los 12/8/10/8/8 folios.
+  - **El CUIT falso (DEF-BMA-3) queda a la vista como lo que es**: el encabezado ahora sale
+    `AV 51 1111 CTRO 17` ⇥ `R.N.P.S.P.` ⇥ `CUIT 30-57142135-2`, con el tabulador mostrando que ese CUIT viene de otra
+    columna. **No desaparece del renglon del titular**: sigue siendo material que hay que mirar antes de creerle.
+- **PA-29 verificado sobre el dato real de QA**: `/Tareas/Detalle/187` — la conversacion con la que QA reporto OLV-014 —
+  ahora muestra **"No pudo registrar la propuesta: la propuesta no cambiaba nada de la regla"**, sin tocar la base.
+- **Costo cero**: portal con `Anthropic__Simulado=true` (advertencia "MODELO SIMULADO … el costo es cero" en el arranque),
+  `anthropic.com` en el log del dia = **0**, y **ningun `EventoUso` nuevo** (el ultimo del tenant 20 es de la sesion
+  anterior; todos los tenants siguen en USD 0,000000).
+- **Nada del cliente llego al repositorio**: los archivos se copiaron a `.playwright-mcp/` (gitignorado) y se borraron al
+  terminar; `git grep` de `credicoop|nefroexcel|70823732|57142135` sobre el repo = **0 archivos**. El fixture del test es
+  equivalente pero inventado, y lo dice en su comentario.
+
+### Lo que cambio en la base de desarrollo (para que QA no se sorprenda)
+Organizacion **20 (`contadores-bma`), cliente 64**: los 5 documentos originales (ids 63–67) quedaron **dados de baja** y se
+volvieron a subir con la extraccion nueva (ids **69–73**), mas el `.xls` (id **68**). Fue la unica forma de volver a subirlos:
+el control de duplicado por hash los rechaza mientras el original este vigente. Las tareas #202/#203 **conservan lo que
+leyeron** (el propio dialogo de baja lo dice). La organizacion 19 y las demas no se tocaron.
+
+### Pruebas minimas para QA
+1. **PA-35, lo central.** Subir un `.xls` que sea una tabla HTML (o el del escenario BMA) → tiene que entrar como
+   **"Tabla web"** y en "Lo que el agente puede leer" las columnas tienen que verse separadas, no pegadas. Subir un `.xls`
+   binario de verdad (guardado con Excel como "Libro de Excel 97-2003") → rechazo con el mensaje que dice que **renombrarlo
+   no alcanza**. Confirmar por SQL que el rechazado **no deja fila** en `DocumentosCartera`.
+2. **PA-35, seguridad.** Un `.html` con `<script>alert(1)</script>`, `<style>`, `<iframe src=…>`, `onclick=` y
+   `<img src="http://…">` → nada de eso puede aparecer en el texto extraido, **no puede haber ninguna peticion de red** al
+   ver el documento (pestania Red del inspector) y la descarga tiene que bajar como archivo, nunca abrirse como pagina.
+3. **PA-33.** Un PDF de extracto bancario o de factura con tabla → cada movimiento en **su renglon**. Contar los saltos de
+   linea de una parte y compararlos con la cantidad de movimientos de esa pagina. Verificar tambien un PDF **de texto
+   corrido** (un contrato) para que no se haya roto lo que ya andaba.
+4. **PA-34.** Un PDF con una pagina escaneada en el medio → "El agente lee solo una parte" + el aviso con el numero de
+   pagina, en el mensaje de subida, en el tooltip de la grilla y en el detalle. Y **desde el agente**: una tarea con ese
+   documento adjunto, "Ver pasos" → la lista tiene que decir el motivo real, no "el documento es muy largo".
+5. **PA-29, con el modelo real (es lo unico que lo alcanza).** El disparador esta en `regresiones-manuales.yml` → OLV-014.
+   Barrido sobre el texto visible de un paso fallido: **0** apariciones de `equipo_listar`, `estructura_empresa`,
+   `clientes_buscar`, `regla_obtener`, `agentes_disponibles`, `cliente_agente`, `mis_preferencias`, `salvo_indicacion`,
+   `regla_id`, `sugerencia_id`, `documento_id`, `fragmento_id`. **Y la contracara:** que el modelo siga recibiendo el
+   mensaje tecnico — mirar `EjecucionesHerramienta.Resultado` en la base, que **no cambio**.
+6. **PA-29, sin modelo real.** `/Tareas/Detalle/187` (organizacion 1) tiene que decir *"…: la propuesta no cambiaba nada de
+   la regla"*, sin la instruccion al agente.
+7. **El importador.** Poner un `description:` con `:` adentro y sin comillas en un `.md` del nucleo y correr
+   `Admin -- importar` → la salida tiene que traer la advertencia con **el archivo y el motivo**, y el artefacto queda sin
+   nombre/descripcion/herramientas (que es lo que ya pasaba, pero ahora se ve). Volver a entrecomillar y reimportar: sin
+   advertencias y **sin version nueva** (el hash es sobre el cuerpo).
+8. **Regresion de M5.** Subir uno de cada formato que ya andaba (.pdf de texto, .docx, .xlsx, .csv, .txt, .png) y verificar
+   que el tipo, el estado de lectura y los rotulos de las partes siguen iguales.
+
+### Checklist de merge
+- [x] Build 0 errores (2 advertencias preexistentes) · tests **509/509**
+- [x] 4 goldens de hash de contexto intactos
+- [x] Sin migracion EF (el valor nuevo del enum va en una columna `int` que ya existe)
+- [x] Logica en services/extractores/helpers, nunca en controllers
+- [x] Multi-tenant sin cambios; ningun `IgnoreQueryFilters()` sin nombre
+- [x] `Mcp` y `Cli` sin tocar
+- [x] Costo cero: ninguna llamada a la API real, ninguna salida a internet
+- [x] Ningun archivo del cliente en el repositorio (verificado con `git grep`)
+- [x] Portal levantado al terminar con "MODELO SIMULADO" confirmado · sin commits
+
+# Escenario real `contadores-bma` (datos, no codigo) — prueba del template con archivos de un cliente
+
+Estado: **cargado 2026-09-16**. Pedido de Joaquin: evaluar si el template le sirve a **Contadores BMA** (estudio
+contable, cliente de Olvidata, con Discovery propio abierto en `docs/contadores-bma-agentes-ia/`). **Escenario aparte
+de `estudio-contable-demo` (tenant 19), que no se toco.** Base: `olvidata_agentes_dev`, tenant **20**.
+**Sin cambios de codigo, sin migracion EF, sin commits, costo cero** (portal con `Anthropic__Simulado=true`,
+arranque 17:01 con "MODELO SIMULADO"; `grep -c anthropic.com` sobre los logs del dia = 0; `EventoUso` del tenant 20:
+12 eventos, USD 0,000000). `git status --porcelain` = 0 al cerrar; `git grep -il "credicoop|nefroexcel|bma.test|70823732"`
+sin resultados: **los archivos del cliente viven solo en la base de dev y en `App_Data/documentos/20/64/` (gitignorado)**.
+
+### Que quedo cargado
+| Cosa | Detalle |
+|---|---|
+| Organizacion | Tenant **20** `contadores-bma` "Contadores BMA", licencia **#10** al rubro `contable`, vigente hasta 16/09/2027 (365 dias) |
+| Personas | `direccion@bma.test` "Direccion BMA" (Director) y `gaston@bma.test` "Gaston" (Empleado, area Impuestos). Las dos **`Super123!`**, creadas por el camino real (`/Clientes/Details/20` → Nuevo miembro), **sin copiar hashes por SQL** |
+| Areas | Impuestos (54), Sueldos (55), Conciliaciones (56) |
+| Cartera | **63** SERVICIO TERAPIA RENAL S.A. (sin identificacion: no la sabemos) · **64** "Cliente CUIT 30-70823732-5 (razon social a relevar)". Las notas de los dos separan **lo que sabemos** de **lo que falta relevar** |
+| Documentos | **5 de 6**. Los 5 PDF del Credicoop (enero a mayo 2026) al cliente 64, subidos por el camino real, los 5 con `EstadoLectura = 1` y su texto extraido (7 a 11 partes, 45.537 a 60.768 caracteres, ninguno recortado). Hash SHA-256 en disco identico al original. **El `.xls` no entro** |
+| Reglas | 4 a nivel empresa: 3 sugerencias del rubro (#100 y #101 en "Siempre", #102 en "Salvo que se indique otra cosa") + **#103 "Los numeros los hace el codigo, no el agente"**, propia de BMA, en **Siempre**. Quedan **3 sugerencias sin activar** |
+| Tareas | #202 Registracion (conciliar extracto vs. mayor, 5 PDF adjuntos) · #203 Ingresos Brutos (retenciones y percepciones de ARBA del extracto, 5 PDF) · #204 Comunicacion con el cliente (pedido de lo que falta, 2 turnos). Las 3 a nombre de Gaston, **Completadas, USD 0,00** |
+| Programacion | **#16** "Liquidacion de sueldos del mes — SERVICIO TERAPIA RENAL S.A.", agente `cont-sueldos`, cliente 63, mensual dia 5 a las 08:00, responsable Gaston, **sin autonomia** ("Acciones con aprobacion: no se le ofrecen"). **No se disparo** |
+
+### Que paso con los 6 archivos reales (lo que se pidio medir)
+- **Los 5 PDF del Credicoop entran y son legibles**: son PDF de texto, no escaneos. Ninguno dio "no legible".
+- **El `.xls` se rechaza**, con el mensaje `MensajesDocumentos.FormatoViejo` ("Los formatos .doc y .xls no estan
+  permitidos. Guardalo como .docx o .xlsx."). El rechazo esta en los **dos lados**: `wwwroot/js/documentos.js` y
+  `ValidadorContenidoArchivo.ValidarExtension`, que llama `DocumentoCarteraService.SubirAsync`. No queda fila en
+  `DocumentosCartera`. **Se dejo asi a proposito, sin convertirlo.**
+- **DEF-BMA-1 — el `.xls` de SOS Contador no es un Excel: es HTML.** Los primeros bytes son
+  `<table><tr><td><b>Imputaciones Contables - CUIT 30-70823732-5 - Nefroexcel SRL</b>`. Son 96 filas con columnas
+  Cuenta / Fecha / Comprobante / CUIT / Razon Social / Concepto / Monto Debe / Monto Haber / Saldo: **exactamente el
+  dato que la conciliacion necesita**. Consecuencia: el mensaje "Guardalo como .xlsx" describe mal el problema, y
+  renombrarlo a `.xlsx` tampoco funcionaria (el validador mira el contenido). El producto no tiene hoy ninguna via
+  para ese archivo: HTML no esta entre los formatos permitidos.
+- **DEF-BMA-2 — el texto del PDF pierde el renglon.** Las paginas de movimientos salen con **5 a 8 saltos de linea
+  para ~8.000 caracteres**: cada movimiento queda pegado al siguiente en una tirada unica, y la separacion entre
+  DEBITO, CREDITO y SALDO sobrevive solo como posicion de espacios. El detalle de un movimiento (CUIT y nombre del
+  contrasujeto) aparece **antes** de la fecha del movimiento siguiente.
+- **DEF-BMA-3 — ese pegoteo ya produjo un dato falso.** En el encabezado, el texto extraido dice
+  `NEFROEXCEL SRL ... R.N.P.S.P. CUIT 30-57142135-2`. **Ese CUIT no es del titular**: viene de otra columna del
+  encabezado del banco. El CUIT del titular es 30-70823732-5 y en el extracto solo aparece dentro de los debitos de
+  AFIP (`AFIP-30708237325`), nunca en el encabezado. El simulador, al citar el documento, mostro el CUIT equivocado en
+  pantalla; y la tarea #204 se escribio con esa confusion adentro y **se corrigio con un segundo turno**, que queda en
+  la conversacion como demostracion del ciclo.
+- **Paginas que se saltean sin avisar**: en el resumen de abril (12 paginas) y en el de febrero (10) falta una parte;
+  se nota solo porque los rotulos van "Pagina 7 de 12" → "Pagina 9 de 12". Son paginas sin texto (los anexos de
+  comisiones si se extraen). No hay aviso en pantalla.
+
+### Verificado a mano en el portal
+- Las dos personas entran de verdad con `Super123!`.
+- Aislamiento multi-tenant en **los dos sentidos**: Gaston (org 20) da **404 en 15 URLs** de las organizaciones 1, 4 y
+  19 (cartera, tareas, programaciones, reglas, documentos `Ver`/`Descargar`/`Index`) y **200** en las suyas;
+  `socio@contable.test` (org 19) da **404 en 12 URLs** de la org 20 y **200** en las 4 suyas.
+- Conteos por tenant sin cambios en 1, 4 y 19 (org 19 sigue con 4 personas, 3 areas, 6 clientes, 16 documentos,
+  4 reglas, 1 programacion y 4 tareas).
+- `/Consumo` muestra 2 personas, 1 area con tareas, 3 agentes y 1 cliente, todo en USD 0,00.
+- `dotnet test`: **478/478**, linea base intacta.
+
+### Riesgos y cosas a saber
+- La licencia #10 nace con **`Puestos = 1`** (hardcodeado en `Admin licencia-crear`) y la organizacion tiene 2
+  miembros. `Puestos` no se valida en ningun lado; queda incoherente a la vista, igual que en la org 19.
+- El nombre del cliente 64 **se dejo como "razon social a relevar" a proposito**, aunque ahora sabemos que es
+  Nefroexcel SRL: el nombre refleja lo que el producto alcanzo a saber con lo que si pudo cargar. La razon social y
+  la advertencia del CUIT estan en las notas del cliente.
+- SERVICIO TERAPIA RENAL S.A. **queda sin documentos**: no hay archivos reales suyos en el Discovery. No se invento
+  ninguno.
+- Los textos que devuelven las tareas salen del **guion del simulador** (lee el primer documento adjunto y lo cita):
+  no son una conciliacion de verdad. Lo que si es real es que **leyo los PDF cargados** y los cito por su contenido.
+- Los archivos de `docs/contadores-bma-agentes-ia/` son confidenciales de un tercero. Se usaron **solo** para cargar
+  la base de desarrollo, por pedido explicito de Joaquin, y **nunca** se copiaron al repositorio ni al nucleo.
+
+# Organizacion de demostracion `estudio-contable-demo` (datos, no codigo)
+
+Estado: **cargada 2026-09-16**. Pedido de Joaquin: modelo de pruebas navegable del producto como estudio contable.
+**Sin cambios de codigo, sin migracion EF, sin commits, costo cero** (portal con `Anthropic__Simulado=true`;
+`grep -c anthropic.com` sobre el log del arranque = 0). Base: `olvidata_agentes_dev`, tenant **19**.
+
+### Que quedo cargado
+| Cosa | Detalle |
+|---|---|
+| Personas | `socio@contable.test` Marina Sosa (Directora), `impuestos@contable.test` Nicolas Rey (Impuestos), `sueldos@contable.test` Carla Duarte (Sueldos), `junior@contable.test` Tomas Ferro (Registracion). Todas **`Super123!`** |
+| Areas | Impuestos (51), Sueldos (52), Registracion (53) |
+| Cartera | 57 Bazar del Oeste S.R.L. · 58 Metalurgica Parana S.A. (Convenio Multilateral, 4 jurisdicciones) · 59 Delta Servicios Informaticos S.R.L. (exporta servicios) · 60 Lucia Peralta (monotributista) · 61 Dr. Esteban Quiroga (profesional independiente) · 62 Vivero Las Acacias S.R.L. (**cliente nuevo, 1 solo documento a proposito**) |
+| Documentos (M5) | 16, todos por el camino real del portal, **los 16 con `EstadoLectura = 1`** y su texto extraido. 3/4/3/2/3/1 por cliente |
+| Reglas | 4 sugerencias del rubro contable activadas a nivel empresa (3 "Siempre", 1 "Salvo que se indique otra cosa"). **2 quedan sin activar**: "Solo lo que resiste una fiscalizacion" y "Al cliente se le habla sin jerga" |
+| Programacion (M12) | #15 "Panorama de vencimientos del mes", agente `cont-vencimientos`, mensual dia 5 a las 08:00, responsable Marina, **sin autonomia**. Proxima vuelta 05/10/2026 08:00. **No se disparo** |
+| Tareas | #198 Marina · Comunicacion con el cliente · Vivero (Completada) · #199 Carla · Liquidacion de sueldos · Bazar (Completada, 2 turnos con adjunto) · #200 Nicolas · Ingresos Brutos · Metalurgica (Completada, 2 turnos, M10) · #201 Tomas · Registracion · Quiroga (**Espera aprobacion de un Director**) |
+
+### Defecto de contenido corregido en el nucleo (DEF-CONT-1)
+5 archivos de `nucleo/rubros/contable/` tenian la `description` del front matter **sin comillas y con `:` adentro**,
+que es YAML invalido. `ImportadorRubro.SepararFrontmatter` **traga la excepcion sin emitir advertencia** y descarta
+toda la metadata, dejando el cuerpo bien importado. Consecuencia: `cont-balance`, `cont-monotributo` y `cont-sueldos`
+tenian el **slug como nombre**, sin descripcion y **con `Herramientas = NULL`** (o sea, sin `fecha_hora_actual` ni las
+suyas propias), y `20-sueldos-procedimientos` y `40-calendario-alicuotas-escalas` sin nombre ni descripcion.
+Se entrecomillaron las 5 descripciones y se re-importo: **0 artefactos nuevos, 0 versiones nuevas, 22 sin cambios**
+(el hash de version es sobre el **cuerpo**, no sobre el front matter), 22/22 publicadas, metadata completa.
+**Deuda abierta:** el `catch` mudo de `SepararFrontmatter` deberia sumar una advertencia al resultado del import —
+hoy un error de front matter se pierde en silencio y el rubro queda a medias sin que nadie se entere.
+
+### Verificado a mano en el portal
+- Las 4 personas entran de verdad con `Super123!` (las cuatro probadas, no deducidas).
+- Aislamiento multi-tenant en **los dos sentidos**: Marina da 404 en 4 URLs de las organizaciones 1 y 4;
+  `dira@qa.test` (org 1) da **404 en 7 URLs** de la org 19 y su propia cartera sigue devolviendo sus 20 clientes.
+- "Ver pasos" de #199 sale entero en palabras, sin JSON ni nombres de herramienta.
+- `/Consumo` muestra las 4 personas, 4 areas, 4 agentes y 4 clientes (USD 0,00: modelo simulado).
+- `/Aprobaciones` muestra 1 pendiente, "Solo un Director", vence el 19/09.
+- `dotnet test`: **478/478**, linea base intacta.
+
+### Riesgos y cosas a saber
+- La licencia #9 de la organizacion tiene **`Puestos = 1`** con 4 miembros. `Puestos` **no se valida en ningun lado**
+  (solo se muestra en `/Clientes/Details` del backoffice), asi que no rompe nada, pero queda incoherente a la vista.
+- Las tarjetas de aprobacion y el contenido que cita el agente salen del **guion del simulador**, no del contenido
+  contable: la accion pendiente dice "pago de prueba de $ 15.000 a «Cliente de prueba»". Es esperable con el modelo
+  simulado; con el modelo real el texto seria el del caso.
+- El guion de conocimiento del simulador **busca la primera palabra de 4+ letras del pedido**, asi que la seccion que
+  cita no siempre es la pertinente. Para que la demo se vea coherente, conviene **empezar el pedido con la palabra
+  clave** ("Convenio Multilateral, ...").
+- Las cuentas `@qa.test` de dev **hoy tienen todas el hash del SuperUsuario**, o sea contrasena `Super123!`, pese a que
+  el cierre de la ronda 2 de QA dice que se restauraron los originales. Se verifico sin adivinar (guardando el hash
+  antes de tocarlo) y se dejo exactamente como estaba.
+
+
+# Correcciones de la QA integral ronda 1 (DEF-R1-1 y OBS-R1-1..4)
+
+Estado: **implementadas 2026-09-16, pendientes de la ronda 2 de QA**. Entrada: `6-qa.md` → "QA integral ronda 1
+(2026-09-16) — CERRADA", con los pasos de reproducción de cada punto. Repo: `C:\Sistemas\Olvidata Agentes Multi-rubro`.
+**Sin migración EF** (ningún cambio de esquema: lo único nuevo que viaja es un campo de un DTO en memoria).
+**Ninguna llamada a la API real de Anthropic, ninguna salida a internet, sin commits.** `Mcp` y `Cli` sin tocar.
+Decisión de diseño previa de Joaquín: DEF-R1-1 se unifica en el resumidor que ya tienen M5/M10/M11, sin gate.
+
+### Escaneo de reutilizacion
+| Fuente | Qué se tomó | Grado |
+|---|---|---|
+| Template M5 `HerramientasDocumentos.Resumir` (D-M5-12) | La forma del resumidor: `ResumenHerramientaDto(Rótulo, ContenidoLegible, EsError)`, con el detalle plegado bajo "Ver lo que leyó" | Literal (patrón) |
+| Template M10 `HerramientasConocimiento.Resumir` (D-M10-6) | El manejo del error ("No pudo …: {motivo}" con minúscula inicial) y el recorte del contenido legible | Literal |
+| Template M11 `HerramientasConectores.Pedido/Resumir` (D-M11-7) | Que el **pedido** también lleve rótulo, no solo el resultado | Literal |
+| Template M7a `ResumenHerramientasPlataforma` | La cadena de `??` entre familias, que ahora vive en un solo lugar | Adaptado |
+| Template M11 `GuardiaDestinoHttp.RevisarIp` | La revisión de IP que ya existía; OBS-R1-2 solo la conecta al momento de guardar, resolviendo el nombre | Literal |
+| Escaneo `docs/*/definiciones/5-implementador.md` del estudio | Ningún otro proyecto muestra "pasos de un agente" en pantalla: el resumidor es propio de este producto. Lo más cercano (auditorías de CRM) lista acciones de personas, no de un modelo | Sin match |
+| Escaneo `docs/patrones/catalogo.yml` | Sin patrón nuevo: PAT-033 (rótulos llanos de herramientas) ya cubre el criterio; esto lo extiende a las familias que faltaban | Sin patrón nuevo |
+
+### Qué se hizo
+
+1. **DEF-R1-1 — un solo resumidor para "Ver pasos" (cierra PA-12 en su parte de "Ver pasos").**
+   `Infrastructure/Services/Motor/ResumenPasos.cs` es ahora el **único** lugar que traduce un paso de herramienta a
+   palabras. Encadena, en orden, documentos (M5) → conocimiento (M10) → conectores (M11) → plataforma/subagentes (M7a) →
+   **configurador (M4b, nuevo)** → **asistente del Director (M7b, nuevo)**, y **nunca devuelve null**: si apareciera una
+   herramienta sin rótulo redactado, cae en un texto genérico (`RotulosPasos`, en Application) que **no nombra la función
+   ni vuelca lo que devolvió**. `ServicioTareas` pasó de armar la cadena a mano a llamar a `ResumenPasos`.
+2. **Rótulos nuevos: las 14 herramientas que faltaban.** `ResumenHerramientasConfigurador` (9: `reglas_listar`,
+   `regla_obtener`, `estructura_empresa`, `clientes_buscar`, `sugerencias_listar` y las 4 de propuesta) y
+   `ResumenHerramientasAsistente` (5: `equipo_listar`, `agentes_disponibles`, `asignaciones_listar`,
+   `proponer_asignacion`, `proponer_tarea_agente`). Ejemplos: `Usa proponer_regla_nueva {"alcance":"empresa",…}` →
+   **"Propuso una regla nueva para toda la empresa: «Regla simulada 1-a»"**; `Usa estructura_empresa {}` →
+   **"Miró cómo está organizada tu empresa (áreas y agentes)"**. Los códigos internos **no se muestran**: ni el
+   `persona_id` (un GUID) ni el código de agente (`b-inmobiliario/inmo-agenda`) ni el alcance en código (`cliente_agente`
+   → "para un cliente y un agente"). El resultado de una propuesta no vuelca el texto técnico: manda a la tarjeta.
+3. **La vista ya no tiene camino crudo.** `Views/Tareas/_PasosTurno.cshtml` perdió las dos ramas de respaldo que
+   imprimían `Usa <code>@herramienta</code> @entrada` y `Resultado de <code>@herramienta</code>` + el contenido sin
+   resumir. Todo el texto del modelo y de terceros sigue saliendo por Razor, **escapado**, y lo que viene del modelo se
+   limpia de caracteres de control para que no rompa el renglón del rótulo.
+4. **OBS-R1-3 — 403 en vez de saneo mudo (CA-M12-12).** `ProgramacionesController.LeerDto` pasaba
+   `_permisos.PuedeProgramarParaOtros ? m.ResponsableUsuarioId : yo` y `… && PuedeProgramarParaOtros`: el POST forzado
+   se guardaba saneado y el `SinPermiso` del service quedaba inalcanzable. Ahora el formulario se pasa **tal cual** y
+   decide el service, que ya devolvía `SinPermiso` → `RespuestasServicio.Error` → **403**. El alta normal de un Empleado
+   no cambia: su formulario manda su propio id en un hidden (y si no viajara, se asume él mismo, que es lo único que
+   puede). El `&&` del service queda como segunda red, documentado.
+5. **OBS-R1-4 — "Probar" dice lo que contestó el externo.** `ResultadoConectorDto` suma `CuerpoExterno` (solo el
+   **cuerpo**, nunca encabezados: ahí viajan credenciales) y `MensajesConectores.ResultadoDePrueba` arma
+   *"El sistema externo contestó con un error 500. Lo que contestó el sistema externo: «…»"*. Es texto de un tercero:
+   `TextoExternoSeguro` lo deja en **una sola línea**, sin caracteres de control, sin ninguno de los caracteres con los
+   que se arma marcado (`<`, `>`, `&`, comillas dobles, comillas simples y acento grave: no queda HTML activo posible
+   aunque el que lo muestre no escape) y **recortado a 300 caracteres**. El mensaje del historial de
+   llamadas no cambió (sigue "HTTP 500"), así que M11 no se movió de lo que QA ya validó.
+6. **OBS-R1-2 — el destino se valida al guardar.** `IGuardiaDestinoHttp.RevisarDestinoAlGuardarAsync` = la revisión de
+   forma de siempre **más la resolución del nombre**: `https://localhost:8443/` o `intranet.empresa.local` ahora se
+   rechazan en el formulario y no quedan guardados como una conexión que nunca va a andar. El mensaje dice qué pasa
+   (el motivo del guardia) y qué hacer ("Poné la dirección pública del sistema…"). **Si el DNS no resuelve no se
+   bloquea**: un DNS caído no es motivo para no dejar guardar, y la protección real sigue siendo la revisión de IP al
+   conectar. Con `Conectores:PermitirDestinosPrivados = true` (tests) el chequeo no estorba: sale antes de pagar el DNS.
+7. **OBS-R1-1 — singular y plural.** `/Conocimiento`: "Son 1 documento en total." → **"Hay 1 documento en total."**
+   (con 2 o más sigue "Son N documentos en total."). Barrido de los 50 usos de `== 1 ?` en vistas, helpers y JS: el
+   único otro caso del mismo patrón era `Nucleo/Rubro.cshtml` ("1 publicados" → "1 publicado y consultable"). El resto
+   ya concordaba, o usa "Hay", que sirve para singular y plural.
+
+### Decisiones de implementacion (ambigüedades resueltas)
+- **DI-R1-1 El fallback de "Ver pasos" no muestra el contenido, ni siquiera el del error.** Podría haberse mostrado el
+  texto devuelto por una herramienta sin rótulo (los mensajes de error del producto son castellano llano). Se descartó:
+  no hay forma de garantizar que una herramienta futura devuelva algo legible, y el criterio de la corrección es que
+  **nunca** llegue JSON a la pantalla. El costo es diagnóstico: si alguien agrega una herramienta y olvida el rótulo,
+  "Ver pasos" dice poco. Lo compensa el test que recorre todas las herramientas registradas y falla si falta un rótulo.
+- **DI-R1-2 `CuerpoExterno` como campo del DTO, no re-parsear `ParaElAgente`.** La alternativa era extraer el cuerpo del
+  mensaje que va al modelo buscando "Lo que contestó: ". Se descartó por frágil. El campo es opcional y solo lo llena la
+  rama de error del sistema externo.
+- **DI-R1-3 `TextoExternoSeguro` neutraliza en origen, no confía en el que muestra.** Hoy SweetAlert2 lo pinta con
+  `text:` (textContent) y Razor lo escapa en el listado, así que alcanzaría con escapar. Se decidió neutralizar igual en
+  el helper: es texto de un tercero y la lista de lugares donde se muestra puede crecer. Cuesta que `<` y `&` se vean
+  como espacios en un cuerpo XML o JSON con entidades; se aceptó a cambio de que no haya forma de equivocarse después.
+- **DI-R1-4 El chequeo de DNS al guardar no bloquea si no resuelve.** La alternativa (rechazar) haría que un DNS con
+  hipo impida guardar una conexión legítima. Contra: un nombre interno que no resuelve desde el servidor igual se
+  guarda; se entera al probar, que es exactamente lo que pasaba antes y no es un agujero (el guardia corta al conectar).
+- **DI-R1-5 Los rótulos no dicen "herramienta" salvo en el fallback.** "Miró", "Buscó", "Propuso", "Registró": verbos de
+  lo que pasó, no de cómo se llama. El genérico sí dice "una herramienta de la plataforma" porque no hay nada más
+  honesto que decir sin nombrarla.
+- **OBS-R1-3: el criterio NO se cambió.** Se evaluó dejar el saneo y corregir CA-M12-12. Se descartó: sanear en silencio
+  le devuelve al usuario un "guardado" que no es el que pidió (la programación quedaba a su nombre y sin autonomía, sin
+  un solo aviso), y el criterio escrito es el comportamiento correcto. `1-analista-funcional.md` queda como estaba.
+
+### Archivos tocados
+| Archivo | Qué |
+|---|---|
+| `src/…Application/Motor/IMotorAgentes.cs` | **`RotulosPasos`** (3 constantes del fallback) en Application, para que la vista no dependa de Infrastructure |
+| `src/…Infrastructure/Services/Motor/ResumenPasos.cs` | **Nuevo.** Resumidor único; `Pedido`/`Resultado` nunca devuelven null |
+| `src/…Infrastructure/Services/Configurador/ResumenHerramientasConfigurador.cs` | **Nuevo.** Las 9 de M4b |
+| `src/…Infrastructure/Services/Asistente/ResumenHerramientasAsistente.cs` | **Nuevo.** Las 5 de M7b |
+| `src/…Infrastructure/Services/Motor/ServicioTareas.cs` | Llama a `ResumenPasos` en vez de encadenar resumidores a mano |
+| `src/…Web/Views/Tareas/_PasosTurno.cshtml` | Se borraron las dos ramas que imprimían nombre de herramienta y JSON |
+| `src/…Web/Controllers/ProgramacionesController.cs` | `LeerDto` pasa responsable y autonomía tal cual (OBS-R1-3) |
+| `src/…Infrastructure/Services/Programaciones/ProgramacionTareaService.cs` | Solo el comentario del `&&` que queda como segunda red |
+| `src/…Application/DTOs/ConectoresDtos.cs` | `CuerpoExterno`, `ResultadoDePrueba`, `TextoExternoSeguro`, `DestinoAlGuardar` |
+| `src/…Application/Interfaces/IConectores.cs` | `RevisarDestinoAlGuardarAsync` en el guardia y en `IConectorTipo` (con implementación por defecto) |
+| `src/…Infrastructure/Services/Conectores/GuardiaDestinoHttp.cs` | Resolución de nombre al guardar, con espera de 3 s |
+| `src/…Infrastructure/Services/Conectores/ConectorHttpGenerico.cs` | Llena `CuerpoExterno` en el 5xx; revisa la base al guardar |
+| `src/…Infrastructure/Services/Conectores/ConexionConectorService.cs` | Corta el alta con destino interno; mensaje de prueba con el cuerpo |
+| `src/…Web/Views/Conocimiento/Index.cshtml` · `Views/Nucleo/Rubro.cshtml` | Concordancia de número (OBS-R1-1) |
+| `tests/…/ResumenPasosTests.cs` | **Nuevo.** 41 casos (incluye los pasos reales de las conversaciones #182 y #173) |
+| `tests/…/ConectoresTests.cs` | 6 casos nuevos (OBS-R1-2 y OBS-R1-4) |
+| `tests/…/ProgramacionesTests.cs` | 1 caso nuevo + la aserción de `TipoError.SinPermiso` que faltaba (OBS-R1-3) |
+
+### Evidencia
+- `dotnet build OlvidataAgentes.slnx`: **0 errores, 2 advertencias** — las dos preexistentes de la línea base
+  (`HomeController.StatusCode` oculta el miembro heredado y el `xUnit2013` de M7a). Las vistas compilan en el build
+  (verificado a propósito rompiendo una y viendo fallar la compilación), así que `_PasosTurno.cshtml` está cubierto.
+- `dotnet test tests/OlvidataAgentes.Tests`: **478/478**. Línea base 430 + 48 nuevos.
+- **Los 4 goldens de hash de contexto intactos**: `HashGoldenCmPanaderia`, `HashGoldenTasadorFerreteria`,
+  `HashGoldenFormato2/3` y `HashGoldenFormato4` **sin una sola modificación** (los archivos que los contienen no
+  aparecen en el diff). Tiene que ser así: nada de esto toca el armado del contexto, solo cómo se muestra después.
+- **Verificación contra datos reales** (no solo fixtures sintéticos): se leyeron de `olvidata_agentes_dev` los pasos
+  reales que vio QA — `PasosTarea` de la conversación **#182** (configurador) y **#173** (asistente) — y se anclaron
+  como test. Ahí apareció lo que un fixture propio no habría reproducido: en `estructura_empresa`, `clientes` es un
+  **objeto** y no un arreglo como las demás propiedades. **Solo lecturas: la base no se tocó.**
+
+### Pruebas minimas para QA (ronda 2)
+1. **DEF-R1-1, lo central.** Conversación nueva en `/ConfiguracionReglas/Nueva` → "Ver pasos" de la tarea: los tres
+   pasos tienen que decir **"Miró cómo está organizada tu empresa (N áreas, M agentes)"**, **"Propuso una regla nueva
+   para toda la empresa: «…»"** y **"Propuso un procedimiento nuevo para toda la empresa: «…»"**. Buscar en el HTML
+   (Ctrl+U o el inspector): **cero apariciones** de `proponer_regla_nueva`, `estructura_empresa`, `{` y `}`.
+2. **El asistente (M7b), que la ronda 1 no recorrió entero.** `/Asistente` → una conversación completa → "Ver pasos":
+   "Miró al equipo (N personas)", "Propuso asignarle una tarea a alguien del equipo: «…»". Verificar que **no aparece
+   ningún GUID** de persona ni el código `b-inmobiliario/…`.
+3. **No romper lo que ya andaba.** Re-verificar "Ver pasos" de M10 (material de Olvidata) y M11 (conector): los rótulos
+   y el "Ver lo que leyó" tienen que seguir igual que en la ronda 1.
+4. **OBS-R1-3 por el camino del navegador**, que es el único que no se puede cubrir por test (el proyecto de tests no
+   referencia Web): como Empleada, forzar el POST de `/Programaciones/Crear` con el `ResponsableUsuarioId` de otra
+   persona → **403** (antes: 201 + saneo). Ídem con `PuedeAccionesConAprobacion=true` → **403**. Y verificar que el
+   alta normal de la Empleada **sigue funcionando** y que la edición de una propia no se rompe.
+5. **OBS-R1-2.** Con el guardia en `false`, cargar una conexión con base `https://localhost:8443/` y la lista de
+   dominios vacía → tiene que **no guardarse**, con el mensaje que dice qué pasa y qué hacer. Confirmar por SQL que no
+   quedó fila. Y que el camino de M11 con el servidor de prueba local **sigue andando** con la variable en `true`.
+6. **OBS-R1-4.** Apuntar una conexión a un endpoint que devuelva 500 con cuerpo → "Probar" tiene que mostrar el cuerpo,
+   acotado. Probar también con un cuerpo con HTML (`<script>…`) y verificar que **no se ejecuta nada** y que el texto
+   sale neutralizado, tanto en el diálogo como en el "Última prueba" del listado.
+7. **OBS-R1-1.** `/Conocimiento` con **un solo** documento: "Hay 1 documento en total.". Con dos o más: "Son N…".
+
+### Checklist de merge
+- [x] Build 0 errores (2 advertencias preexistentes) · tests 478/478
+- [x] 4 goldens de hash de contexto intactos
+- [x] Sin migración EF (ningún cambio de esquema)
+- [x] Lógica en services/helpers, nunca en controllers (el controller solo dejó de sanear)
+- [x] Multi-tenant sin cambios; ningún `IgnoreQueryFilters()` sin nombre
+- [x] `Mcp` y `Cli` sin tocar
+- [x] Costo cero: ninguna llamada a la API real, ninguna salida a internet en los tests
+- [x] Base de desarrollo solo leída; sin commits
+
+# M12 — Tareas programadas y autonomía gradual por rol
+
+Estado: **implementada 2026-09-16, pendiente de QA (etapa 6)**. **Última etapa del roadmap.** Entrada: `1-analista-funcional.md` M12
+(RF-M12-01..17, CA-M12-01..16), `2-disenador-funcional.md` M12 (D-M12-1..12, P-M12-01..03) y `3-arquitecto-mvc.md` M12
+(RT-M12-01..11), aprobados sin gate por autorización de Joaquín (2026-09-14); `4-presupuestador.md` omitido (proyecto
+personal). Repo: `C:\Sistemas\Olvidata Agentes Multi-rubro`. Una entrega, una migración: `ProgramacionesM12`.
+**Ninguna llamada a la API real de Anthropic, ninguna salida a internet, sin commits.** Mcp y Cli sin tocar (solo compilan).
+
+### Escaneo de reutilizacion M12
+| Fuente | Qué se tomó | Grado |
+|---|---|---|
+| Template M7a `IPreparadorTareaTrabajo` | **La pieza clave.** "Armar una tarea de trabajo sin guardarla", con límite de gasto (M6), suscripción, agente, cliente, adjuntos e instantánea de reglas ya adentro. Una vuelta programada **no duplica ni una línea** de crear una tarea | Literal (reuso de código, no copia) |
+| Template M6 `AvisoGasto` (PAT-035) | "Esto se hace una sola vez aunque varios lo intenten": insertar y tratar el `DbUpdateException` (1062) como "otro llegó antes". De ahí sale la reserva de la ocurrencia | Literal (patrón) |
+| Template M1 lease del motor | La idea de reservar trabajo con un `UPDATE` condicionado por token de concurrencia. M12 la combina con el índice único porque la reserva y el trabajo van en **guardados distintos** | Adaptado |
+| Template M4b `IResolvedorSesion.ResolverUsuarioAsync` | Correr en segundo plano con los permisos de una persona, sin sesión ni caché | Literal |
+| Template M6/M7a/M8/M9 barridos de `MotorAgentesWorker` | El quinto barrido con su ritmo y su interruptor; la estructura del `try/catch` que no rompe el ciclo | Literal |
+| Template M7b `TareaAsignadaService` + `AsignacionesController` + vistas | La forma completa de un ABM con DataTables server-side, filtros en sesión, búsqueda global sobre las columnas visibles, acciones AJAX con SweetAlert2 y token de concurrencia con mensaje de conflicto | Literal (adaptado) |
+| Template M7b `ConversorDia.Dia` | `DateOnly` → columna `date` en MySQL (sin el conversor, proyectar a `DateOnly` revienta con InvalidCastException) | Literal |
+| Template M11 DI-M11-6 | "El costo se calcula, nunca se guarda": nada de escribir columnas de otra entidad dentro del commit del motor | Práctica |
+| Escaneo `docs/patrones/catalogo.yml` (PAT-001..044) | Ningún patrón cubría "trabajo repetitivo reanudable". Lo más cercano, PAT-034/035, son de aprobación y gasto | Sin match |
+| Escaneo `docs/*/definiciones/5-implementador.md` del estudio | Ningún proyecto tiene tareas programadas. Lo más cercano son los vencimientos/recordatorios de CRM, que son **avisos** calculados al mirar la pantalla, no trabajo que corre solo | Práctica, no código |
+| PAT-045 | **Creado** en el catálogo | Nuevo |
+
+### Qué se hizo
+
+1. **Programación = receta, no tarea (RF-M12-01/06).** `ProgramacionTarea` (`ITenantOwned` + `SoftDestroyable`) guarda qué se
+   pide, a qué agente, cada cuánto y quién responde. `EjecucionProgramada` guarda cada vuelta. La tarea que sale es una
+   `TareaAgente` **común y corriente**: mismos pasos, mismo costo, misma conversación de M3b. Por eso los 4 goldens de hash
+   quedan intactos: una vuelta usa el mismo `IPreparadorTareaTrabajo` que el botón del portal.
+2. **La ocurrencia se reserva antes de trabajar (RT-M12-01, PAT-045).** `ReservarAsync` escribe la vuelta y adelanta
+   `ProximaEjecucionAt` **en un guardado**, con índice único `(ProgramacionTareaId, Ocurrencia)` y `VersionToken`. Recién
+   después `EjecutarUnaAsync` crea la tarea. Si el proceso muere en el medio, la vuelta queda `Reservada` y el barrido la
+   termina sin reservar de nuevo.
+3. **Nunca se disparan las vueltas perdidas (RT-M12-02).** La próxima se recalcula **desde ahora**. Un sitio dormido una
+   semana crea una tarea al despertar, no siete. Verificado con un test que corre tres barridos seguidos.
+4. **Calendario en hora argentina (RT-M12-03).** `CalendarioProgramacion`: diaria, semanal (1 = lunes … 7 = domingo) y
+   mensual con **recorte del día 31 al último día del mes**. Siempre estrictamente después del instante que recibe. Helper
+   puro: 8 tests lo ejercitan sin base.
+5. **Autonomía por rol resuelta en el motor (RT-M12-07).** En `ProcesadorTareas`, una tarea con `ProgramacionTareaId` y
+   `AutonomiaConAprobacion = false` **pierde todas las herramientas con `RequiereAprobacion`** antes de armar la solicitud.
+   El agente no puede pedir lo que no tiene. Con la autonomía encendida las recibe y el circuito de M6 funciona igual:
+   la acción queda esperando y **nunca se aprueba sola**.
+6. **La vuelta corre como el responsable (RT-M12-06).** `ResolverUsuarioAsync` puebla tenant y contexto; si dejó la empresa,
+   la vuelta queda Bloqueada con "El responsable ya no es un miembro activo de la empresa."
+7. **Fallas seguidas con corte y aviso (RF-M12-09).** Una vuelta que no pudo nunca mata la programación: suma una falla y
+   recién a las 5 queda Terminada con motivo, y el responsable recibe dos avisos (el de la vuelta y el del corte).
+8. **Costo calculado (RT-M12-09).** Del mes y total, sumando `PasosTarea.CostoUsd` de las tareas de esa programación, con el
+   período argentino de M6. Aviso una vez por mes cuando **una sola** programación pasa el 50 % del tope de la empresa.
+9. **Origen en Tareas (RF-M12-10).** Chip "Programada · «Nombre»" en la grilla, aviso en el detalle, filtro "Origen" y el
+   enlace "Ver sus tareas" del detalle que fija la programación.
+10. **Pantallas (RF-M12-16) y consola (RF-M12-17).** `Programaciones/{Index, Form, Detalle, _ScriptAcciones}`, ítem en el
+    menú de todo miembro, y el verbo `programaciones <tenantSlug>` en Admin.
+
+### Decisiones de implementacion M12 (ambigüedades resueltas)
+- **DI-M12-1 Dos fases con estado `Reservada`, no una transacción larga.** La alternativa era abarcar reserva y creación en
+  una transacción. Se descartó: con EF InMemory los tests no la tienen, y en MySQL sostenerla mientras se arma el contexto y
+  se calcula el hash deja la fila tomada varios segundos. Costo: un estado más y un barrido de recuperación. Hipótesis
+  tomada sin gate (autorización 2026-09-14).
+- **DI-M12-2 Las vueltas perdidas se pierden.** Al despertar se dispara **solo la última pendiente**, y ni siquiera esa: se
+  recalcula desde ahora. Lo pidió el alcance y además es lo correcto —una tarea de IA vieja cuesta plata y casi nunca sirve—.
+  Contra: nadie puede "recuperar" el resumen del lunes que no corrió. Queda dicho en el formulario.
+- **DI-M12-3 Día 31 en un mes corto → último día del mes.** La otra opción era saltear el mes. Se descartó: "el 31 de cada
+  mes" para una persona significa "a fin de mes", y saltear febrero es un silencio que nadie espera.
+- **DI-M12-4 La hora se guarda como minutos desde la medianoche argentina (int), no como `TimeOnly`.** Después de que el
+  proveedor MySQL obligara a un conversor para `DateOnly` en M7b, un `int` no tiene sorpresas de mapeo, se indexa y se
+  compara. El significado está en el nombre de la columna y en su comentario.
+- **DI-M12-5 Sin autonomía se QUITA la herramienta, no se auto-aprueba ni se deja pendiente.** Era la decisión central. Se
+  descartó auto-aprobar (rompe la promesa de M6) y se descartó dejar el pedido pendiente en silencio (la vuelta queda
+  esperando a alguien que no sabe que la esperan, y a la mañana siguiente hay una tarea trabada por cada día). Quitarla es
+  fail-closed de verdad: **no hay ninguna rama nueva en el circuito de aprobaciones que pueda tener un agujero**. Efecto
+  colateral asumido: sin autonomía, una tarea programada tampoco recibe las herramientas de conectores de M11 (todas tienen
+  `RequiereAprobacion = true` por fail-closed) ni las de demostración.
+- **DI-M12-6 La autonomía se congela en la tarea (`AutonomiaConAprobacion`).** Si se leyera de la programación al ejecutar,
+  editarla a mitad de vuelta cambiaría lo que esa vuelta puede hacer.
+- **DI-M12-7 "Ejecutar ahora" solo adelanta la hora; no crea la tarea.** Así el camino de creación es **uno solo** y lo que
+  QA prueba a mano es exactamente lo que va a pasar sola de madrugada. Costo: hay que esperar el barrido (hasta un minuto),
+  y la confirmación lo dice.
+- **DI-M12-8 Sin vista de staff de Olvidata.** M11 sí la tuvo. Acá se dejó afuera para no agrandar la entrega: el verbo de
+  consola cubre la necesidad de mirar. **Deuda consciente**, no olvido.
+- **DI-M12-9 Una sola pantalla, sin pestañas (D-M12-1).** El Director ve todas con la columna "Responsable" y su filtro; el
+  Empleado ve las suyas sin esa columna. Menos superficie que las pestañas de M7b, misma información.
+- **DI-M12-10 Sin columnas generadas en la migración.** La unicidad que importa es sobre columnas reales, así que no hizo
+  falta el ajuste manual a `STORED` de M2/M4/M11. Es la primera migración del proyecto con un único índice único y sin SQL a
+  mano.
+- **DI-M12-11 `VersionToken` se incrementa solo en la reserva, nunca al cerrar la vuelta** (RT-M12-11). Si el cierre lo
+  tocara, una edición desde la pantalla a mitad de vuelta la haría fallar sin motivo real. El cierre igual va condicionado
+  por el token: si alguien editó, la vuelta queda `Reservada` y la retoma el barrido.
+
+### Migraciones EF generadas M12
+- `20260916150321_ProgramacionesM12` — `CreateTable ProgramacionesTarea` (`Id int` identity, `TenantId int`,
+  `Nombre varchar(150)`, `AgenteArtefactoId int?`, `AgenteOrganizacionId int?`, `ClienteCarteraId int?`, `Pedido text`,
+  `Frecuencia/Estado int`, `DiaSemana/DiaMes int?`, `MinutosDelDia int`, `ResponsableUsuarioId varchar(255)`,
+  `MotivoFin varchar(500)`, `FinEl date`, `MaxEjecuciones int?`, `EjecucionesHechas/FallasSeguidas int`,
+  `PuedeAccionesConAprobacion tinyint(1)`, `ProximaEjecucionAt/UltimaOcurrenciaAt datetime(6)?`,
+  `PeriodoAvisoCosto int?`, `VersionToken int` + auditoría y baja lógica) y `CreateTable EjecucionesProgramadas`
+  (`Id bigint` identity, `TenantId`, `ProgramacionTareaId`, `Ocurrencia datetime(6)`, `Resultado int`,
+  `TareaAgenteId int?`, `Motivo varchar(500)`, `CreadoAt`, `ResueltaAt?`). Más **dos columnas en `TareasAgente`**:
+  `ProgramacionTareaId int?` y `AutonomiaConAprobacion tinyint(1) DEFAULT 0`. FK **Restrict** a `Tenants`, `Artefactos`,
+  `AgentesOrganizacion`, `ClientesCartera`, `AspNetUsers`, `ProgramacionesTarea` y `TareasAgente`. `Down` = `DropTable` de
+  las dos + `DropColumn` de las dos. **Ninguna tabla existente cambia de forma.**
+- **Sin ajuste manual a STORED**: no hay columnas generadas (DI-M12-10). Es la diferencia con `OrganizacionM2`,
+  `AgentesOrganizacionM4` y `ConectoresM11`.
+- **Aplicada en `olvidata_agentes_dev` (MySQL 8.0) el 2026-09-16**, con `database update ConectoresM11` (Down OK) y
+  `database update` otra vez; `has-pending-model-changes` limpio.
+- Verificado por SQL (`scratchpad/verificar-m12*.sql`, transacciones revertidas): tipos y largos exactos;
+  **1062 real** al insertar dos veces la misma `(ProgramacionTareaId, Ocurrencia)` — *"Duplicate entry
+  '1-2026-09-17 11:00:00.000000'"*; **distinta ocurrencia de la misma programación entra** y **la misma hora en otra
+  programación también** (el único es por programación, no global); **1451 real** al borrar una programación con historial y
+  **1452** al registrar una vuelta de una programación inexistente; `EXPLAIN` del barrido del worker resuelve por
+  `IX_ProgramacionesTarea_Estado_ProximaEjecucionAt` (`range`, `Using index`, nunca `ALL`) y el de las vueltas colgadas por
+  `IX_EjecucionesProgramadas_Resultado_CreadoAt` (`range`, `Using index`); collation `utf8mb4_0900_ai_ci` en `Nombre` y
+  `Pedido`. **0 restos** tras los ROLLBACK.
+
+### Archivos y capas modificadas M12
+**Domain** — Nuevos: `Entities/Programaciones.cs` (`ProgramacionTarea`, `EjecucionProgramada`),
+`Enums/EnumsProgramaciones.cs` (`FrecuenciaProgramacion`, `EstadoProgramacion`, `ResultadoEjecucionProgramada`).
+Modificado: `Entities/Tareas.cs` (`ProgramacionTareaId`, `AutonomiaConAprobacion`).
+
+**Application** — Nuevos: `Helpers/CalendarioProgramacion.cs`, `Settings/ProgramacionesOptions.cs`,
+`DTOs/ProgramacionesDtos.cs` (+ `MensajesProgramaciones`), `Interfaces/IProgramaciones.cs`
+(`IProgramacionTareaService`, `IEjecutorProgramaciones`). Modificados: `Interfaces/IPermisosOrganizacion.cs` (2 permisos),
+`Motor/IMotorAgentes.cs` (`FiltroTareas.Origen*`, `TareaFiltros.DeProgramacion`/`ProgramacionId`,
+`TareaListItemDto.Programacion*`, `TareaDetalleDto.Programacion`).
+
+**Infrastructure** — Nuevos: `Services/Programaciones/EjecutorProgramaciones.cs`, `ProgramacionTareaService.cs`,
+`Data/Configurations/ProgramacionesConfigurations.cs`, migración `Data/Migrations/20260916150321_ProgramacionesM12.cs`
+(+ Designer y snapshot). Modificados: `Services/Motor/ProcesadorTareas.cs` (quita las herramientas con aprobación en una
+tarea programada + aviso de fin en `TrasFinAsync`), `Services/Motor/MotorAgentesWorker.cs` (quinto barrido),
+`Services/Motor/ServicioTareas.cs` (filtro de origen, nombre de la programación en la grilla y chip del detalle),
+`Services/Organizacion/PermisosOrganizacion.cs`, `Data/AppDbContext.cs` (2 DbSet + exclusión del audit trail),
+`Data/Configurations/AgentesConfigurations.cs` (FK e índice de la tarea), `DependencyInjection.cs`.
+
+**Web** — Nuevos: `Controllers/ProgramacionesController.cs`, `Models/ProgramacionesViewModels.cs`, vistas
+`Programaciones/{Index, Form, Detalle, _ScriptAcciones}.cshtml`. Modificados: `Controllers/TareasController.cs`
+(filtro de origen + `?programacion=`), `Views/Tareas/Index.cshtml` (filtro y chip), `Views/Tareas/_Conversacion.cshtml`
+(aviso de origen), `Views/Shared/_Layout.cshtml` (ítem "Programaciones"), `wwwroot/css/site.css` (`.ov-prog-estado`,
+`.ov-prog-vuelta`), `appsettings.json` (sección `Programaciones`).
+
+**Admin** — `Program.cs`: verbo `programaciones <tenantSlug>` y ayuda.
+**Tests**: nuevo `ProgramacionesTests.cs` (38 con sus casos de Theory).
+**Repo**: `docs/diseno-organizacion-roles-reglas.md` (M12 ✅) y `PLAN-IMPLEMENTACION.md`.
+
+### Evidencia de build y tests M12
+- `dotnet build OlvidataAgentes.slnx`: **0 errores**. 2 advertencias **preexistentes** que aparecen solo en compilación
+  completa y no son de M12 (`xUnit2013` en `ReglasPropuestasAgentesTests` y `CS0114` en `HomeController.StatusCode`).
+  Las vistas Razor compilan en el build: `dotnet build` del proyecto Web da 0 advertencias.
+- `dotnet test tests/OlvidataAgentes.Tests`: **430 OK / 0 fallidos** (392 previos + 38 nuevos).
+- **Inestabilidad preexistente detectada, ajena a M12**: en una de las corridas falló
+  `LectorDocumentosTests.Extraccion_que_supera_el_tiempo_queda_como_no_se_pudo_leer`, que mide un tiempo de espera real.
+  Vuelto a correr solo y con la suite completa, pasa. Es un test sensible a la carga de la máquina, no una regresión:
+  conviene reescribirlo sin depender del reloj cuando se lo toque.
+- **Los 4 goldens de hash de contexto intactos**: una tarea programada usa el mismo `IPreparadorTareaTrabajo`, así que el
+  prompt de sistema y su hash son los mismos que los de una tarea pedida a mano. Verificado además con un test propio: dos
+  vueltas de la misma programación con una regla nueva en el medio dan **hashes distintos** (toma las reglas vigentes).
+- **Casos de no duplicación cubiertos** (todos verdes): dos workers globales barriendo a la vez → una sola vuelta y el
+  segundo se va con las manos vacías; reinicio entre reservar y crear la tarea → la vuelta queda `Reservada`, la
+  programación ya apuntaba al futuro, y el barrido posterior la termina sin duplicar; despertar tras 7 días dormido con
+  tres barridos seguidos → **una** tarea y la próxima recalculada dentro de las 24 h.
+- **Casos de freno cubiertos**: límite de gasto del mes alcanzado, responsable bloqueado, organización suspendida, 5 fallas
+  seguidas → Terminada con motivo y aviso, y tope de ejecuciones → termina sola sin una vuelta de más.
+- **Autonomía cubierta**: sin autonomía, `pago_real` y `sin_nivel` **no están** en la lista de herramientas de la solicitud
+  al modelo y `nota_libre` sí, y la tarea completa; con autonomía, `pago_real` **sí** se ofrece, queda un `AprobacionAccion`
+  Pendiente, la tarea queda `EsperandoAprobacion` y **no hay ninguna `EjecucionHerramienta`** (la acción no se ejecutó).
+- **Permisos cubiertos**: un Empleado programa para sí mismo pero no para otro (`SinPermiso`) ni con autonomía; ve solo las
+  suyas y una ajena le da `NoEncontrado`; una Directora de otra empresa no ve ni una.
+- Lecciones: (1) el orden importa — si la marca de "ya corrí" se escribe **junto** con el trabajo, un corte en el medio
+  habilita la doble ejecución; hay que reservar primero y trabajar después; (2) el índice único solo no alcanza si la misma
+  instancia reintenta: hace falta el estado intermedio con su barrido de recuperación, o la ocurrencia queda huérfana para
+  siempre; (3) una subconsulta con `IgnoreQueryFilters` **dentro de una proyección** no compila (CS9175: un árbol de
+  expresión no admite expresiones de colección) — los nombres se resuelven después de la página, como los clientes desde M5;
+  (4) la decisión de seguridad más simple fue la mejor: **quitar la herramienta** en vez de agregar una rama al circuito de
+  aprobaciones. Menos código nuevo en el camino crítico = menos lugares donde equivocarse.
+
+### Riesgos residuales M12
+- **Sin AlwaysRunning (PA-07) las programaciones se atrasan.** SmarterASP duerme el sitio; el worker no corre dormido. Hoy
+  solo está el plan B de M9 (ping externo a `/health/vivo`). Una programación de las 08:00 puede correr a las 09:15 si nadie
+  entró antes. **Es el riesgo principal de M12 y no lo resuelve el código.** Mitigado a medias: el atraso nunca se convierte
+  en avalancha (se dispara una sola vuelta) y el formulario lo dice con esas palabras.
+- **Las vueltas perdidas se pierden** (DI-M12-2). Nadie puede recuperar el resumen del lunes que no corrió: hay que usar
+  "Ejecutar ahora".
+- **La ocurrencia se consume aunque la tarea no se cree.** Evita el bucle infinito de una programación rota, pero significa
+  que un problema de un día se lleva la vuelta de ese día.
+- **Sin autonomía, una tarea programada tampoco tiene conectores (M11)**, porque todas sus herramientas son fail-closed.
+  Es correcto y es lo conservador, pero no es obvio: está dicho en el detalle de la programación.
+- **Sin vista de staff** (DI-M12-8) y **sin frecuencias finas** (cada N minutos, días hábiles, "el primer lunes"): deuda
+  consciente. Lo primero se cubre con el verbo de consola.
+- **El aviso de costo depende de que la empresa tenga tope.** Con `ModoApiKey.PropiaDelCliente` o sin límite no hay contra
+  qué comparar y no se avisa; el costo igual se muestra en la pantalla.
+- **No se probó con volumen**: el barrido trae hasta 5 vueltas por ciclo y las resuelve en serie dentro del mismo scope. Con
+  muchas organizaciones programando a las 08:00 en punto, la cola se va a estirar. Hay que mirarlo cuando haya clientes.
+- Verificación visual pendiente (QA): listado, alta con las tres frecuencias, edición, detalle con historial, pausar,
+  reanudar, ejecutar ahora, dar de baja, chip y filtro de origen en Tareas, mobile 390 y ambos temas.
+
+### Proximos pasos pendientes M12
+- QA etapa 6 con el modelo simulado (guía en `trazabilidad.md`, entrada del implementador M12).
+- **Cerrar PA-07 con soporte de SmarterASP**: es lo que convierte a M12 de "se atrasa" a "corre a la hora".
+- Evaluar frecuencias finas y días hábiles si un cliente real las pide (hoy no hay caso).
+- Evaluar la vista de staff de programaciones y, con volumen, pasar el barrido a resolver vueltas en paralelo.
+- Deuda preexistente vista, fuera de alcance: `dotnet-ef` 10.0.2 más vieja que el runtime 10.0.9.
+
+---
 
 # M11 — Conectores con credenciales por organización
 

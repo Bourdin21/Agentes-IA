@@ -5,6 +5,102 @@
 
 ## Definiciones vigentes
 
+# M14 — Instructivos, búsqueda web, espacio del cliente y control de gasto
+
+Estado: **aprobada por Joaquín 2026-09-17** (Discovery, Análisis y Diseño con gate; presupuesto omitido). Entrada: `1-analista-funcional.md` M14 (RF-M14-01..33) y `2-disenador-funcional.md` M14 (D-M14-1..8, P-M14-01..10). **Una entrega, una migración: `InstructivosM14`.**
+
+## Principio que ordena la arquitectura
+
+**Nada de M14 entra al prompt de sistema.** Los instructivos se consultan con herramientas y la búsqueda web es una herramienta del proveedor: las dos viajan en la **lista de herramientas de la solicitud**, que no forma parte del contexto ni del hash. Consecuencia verificable y no negociable: **los 4 goldens de contexto quedan byte a byte idénticos** con y sin instructivos y con y sin búsqueda habilitada. Es el mismo criterio que sostuvieron M5, M6, M10, M11 y M12.
+
+## Domain
+
+- **`Instructivo`** (`ITenantOwned`, `SoftDestroyable`): `Titulo`, `ParaQueSirve`, `Pasos`, `Visibilidad`, `AutorId`, `Activa`, `VersionActual`, `VersionToken`. **Reusa `VisibilidadAgente`** de M4 (`SoloYo` / `TodaLaEmpresa`) en vez de crear un enum gemelo: es la misma decisión de producto y el usuario ya la conoce con esas palabras.
+- **`InstructivoVersion`**: `InstructivoId`, `Numero`, y la copia de `Titulo`/`ParaQueSirve`/`Pasos`/`Visibilidad`, más `AutorId` y `CreadoAt`. Mismo patrón que `ReglaVersion`.
+- **`TareaAgente.PermiteBusquedaWeb`** (bool, default `false`). Se fija al crear la tarea y **se congela**: cambiar la casilla después no altera una tarea en curso, igual que la autonomía de M12 (DI-M12-6).
+- **`EjecucionProgramada.VistoAt`** / **`VistoPorId`** (nullables). **Decisión consciente:** el "visto" es del registro, no por persona. Los resultados son del responsable de la programación; modelar una tabla de vistos por usuario agrega una tabla y una consulta para un caso que hoy no existe. Queda anotado como deuda si algún día varias personas comparten la bandeja.
+- **`EventoUso.Busquedas`** (int, default 0). El costo de las búsquedas se suma a `CostoUsd` del mismo evento, para que **no haya dos verdades sobre cuánto costó una llamada** y para que el límite de gasto de M6 lo tome sin tocar una línea.
+- Sin enums nuevos. `CanalUso` no se toca: una búsqueda no es un canal, es parte de una tarea.
+
+## Datos y migración `InstructivosM14`
+
+- Tablas `Instructivos` e `InstructivosVersiones`; dos columnas en `TareasAgente`, dos en `EjecucionesProgramadas`, una en `EventosUso`.
+- **Unicidad de título entre los vigentes de la organización**, con el patrón ya probado del proyecto: columna generada `TituloVigente` = `CASE WHEN DeletedAt IS NULL THEN Titulo END` + índice único `(TenantId, TituloVigente)`. **`MySql.EntityFrameworkCore` ignora `stored: true`** y genera una columna VIRTUAL, que MySQL no acepta como base de un índice: la migración la reescribe a mano con `migrationBuilder.Sql("ALTER TABLE ... GENERATED ALWAYS AS (...) STORED NULL;")` **antes** de crear el índice. Es la cuarta vez que aparece; está en el catálogo de patrones.
+- La comparación previa del service usa `NombreDocumentoHelper.ClaveComparacion`, que replica en C# la colación `utf8mb4_0900_ai_ci`, para que **la validación funcional y el índice vean lo mismo**.
+- Índices de lectura: `(TenantId, Activa, Visibilidad)` para el listado del agente; `(TenantId, CreadaAt)` en `TareasAgente` para el informe; `(ProgramacionTareaId, VistoAt)` para la bandeja de resultados.
+
+## Application
+
+- `InstructivosDtos` + `MensajesInstructivos`; `IInstructivoService`; `InstructivosOptions` (largo de pasos, largo de "para qué sirve", cantidad por organización, topes por llamada de las herramientas).
+- `BusquedaWebOptions`: habilitada, **máximo de búsquedas por tarea**, y el precio por búsqueda. **El precio se configura, no se hardcodea** (regla del proyecto: verificar precios antes de facturar). Sin precio configurado, la búsqueda **no se ofrece**: mismo criterio fail-closed que M8 con las corridas reales.
+- `IInformeAutomatizacion` + su DTO: agrupación por `(AgenteId, ClienteCarteraId, HashPedido)`, donde `HashPedido` es SHA-256 del pedido **normalizado** (recortado, sin tildes, minúsculas, espacios colapsados). Las tareas de programación son idénticas por construcción, así que caen juntas solas. Se calcula **al vuelo** con tope de período y de filas: no se persiste nada, porque un informe que se guarda envejece y miente.
+
+## Infrastructure
+
+- `Services/Instructivos/InstructivoService.cs` — ABM con versionado, token de concurrencia y validación de unicidad previa.
+- `Services/Instructivos/HerramientasInstructivos.cs` — `instructivos_listar` (título, para qué sirve, sin los pasos) y `instructivo_leer` (los pasos, con tope de caracteres). **Solo lectura, solo en tareas de trabajo**, acotadas por código al tenant de la tarea y a lo que el **autor de la tarea** puede ver (los de la empresa + los personales suyos). Resultado rotulado como información, nunca instrucciones. Espeja `HerramientasConocimiento` de M10, incluida su regla de que "no está disponible" es la única respuesta para todo lo que no corresponde.
+- `Services/Motor/ProcesadorTareas.cs` — suma la herramienta de búsqueda del proveedor **solo si** `PermiteBusquedaWeb`, hay presupuesto y hay precio configurado; cuenta las búsquedas del turno contra el tope; registra `Busquedas` y su costo en `EventoUso`. **La verificación de límite de gasto de M6 se hace antes de cada llamada, como ya se hace**: no se agrega una segunda compuerta.
+- `Services/Motor/ProveedorModeloSimulado.cs` — guion de búsqueda web para que QA lo verifique **sin costo**, con resultados fijos y una fuente citada.
+- `Services/Motor/ResumenPasos.cs` — dos resumidores nuevos (instructivos y búsqueda), encadenados como los demás, con su par de textos modelo/persona. **Ningún camino nuevo puede mostrar nombres de herramienta ni JSON**: hay test que lo barre.
+- `Services/Uso/` — agregaciones del dashboard (conteo de llamadas = filas de `EventoUso`) y del informe.
+
+## Web
+
+- `InstructivosController` + vistas (`Index`, `Form`, `Detalle`, `_Desambiguador`), policy `RequireMiembro`; las de la empresa las administra el Director (`IPermisosOrganizacion` suma `PuedeGestionarInstructivosDeOrganizacion`).
+- `CarteraController.Espacio` + vista — **solo lectura**, reusa los servicios de reglas, documentos, tareas y programaciones ya existentes. Sin endpoints nuevos de escritura.
+- `ProgramacionesController.Resultados` + `MarcarVisto`.
+- `UsoController` — cards de totales y apertura; `UsoController.Automatizar` — el informe. Ambos `RequireAdministracion`.
+- Ajustes: `Agentes/Ejecutar` y el cuadro de seguimiento (casilla), `Tareas/Detalle` (pasos nuevos con fuentes externas `rel="noopener noreferrer"`), `Reglas` (tipo `Procedimiento` fuera del combo + aviso con **Convertirlo en instructivo**), `Cartera/Detalle` (acceso al espacio), `_Layout` (ítem **Instructivos** y contador de resultados sin ver).
+- **El texto externo se escapa siempre.** Lo que vuelve de internet es de un tercero no confiable: mismo tratamiento que el cuerpo de un conector (`TextoExternoSeguro`).
+
+## Riesgos técnicos
+
+**RT-M14-01 — el tipo y la versión de la herramienta de búsqueda del SDK no se asumen**: hay que verificarlos contra la documentación oficial del SDK de Anthropic antes de escribir la llamada, y lo mismo el precio por búsqueda. Un `type` inventado da 400 en la primera corrida real. **RT-M14-02 — los goldens**: 4 tests existentes más uno nuevo que prueba que habilitar búsqueda e instructivos deja el hash idéntico; si alguno se mueve, se para. **RT-M14-03 — la columna generada STORED** (cuarta aparición del mismo problema del proveedor MySQL). **RT-M14-04 — el informe con volumen**: tope de período y de filas, y el índice `(TenantId, CreadaAt)`; si el `GROUP BY` sobre el hash pesa, se persiste el hash como columna calculada en el alta, no se agrega caché. **RT-M14-05 — inyección desde internet**: el rótulo y el escapado son la mitigación disponible, **no una garantía**; se documenta como riesgo aceptado. **RT-M14-06 — doble concepto**: si `Procedimiento` sigue ofreciéndose en algún camino, vuelve la confusión; hay test que verifica que no aparece en el combo.
+
+# M12 — Tareas programadas y autonomía gradual por rol
+
+Estado: **aprobado sin gate por autorización de Joaquín 2026-09-14**. Entrada: `1-analista-funcional.md` M12 (RF-M12-01..17) y `2-disenador-funcional.md` M12 (D-M12-1..12, P-M12-01..03). Una entrega, una migración: `ProgramacionesM12`.
+
+## El problema real y cómo se resuelve
+
+Repetir algo cada X tiempo parece trivial hasta que se lo pone en **hosting compartido**: el proceso de IIS se recicla cuando quiere, el sitio se duerme si nadie entra, y mañana puede haber dos instancias. Las tres cosas rompen el enfoque ingenuo ("guardá la última corrida y compará"): entre leer y escribir hay una ventana, y crear una tarea no es instantáneo.
+
+La solución es un patrón que ya está probado en el repo en dos variantes —el lease del motor (M1) y el índice único de `AvisoGasto` (M6)— combinadas: **reservar la ocurrencia con un índice único, y recién después hacer el trabajo caro.** Queda documentado como **PAT-045**.
+
+## Decisiones técnicas M12
+
+- **RT-M12-01 Dos fases con estado intermedio.** Fase 1 (`ReservarAsync`): inserta `EjecucionProgramada{Resultado = Reservada, Ocurrencia}` y adelanta `ProximaEjecucionAt` **en el mismo `SaveChanges`**, protegido por el índice único `(ProgramacionTareaId, Ocurrencia)` y por `VersionToken`. Fase 2 (`EjecutarUnaAsync`): crea la tarea y cierra la vuelta. Si el proceso muere entre las dos, la vuelta queda `Reservada`; el barrido la retoma pasados `MinutosReintentoReservada` (10) y la termina **sin volver a reservar esa ocurrencia**. Alternativa descartada: una transacción larga que abarque las dos fases — con EF InMemory en los tests no existe, y en MySQL sostener una transacción mientras se arma el contexto y se calcula el hash es tener la fila bloqueada por segundos.
+- **RT-M12-02 `ProximaEjecucionAt` se recalcula desde AHORA, no desde la ocurrencia vencida.** Es una línea de código y es la diferencia entre "el sitio volvió y creó una tarea" y "el sitio volvió y creó siete, cada una con su costo". Consecuencia asumida: las vueltas perdidas **se pierden**, no se recuperan. Es lo correcto para este producto: una tarea de IA vieja cuesta plata y casi nunca sirve.
+- **RT-M12-03 El calendario es un helper puro** (`CalendarioProgramacion`), sin base y sin estado: recibe frecuencia, día, minutos y un instante, devuelve el próximo instante UTC. Todo el cálculo se hace en **hora argentina** (`ArgentinaTime`) y se convierte al final. Se testea solo, sin levantar nada. Día 31 en un mes más corto → último día del mes (nunca se saltea un mes). Siempre **estrictamente después** del instante que recibe.
+- **RT-M12-04 La hora se guarda como `MinutosDelDia` (int 0..1439), no como `TimeOnly`.** El proveedor MySQL ya nos costó un conversor para `DateOnly` (RT-M7-13); un int no tiene sorpresas de mapeo, se indexa, se compara y se muestra con un helper. El significado está en el nombre: minutos desde la medianoche **argentina**.
+- **RT-M12-05 La vuelta reusa `IPreparadorTareaTrabajo` tal cual.** Límite de gasto (M6), suscripción, agente publicado, cliente, instantánea de reglas y hash: todo eso ya vive ahí desde M7a y **no se toca**. Una vuelta programada y un botón del portal arman exactamente la misma tarea. Es lo que garantiza CA-M12-14 (los 4 goldens de hash intactos).
+- **RT-M12-06 La vuelta corre con los permisos del responsable**, resueltos desde la base con `IResolvedorSesion.ResolverUsuarioAsync` (el mismo recurso que M4b usa para las conversaciones de plataforma en el worker). Si dejó la empresa o lo bloquearon, la vuelta se frena con motivo. No hay "usuario del sistema" que ejecute tareas: siempre hay una persona responsable.
+- **RT-M12-07 La autonomía se resuelve en el motor, quitando herramientas, no en la herramienta.** En `ProcesadorTareas`, después de armar la lista de permitidas y antes de `Definiciones(...)`: si la tarea vino de una programación sin autonomía, se sacan todas las que tienen `RequiereAprobacion`. Alternativa descartada: auto-aprobar o dejar el pedido pendiente en silencio. Quitar la herramienta es **fail-closed de verdad**: el agente no puede pedir lo que no tiene, y no hay ninguna rama nueva en el circuito de aprobaciones de M6 que pueda tener un agujero. Con la autonomía encendida, no se toca nada: el circuito de M6 funciona como siempre y **nunca aprueba solo**.
+- **RT-M12-08 `TareaAgente.AutonomiaConAprobacion` congela el permiso al crear la tarea.** Si se leyera de la programación al ejecutar, editarla a mitad de una vuelta cambiaría lo que esa vuelta puede hacer. Dos columnas nuevas en `TareasAgente` (`ProgramacionTareaId`, `AutonomiaConAprobacion`) y nada más.
+- **RT-M12-09 El costo se calcula, nunca se guarda** (lección DI-M11-6): `SUM(PasosTarea.CostoUsd)` sobre las tareas con esa `ProgramacionTareaId`, con el período argentino de M6. Escribir una columna de la programación dentro del commit del motor acoplaría su `VersionToken` al guardado de la tarea y un Director editándola a mitad de vuelta la haría fallar por conflicto sin motivo real.
+- **RT-M12-10 El barrido vive en `MotorAgentesWorker`, con su propio ritmo (60 s) y su propio interruptor.** Es el quinto barrido del ciclo; no crea tareas en ejecución ni toca `MaxTareasSimultaneas`: solo las **encola**, y el reclamo de siempre las levanta. Un error del barrido queda en el log y no rompe el ciclo.
+- **RT-M12-11 `VersionToken` se incrementa en la fase 1, nunca en la 2.** Si la fase 2 lo tocara, una edición desde la pantalla a mitad de vuelta haría fallar el cierre sin motivo real (mismo gotcha que PAT-043). El cierre igual va con `WHERE VersionToken = ...`: si alguien editó, la vuelta queda `Reservada` y la retoma el barrido.
+
+## Modelo de datos M12
+
+- **`ProgramacionTarea`** (`ITenantOwned` + `SoftDestroyable`): `Nombre`, `AgenteArtefactoId` **o** `AgenteOrganizacionId`, `ClienteCarteraId?`, `Pedido` (text), `Frecuencia`, `DiaSemana?`, `DiaMes?`, `MinutosDelDia`, `ResponsableUsuarioId`, `Estado`, `MotivoFin?`, `FinEl?` (date), `MaxEjecuciones?`, `EjecucionesHechas`, `FallasSeguidas`, `PuedeAccionesConAprobacion`, `ProximaEjecucionAt?`, `UltimaOcurrenciaAt?`, `PeriodoAvisoCosto?`, `VersionToken`. Índices: `(Estado, ProximaEjecucionAt)` **sin TenantId adelante** (el barrido mira todas las organizaciones), `(TenantId, Estado)` y `(TenantId, ResponsableUsuarioId)` para el listado.
+- **`EjecucionProgramada`** (`ITenantOwned`, inmutable salvo el cierre): `Ocurrencia`, `Resultado`, `TareaAgenteId?`, `Motivo?`, `CreadoAt`, `ResueltaAt?`. **Índice único `(ProgramacionTareaId, Ocurrencia)`** — es todo el mecanismo. Más `(Resultado, CreadoAt)` para el barrido de recuperación.
+- **Sin columnas generadas.** A diferencia de M2, M4 y M11, acá la unicidad que importa es sobre columnas reales, así que **no hace falta** el ajuste manual a `STORED` que el proveedor MySQL obliga cuando ignora `stored: true`.
+- Auditoría: la programación **se audita** (es configuración que alguien cambia); cada vuelta queda **fuera del audit trail** (ya es su propio registro inmutable), igual que los pasos de una tarea y las llamadas de M11.
+
+## Permisos M12
+
+Dos permisos nuevos en `IPermisosOrganizacion`, derivados del contexto y sin base: `PuedeProgramarTareas` (todo miembro activo, nunca staff) y `PuedeProgramarParaOtros` (Director). El segundo habilita **tres** cosas distintas y conviene tenerlas juntas: ver y manejar las de toda la empresa, poner a otra persona como responsable y encender la autonomía. Lección OLV-010 aplicada: `VisibleAsync` habilita **lectura**; cada acción pasa por `PuedeAccionar`, que vuelve a mirar rol y organización.
+
+## Riesgos técnicos M12
+
+1. **Sin AlwaysRunning (PA-07), el barrido no corre con el sitio dormido.** No lo resuelve el código. Mitigado a medias con el ping de M9 a `/health/vivo`. Documentado en el formulario para que el usuario no se sorprenda.
+2. **La precisión es la del barrido**, 60 s más el tiempo hasta que el reclamo levante la tarea. No sirve para nada que necesite puntualidad al minuto.
+3. **La ocurrencia se consume aunque la tarea no se cree.** Es a propósito (evita el bucle infinito de una programación rota), pero significa que un problema de un día se lleva la vuelta de ese día.
+4. **El único `(ProgramacionTareaId, Ocurrencia)` guarda contra la doble creación, no contra el doble trabajo dentro de la tarea**: eso ya lo cubre `EjecucionHerramienta` por `tool_use_id` desde M1.
+
+---
+
 # M11 — Conectores con credenciales por organización
 
 Estado: **aprobada sin gate por autorización de Joaquín 2026-09-14**. Entrada: análisis M11 (RF-M11-01..17) y diseño

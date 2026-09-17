@@ -1974,3 +1974,30 @@ Martes = 1 · Miercoles = 2 · Jueves = 4 · Lunes = 8 · Viernes = 16 · Sabado
 O sea `Dias=1` = **solo los martes** (y `Lunes` NO es 1, es 8). Las 10 campanas activadas un miercoles quedaron fuera del dia: la ejecucion manual del cliente no mando nada y el scheduler las descarto por dia, antes de llegar a evaluar cupo o presupuesto. **Fix**: `Dias=31` (Lunes 8 | Martes 1 | Miercoles 2 | Jueves 4 | Viernes 16) en las 10 — lunes a viernes, sin fines de semana.
 - **Leccion para el catalogo 32**: un campo entero llamado `Dias` con valor 1 se lee como frecuencia; aca es un flag. Antes de filtrar por el, leer el enum — y ojo que el orden no arranca en lunes.
 - **Presupuesto verificado en la misma pasada** (no era el freno): septiembre lleva **ARS 282.820** de 300.000 — AR 874 frios + 2.009 follow-ups a 89,56; CL 129 a 128,84; UY 60 a 107,24; otros 18 a 87,53. Restante ~ARS 17.180 / 15 dias / ~93 por prospecto = 12 dia, y `CupoDiario=10` es el que corta. `LimiteEfectivoHoy = min(10, 12) = 10`.
+
+### 2026-09-16 (3) — Por que no salio ni un mensaje: dos causas, una de config y una propia
+
+**Causa 1 (la de hoy) — el cupo del dia ya estaba gastado antes de activar las campanas.**
+`PlantillasEnviadasHoyAsync` cuenta TODOS los templates del dia (`EtiquetaMensajeFrio`, `EtiquetaFollowUp`, **`EtiquetaFollowUpMenu`**, `EtiquetaRetomarConversacion`), no solo el lote frio. Hoy a las **12:40 UTC** salieron **10** `[Follow-up menu sin responder]` — antes de que se activaran las campanas (14:19). Con `LimiteEfectivoHoy = 9`, `restanteGlobal = max(0, 9 - 10) = 0` y `SendDailyBatchAsync` corta antes de mirar campanas.
+- Numeros reales medidos contra produccion con un harness que llama a `GetCostoMensajeriaAsync` (no estimados): gasto del mes **ARS 285.975** de 300.000, 15 dias restantes, `CostoPromedioArs` 91,51 + `CostoMapsPorProspectoArs` **0** (Places pausada) + `CostoIaPorEnvioArs` 2,12 = **CostoUnitarioProspectoArs 93,63** → `VolumenDiarioPorPresupuesto = 9`, `LimiteEfectivoHoy = min(10, 9) = 9`.
+- **El reenganche compite por el mismo pozo que el frio.** Con `CupoDiario=10`, 10 reenganches dejan el lote frio en cero sin ningun aviso visible fuera del log.
+- Verificado ademas que NO eran otras causas: ganchos asignados (3.709/3.709), las 4 combo configuradas y resolviendo, cada campana con `match` de contactos y `limiteDiario=1`, cero registros de `[Error de envio outbound]`.
+
+**Causa 2 (bloqueante para manana) — las combo `_v1` se subieron con 4 placeholders y el codigo manda 1 o 2.**
+`OutboundCampaignService.BuildComponents` tiene caso explicito por combo: **web/admin/consultas mandan UN parametro** (`Plural(RubroBase(rubro))`) y **gestion mandan DOS** (`NarrativaByType(...).Dolor` y `.Area`). Las `_v1` se redactaron copiando la estructura de 4 parametros de `olv_frio_v13` y se subieron asi — todo envio habria fallado en Meta por mismatch. El comentario del propio codigo ya lo advertia y no se cruzo.
+
+**Consecuencia no prevista al corregir: Meta bloquea el nombre de una plantilla borrada por 4 semanas.** Se borraron las 4 `_v1` para recrearlas con el mismo nombre y el POST devolvio `error_subcode 2388023` ("No se puede agregar contenido en un nuevo Spanish (ARG) mientras se elimina el contenido en el Spanish (ARG) actual. Vuelve a intentarlo en 4 weeks"). **Borrar para recrear con el mismo nombre no es una opcion** — hay que nacer con nombre nuevo.
+- **Fix aplicado**: rename a `_v2` en `PlantillasCombo.cs` (constantes hardcodeadas → requiere deploy) y en `TemplateCreationService.cs`. Las 4 `_v2` creadas en Meta con la cantidad correcta de placeholders, en `PENDING`.
+- Catalogo del CRM: filas renombradas a `_v2` con el texto nuevo y `EstadoAprobacionMeta=2` (pendiente) a proposito — mientras no esten aprobadas, los ganchos Presencia web / Administracion / Consultas se saltean y solo sale Gestion con `olv_frio_v13`. Pasar a 3 cuando Meta apruebe.
+
+**Deploy a produccion: DESBLOQUEADO.** El puerto 8172 de Web Deploy de site4now volvio a responder (estaba caido el 15/09). `dotnet publish -p:PublishProfile="olvidatasoft-002-site12 - Web Deploy"` → 9 archivos actualizados, sitio 200. Produccion queda con el rename `_v2`, el cierre **sin oferta de demo** (`BotFlowService.MsgClosing`) y las dos features que estaban trabadas (`382ad19` 4 frentes y `2f021b3` Fase 4).
+
+**Lecciones para el catalogo:**
+1. Antes de dar de alta una plantilla en Meta, **contar los `{{N}}` del texto contra los parametros que arma `BuildComponents`** para ese nombre. Son dos fuentes distintas que nadie cruza automaticamente.
+2. **Nunca borrar una plantilla de Meta para recrearla igual** — el nombre queda bloqueado 4 semanas. Version nueva = nombre nuevo, siempre.
+3. Un tope diario compartido entre frio, follow-up y reenganche necesita mirarse junto: el reenganche puede vaciar el cupo del frio sin que se note.
+
+**Cierre del dia — 3 de 4 combo aprobadas y verificadas contra el codigo.** Meta aprobo `olv_frio_combo_web_v2`, `_consultas_v2` y `_gestion_v2` en ~40 minutos; `_admin_v2` sigue en PENDING. Las 3 aprobadas pasaron a `EstadoAprobacionMeta=3` en el catalogo.
+- **Verificacion de placeholders Meta vs. `BuildComponents`: las 4 coinciden** (web/consultas/admin = 1, gestion = 2). Es el chequeo que faltaba en la ronda `_v1`.
+- **Verificacion end-to-end del lote** (harness contra produccion): `LimiteEfectivoHoy=9`, `limiteDiario=1` por campana, las 10 campanas con contactos que matchean y resuelven plantilla. Administracion se saltea correctamente mientras `_admin_v2` no este aprobada — se ve en `Estudio Rio Gallegos` (match 15 / conPlantilla 10) y `Estudio Catamarca` (19/18), que son justo los contactos de ese gancho.
+- **Riesgo abierto para manana**: el reenganche (`ProcessFollowUpMenuAsync`, tope propio `MaxReenganchesPorCorrida=20`) comparte pozo con el frio y hoy se llevo los 10 del dia antes de que el lote frio corriera. Con `LimiteEfectivoHoy=9` puede repetirse. Decision pendiente de Joaquin: subir `PresupuestoMensualArs` o aceptar que los dos canales se reparten 9/dia.

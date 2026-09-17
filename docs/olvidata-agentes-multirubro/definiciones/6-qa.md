@@ -1,9 +1,985 @@
 # Memoria - QA
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-09-16
+## Ultima actualizacion: 2026-09-17 (QA M14)
 
 ## Definiciones vigentes
+
+# QA M14 — Instructivos, búsqueda web, espacio del cliente y control de gasto (2026-09-17) — CERRADA
+
+**VEREDICTO: la plomería está sana; los dispositivos que explican el vocabulario, no.** Los 12 criterios de
+aceptación dan **PASS**, incluidos los tres que más importaban técnicamente (aislamiento, fail-closed de la búsqueda
+y conteo exacto del dashboard), y ni un solo camino de seguridad falló. Pero medido contra el **criterio rector de
+Joaquín**, M14 llega con **dos de los cuatro dispositivos rotos**: el botón *"Convertirlo en instructivo"* de la
+detección blanda da **404 siempre** (DEF-M14-1) y el aviso *"Esto parece una regla"* **no aparece al guardar**
+(DEF-M14-2); además *"Nueva regla"* no pasa por el desambiguador (DEF-M14-4). Nada de eso rompe el sistema: rompe
+exactamente lo que Joaquín pidió que funcionara. **4 auto-fixes aplicados** (569/569 verdes), **3 defectos major** y
+**6 minor** abiertos, y **6 items nuevos** en el catálogo cross-proyecto.
+
+Entrada: `1-analista-funcional.md` M14 (RF-M14-01..33, 12 CA), `2-disenador-funcional.md` M14 (D-M14-1..8,
+P-M14-01..10), `5-implementador.md` M14 (DI-M14-1..9). Commit `05d6ba7`. **Criterio rector de Joaquín:** *"que esto
+sea totalmente entendible para el usuario, explicando qué es cada cosa para no cometer errores de configuración"* —
+se prueba contra esa vara, no solo contra los CA.
+
+**Línea base al arrancar:** `dotnet build OlvidataAgentes.slnx` 0 errores / **3 advertencias** (las 2 preexistentes
+—`HomeController.StatusCode` y el `xUnit2013` de M7a— **más una nueva de M14**: `CS8619` en
+`InstructivosController.cs(41,23)`, nulabilidad de `Dictionary<string,string>` contra `Dictionary<string,string?>`).
+`dotnet test` **569/569**. `git status` limpio.
+
+**Costo cero:** el portal que dejó el implementador se **detuvo y se relevantó desde esta corrida** para poder
+confirmar el banner. `Anthropic__Simulado=true`, `Anthropic__ApiKey` inválida de resguardo,
+`MotorAgentes__IntervaloSondeoMilisegundos=1000`, `Programaciones__SegundosBarrido=10`,
+`Programaciones__MinutosReintentoReservada=1`, `Aprobaciones__SegundosBarridoVencimientos=10`,
+`Subagentes__SegundosBarrido=10`. Confirmado en el log de arranque:
+*"Motor de agentes con MODELO SIMULADO (Anthropic:Simulado = true, entorno Development): no se llama a Anthropic y
+el costo es cero."* **Ningún `appsettings` editado.** Camino de verificación: servidor MCP `playwright` (Chromium
+real, disponible en esta sesión) + `mysqlsh` contra `olvidata_agentes_dev`.
+
+## Reglas cross-proyecto validadas
+
+- Ultima validacion de reglas cross-proyecto: 2026-09-17
+- **Ninguna regla nueva desde la ronda 2 (2026-09-16).** El último commit de `Agentes-IA` que toca
+  `32-estandares-qa-implementador.instructions.md`, `docs/qa/regresiones-manuales.yml` o
+  `33-verificacion-automatizada-qa.instructions.md` sigue siendo `0b6508d` (2026-09-16 11:54), ya analizado por la
+  ronda 1 y la ronda 2. `34-integracion-afip-arca` y `35-pantalla-control-stock` no aplican a este producto.
+
+## Bloque 1 — vocabulario y los cuatro dispositivos (D-M14-4..7)
+
+- **D-M14-4 bajada permanente — PARCIAL.** Reglas e Instructivos (Index, Form y Detalle) llevan la bajada y el
+  enlace *"¿Cuál me conviene?"*, y el modal reproduce la tabla canónica de D-M14-3 palabra por palabra.
+  **Agentes NO la lleva**: `TextosConceptos.BajadaAgentes` está escrito y **no se usa en ninguna vista**
+  (`grep BajadaAgentes` → una sola aparición, la definición). → **DEF-M14-3**.
+- **D-M14-5 desambiguador — PARCIAL.** "Nuevo instructivo" (`/Instructivos/Nuevo`) abre la pregunta con las dos
+  tarjetas, sus ejemplos, el salteo de un clic y sin recordar la elección: exacto al diseño. **"Nueva regla" va
+  derecho a `/Reglas/Create`**, sin pasar por la pregunta. → **DEF-M14-4**.
+- **D-M14-6 detección blanda, lado REGLA — PASS con un botón roto.** Guardando una regla con pasos numerados la
+  regla **queda guardada** (no bloquea) y aparece el aviso con *Convertirlo en instructivo* / *Dejarlo como regla*.
+  Pero **"Convertirlo en instructivo" da 404 siempre**: `ReglasController.AvisarSiPareceInstructivo` solo dispara
+  para `Tipo == Regla` y `InstructivoService.ReglaConvertibleAsync` solo acepta `Tipo == Procedimiento`. Las dos
+  guardas son mutuamente excluyentes. → **DEF-M14-1 (major)**.
+- **D-M14-6 detección blanda, lado INSTRUCTIVO — PARCIAL.** El aviso *"Esto parece una regla…"* existe y nunca
+  bloquea, pero **no aparece al guardar**: `InstructivosController.CompletarAsync` (el único lugar que setea
+  `PareceRegla`) solo corre cuando el `ModelState` es inválido o al abrir *Editar*. Creando un instructivo de una
+  sola oración se redirige al detalle **sin ningún aviso**; recién se ve si después se lo vuelve a abrir para
+  editar. → **DEF-M14-2 (major)**.
+- **D-M14-7 "se aprende mirando" — PASS.** Tarea #207 (org 19, modelo simulado): *"Miró los instructivos de la
+  empresa (1 instructivo)"* → *"Siguió el instructivo «QA M14 — parece regla»"*, con "Ver el detalle" / "Ver lo que
+  leyó". **Ningún nombre de herramienta, ninguna llave de JSON, ningún id** ni en el texto ni en el HTML
+  (barrido de `instructivos_listar`, `instructivo_leer`, `instructivo_id`, `para_que_sirve`, `"aviso"`, `{"`,
+  `web_search`, `tool_use`, `encrypted_content` → 0 coincidencias).
+- **Conversión de una regla `Procedimiento` — PASS.** Regla 76 (org 1, `Tipo=2`): el detalle muestra el aviso de
+  D-M14-1, *Convertirlo en instructivo* precarga título, "para qué sirve" y pasos, y al guardar queda el
+  instructivo #2 y la regla **`Activa = 0`** (verificado por SQL), con el mensaje *"Listo: quedó como instructivo y
+  la regla de tipo procedimiento se desactivó."*
+- **La palabra "skill" — PASS.** `grep -rni skill` sobre `src/`, `nucleo/` y `distribuible/`: **una sola
+  aparición, en un comentario XML de `InstructivosController.cs`**. Cero en vistas, cero en `wwwroot`, cero en
+  textos de Application/Domain. Las herramientas del modelo se llaman `instructivos_listar` / `instructivo_leer` y
+  nunca se imprimen.
+- **Tipo `Procedimiento` al crear — PASS por pantalla, FAIL por POST forzado.** El combo de `/Reglas/Create` ofrece
+  **solo "Regla"**, y en `Edit` la opción aparece únicamente si la regla ya la tenía (DI-M14-6, verificado en la
+  vista y en el navegador). Pero un POST armado a mano con `Tipo=Procedimiento` **crea la regla igual** (regla 105
+  creada en org 1 con `Tipo=2`): la guarda es solo de vista. → **DEF-M14-5**.
+
+## Bloque 2 — aislamiento y permisos — PASS
+
+Verificado por navegador y por POST forzado con el antiforgery real:
+
+| Caso | Esperado | Resultado |
+|---|---|---|
+| Empleado (laura, org 1) abre el instructivo **personal de otra persona** (#3, de dira) | 404 | **404** |
+| Empleado abre `/Instructivos/Editar/3` | 404 | **404** |
+| Empleado abre el instructivo **de la empresa** (#2) | lo ve, no lo edita | **200** + `Editar` → **Acceso denegado** |
+| Empleado abre un instructivo **de otra organización** (#1, org 19) | 404 | **404** |
+| `POST /Instructivos/CambiarEstado` id 3 (personal ajeno) | 404 | **404** + *"Ese instructivo no existe o ya no está disponible."* |
+| `POST /Instructivos/CambiarEstado` id 2 (de la empresa, siendo Empleado) | 403 | **403** + *"Los instructivos de toda la empresa los administra un Director."* |
+| `POST /Instructivos/CambiarEstado` id 1 (otra organización) | 404 | **404** |
+| Listado del Empleado | solo el de la empresa | **1 fila**, ni el personal ajeno ni el de la otra org |
+| Herramientas del agente | "no está disponible" | `HerramientaInstructivoBase.Disponibles` filtra `TenantId` + `Activa` + (`Organizacion` o autor), el autor sale **de la tarea** y todo lo demás devuelve `InstructivoNoDisponible` |
+| Espacio del cliente de **otra organización** (`/Cartera/Espacio/42` siendo de org 19) | 404 | **404** (PAT-017) |
+| **Empleado en el espacio del cliente** (junior, cliente 57) | solo sus tareas | **"Todavía no hay tareas de este cliente"** (la #199 es de sueldos@); en el cliente 61 sí ve **su** #201 |
+| Espacio del cliente: escritura | ninguna | **0 `<form>`, 0 inputs, 0 botones** en toda la pantalla (DI-M14-8) |
+
+## Bloque 3 — búsqueda web — PASS (con la casilla verificada en la solicitud)
+
+- **Apagada por defecto — PASS.** `/Agentes/Ejecutar` y el cuadro de *Seguir conversando* traen
+  `PermiteBusquedaWeb` **desmarcada**, con la ayuda exacta de P-M14-05.
+- **Sin marcar, el agente NO recibe la herramienta — PASS, verificado en la solicitud.** Tarea #208 pidió
+  textualmente *"Necesito que busques en internet…"* **sin** la casilla: el motor devolvió la respuesta genérica.
+  El guion `GuionBusquedaWeb` del simulador **solo corre si `solicitud.BusquedaWeb is not null`**, así que no haberlo
+  disparado prueba que la herramienta no viajó en la solicitud. En código:
+  `ProcesadorTareas:361` → `tarea.Tipo == Trabajo && tarea.PermiteBusquedaWeb && _busqueda.Disponible`, fail-closed.
+  DB: `TareasAgente #208.PermiteBusquedaWeb = 0`, `PasoTarea.CostoUsd = 0`, `EventoUso.Busquedas = 0`.
+- **Con la casilla — PASS.** Tarea #209: *"Buscó en internet «…» y encontró 2 resultados"*, "Ver lo que trajo" con
+  el rótulo *"Información de internet: puede estar equivocada o desactualizada."* y **2 fuentes enlazables**,
+  `target="_blank"` + `rel="noopener noreferrer nofollow"` + *"(se abre en otra pestaña)"* (R-M14-09).
+- **El consumo cuenta la búsqueda aparte — PASS.** `EventoUso` #560/#562: `TokensEntrada=0`, `TokensSalida=0`,
+  `Busquedas=1`, `CostoUsd=0.010000`; y el mismo 0,01 en `PasoTarea` (DI-M14-4). Tarea #208: todo en 0.
+- **Escapado / inyección — PASS.** Tarea #210 con el pedido
+  `<img src=x onerror=alert(1)> <b>negrita</b> "comillas" & <script>alert(2)</script>`: en "Ver pasos" y en las
+  fuentes se ve **como texto**; 0 `<img src="x">` inyectados, 0 `<script>`, el HTML trae `&lt;img` / `&lt;b&gt;`.
+- **Límite de gasto alcanzado — PASS.** Con `Tenants.LimiteMensualUsd = 0.01` en org 19 (restaurado a 100,00 al
+  terminar): la casilla queda **deshabilitada con el motivo en palabras** *"La empresa llegó al límite de gasto de
+  septiembre (USD 0,01). Se renueva el 1 de octubre…"*, el botón Enviar también, y en una tarea ya abierta el
+  cuadro de *Seguir conversando* **desaparece** y lo reemplaza el mismo mensaje. Fail-closed, coherente con DI-M14-3.
+
+## Bloque 5 — backoffice — PASS con dos observaciones
+
+- **Conteo de llamadas = filas de `EventoUso` — PASS exacto.** Sin filtro: pantalla **507 / 459 / 32 / 16**,
+  2 búsquedas, USD 0,0200 · SQL `SELECT COUNT(*) FROM EventosUso` → **507**, por tenant **459 / 32 / 16**,
+  `SUM(Busquedas)=2`, `SUM(CostoUsd)=0.0200`. Con `?desde=2026-09-17&hasta=2026-09-17`: pantalla **14 (4 + 10)**,
+  2 búsquedas · SQL del mismo rango → **14 (4 + 10)**, 2. El panel "Últimos eventos" también respeta el período.
+- **Apertura por canal / agente / rubro — funciona**, pero el "canal" que se abre es el **transporte**
+  (`Portal` / `API de licencias` / `MCP`), no el canal funcional que pide RF-M14-25 y P-M14-08
+  (*tarea, configuración, asistente, evaluación, búsqueda*). El dato está en `EventoUso.Accion`. → **DEF-M14-7**.
+- **Informe de automatización — PASS en lo que pide el CA.** Agrupa por agente + cliente + pedido normalizado
+  (`HashPedido`: trim, minúsculas, sin tildes, espacios colapsados), **muestra la evidencia de cada grupo**
+  (tarea, fecha, quién, costo, chip *programada*), marca *"Todas de una programación"*, exige ≥ 2 tareas y ordena
+  por gasto. **No mezcla pedidos distintos**: verificado sobre 139 tareas del período, cada grupo con un pedido
+  único, y los pares "Parte simulada 1/2" caen en grupos separados.
+- Pero **el grupo no lleva organización y el `GroupBy` tampoco**: `InformeAutomatizacion` corre con
+  `IgnoreQueryFilters([FiltroTenant])` y agrupa por `(nombre de agente, nombre de cliente, hash)`, **sin
+  `TenantId`**. Dos organizaciones con el mismo agente de Olvidata (o dos agentes propios con el mismo nombre) y el
+  mismo pedido caen en **un solo grupo**, y la pantalla no tiene columna de organización para notarlo. → **DEF-M14-6**.
+
+## Bloque 6 — resultados de programaciones — PASS con la negrita muerta
+
+Programación #17 creada en org 1 y disparada dos veces con "Ejecutar ahora" (tareas #211 y #212):
+
+- Contador **"Resultados 2"** en el ítem del menú, y **desaparece** al marcar todo ✓
+- **"Marcar todo como visto (2)"** funciona: chips *Nuevo* fuera, contador fuera, `VistoAt` escrito ✓
+- Columnas de P-M14-07 completas (programación, cuándo corrió, cómo salió en palabras con ícono, primeras líneas de
+  la respuesta, costo, **Abrir la tarea**) y el vacío con el texto del diseño ✓
+- **La negrita de lo no visto NO se ve.** Las filas sin ver salen con `<tr class="fw-semibold">`, pero
+  **`.fw-semibold` no existe en el CSS que sirve el portal** (`.fw-bold` sí: `font-weight:700 !important`).
+  `getComputedStyle` de la fila sin ver: **400**, igual que una vista. Queda distinguida solo por el chip *Nuevo*.
+  → **DEF-M14-8** (y una observación de fondo: la clase se usa en ~decenas de vistas del proyecto y en todas es
+  inerte; eso es del design system, no de M14).
+- **Deuda conocida confirmada:** el "visto" es del registro, no por persona, contra lo que dice el diseño
+  ("por persona, no global"). **Y es alcanzable hoy, no teórico**: `BaseResultados()` cuelga de `BaseListado()`, así
+  que un Director ve las vueltas de toda la organización (lo dice el test
+  `Cada_uno_ve_solo_sus_resultados_y_el_director_los_de_la_empresa`), y `MarcarVistoAsync(null)` escribe `VistoAt`
+  sobre **todo lo visible sin ver**. O sea: si el Director aprieta "Marcar todo", los Empleados se quedan sin
+  contador y sin negrita sin haber abierto nada. → **DEF-M14-9** (verificado por código + test, no por navegador).
+
+## Bloque 7 — regresión corta, mobile y contraste
+
+- **Crear y seguir una tarea — PASS.** 9 tareas de punta a punta con el modelo simulado (#207 a #215): alta desde
+  el agente, "Ver pasos", "Seguir conversando" con 4 ajustes encadenados, costo y estado.
+- **La casilla de búsqueda en los ajustes se comporta bien en los dos sentidos — PASS.** Una tarea creada **sin**
+  búsqueda (#208) la habilita con un ajuste tildado y **sí** busca; el cuadro de seguimiento después viene
+  pre-tildado (o sea que la persona ve que quedó encendida, no es silencioso); y **destildándolo, el ajuste
+  siguiente no busca** aunque el pedido pida internet. La marca de la tarea es por turno y se respeta.
+- **Reglas — PASS.** Alta, listado con pestañas, detalle con historial, edición, el combo de Tipo, el balde de
+  caracteres ("1.314 de 20.000 con esta regla") y la instantánea de reglas en la pantalla de la tarea.
+- **Cartera — PASS.** Listado, ficha, "Ver su espacio" y las cuatro cards.
+- **Programaciones — PASS.** Alta con frecuencia en palabras, detalle, "Ejecutar ahora" dos veces, historial de
+  vueltas con su tarea y su costo, y la bandeja de Resultados.
+- **Instructivo desactivado (CA) — PASS.** Con el único instructivo de la organización desactivado, la tarea
+  siguiente **ni siquiera recibe las herramientas** (el guion del simulador no se dispara) y el agente contesta sin
+  instructivos; el detalle avisa *"Está desactivado: los agentes no lo ven ni lo pueden consultar."*
+- **"Ver pasos", variante con pasos numerados — PASS.** Con un instructivo de 3 pasos el rótulo sale
+  *"Siguió el instructivo «QA M14 desactivar», paso 1 a 3"*, que es literal a D-M14-7.
+- **Mobile 390 — PASS.** 9 pantallas (Instructivos Index/Nuevo/Crear/Detalle, Espacio del cliente, Resultados,
+  Ejecutar, Detalle de tarea, Reglas) con `document.scrollWidth == clientWidth` en todas: **sin scroll horizontal**.
+  Lo único que "desborda" es el sidebar off-canvas, que es como tiene que estar.
+- **Contraste en los dos temas — sin regresión de M14.** Barrido componiendo el alfa contra la cadena de ancestros
+  sobre las 5 pantallas nuevas. En `main` los únicos valores bajo el umbral son los **botones del design system**
+  (`btn-primary` 2,98 · `btn-outline-secondary` 3,12–3,81) y los rótulos de sección del sidebar (3,75): son
+  **PA-11 / OLV-004, ya abiertos desde la ronda 1**, con los mismos números. Nada nuevo de M14.
+  *(Nota de método: el sidebar en tema claro da falsos positivos porque su fondo es un `linear-gradient` y
+  `backgroundColor` lo lee transparente; el contraste real del enlace es ≈ 6,6.)*
+
+## Cobertura por criterio de aceptación (los 12 de M14)
+
+| # | Criterio | Resultado | Cómo se verificó |
+|---|---|---|---|
+| 1 | Los 4 goldens de hash quedan idénticos con y sin instructivos y con y sin búsqueda | **PASS** | Test `Goldens_de_contexto_intactos_con_instructivos_y_con_busqueda_web` dentro de los 569 verdes (no por navegador) |
+| 2 | Un instructivo de otra organización no se lista ni se lee | **PASS** | Navegador (404) + POST forzado (404) + `HerramientaInstructivoBase.Disponibles` |
+| 3 | Una tarea sin la casilla **no recibe** la herramienta, verificable en la solicitud | **PASS** | Tarea #208 pidiendo internet sin casilla: el guion de búsqueda (que exige `solicitud.BusquedaWeb != null`) no se disparó; + `ProcesadorTareas:361` |
+| 4 | El texto de internet se muestra escapado y con su rótulo | **PASS** | Tarea #210 con `<img onerror>`/`<script>` en el pedido: 0 inyecciones, HTML con `&lt;` |
+| 5 | Con el límite de gasto alcanzado no se busca y lo dice | **PASS** | Límite a USD 0,01: casilla deshabilitada con el motivo, Enviar deshabilitado, seguimiento reemplazado por el mensaje |
+| 6 | El espacio del cliente no permite escribir nada | **PASS** | 0 `<form>`, 0 inputs, 0 botones |
+| 7 | Un Empleado ve ahí solo sus propias tareas | **PASS** | junior no ve la tarea de sueldos@ en el cliente 57 y sí la suya en el 61 |
+| 8 | El conteo de llamadas coincide con las filas de `EventoUso` del período | **PASS** | 507 / 459 / 32 / 16 en pantalla = mismo SQL; con período 17/09: 14 = 4 + 10 |
+| 9 | El informe muestra la evidencia de cada grupo y no agrupa pedidos distintos | **PASS** | 139 tareas, evidencia desplegable por grupo, pedidos distintos en grupos distintos (ver DEF-M14-6 aparte: **organizaciones** sí se pueden mezclar) |
+| 10 | Un instructivo desactivado deja de ofrecerse | **PASS** | Tarea #215 con el instructivo desactivado: sin herramientas y sin mención |
+| 11 | "Ver pasos" no muestra nombres de herramienta ni JSON en ningún camino nuevo | **PASS** | Barrido de 9 marcadores sobre innerText **y** innerHTML de los caminos de instructivos y de búsqueda: 0 |
+| 12 | El modelo simulado cubre búsqueda web sin costo | **PASS** | Banner "MODELO SIMULADO" en los 3 arranques, `grep anthropic.com` sin llamadas, USD del período = precio de prueba local |
+
+**Extra pedido por Joaquín, fuera de los 12 CA:** con `BusquedaWeb:PrecioPorBusquedaUsd` en `null` (por variable de
+entorno, sin tocar `appsettings`) la casilla **desaparece** de las dos pantallas — y además un POST forzado con
+`PermiteBusquedaWeb=true` **no guarda la marca ni busca** (`TareasAgente #213.PermiteBusquedaWeb = 0`,
+`EventoUso.Busquedas = 0`). Fail-closed en la pantalla **y** en el servidor.
+
+## Defectos de esta ronda
+
+| id | severidad | qué | estado |
+|---|---|---|---|
+| **DEF-M14-1** (OLV-015) | **major** | *"Convertirlo en instructivo"* de la detección blanda de una regla **siempre da 404**: `AvisarSiPareceInstructivo` solo dispara con `Tipo == Regla` y `ReglaConvertibleAsync` solo acepta `Tipo == Procedimiento` | **abierto** — el fix toca la redacción del mensaje de éxito, se escala |
+| **DEF-M14-2** (OLV-016) | **major** | El aviso *"Esto parece una regla"* de un instructivo **no aparece al guardar**: solo al reabrir en Editar | **abierto** — dónde va el aviso y qué ofrece su botón es decisión de diseño |
+| **DEF-M14-6** (OLV-020) | **major** | El informe de automatización agrupa por **nombre** de agente y de cliente con `IgnoreQueryFilters([FiltroTenant])` y **sin `TenantId`**: dos organizaciones pueden caer en el mismo grupo, y la grilla no tiene columna de organización para notarlo | **abierto** — verificado por código; el fix agrega una columna |
+| **DEF-M14-3** | minor | **Agentes no lleva la bajada** de D-M14-4 (`TextosConceptos.BajadaAgentes` estaba escrito y sin usar) | **auto-fix aplicado** |
+| **DEF-M14-4** | minor | El botón **"Nueva regla" no pasa por el desambiguador** de D-M14-5 (solo lo hace "Nuevo instructivo") | **abierto** — es alcance de diseño |
+| **DEF-M14-5** (OLV-019) | minor | Un POST forzado con `Tipo=Procedimiento` **crea la regla igual**: la baja del tipo es solo del combo | **abierto** — el fix choca con el configurador de M4b, que hoy propone procedimientos (D-M14-8 quedó fuera de la entrega) |
+| **DEF-M14-7** | minor | La apertura "por canal" del dashboard abre por **transporte** (Portal / API / MCP), no por el canal funcional que piden RF-M14-25 y P-M14-08 (tarea, configuración, asistente, evaluación, búsqueda). El dato está en `EventoUso.Accion` | **abierto** |
+| **DEF-M14-8** (OLV-018) | minor | La negrita de lo no visto en Resultados **no se veía**: `fw-semibold` no existe en el CSS del portal | **auto-fix aplicado** |
+| **DEF-M14-9** | minor | El "visto" de los resultados es del registro: **un Director que apreta "Marcar todo" apaga el contador de sus Empleados**. Contra P-M14-07 ("por persona, no global") | **abierto** — el implementador ya lo anotó como deuda; se confirma que es alcanzable |
+| **DEF-M14-10** (OLV-017) | major (presentación) | El detalle del instructivo imprimía **`v@Model.VersionActual`** y **`v@v.Numero`** literales en vez de `v1` | **auto-fix aplicado** |
+| **DEF-M14-11** (OLV-013, reincidencia) | minor | El espacio del cliente imprimía el **enum crudo** `EsperandoAprobacion` | **auto-fix aplicado** |
+| **DEF-M14-12** | trivial | M14 agregó una **advertencia de compilación nueva**: `CS8619` en `InstructivosController.cs(41,23)` | **abierto** (la línea base del implementador decía "2 advertencias preexistentes"; son 3) |
+
+**Observaciones sin severidad** (no son defectos, quedan dichas): el combo "Lo escribió" filtra por una columna que
+la grilla de Instructivos no muestra (regla 25 al revés) · en el backoffice los agentes se listan por **slug**
+(`cont-vencimientos`, `inmo-cm`) mezclados con nombres propios ("CM del estudio"); es pantalla de staff, pero es
+jerga · el texto que el simulador usa como término de búsqueda es el pedido entero, lo que hace que el rótulo
+*"Buscó en internet «…»"* se lea raro en QA (artefacto del guion, no del producto) · "Para qué sirve" se precarga
+con el título de la regla al convertir, que no es un nombre de tarea · el mensaje de validación de un POST forzado
+llega **en inglés** ("The value 'X' is not valid for…"), pero solo por ese camino.
+
+## Auto-fixes aplicados
+
+Cuatro, todos de presentación y todos replicando un patrón que ya existía en el repo. **Ninguna lógica de negocio
+nueva, ninguna migración.**
+
+| # | Archivo | Cambio | Verificación post-parche |
+|---|---|---|---|
+| 1 | `src/OlvidataAgentes.Web/Views/Instructivos/Detalle.cshtml` | `v@Model.VersionActual` → `v@(Model.VersionActual)` y `v@v.Numero` → `v@(v.Numero)` (los otros 13 usos del repo ya iban con paréntesis) | Navegador: el detalle muestra **v1** y el historial **v1** |
+| 2 | `src/OlvidataAgentes.Web/Views/Cartera/Espacio.cshtml` | El estado de la tarea sale por el parcial `~/Views/Tareas/_EstadoTarea.cshtml` en vez de `@t.Estado` | Navegador: **"Espera aprobación"** en vez de `EsperandoAprobacion` |
+| 3 | `src/OlvidataAgentes.Web/Views/Programaciones/Resultados.cshtml` | `fw-semibold` → `fw-bold` en la fila no vista | Navegador: `getComputedStyle` de la fila sin ver **700**, de la vista **400** |
+| 4 | `src/OlvidataAgentes.Web/Views/Agentes/Index.cshtml` | Se agrega `<partial name="_ConceptosAyuda" model="TextosConceptos.BajadaAgentes" />` (la constante ya estaba escrita y sin usar) | Navegador: *"Quién hace el trabajo: elegís uno cada vez que pedís algo. ¿Cuál me conviene?"* con su modal |
+
+**Evidencia post-fix:** `dotnet build OlvidataAgentes.slnx` → **0 errores, 3 advertencias** (las mismas de la línea
+base). `dotnet test` → **569/569**. Solo 4 vistas `.cshtml` tocadas; **sin commits**.
+
+## Cobertura del catálogo cross-proyecto
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| OLV-001 (fondo claro en tema oscuro) | sí | **PASS** — 0 fondos claros en las 5 pantallas nuevas | — |
+| OLV-004 / PA-11 (contraste de botones) | sí | **abierto desde antes** (2,98 / 3,12–3,81) | sin cambios: es del design system |
+| **OLV-013 (enum crudo en pantalla nueva)** | sí | **FAIL — reincide** en el espacio del cliente | **auto-fix aplicado** (DEF-M14-11) |
+| OLV-014 (rótulo de error que vuelca el mensaje para el modelo) | sí | **no reproducible con el simulado** (sigue igual que en la ronda 2) | sigue abierto |
+| REG-010 (link de menú sin autorización real) | sí | **PASS** — "Instructivos" y "Resultados" están para todo miembro y el servicio decide qué ve cada uno | — |
+| PAT-017 (IDOR en portal de usuario final) | sí | **PASS** — 7/7 en 404/403 con ids ajenos (instructivos y espacio del cliente) | — |
+| PAT-045 (concurrencia optimista) | sí | **PASS por código** — `Instructivo.VersionToken` con su mensaje *"Alguien más lo cambió mientras lo editabas"* | no se forzó la carrera por navegador |
+| CRM-023 (arrays por AJAX GET sin `traditional`) | no | N/A (ya verificado en la ronda 1; M14 no agrega llamadas con colecciones) | — |
+| **OLV-015 a OLV-020** | — | **creados por esta corrida** | ver "Defectos" |
+| Resto del catálogo | — | sin cambios respecto de la ronda 2 | — |
+
+## Cobertura de reglas nuevas/modificadas desde la última corrida
+
+**Ninguna nueva desde 2026-09-16.** El último commit de `Agentes-IA` sobre
+`32-estandares-qa-implementador.instructions.md`, `docs/qa/regresiones-manuales.yml` y
+`33-verificacion-automatizada-qa.instructions.md` sigue siendo `0b6508d` (2026-09-16 11:54), ya analizado por las
+rondas 1 y 2. Esta corrida **agrega 6 items** al catálogo (OLV-015 a OLV-020); `python scripts/doctor.py` sin
+errores.
+
+## Riesgos de liberación
+
+1. **Alto para el criterio rector, no para el sistema.** De los cuatro dispositivos de D-M14-4..7, **dos llegan
+   rotos** (DEF-M14-1 y DEF-M14-2) y **uno llega a medias** (DEF-M14-4). El vocabulario en sí está impecable —la
+   tabla de los cuatro conceptos, las bajadas, los textos, "Ver pasos"— pero los tres dispositivos que actúan
+   **en el momento en que se comete el error de configuración** son justamente los que fallan. Mitigación: son
+   cuatro cambios chicos y localizados; conviene hacerlos antes de que Joaquín lo pruebe, porque es exactamente lo
+   que él pidió mirar.
+2. **Medio: el informe de automatización puede mentir con dos organizaciones** (DEF-M14-6). Hoy no pasa porque no
+   hay pedidos iguales entre organizaciones, pero es un informe para decidir en qué gastar horas de desarrollo.
+3. **Bajo: la búsqueda web queda apagada en producción** mientras el precio siga en `null`, que es lo correcto y
+   está verificado. Antes de encenderla hay que confirmar el precio real de Anthropic.
+4. **Bajo: `Marcar todo` de un Director apaga los contadores del equipo** (DEF-M14-9).
+5. **Sin cambios:** todo sigue verificado **solo con el modelo simulado** (PA-18 / PA-02).
+
+## Pruebas mínimas ejecutadas
+
+`dotnet build` (2 veces) · `dotnet test` **569/569** (2 veces, antes y después de los auto-fixes) · 3 arranques del
+portal con el banner de MODELO SIMULADO confirmado · ~55 navegaciones con Playwright MCP sobre 6 usuarios
+(`socio@contable.test`, `junior@contable.test`, `dira@qa.test`, `laura@qa.test`, SuperUsuario) · 9 tareas del motor
+de punta a punta · 7 POST forzados con antiforgery real · ~20 consultas de integridad con `mysqlsh`.
+
+## Checklist de salida para merge
+
+- [x] Build 0 errores, advertencias iguales a la línea base
+- [x] 569/569 tests
+- [x] Aislamiento multi-tenant y permisos: sin un solo camino fallado
+- [x] Búsqueda web fail-closed verificada en pantalla y en servidor
+- [x] Costo cero, sin una sola llamada a la API real
+- [x] Entorno restaurado (verificado por SQL)
+- [ ] **DEF-M14-1, DEF-M14-2 y DEF-M14-4**: los dispositivos del criterio rector, antes de que lo pruebe Joaquín
+- [ ] **DEF-M14-6**: organización en el informe de automatización
+- [ ] Sin commits (queda a decisión de Joaquín)
+
+## Estado del entorno al cerrar (verificado por SQL)
+
+- **154 tareas**, `SUM(PermiteBusquedaWeb) = 0` · **493 eventos de uso**, `SUM(Busquedas) = 0`, `SUM(CostoUsd) = 0`
+  — exactamente el estado que dejó el implementador.
+- **0 instructivos** (los 4 de prueba, con sus versiones, borrados).
+- Reglas: las 4 de tipo `Procedimiento` originales, **la #76 de vuelta en `Activa = 1`** tras la prueba de
+  conversión; las 2 reglas de prueba (#104, #105) borradas con sus eventos.
+- **0 programaciones nuevas**: quedan solo la #15 (org 19) y la #16 (org 20), las dos con `EjecucionesHechas = 0` y
+  próxima vuelta en octubre — **la demo del tenant 19 no se disparó**.
+- `Tenants`: los 5 en Activo, org 19 de vuelta en `LimiteMensualUsd = 100.00`.
+- **0 cuentas bloqueadas**, ninguna contraseña tocada.
+- **Ningún `appsettings` editado**: todo por variables de entorno del proceso, incluido el `PrecioPorBusquedaUsd`
+  vacío de la prueba de fail-closed.
+- Portal **levantado** en `https://localhost:7200` con el modelo simulado.
+- **Sin commits.** `git status`: solo las 4 vistas de los auto-fixes.
+
+# QA integral ronda 2 (2026-09-16) — CERRADA
+
+**VEREDICTO: APTO PARA QUE JOAQUÍN LO PRUEBE.** Las 5 correcciones de la ronda 1 están verificadas por navegador,
+incluida la que no se podía cubrir por test (el 403 forzado de `/Programaciones`). **PA-03, el único pendiente que
+tocaba integridad de datos, dio PASS**: matando el proceso con una llamada externa en vuelo, la tarea se retoma en
+segundos, sin duplicar ni perder pasos, y una vuelta programada no se crea dos veces. **Ningún camino de seguridad
+falló.** Queda **1 defecto minor nuevo** (DEF-R2-1 / OLV-014), que vive en la **rama de error** de "Ver pasos" y que
+**el modelo simulado no alcanza**: se va a ver recién con el modelo real.
+
+
+Ronda final antes de que Joaquín pruebe el producto. Verifica las correcciones de la ronda 1
+(`5-implementador.md` → "Correcciones de la QA integral ronda 1"), cubre lo que la ronda 1 dejó afuera
+(PA-03 primero) y hace una pasada de regresión.
+
+**Línea base confirmada al arrancar:** `dotnet build OlvidataAgentes.slnx` 0 errores / 2 advertencias
+preexistentes; `dotnet test` **478/478**. Commit `08cfcf7`.
+
+**Costo cero:** portal local `https://localhost:7200` (perfil `https`) con `Anthropic__Simulado=true`,
+`Anthropic__ApiKey` inválida de resguardo, `MotorAgentes__IntervaloSondeoMilisegundos=1000`,
+`Programaciones__SegundosBarrido=10`, `Programaciones__MinutosReintentoReservada=1`,
+`Aprobaciones__SegundosBarridoVencimientos=10`, `Subagentes__SegundosBarrido=10`. Advertencia
+**"Motor de agentes con MODELO SIMULADO … el costo es cero"** confirmada en el arranque. Todo por variables de
+entorno del proceso: **ningún `appsettings` editado**.
+
+Camino de verificación: servidor MCP `playwright` (Chromium real), integridad por `mysqlsh` contra
+`olvidata_agentes_dev`.
+
+> **Nota de entorno:** las cuentas `@qa.test` quedaron bloqueadas por intentos fallidos al empezar (la contraseña
+> común de QA no está registrada en ninguna memoria). Se les copió el hash del SuperUsuario del seed (`Super123!`)
+> guardando **los hashes originales** en el scratchpad para restaurarlos al cerrar. El bloqueo por intentos fallidos
+> funcionando es, de paso, una verificación positiva.
+
+## Reglas cross-proyecto validadas
+
+- Ultima validacion de reglas cross-proyecto: 2026-09-16
+- **Ninguna regla nueva desde la ronda 1.** El último commit de `Agentes-IA` que toca
+  `32-estandares-qa-implementador.instructions.md`, `docs/qa/regresiones-manuales.yml` o
+  `33-verificacion-automatizada-qa.instructions.md` sigue siendo `0b6508d` (2026-09-16 11:54), que la ronda 1 ya
+  analizó (renumeración de IDs + CRM-023, verificada como N/A). Las instructions de stack `34` y `35` no aplican.
+
+## Bloque 1 — correcciones de la ronda 1
+
+### DEF-R1-1 — "Ver pasos" del configurador (M4b) — **PASS**
+
+Conversación **#183** (`/ConfiguracionReglas/Nueva`, "Quiero definir cómo hablamos con los clientes en toda la
+empresa"). Los tres rótulos salen en palabras:
+
+- "Miró cómo está organizada tu empresa (18 áreas, 18 agentes)" + "Ver el detalle" con los nombres de las áreas
+- "Propuso una regla nueva para toda la empresa: «Regla simulada 1-a»"
+- "Propuso un procedimiento nuevo para toda la empresa: «Regla simulada 1-b»"
+- "Registró la propuesta: la vas a ver como tarjeta más abajo, con los botones para decidir" (×2)
+
+**Barrido sobre el HTML completo de la página: 0 apariciones** de `estructura_empresa`, `proponer_regla_nueva`,
+`proponer_procedimiento`, `reglas_listar`, `regla_obtener`, `clientes_buscar`, `sugerencias_listar`, `{"`,
+`"alcance"`, `"modo"`, `"tipo"`, `"titulo"`, `"texto"`, `Usa <code>`, `Resultado de <code>`, `salvo_indicacion`,
+`cliente_agente`. Además, **barrido genérico** (no una lista fija) sobre el texto visible de la zona de pasos:
+**0** coincidencias de snake_case (`/\b[a-z]{3,}_[a-z_]{2,}\b/`), **0** GUIDs, **0** llaves `{`/`}`, **0** slugs
+del núcleo (`x-rubro/agente`), **0** pares `"clave":`.
+
+### DEF-R1-1 — "Ver pasos" del asistente del Director (M7b) — **PASS**
+
+Conversación **#184** (`/Asistente/Nueva`, "Repartí el trabajo de esta semana entre el equipo y los agentes"),
+5 pasos:
+
+- "Miró quiénes son del equipo y cuánto tiene cada uno sin terminar" / "Miró al equipo (6 personas)" con el detalle
+  por nombre y tareas sin terminar (**nombres, ningún GUID**)
+- "Miró qué agentes puede usar tu empresa (18 disponibles)"
+- "Propuso asignarle una tarea a alguien del equipo: «Tarea simulada del turno 1»"
+- "Propuso pedirle una tarea a un agente: «Pedido simulado del turno 1 a partir de «…»»"
+- "Registró la propuesta: …" (×2)
+
+Mismo barrido genérico: **0** snake_case, **0** GUIDs, **0** llaves, **0** slugs del núcleo. Y **0** apariciones en
+el HTML de `equipo_listar`, `agentes_disponibles`, `asignaciones_listar`, `proponer_asignacion`,
+`proponer_tarea_agente`.
+
+> El detalle de "Miró qué agentes puede usar tu empresa" lista `inmo-agenda`, `inmo-captacion`, etc. **No es un
+> código filtrado por el fix**: es el mismo nombre con el que el producto muestra los agentes en `/Agentes` y en
+> todo el portal. Queda como observación de producto, no como defecto de esta corrección.
+
+### Camino de error de una herramienta — **PASS con observación (DEF-R2-1)**
+
+Reproducido en el navegador de forma determinista: se creó una regla de la empresa con el título de **exactamente
+150 caracteres** terminado en `" (ajustada)"`, de modo que la propuesta de cambio del configurador quede idéntica a
+la regla y la herramienta falle. Conversación **#187** ("Revisá mis reglas actuales"):
+
+> **"No pudo registrar la propuesta: la propuesta no cambia nada de la regla. Indicá el título, el texto, el modo,
+> el tipo o las etiquetas nuevos."**
+
+El envoltorio funciona (no aparece el nombre de la función ni JSON), **pero el `{motivo}` que se interpola es el
+mensaje escrito para el modelo**, en imperativo dirigido al agente. Ver **DEF-R2-1** en la tabla de defectos: hay
+14 mensajes de error de M4b/M7b que sí nombran una herramienta o un código crudo y que llegarían igual a la
+pantalla del Director por este mismo camino.
+
+Segundo camino de error verificado (a nivel de tarea, no de herramienta): se degradó a la Directora a Empleada por
+SQL y se siguió la conversación #186 → **"La persona que inició la conversación ya no puede repartir trabajo.
+Podés pedirle que siga o reformular el pedido."** Castellano llano, sin códigos. Rol restaurado.
+
+### "Ver pasos" de M10 sigue igual que en la ronda 1 — **PASS**
+
+Tarea **#188** al agente `inmo-captacion` ("Trocea el material de Olvidata: contame qué dice la guía sobre eso"):
+"Miró el material de referencia de Olvidata (1 documento)" · "Buscó «Trocea» en el material de Olvidata
+(1 resultado)" con el fragmento citado · "Consultó «EJEMPLO DE PLANTILLA — no es contenido real», sección «Cómo se
+trocea este archivo» — **Ver lo que leyó**" con el texto entero · cierre con la salvedad de material de referencia.
+**0 apariciones** en el HTML de `conocimiento_buscar`, `conocimiento_leer`, `conocimiento_listar`, `fragmento_id`
+y `{"`. Idéntico a lo que validó la ronda 1: el resumidor unificado no movió M10.
+
+### OBS-R1-1 — `/Conocimiento` con un solo documento — **PASS**
+
+La pantalla dice **"Hay 1 documento en total."** (regex sobre el texto: una sola coincidencia, y es esa).
+
+### OBS-R1-3 — 403 forzado en `/Programaciones`, por el navegador — **PASS**
+
+Es lo que el implementador no pudo cubrir por test (el proyecto de tests no referencia `Web`). Como **Laura
+(Empleada)**, POST forzados con token de antiforgery válido:
+
+| POST | Resultado | Base |
+|---|---|---|
+| `Crear` con `ResponsableUsuarioId` propio (alta normal) | **302 → `/Programaciones`**, se crea | Programación **#8**, responsable `laura@qa.test`, autonomía `0` |
+| `Crear` con `ResponsableUsuarioId` de la Directora | **403 → `/Account/AccessDenied`** ("Acceso denegado") | **Ninguna fila** |
+| `Crear` con `PuedeAccionesConAprobacion=true` | **403 → `/Account/AccessDenied`** | **Ninguna fila** |
+| `Crear` con las dos cosas juntas | **403 → `/Account/AccessDenied`** | **Ninguna fila** |
+| `Editar/8` normal | **302 → `/Programaciones/Detalle/8`**, se guarda | Nombre cambiado, `Version` 0 → 1 |
+| `Editar/8` con responsable ajeno | **403 → `/Account/AccessDenied`** | Sin cambios |
+| `Editar/8` con `PuedeAccionesConAprobacion=true` | **403 → `/Account/AccessDenied`** | Sin cambios |
+
+Se confirmó por SQL después de cada tanda: la #8 queda con `responsable = laura@qa.test` y
+`PuedeAccionesConAprobacion = 0`. **Ya no hay saneo mudo**: o guarda lo que se pidió, o corta. El 403 se ve como el
+resto del portal (redirect a `AccessDenied`, criterio de diseño DI-10 / OBS-5 de M2), no como un JSON pelado.
+
+> Detalle de método: el primer intento dio falso negativo porque el POST normal incrementó el `VersionToken` y los
+> forzados siguientes chocaban antes con la concurrencia optimista ("Otra persona cambió esta programación"). Hay que
+> releer la versión antes de cada POST forzado. Queda anotado para la próxima corrida.
+
+**Permisos del formulario de la Empleada, re-verificados:** `ResponsableUsuarioId` es un **hidden con su propio id**
+(no un combo) y **no se renderiza** la casilla de autonomía. Igual que en la ronda 1.
+
+### OBS-R1-2 — el destino se valida al guardar — **PASS**
+
+Con `Conectores:PermitirDestinosPrivados` en **`false`** (el default), altas desde `/Conexiones/Nueva` con la lista
+de dominios **vacía**:
+
+| Base | Resultado | Base de datos |
+|---|---|---|
+| `https://localhost:8443/` | **No se guarda.** "La dirección base no se puede usar: «::1» es el propio servidor (loopback): por seguridad, un agente nunca puede llamar a destinos internos del servidor. **Poné la dirección pública del sistema, la misma que usarías desde afuera de tu oficina.** Si el sistema solo existe adentro de tu red, primero hay que publicarlo en internet…" | **0 filas** |
+| `https://api.qa-olvidata.invalid/` (DNS que no resuelve) | **Se guarda** (id 11) — es lo que pide DI-R1-4: un DNS caído no bloquea | 1 fila |
+| `https://intranet.empresa.local/api/` | **Se guarda** (id 10) | 1 fila |
+
+> **Precisión sobre el alcance del fix.** `5-implementador.md` dice que "`https://localhost:8443/` o
+> `intranet.empresa.local` ahora se rechazan". En esta máquina `intranet.empresa.local` **no resuelve**, así que cae
+> en la rama de DI-R1-4 y **se guarda**. O sea: el chequeo al guardar frena los nombres que **resuelven** a una IP
+> interna (que es el caso peligroso y el que se verificó), no todo nombre de aspecto interno. Es el comportamiento
+> decidido, no un defecto; conviene que la frase del documento no prometa de más.
+
+"Probar" sobre las dos conexiones guardadas devuelve **"Host desconocido."**: mensaje llano, sin detalles internos,
+y **sin salir a internet** (ninguno de los dos nombres resuelve).
+
+### OBS-R1-4 — "Probar" dice lo que contestó el externo, saneado — **PASS**
+
+Servidor de prueba propio en `http://127.0.0.1:5199/` (Node, en el scratchpad), con `/prueba` (200),
+`/error` (500 con `{"error":"El CRM se cayó"}`) y **`/error-script`** (500 con un cuerpo hostil a propósito:
+`<script>alert('XSS-QA-1')</script><img src=x onerror="alert('XSS-QA-2')">`, más `\r\n\t`, `&`, comillas simples y
+dobles, acento grave y 400 caracteres de relleno). Portal levantado en una segunda fase con
+`Conectores__PermitirDestinosPrivados=true` (**variable de entorno del proceso**, y se volvió a confirmar
+"MODELO SIMULADO … el costo es cero" en ese arranque). **Nunca se salió a internet: el único destino fue 127.0.0.1.**
+
+| Conexión | Resultado de "Probar" |
+|---|---|
+| `r2-crm-local` → `/prueba` | **"Contestó bien (200) en 47 ms."** |
+| `r2-error` → `/error` | **"El sistema externo contestó con un error 500. Lo que contestó el sistema externo: «{ error : El CRM se cayó }»"** |
+| `r2-error-script` → `/error-script` | **"…Lo que contestó el sistema externo: « script alert( XSS-QA-1 ) /script img src=x onerror= alert( XSS-QA-2 ) salto y tabulacion ampersand simple doble backtick RRRR…»"** |
+
+**El saneo aguanta, medido sobre el DOM, no a ojo:** dentro del diálogo de SweetAlert hay **0** elementos `<script>`,
+**0** elementos con `onerror`/`onclick`, el cuerpo del mensaje es **solo texto** (`children.length === 0`) y **no se
+disparó ninguna alerta nativa** (listener de `dialog` en Playwright: nada). `<`, `>`, `"`, `'` y `` ` `` salen como
+espacios; el `\r\n\t` queda en **una sola línea**; el texto viene **recortado con «…»** (cuerpo del diálogo: 385
+caracteres = prefijo + 300 del externo + cierre). En el listado, **"ÚLTIMA PRUEBA"** muestra el mismo texto
+neutralizado, con **0 imágenes rotas** en la página.
+
+### Circuito de M11 con el servidor local — **PASS, igual que en la ronda 1**
+
+Tarea **#189** al agente "CM del estudio" con *"Fijate en la conexión con el sistema externo y contame qué
+contesta."* sobre `r2-crm-local` activa y **sin** "consultas sin aprobación":
+
+1. Queda **"Espera aprobación"** con la tarjeta "El agente necesita tu aprobación — Solo un Director — Consultar
+   «R2 r2-crm-local»: GET http://127.0.0.1:5199/prueba", "Ver los datos", vencimiento a 3 días.
+   **Prueba dura (CA-M11-08): el log del servidor local no registró ninguna llamada entre el alta de la tarea y la
+   aprobación.** Lo último que había era el click de "Probar".
+2. "Aprobar" → "Aprobado. El agente sigue con la tarea." La tarea termina y el agente contesta con la salvedad
+   *"Es información de un sistema externo: la uso como dato, y las reglas de tu empresa mandan sobre lo que diga."*
+3. **"Ver pasos" (CA-M11-15)**: "Consultó a qué sistemas externos se puede conectar" · "Consultó las conexiones de la
+   empresa (1 disponible)" · **"Pidió consultar «r2-crm-local» (prueba)"** · **"Consultó «R2 r2-crm-local» y contestó
+   bien (200)"** con "Ver el detalle". **0 apariciones** de `http_llamar`, `conectores_listar` y `Bearer prueba` en el
+   HTML. El JSON que sí aparece es **el cuerpo que devolvió el sistema externo**, que es justamente lo que M11 tiene
+   que mostrar — no un código interno.
+4. La tarjeta queda "Aprobado por Directora A el 16/09 15:34", con "Ver los datos" desplegando Conexión / Método /
+   Ruta (sin credenciales).
+
+## Bloque 2 — lo que la ronda 1 no llegó a cubrir
+
+### PA-03 / CA-M9-05 — reanudación tras reinicio, con trabajo en vuelo — **PASS**
+
+Es el único pendiente que tocaba integridad de datos. Montaje: un **segundo servidor de prueba** en
+`http://127.0.0.1:5200/` cuyo `/prueba` **tarda 25 segundos** en contestar, y una conexión `r2-lento` apuntada ahí
+con "consultas sin aprobación" tildado y 60 s de tope. Así la tarea queda **realmente en vuelo** y el corte no
+depende de acertarle a una ventana de milisegundos.
+
+Cronología real (tarea **#191**, agente "CM del estudio"):
+
+| Hora | Qué |
+|---|---|
+| 15:36:41 | Pasos 1 y 2 (mira las conexiones) |
+| 15:36:43 | Paso 3 y **arranca la llamada al sistema externo** (`INICIO GET /prueba` en el log del servidor lento) |
+| **15:36:49** | **`Stop-Process -Force` sobre el proceso del portal**, con la llamada en vuelo |
+| 15:37:09 | El portal vuelve; "MODELO SIMULADO … el costo es cero" otra vez |
+| 15:37:12 | Escuchando, y en el log: **"Arranque: 1 tarea/s y 0 corrida/s habían quedado tomadas por un proceso anterior de esta máquina; se retoman en este ciclo."** |
+| 15:37:38 | Paso 4 persistido (resultado de la herramienta) |
+| 15:37:40 | Paso 5, tarea **Completada** |
+
+- **Reanuda en segundos, no en los 5 minutos del lease.** El lease de #191 vencía 18:41:43 UTC; `RecuperadorLeases`
+  lo dio por huérfano en el primer ciclo posterior al arranque porque el `WorkerId` era de esta máquina y el PID ya
+  no existía. Entre que el proceso vuelve a escuchar y que retoma pasa **un ciclo**.
+- **No duplica ni pierde pasos:** `PasosTarea` de #191 = **5 filas, 5 números distintos** (1,2,3,4,5), sin huecos.
+- **No duplica el historial de conectores:** `LlamadasConector` para #191 = **una sola fila** (200, 25.054 ms).
+
+> **Limitación conocida que hay que decirle a Joaquín (RIESGO-R2-1).** El log del servidor externo muestra
+> **dos `INICIO`**: 18:36:43 (el intento cortado) y 18:37:13 (el reintento). Es el comportamiento correcto de una
+> reanudación *at-least-once*: el paso no había alcanzado a persistirse, así que la herramienta se vuelve a ejecutar.
+> Del lado del producto no se duplica nada. **Pero si la herramienta tuviera efecto de escritura del lado del sistema
+> externo (un POST aprobado), ese efecto puede ocurrir dos veces**, y el historial de `/Conexiones/Uso/{id}` **no deja
+> rastro del intento cortado**, así que desde el portal no se ve que hubo dos. Hoy el riesgo es acotado (el guion de
+> prueba usa GET y toda escritura pasa por aprobación), pero es la clase de cosa que hay que saber antes de conectar
+> un CRM real.
+
+### CA-M12-04 — la vuelta reservada sobrevive al reinicio sin duplicarse — **PASS**
+
+Dos verificaciones, una natural y una forzada:
+
+1. **Corte natural.** Programación **#9** ("R2 PA-03 reinicio", diaria 08:00, apuntada al conector lento) →
+   "Ejecutar ahora" → el barrido crea la vuelta **#11** y la tarea **#192** → se mata el proceso a las 15:38:46 con
+   la tarea en curso → se reinicia. Resultado: **una sola vuelta** para esa ocurrencia, `EjecucionesHechas = 1`,
+   `ProximaEjecucionAt` intacta en 17/09 11:00 UTC (= 08:00 AR), y la tarea #192 **retomada y Completada** con
+   **5 pasos y 5 números distintos**.
+2. **Estado de caída forzado.** Se insertó a mano la fila que deja un proceso muerto justo después de reservar:
+   `EjecucionProgramada` con `Resultado = Reservada(1)`, `TareaAgenteId = NULL`, `ResueltaAt = NULL`, ocurrencia 3
+   minutos en el pasado. El barrido siguiente **retomó esa misma fila** (`Resultado` 1 → 2, `TareaAgenteId = 193`,
+   `ResueltaAt` puesto) y **no creó una segunda fila para la misma ocurrencia**. La tarea #193 terminó Completada.
+
+> **Por qué el diseño aguanta, verificado en el código además de por la prueba:**
+> `EjecutorProgramaciones` hace `EjecucionesHechas++` y recalcula `ProximaEjecucionAt` **en la misma transacción que
+> inserta la vuelta**. Una caída después de la reserva no puede contar dos veces, y una caída antes no deja nada.
+> Además `ProximaEjecucionAt` se recalcula **desde `UtcNow`, nunca desde la ocurrencia vencida**, que es lo que hace
+> que un servidor apagado una semana cree **una** vuelta y no siete (lo que la pantalla le promete al usuario).
+> *(Nota de método: el contador y la fecha quedaron "trabados" en la verificación 2 porque la inserción a mano
+> salteó esa transacción; es artefacto de la simulación, no del producto. Se normalizaron después.)*
+
+### Resto de M12 — **PASS**
+
+| CA | Resultado | Evidencia |
+|---|---|---|
+| **CA-M12-02 (día 31 en mes corto)** | **PASS** | Tres programaciones mensuales creadas hoy (16/09/2026, septiembre tiene 30 días): **día 31 → próxima vuelta 30/09/2026**, día 30 → 30/09/2026, día 29 → 29/09/2026. O sea, el día que no existe **se corre al último del mes**, no se saltea el mes ni se va a octubre. Febrero no bisiesto está cubierto por test unitario (`ProgramacionesTests.cs:68-70`: día 31 desde el 01/02/2026 → **28/02/2026**), que corre dentro de los 478. |
+| **CA-M12-09 (tope de ejecuciones)** | **PASS** | Programación #13 con `MaxEjecuciones = 1` → una vuelta → queda **Terminada**, `MotivoFin` = **"Se alcanzó el tope de ejecuciones."**, `ProximaEjecucionAt = NULL`, `EjecucionesHechas = 1`. |
+| **CA-M12-08 (corte por 5 fallas seguidas)** | **PASS** | Programación #14 apuntada a un agente que **se archiva** (escenario real: dieron de baja el agente y la programación quedó). Cinco "Ejecutar ahora" seguidos → cinco vueltas **Bloqueada**, cada una con el motivo llano **"Este agente está archivado. Reactivalo para pedirle tareas nuevas."** A la quinta la programación queda **Terminada** con `FallasSeguidas = 5` y `MotivoFin` = **"Se cortó después de 5 vueltas seguidas sin poder crear la tarea. Revisá el motivo y reanudala."**, `ProximaEjecucionAt = NULL`. El sexto intento contesta **"Esta programación terminó. Editala para volver a activarla."** Agente restaurado al terminar. |
+
+> De paso quedó verificada una protección de datos que no estaba en la lista: `AgenteOrganizacionId` tiene **FK real**
+> (el intento de apuntar la programación a un agente inexistente lo rechaza la base). No hay forma de dejar una
+> programación colgada de un agente que no existe.
+
+### Resto de M11 — **PASS**
+
+| CA | Resultado | Evidencia |
+|---|---|---|
+| **CA-M11-13 (tope de llamadas por tarea)** | **PASS** | Conexión con `MaxLlamadasPorTarea = 1`. Tarea **#195**: la primera consulta sale bien; al pedir una segunda en la **misma** tarea ("Seguir conversando"), el paso queda en **"No se pudo llamar al sistema externo: ya usaste esta conexión 1 vez en esta tarea, que es el tope configurado. Resolvé con lo que ya tenés o pedile a un Director que suba el tope."** y el agente cierra diciendo lo mismo. **El mensaje está escrito para una persona y no filtra ningún código** — es el mismo mecanismo de rótulo de error que DEF-R2-1, con el mensaje bien redactado. |
+| **CA-M11-07 (alcance "Solo los Directores")** | **PASS — fail-closed** | Con la conexión en `Alcance = Solo los Directores`, la tarea **#196** de **Laura (Empleada)** con el mismo agente muestra **"Consultó las conexiones de la empresa (0 disponibles)"** y el agente contesta "Tu empresa no tiene ninguna conexión activa que yo pueda usar en esta tarea." **`http_llamar` no aparece en el HTML**: la herramienta ni se le ofrece. |
+
+### CA-M9-01 — el paquete de `dotnet publish` — **PASS (y CA-M9-02/03 re-verificados sobre el artefacto real)**
+
+`dotnet publish src/OlvidataAgentes.Web -c Release -p:PublishProfile=SmarterASP` → **exit 0**, 1 advertencia
+(la preexistente de `HomeController.StatusCode`). Paquete en `publish/web`: **339 archivos, 139 MB**. **No se desplegó
+nada.**
+
+Lo que promete `docs/deploy-smarterasp.md`, chequeado uno por uno:
+
+- `web.config` con **`ASPNETCORE_ENVIRONMENT=Production`** inyectado ✔
+- Regla de **redirect a HTTPS** permanente ✔, `hostingModel="OutOfProcess"` con `lockAttributes` ✔,
+  `stdoutLogEnabled="false"` ✔
+- **No viajan**: `appsettings.Development.json`, `appsettings.Production.example.json`,
+  `appsettings.Production.json`, `keys/`, `App_Data/`, `Logs/`, `keys-licencia/` ✔
+- **Ningún `*.pem`, `*.pfx` ni `*.key`** en todo el paquete (búsqueda recursiva: 0 resultados) ✔
+
+**Prueba extra que la ronda 1 no había hecho: se corrió el paquete publicado en `Production`** (puerto 5312, sin
+cadena de conexión y sin PEM). El arranque **corta** con `InvalidOperationException` y la lista de claves —
+**y entre ellas detecta lo que importa:**
+
+> `Seed:SuperUser:Password: sigue puesta la contraseña del seed de desarrollo. Cambiala antes de publicar.`
+
+Es relevante porque el `appsettings.json` **sí viaja en el paquete y lleva `"Password": "Super123!"`**. La contraseña
+de desarrollo llega al servidor como texto, pero **el sitio se niega a arrancar con ella**, que es la protección que
+corresponde. Los otros tres cortes fueron `ConnectionStrings:DefaultConnection`, `Licencias:ClavePrivadaPemPath` y
+`Olvidata_Email:Smtp:Host`. **Ningún mensaje imprime un valor.**
+
+Avisos (no cortan) que conviene mirar antes de publicar de verdad: `Documentos:RaizAlmacenamiento` es relativa —
+queda **dentro del sitio publicado** y una publicación con borrado se lleva los documentos de los clientes (está
+documentado en `deploy-smarterasp.md` §, pero es el pie del que más fácil se tropieza); `AllowedHosts` acepta
+cualquier host; y `Anthropic:Simulado` en true se ignora fuera de Development (bien avisado).
+
+## Bloque 3 — pasada final de regresión
+
+Barrido corto sobre lo que ya estaba verde, para confirmar que las correcciones no rompieron nada. **Sin repetir en
+profundidad lo que la ronda 1 dio por bueno.**
+
+### Aislamiento entre organizaciones — **PASS (10/10)**
+
+Como **Director de la org 4** (`dirb@qa.test`) contra ids que son **de la org 1**:
+
+| Request | Resultado |
+|---|---|
+| `GET /Tareas/Detalle/189`, `/Tareas/Detalle/183` | **404** "Página no encontrada" |
+| `GET /Conexiones/Editar/12`, `/Conexiones/Uso/12` | **404** |
+| `GET /Programaciones/Detalle/9`, `/Programaciones/Editar/8` | **404** |
+| `GET /Reglas/Detalle/79` | **404** |
+| `POST /Conexiones/Probar/12`, `/Conexiones/DarDeBaja/12` | **404** `{"success":false,"message":"Esa conexión no existe."}` |
+| `POST /Programaciones/Pausar/9` | **404** `{"success":false,"message":"La programación no existe."}` |
+
+**Ningún 500 y ningún 403**: el producto no confirma que el id exista. Se agregaron a la matriz las tareas de
+conversación de plataforma (#183, #189), que son pantallas nuevas de esta ronda.
+
+### Permisos de escritura por rol — **PASS (8/8)**
+
+Como **Laura (Empleada)** de la org 1:
+
+- "Conexiones" **no aparece en el menú**.
+- `GET /Conexiones`, `/Conexiones/Nueva`, `/Nucleo/Conocimiento/inmobiliario` → **`/Account/AccessDenied`**.
+- `POST /Conexiones/Probar/12`, `/Conexiones/CambiarEstado/12`, `/Conexiones/DarDeBaja/12` → **403**.
+- `POST /Programaciones/Pausar/9` (programación de la Directora) → **404** "La programación no existe."
+- `POST /Reglas/Delete/79` → **404**.
+
+Más los 403 de `Crear`/`Editar` de programaciones del bloque 1, que son nuevos de esta ronda.
+
+### Mobile 390 — **PASS (8/8)**
+
+`/Conocimiento`, `/Conexiones`, `/Programaciones`, `/Programaciones/Detalle/{id}`, `/Tareas/Detalle/{id}` de las tres
+familias de conversación (#183 configurador, #184 asistente, #187 con paso en error) y #189 (conector), todas a
+390×844 **con los "Ver pasos" y los "Ver el detalle" desplegados**: `scrollWidth == clientWidth` (385/385) en todas.
+**Sin scroll horizontal.** Es la verificación que importa acá porque el cambio de `_PasosTurno.cshtml` metió textos
+largos nuevos ("Miró cómo está organizada tu empresa (18 áreas, 18 agentes)") y listas de detalle.
+
+### Contraste y tema oscuro — **PASS, sin reincidencia de OLV-001**
+
+Barrido sobre las mismas 8 pantallas con `data-theme="dark"`, **componiendo el alfa contra el fondo efectivo de los
+ancestros** (ver nota de método): **0 fondos claros en tema oscuro** y **0 hallazgos nuevos** de contraste.
+
+Lo único por debajo de 3:1 son los **botones compartidos del design system** — `btn-primary` **2.98**,
+`btn-outline-secondary` **2.86**, `btn-outline-success`/`btn-outline-danger` **2.96** — que es **OLV-004 / PA-11**,
+abierto desde antes y ajeno a estas correcciones. Marginal (2.86–2.98 contra un umbral de 3:1 para componentes de UI).
+
+> **Nota de método para la próxima corrida (importante).** El primer barrido dio ~6 falsos positivos por pantalla
+> (`card-header` "fondo claro", `ov-env-badge` ratio 1.00, `ov-alert info` 1.67). Eran del detector, no del producto:
+> el design system usa **fondos translúcidos** (`rgba(255,255,255,0.03)` para las cabeceras de tarjeta,
+> `rgba(43,157,228,0.15)` para el badge) y un cálculo de luminancia que trata el `rgba` como opaco los lee como
+> blancos sobre texto casi blanco. **Hay que componer el alfa contra la cadena de ancestros antes de medir.** Con la
+> composición bien hecha el resultado da 0, que es lo que ya había reportado la ronda 1.
+
+## Estado de las correcciones de la ronda 1
+
+| # | Qué era | Estado en la ronda 2 |
+|---|---|---|
+| **DEF-R1-1** (major) | "Ver pasos" del configurador y del asistente mostraba nombres de herramienta y JSON crudo | **CERRADO** en el camino feliz: 0 snake_case, 0 GUIDs, 0 llaves, 0 slugs del núcleo, 0 nombres de las 14 herramientas, con barrido genérico además del de lista fija. **Queda un residuo en la rama de error: DEF-R2-1.** |
+| **OBS-R1-1** (minor) | "Son 1 documento en total." | **CERRADO** — "Hay 1 documento en total." |
+| **OBS-R1-2** (minor) | El destino no se validaba al guardar | **CERRADO** — `https://localhost:8443/` no se guarda y el mensaje dice qué hacer; un DNS que no resuelve **sí** deja guardar (DI-R1-4). Precisión: solo frena los nombres que **resuelven** a IP interna. |
+| **OBS-R1-3** (minor) | `Crear`/`Editar` de programaciones saneaba en silencio | **CERRADO** — 403 en las 5 variantes forzadas, nada guardado, y el alta/edición normal de la Empleada sigue andando. |
+| **OBS-R1-4** (minor) | "Probar" solo decía "HTTP 500" | **CERRADO** — muestra el cuerpo del externo, neutralizado y recortado a 300; verificado contra un cuerpo con `<script>`/`onerror`. |
+| **OLV-013** (auto-fix de la ronda 1) | Enum crudo en el historial de vueltas | **Sigue bien** (el detalle de programación muestra los rótulos llanos). |
+
+## Defectos de esta ronda
+
+| # | Severidad | Dónde | Qué pasa | Estado |
+|---|---|---|---|---|
+| **DEF-R2-1** (catalogado como **OLV-014**) | **minor** | Rama de **error** de "Ver pasos" (M4b y M7b) — `ResumenHerramientasConfigurador.cs` y `ResumenHerramientasAsistente.cs` | El rótulo de un paso fallido hace `Error($"No pudo …: {motivo}")` con `motivo` = **el string que la herramienta le devuelve al modelo**. Reproducido en el navegador (conversación **#187**): *"No pudo registrar la propuesta: la propuesta no cambia nada de la regla. **Indicá el título, el texto, el modo, el tipo o las etiquetas nuevos.**"* — imperativo dirigido al agente. Y hay **14 mensajes** de esa familia que además **nombran una herramienta o vuelcan un código crudo**: "Consultá **equipo_listar**", "Consultá **estructura_empresa**", "Buscalo con **clientes_buscar**", "Leela antes con **regla_obtener**", "Usá empresa, area, agente, cliente, **cliente_agente** o **mis_preferencias**", "Indicá **regla_id**". Con el simulador no se alcanzan (sus argumentos son fijos y siempre válidos); **con el modelo real sí**, cada vez que se equivoca en un argumento. | **Pendiente — NO auto-fixable.** Decidir qué lee la persona en cada uno de los 14 casos es redacción/alcance, y no hay una solución validada que replicar. Recomendación en OLV-014: que el fallo lleve **dos textos** (uno para el modelo, uno para la persona) o una lista blanca de motivos publicables con genérico para el resto — que es la línea de DI-R1-1, aplicada también a la rama de error. |
+| **OBS-R2-1** | trivial (redacción) | "Seguir conversando" de una conversación de plataforma cuyo autor perdió el permiso | El agente contesta **"La persona que inició la conversación ya no puede repartir trabajo. Podés pedirle que siga o reformular el pedido."** — el "pedile a esa persona" está dirigido justamente a esa persona, que es la que está leyendo. El texto es llano y no filtra códigos; es solo que el destinatario no cierra. | Pendiente, cosmético |
+| **OBS-R2-2** | trivial (precisión de la documentación) | `5-implementador.md`, punto 6 de las correcciones | Dice que "`https://localhost:8443/` **o `intranet.empresa.local`** ahora se rechazan en el formulario". El segundo solo se rechaza **si el nombre resuelve** a una IP interna; si el DNS no lo conoce, se guarda (que es lo correcto según DI-R1-4). | Pendiente, ajustar la frase |
+
+**Ningún defecto nuevo de severidad major o crítica. Ningún camino de seguridad falló.**
+
+## Auto-fixes aplicados
+
+**Ninguno.** El único defecto nuevo (DEF-R2-1 / OLV-014) toca redacción de producto, que por regla se reporta y no se
+auto-parchea. **No se tocó una sola línea de código en esta ronda**: `git diff HEAD` vacío, el working tree queda con
+el mismo único archivo sin seguimiento que tenía al empezar (`.playwright-mcp/`). Por lo tanto la línea base de build
+y tests sigue siendo la verificada al arrancar: **0 errores / 2 advertencias preexistentes** y **478/478**.
+
+## Cobertura del catálogo cross-proyecto
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| OLV-001 (fondo claro en tema oscuro) | sí | **PASS** — 0 fondos claros en las 8 pantallas | — |
+| OLV-004 (contraste de botones del design system) | sí | **abierto desde antes** (2.86–2.98 contra 3:1) | sigue como PA-11, ajeno a estas correcciones |
+| OLV-013 (enum crudo en pantalla nueva) | sí | **PASS** (fix de la ronda 1 sostenido) | — |
+| **OLV-014 (rótulo de error que vuelca el mensaje para el modelo)** | sí | **FAIL — creado por esta corrida** | ver DEF-R2-1 |
+| CRM-023 (arrays por AJAX GET sin `traditional`) | no | N/A (verificado en la ronda 1, no reincide) | — |
+| REG-010 (link de menú sin autorización real) | sí | **PASS** (Laura no ve "Conexiones" y el GET da AccessDenied) | — |
+| PAT-017 (IDOR en portal de usuario final) | sí | **PASS** (10/10 en 404 con ids ajenos) | — |
+| PAT-045 (concurrencia optimista) | sí | **PASS** (el `VersionToken` corta el POST con versión vieja) | — |
+| Resto del catálogo | — | sin cambios respecto de la ronda 1 | — |
+
+## Cobertura de reglas nuevas/modificadas desde la última corrida
+
+**Ninguna nueva desde 2026-09-16.** El último commit de `Agentes-IA` que toca
+`32-estandares-qa-implementador.instructions.md`, `docs/qa/regresiones-manuales.yml` o
+`33-verificacion-automatizada-qa.instructions.md` sigue siendo `0b6508d` (2026-09-16 11:54), ya analizado por la
+ronda 1. Esta corrida **agrega** OLV-014 al catálogo.
+
+## Qué sigue sin cubrirse (se dice explícito)
+
+- **PA-18 / PA-02: ninguna corrida real contra la API de Anthropic.** Todo el producto está verificado **solo con el
+  modelo simulado**. Los guiones del simulador usan argumentos fijos y siempre válidos, así que hay ramas —
+  empezando por las de error de herramientas (DEF-R2-1) — que **solo se van a ver con el modelo real**.
+- **M10**: tope de resultados por búsqueda (CA-M10-08), `%` y `_` literales (CA-M10-09), documento en Borrador
+  invisible para el agente (CA-M10-01), reimportación idempotente (CA-M10-02), suscripción vencida (CA-M10-06).
+- **M12**: responsable dado de baja (CA-M12-07), límite de gasto alcanzado (CA-M12-06), barrido de los 7 filtros del
+  listado uno por uno.
+- **M11**: el mismo código de conexión en dos organizaciones (CA-M11-04).
+- **Despliegue real a SmarterASP**: el paquete se verificó y se corrió en `Production` localmente; **no se subió nada**.
+- **Recorridos de punta a punta de M5/M6/M7b** (documentos de un cliente, ajustar respuesta, revisar consumo, alta de
+  organización + licencia por staff): tienen QA de navegador de sus etapas y no se volvieron a correr acá.
+
+## Estado del entorno al cerrar (verificado por SQL)
+
+- Prompts de plataforma **#56/#57/#58/#65/#79 de vuelta en Borrador** con `PublicadaAt = NULL`; las evaluaciones que
+  creó esta corrida, borradas; **la #31 preexistente (2026-09-15) intacta**.
+- **0 conexiones vivas**, **0 programaciones vivas**, **0 aprobaciones pendientes**.
+- Regla de prueba del disparador de error (id 95) **desactivada** (no se puede borrar por la FK de `PropuestasRegla`).
+- `dira@qa.test` de vuelta en **Director**, `dira2@qa.test` en **Activo**, agente de organización 13
+  **desarchivado**, los 3 `Tenants` en **Activo**.
+- **Los 7 hashes de contraseña originales de `@qa.test` restaurados** (verificado: ninguno coincide ya con el del
+  SuperUsuario) y **sin bloqueos** pendientes.
+- `Conectores:PermitirDestinosPrivados` en **`false`** en `appsettings.json` y en `appsettings.Development.json`:
+  **nunca se editó un archivo de configuración**, todo fue por variables de entorno del proceso.
+- Portal **detenido** (7200), servidores de prueba **detenidos** (5199 y 5200).
+- **Sin commits.** `git diff HEAD` vacío. Queda `publish/web` (139 MB) del artefacto de M9, que está en `.gitignore`.
+
+
+
+
+
+
+# QA integral ronda 1 (2026-09-16) — CERRADA
+
+**Veredicto: APTO para que Joaquín lo pruebe, con 1 defecto major de presentación a corregir antes de la ronda 2.**
+Ninguno de los caminos de seguridad falló: SSRF, aprobación por llamada, aislamiento entre organizaciones, permisos
+por rol, credenciales invisibles y corte de arranque fuera de Development están todos verificados por navegador.
+
+
+Ronda transversal pedida por Joaquín antes de que él pruebe el producto: no va etapa por etapa sino que cierra los
+huecos (**M9, M10, M11 y M12 nunca se habían probado en navegador**) y recorre el producto como lo va a usar.
+Portal local `https://localhost:7200` en Development, perfil `https`, con **modelo simulado por variables de entorno
+del proceso** (`Anthropic__Simulado=true`, `Anthropic__ApiKey` inválida como resguardo,
+`MotorAgentes__IntervaloSondeoMilisegundos=1000`, `Programaciones__SegundosBarrido=10`,
+`Programaciones__MinutosReintentoReservada=1`, `Aprobaciones__SegundosBarridoVencimientos=10`,
+`Subagentes__SegundosBarrido=10`). Advertencia **"Motor de agentes con MODELO SIMULADO … el costo es cero"**
+confirmada en el arranque. **Costo cero: ninguna llamada a la API real, ninguna evaluación en modo real**
+(PA-02/PA-18 siguen siendo decisión de Joaquín).
+
+Camino de verificación: **servidor MCP `playwright`** (disponible en esta sesión, Chromium real), con
+`browser_run_code_unsafe` para encadenar varios pasos por llamada y devolver JSON compacto; integridad por `mysqlsh`
+contra `olvidata_agentes_dev`. Línea base de build: **0 errores, 2 advertencias preexistentes**
+(`HomeController.StatusCode` oculta el miembro heredado, y un `xUnit2013` de M7a).
+
+> **Nota de sesión:** la primera sesión de esta ronda se cortó por límite de uso mientras arrancaba M11. Esta entrada
+> se fue escribiendo **a medida que cerraba cada bloque**, no al final, justamente para que un corte no se llevara la
+> evidencia. Lo que no figure acá es porque no se llegó a ejecutar.
+
+**Estado del entorno al cerrar (verificado por SQL y por navegador):** prompts de plataforma #56/#57/#58/#65/#79 de
+vuelta en **Borrador** con `PublicadaAt = NULL` y sin las evaluaciones que creó esta corrida (queda la #31, del
+2026-09-15, preexistente); **0 conexiones vivas**, **0 programaciones vivas**, **0 aprobaciones pendientes**; las 2
+reglas simuladas que aplicó el configurador dadas de baja (no se pudieron borrar por la FK de `PropuestasRegla`);
+`Tenants` los 3 en `Activo`; `Conectores:PermitirDestinosPrivados` en **`false`** en `appsettings.json` y en
+`appsettings.Development.json` (nunca se editó un archivo: **todos los cambios de configuración de esta corrida
+fueron variables de entorno del proceso**, incluido el `true` que se usó para el camino feliz de M11); límites de
+gasto y topes sin tocar; portal y servidor de prueba **detenidos**. **Sin commits.** El working tree queda con un
+solo archivo modificado: el auto-fix OLV-013.
+
+## Reglas cross-proyecto validadas
+
+- Ultima validacion de reglas cross-proyecto: 2026-09-16
+- **Reglas nuevas desde la corrida de M8 (2026-09-16, misma jornada):** se comparó el estado vigente de
+  `32-estandares-qa-implementador.instructions.md` y `docs/qa/regresiones-manuales.yml` contra lo registrado por M8.
+  El diff del commit `0b6508d` (Agentes-IA, 2026-09-16 11:54) sobre la instruction 32 es **solo renumeración de IDs**
+  (`REG-011`, `REG-012`, `VSF-003`, `CRM-019`, `CRM-024`) más un párrafo nuevo de mantenimiento sobre el namespace
+  único de IDs: **ninguna regla técnica nueva**. En el catálogo apareció **CRM-023** después de `OLV-012`.
+- **CRM-023 — NO APLICA (verificado, no asumido).** Regla: arrays mandados por AJAX GET con jQuery sin
+  `traditional: true` viajan como `nombre[]=` y ASP.NET Core no los bindea desde el query string, con falla
+  silenciosa si la acción tiene un default. Barrido de `$.get` / `$.getJSON` / `$.ajax` en `Views/` y `wwwroot/js/`:
+  los únicos parámetros de colección del portal se arman **a mano en formato tradicional**
+  (`Views/Agentes/Ejecutar.cshtml:199` → `'&documentoIds=' + encodeURIComponent(id)` concatenado), y el resto de las
+  llamadas mandan escalares (`_ScriptBajaArea.cshtml` → `{ id: id }`). No hay ningún `$.get(url, { coleccion: [...] })`
+  en el proyecto. **PASS.**
+- Las instructions de stack `34-integracion-afip-arca` y `35-pantalla-control-stock` no aplican a este producto.
+
+## Cobertura ejecutada hasta ahora
+
+### M10 — Base de conocimiento por rubro (primer QA de navegador) — **PASS**
+
+| CA | Resultado | Evidencia |
+|---|---|---|
+| CA-M10-10 / CA-M10-11 | PASS | `/Conocimiento` como Directora: "Material de Olvidata", el bloque explicativo ("Tus agentes los consultan solos cuando les sirven… te muestran de dónde sacaron cada cosa en «Ver pasos»… es material de consulta, no reemplaza a las reglas de tu empresa"), agrupado **Inmobiliario · 1 documento**, con título, para qué sirve y "5 secciones". **Ni una línea del texto del material** en la pantalla del miembro. |
+| Permisos staff | PASS | `/Nucleo/Conocimiento/inmobiliario` como **Directora → `Account/AccessDenied`**. Como Administrador (`adminqa@qa.test`) → 200. |
+| Pantalla de staff | PASS | 4 tarjetas de conteo correctas contra la base (**Documentos 1 · Publicados 1 · Secciones consultables 5 · Sin publicar 0**) y la tabla con "v1 publicada", "5", "16/09/2026", badge **Publicada**. Enlace a `/Nucleo/VersionConocimiento/87`. |
+| ids inexistentes | PASS | `/Nucleo/Conocimiento/rubro-que-no-existe` → **404**; `/Nucleo/VersionConocimiento/999999` → **404** (página "Página no encontrada", no 500). |
+| **DI-M10-4 (bug de la ruta de encabezados)** | **PASS — re-verificado visualmente** | `/Nucleo/VersionConocimiento/87`: las 5 secciones son `1. Introducción`, `2. Cómo se trocea este archivo`, `3. Cómo se trocea este archivo › Buenas prácticas`, `4. Cómo se trocea este archivo › Qué NO va acá`, `5. Cómo se habilita`, cada una con su contador de caracteres y "Ver el texto". **Ninguna ruta empieza con "…"** (barrido por regex sobre el `innerText`: 0 coincidencias). El fix de la pila de encabezados quedó confirmado. |
+
+### M9 — Preparación de despliegue (primer QA de navegador) — parcial, lo hecho **PASS**
+
+| CA | Resultado | Evidencia |
+|---|---|---|
+| CA-M9-04 (`/health`) | PASS | Como **SuperUsuario del seed**: JSON con los 4 chequeos ordenados (`documentos` Healthy con la ruta, `motor` Healthy con `worker`/`tareasEnCurso`/`segundosDesdeElUltimoCiclo`, `mysql` Healthy, `smtp` **Degraded** "SMTP Host no configurado." — esperable en dev), `estado: "Degraded"`, `fechaUtc`, `duracionMs`. **Ni una excepción ni un stack trace.** |
+| `/health` autorización | PASS | Anónimo → redirige a `/Account/Login?ReturnUrl=%2Fhealth`. **Directora → `AccessDenied`. Administrador → `AccessDenied`** (la policy es `RequireSuperUsuario`, más estricta que el resto del backoffice). |
+| `/health/vivo` | PASS | **Anónimo**, `200`, `Content-Type: text/plain; charset=utf-8`, cuerpo exacto **`vivo`**, sin correr ningún chequeo. Es el destino del ping externo del plan B de PA-07. |
+| CA-M9-03 (sin valores en los mensajes) | PASS parcial | En el arranque de Development la revisión imprime `Olvidata_Email:Smtp:Host falta el servidor SMTP…`, `…:FromAddress falta la dirección remitente.`, avisos de `:User` y de `Olvidata_ErrorEmail:Destinatarios`, y cierra con "En Development se arranca igual con 2 problema/s de configuración.". **Todos nombran la clave y ninguno imprime un valor.** Falta ejecutar el corte real fuera de Development (pendiente en esta ronda). |
+
+| **CA-M9-02 (no arranca fuera de Development)** | **PASS** | Instancia aparte en **Production** (puerto 5311) con `Anthropic__ApiKey` **ausente**: el proceso **no arranca** y termina con `InvalidOperationException` — *"El sitio no puede arrancar: faltan o están mal estas claves de configuración."* seguido de las 5 claves con su motivo (`Anthropic:ApiKey`, `Licencias:ClavePrivadaPemPath`, `Licencias:GenerarClaveSiFalta`, `Olvidata_Email:Smtp:FromAddress`, `Conectores:PermitirDestinosPrivados`) y "Ver docs/deploy-smarterasp.md y appsettings.Production.example.json.". **El motivo queda en un archivo legible por FTP**: `AppContext.BaseDirectory/Logs/arranque-20260916.log` (o sea, la raíz del sitio publicado), con los 4 avisos, los 5 errores y la excepción completa. |
+| **CA-M9-03 (ningún valor en los mensajes)** | **PASS — probado con secretos sembrados** | Se arrancó esa instancia con 4 valores secretos plantados a propósito (`Olvidata_Email__Smtp__Password=CONTRASENA-SUPER-SECRETA-QA-12345`, `Olvidata_Email__Smtp__User=usuario-secreto@qa.test`, `Olvidata_Email__Smtp__Host=smtp.secreto-de-qa.example`, `Seed__SuperUser__Password=OtraClaveSecretaQA-98765`). **Ni la salida estándar ni `Logs/arranque-20260916.log` contienen ninguno de los cuatro (0 coincidencias en ambos).** Solo aparecen nombres de clave. |
+| Válvula de seguridad de M11 | PASS | Con `Conectores__PermitirDestinosPrivados=true` fuera de Development, el arranque **se corta**: "tiene que ser false fuera de Development: en true, los conectores podrían llamar a direcciones internas del servidor." El interruptor de pruebas no puede viajar a producción por descuido. |
+| **CA-M9-06 (organización suspendida)** | **PASS** | Con `Tenants.Estado = 2` en la org 4: el Director `dirb@qa.test` **no puede iniciar sesión** y ve **"El acceso de tu empresa está suspendido."** (más el contacto de soporte). Reintentar da lo mismo, **sin rulo**. **No revela si es suspensión o baja** (no aparece la palabra "baja"). En paralelo: el **SuperUsuario sin organización entra normal** y la **Directora de la org 1 (activa) entra normal**. Restaurado a `Estado = 1` y verificado por SQL. |
+
+**Pendiente de M9 en esta ronda:** PA-03 (reanudación tras reinicio, CA-M9-05) y el paquete de publicación (CA-M9-01).
+
+### M11 — Conectores con credenciales por organización (primer QA de navegador) — **PASS con 1 observación**
+
+Conexiones creadas para la prueba en org 1 (a limpiar al cerrar): **#6 `mi-crm`** (`https://api.qa-olvidata.invalid/`,
+dominio `.invalid` elegido a propósito: **nunca resuelve, así que no se sale a internet**), **#7 `qa-sl1`** y
+**#8 `qa-ssrf-portal`**.
+
+| CA | Resultado | Evidencia |
+|---|---|---|
+| **CA-M11-10 (SSRF, lo central)** | **PASS** | 13 destinos internos probados **desde la UI**, todos **rechazados al guardar**, cada uno con su motivo en palabras y sin nombrar ninguna credencial: `169.254.169.254` → "es el servicio de metadata de la nube, que entrega credenciales del servidor"; `10.0.0.5` y `192.168.1.1` → "es una red privada"; `127.0.0.1` → "es el propio servidor (loopback)"; `[::1]` → idem; `0.0.0.0` → "es una dirección sin asignar"; `100.64.0.1` → "es una red compartida del proveedor"; `169.254.1.1` → "es una dirección de enlace local". **También frena las formas ofuscadas**: `https://2130706433/` (127.0.0.1 en decimal) y `https://0177.0.0.1/` (en octal) se normalizan y se rechazan como loopback, igual que `[::ffff:127.0.0.1]` (IPv4 mapeada en IPv6). Fuera de lista blanca: `https://evil.com/` con lista `127.0.0.1:5199` → "«evil.com» no está en la lista de dominios permitidos de esa conexión". Esquema: `http://127.0.0.1:5199/` → "solo se puede llamar por https.". Credenciales en la URL: `https://usuario:clave@api.com/` → "no puede llevar usuario y contraseña adentro. Poné la credencial en un encabezado." |
+| Validaciones del alta | PASS | Base vacía → "Cargá la dirección base del sistema al que querés conectarte."; método `ROBAR` → "«ROBAR» no es una acción válida. Las que se pueden usar son: GET, HEAD, POST, PUT, PATCH, DELETE."; encabezado fijo `Host: evil.com` → "«Host» lo maneja el sistema: no se puede configurar a mano."; secreto sin formato → "Los encabezados con credenciales van uno por línea, con el formato «Nombre: valor»." **Ningún mensaje repite un valor cargado.** |
+| **CA-M11-01 (credenciales invisibles)** | **PASS** | Conexión #6 guardada con `Authorization: Bearer prueba`. En `/Conexiones/Editar/6` el campo de secretos viene **vacío**, con el aviso "Ya hay credenciales guardadas (Authorization)…" y la casilla `QuitarSecretos` destildada. **Búsqueda sobre el HTML completo de la página: `Bearer prueba` NO aparece** (solo el nombre `Authorization`). Por SQL: `SecretosNombres = 'Authorization'`, `SecretosProtegidos` de 176 bytes cifrados. **Audit trail: 0 filas** con el valor del secreto o con la columna protegida. |
+| CA-M11-02 (editar conserva) | PASS | Guardar la conexión sin tocar el campo de credenciales deja `SecretosNombres` y `SecretosActualizadosAt` **sin cambios** (verificado por SQL antes y después). |
+| **CA-M11-03 (Empleado)** | **PASS** | Laura (Empleada): el ítem "Conexiones" **no aparece en el menú**; `GET /Conexiones` y `/Conexiones/Editar/6` → `AccessDenied`; y **los 4 POST forzados con token válido devuelven 403**: `Probar/6`, `CambiarEstado/6`, `DarDeBaja/6` y `Nueva`. |
+| Aislamiento entre organizaciones | PASS | Director de la org 4 (`dirb@qa.test`) contra ids de la org 1: `GET /Conexiones/Editar/6` → **404**, `GET /Conexiones/Uso/6` → **404**, y los POST `Probar/6`, `CambiarEstado/6`, `DarDeBaja/6` → **404 `{"success":false,"message":"Esa conexión no existe."}`** (no 403: no confirma que el id exista). |
+| CA-M11-14 (historial) | PASS | `/Conexiones/Uso/6`: "Historial de «Mi CRM» — Cada vez que un agente (o vos, al probarla) usó esta conexión… **No se guarda lo que se envió ni ninguna credencial**", "Últimas 1 llamada", columnas CUÁNDO / QUIÉN / ACCIÓN / A DÓNDE / RESULTADO / TARDÓ / TAREA, con badge **Prueba**, destino `https://api.qa-olvidata.invalid/` **sin querystring**, "No se pudo llegar — Host desconocido.", 53 ms. |
+| Antiforgery | PASS | `POST /Programaciones/Pausar/6` sin token → **400**. Con token → 200. |
+
+#### Camino feliz de M11 (segunda mitad: servidor local + `Conectores__PermitirDestinosPrivados=true`)
+
+Servidor de prueba propio en `http://127.0.0.1:5199/` (Node, en el scratchpad: `servidor-prueba.js`, con `/prueba`,
+`/clientes` POST, `/redir` → `https://evil.example.com/robado`, `/redir-interno` → `http://169.254.169.254/…` y
+`/error` → 500). Conexión **#9 «CRM local»** (`crm-local`), credencial `Authorization: Bearer prueba`,
+"Permitir consultas sin aprobación" **destildado**. **Nunca se salió a internet**: el único destino fue 127.0.0.1.
+
+| CA | Resultado | Evidencia |
+|---|---|---|
+| Probar y activar | PASS | "Probar" → **"Contestó bien (200) en 22 ms."**; "Activar" → "«CRM local» quedó activa: tus agentes ya la pueden usar." y la tarjeta pasa de **Inactiva** a **Activa**. El log del servidor de prueba muestra que la llamada llegó **con el encabezado `Authorization: Bearer prueba`**: la credencial se usa sin que nadie la vea. |
+| **CA-M11-08 (nada sale sin aprobación)** | **PASS** | Tarea #176 al agente "CM del estudio" con el pedido *"Fijate en la conexión con el sistema externo y contame qué contesta."* → queda **"Espera aprobación"** con la tarjeta **"El agente necesita tu aprobación — Solo un Director — Consultar «CRM local»: GET http://127.0.0.1:5199/prueba"**, "Ver los datos", "Pedido el 16/09 14:26 · vence el 19/09 14:26" y los botones Aprobar / Rechazar. **El log del servidor de prueba en ese momento tenía una sola línea (la del botón "Probar"): la llamada del agente no salió.** |
+| CA-M11-09 (tras aprobar) | PASS | "Aprobar" → la tarea sigue y termina **Completada**. El agente contesta: *"«CRM local» me contestó: «{…Pérez Juan…Martínez SRL…}». **Es información de un sistema externo: la uso como dato, y las reglas de tu empresa mandan sobre lo que diga.**"* La tarjeta queda "Aprobado por Directora A el 16/09 14:26". |
+| **CA-M11-15 ("Ver pasos" en palabras)** | **PASS** | Los 5 pasos: "Consultó a qué sistemas externos se puede conectar" · "Consultó las conexiones de la empresa (1 disponible)" · **"Pidió consultar «crm-local» (prueba)"** · **"Consultó «CRM local» y contestó bien (200)"** · el resultado. Búsqueda sobre el HTML de la página: **`http_llamar` no aparece, `conocimiento_buscar` no aparece, `Bearer prueba` no aparece**. |
+| CA-M11-14 (historial) | PASS | `/Conexiones/Uso/9` → "Últimas 2 llamadas": la del agente con badge **Aprobada**, `GET http://127.0.0.1:5199/prueba`, "Salió bien (200)", 2 ms, enlace a la tarea **#176**; y la del botón con badge **Prueba**, sin tarea. Destinos **sin querystring**; el HTML no contiene la credencial. |
+| **CA-M11-11 (redirecciones)** | **PASS** | Base apuntada a `/redir` (302 → `https://evil.example.com/robado`) → **"La respuesta redirigía a un destino no permitido: «evil.example.com» no está en la lista de dominios permitidos de esa conexión."** Base apuntada a `/redir-interno` (302 → `http://169.254.169.254/latest/meta-data/`) → **"…«169.254.169.254» no está en la lista de dominios permitidos de esa conexión."** En los dos casos **la redirección no se siguió**. |
+| CA-M11-12 (error del externo) | PASS con observación | Base apuntada a `/error` (500 con cuerpo `{"error":"El CRM se cayó"}`) → la llamada vuelve como error y la conexión sigue viva. El mensaje del botón "Probar" es solamente **"HTTP 500"**: no muestra lo que contestó el sistema externo (ver OBS-R1-4). |
+
+### M12 — Tareas programadas y autonomía gradual (primer QA de navegador) — **PASS parcial**
+
+| CA | Resultado | Evidencia |
+|---|---|---|
+| Alta y formulario | PASS | `/Programaciones/Nueva` como Directora: tres cards, combo de agentes, cliente, contador `0 / 20.000`, el texto "Es el mismo texto en todas las vueltas. Las reglas, en cambio, son las que estén vigentes ese día", "Hora (Argentina)… **Si el sistema estuvo apagado, al volver crea una sola vuelta, no todas las que se perdió**". **Día de la semana / Día del mes aparecen y desaparecen según la frecuencia** (diaria: ninguno; semanal: solo Día de la semana; mensual: solo Día del mes). Guardar vacío → "Ponele un nombre para reconocerla." / "Elegí el agente que va a hacer el trabajo." / "Escribí qué querés que haga el agente en cada vuelta." |
+| Hora argentina | PASS | Programación #6 con Hora `08:00` → en base `MinutosDelDia = 480` y `ProximaEjecucionAt = 2026-09-17 11:00 UTC` (= 08:00 de Argentina). La pantalla muestra "Todos los días a las 08:00" y "Próxima vuelta 17/09/2026 08:00". |
+| **Ejecutar ahora → vuelta → tarea** | **PASS** | Detalle #6 → `POST EjecutarAhora` → "Listo: la próxima vuelta se va a crear en el próximo barrido del motor (hasta un minuto)." A los ~15 s (barrido bajado a 10 s): "Vueltas hechas **1**", "Última vuelta 16/09/2026 14:19", y en el historial **"Creó la tarea → #175 Completada — USD 0,00"**. La próxima vuelta sigue siendo 17/09 08:00 (no se adelanta de más). |
+| CA-M12-15 (costo y vueltas) | PASS | El detalle muestra "Costo de este mes USD 0,00", "Costo total USD 0,00" y cada vuelta con su resultado, su tarea enlazada y su costo. |
+| Origen en Tareas | PASS | En `/Tareas` la fila de la tarea #175 lleva el chip **"Programada · QA diaria ronda 1"**; el filtro **`fOrigen`** tiene los tres valores ("Todas", "La pidió una persona", "La creó una programación"); `/Tareas?programacion=6` deja **"1 a 1 de 1 (filtrado de 90 totales)"**. El detalle de la tarea avisa **"La creó la programación «QA diaria ronda 1», no una persona."** |
+| Pausar | PASS | `POST Pausar/6` con la versión correcta → "Programación pausada. No va a crear más tareas hasta que la reanudes."; el detalle pasa a **"Próxima vuelta: No corre"** y los botones cambian de "Ejecutar ahora / Pausar" a **"Reanudar"**. |
+| Concurrencia optimista | PASS | `POST Pausar/6` con una `version` vieja → "Otra persona cambió esta programación. Recargá la página." (código `Conflicto`). El `VersionToken` se había incrementado con la reserva de la vuelta, tal como define PAT-045. |
+| Empleada: sin responsable ni autonomía | PASS | Para Laura, `ResponsableUsuarioId` **no es un combo sino un input oculto con su propio id**, y el texto dice "Cada tarea se crea a tu nombre y los avisos te llegan a vos."; la casilla de autonomía **no se renderiza** y en su lugar aparece "Las acciones que necesitan aprobación no se le ofrecen a una tarea programada. Si hacen falta, pedíselo a un Director." |
+
+| Reanudar | PASS | `Reanudar/6` → "Programación reanudada." y "Próxima vuelta" vuelve a **17/09/2026 08:00**. Editar una programación **pausada** la deja pausada (lo que reactiva es editar una **Terminada**, según diseño). |
+| **CA-M12-10 (sin autonomía, sin herramientas que piden aprobación)** | **PASS — verificado a nivel de red** | Programación **#6** con la casilla **apagada** y el pedido *"Fijate en la conexión con el sistema externo y contame qué contesta."* → la vuelta crea la tarea **#178** y termina **Completada**: al agente **no se le ofreció** la conexión de M11 (todas sus herramientas son fail-closed). |
+| **CA-M12-11 (con autonomía, queda esperando y no se ejecuta sola)** | **PASS — verificado a nivel de red** | Programación **#7** con la casilla **encendida** y el mismo pedido → la vuelta crea la tarea **#177**, que queda **Espera aprobación**. El detalle de la programación dice "Acciones con aprobación: **Las puede pedir. Cada una espera la aprobación de un Director: nunca se aprueban solas.**" (con la casilla apagada dice "No se le ofrecen. Ninguna vuelta queda esperando a nadie."). **La prueba dura es el log del servidor local: después de las 17:27:43 no recibió ni una llamada más**, o sea que ni la vuelta sin autonomía ni la vuelta pendiente de aprobación salieron hacia afuera. |
+
+**Pendiente de M12 en esta ronda:** mensual día 31 en mes corto, corte por 5 fallas, tope de ejecuciones, responsable
+dado de baja, no duplicación tras reinicio (PA-03/CA-M12-04), Empleada viendo solo las suyas + 404 de una ajena, dar
+de baja, y los filtros del listado.
+
+### Transversal (sobre las 7 pantallas nuevas de M10/M11/M12)
+
+| Chequeo | Resultado | Evidencia |
+|---|---|---|
+| **Mobile 390** | **PASS** | `/Conocimiento`, `/Conexiones`, `/Conexiones/Nueva`, `/Conexiones/Uso/{id}`, `/Programaciones`, `/Programaciones/Nueva` y `/Programaciones/Detalle/{id}` a 390×844: `scrollWidth == clientWidth` (385/385) en las 7. **Sin scroll horizontal en ninguna.** |
+| **Contraste y tema oscuro (familia OLV-001)** | **PASS** | Barrido automático en las 7 pantallas con `data-theme="dark"`, midiendo luminancia y ratio de contraste de cada nodo de texto con fondo propio: **0 hallazgos** de "fondo claro en tema oscuro" y **0** de contraste < 3:1. **Sin reincidencia de OLV-001** en las pantallas nuevas (OLV-004, que es de botones compartidos del portal, sigue abierto como PA-11). |
+| Aislamiento entre organizaciones | PASS | Ver M11 (404 en `Editar`, `Uso`, `Probar`, `CambiarEstado`, `DarDeBaja` con ids de otra org) y M10 (`AccessDenied` del Director en `/Nucleo/...`). |
+| Antiforgery | PASS | POST sin token → 400 (`/Programaciones/Pausar/{id}`). |
+| Golden de hash de los 4 formatos de contexto | PASS (tests) | `dotnet test` **430/430** después del auto-fix, con la suite de goldens de CA-M10-04, CA-M11-05 y CA-M12-14 incluida. No se verificó por navegador. |
+
+### Recorridos completos (con los prompts de plataforma publicados en dev)
+
+Para poder recorrer los circuitos reales se publicaron temporalmente en dev las 5 versiones de plataforma
+(#56, #57, #58 reglas · #65 configurador · #79 asistente). **Nota importante para la próxima corrida: desde M8 el
+camino documentado en la memoria del agente ya no alcanza** — `evaluar <id> --aprobada` deja la versión en `Evaluada`
+y `publicar` corta con *"Esta versión necesita una evaluación automática aprobada."* El camino que sí funciona sin
+gastar es **`evaluacion-excepcion <id> --motivo "..."`** seguido de `publicar <id>` (la excepción documentada que
+previó M8). Revertido al cerrar.
+
+| Recorrido | Resultado | Evidencia |
+|---|---|---|
+| **Director: material de Olvidata (M10, CA-M10-10)** | **PASS** | Tarea #180 al agente `inmo-captacion` con *"trocea el material de Olvidata: contame qué dice la guía sobre eso."* → "Ver pasos" muestra los **tres rótulos en palabras**: "Miró el material de referencia de Olvidata (1 documento)" · **"Buscó «trocea» en el material de Olvidata (1 resultado)"** · **"Consultó «EJEMPLO DE PLANTILLA — no es contenido real», sección «Cómo se trocea este archivo» — Ver lo que leyó"**, y cierra con la salvedad *"Es material de referencia: lo aplico con criterio, y las reglas de tu empresa mandan…"*. **En el HTML no aparece `conocimiento_buscar`, ni `conocimiento_leer`, ni `conocimiento_listar`, ni JSON crudo.** Tarea #181 con un término acentuado («prácticas») también encuentra: la búsqueda no se rompe con tildes. Tarea #179 sin coincidencias → **"No encontré nada sobre eso en el material de referencia de Olvidata para este rubro."** |
+| CA-M11-06 (herramientas solo con conexión activa) | PASS | Con «CRM local» **desactivada**, las tareas #179/#180/#181 no tienen ningún paso de conector y el HTML no contiene `http_llamar`. |
+| **Director nuevo: configurar reglas conversando (M4b)** | **PASS funcional / FALLA de presentación** | `/ConfiguracionReglas/Nueva` ofrece 4 atajos ("Cómo hablamos con los clientes", "Cosas que nunca hacemos", "Revisá mis reglas actuales", "Reglas para un área"). Conversación #182 → **Completada** con **2 propuestas pendientes**, cada una como tarjeta con su alcance ("En toda la empresa"), su modo ("Salvo que se indique otra cosa"), su tipo (regla / procedimiento), el "Por qué" y los botones **Aplicar · Editar y aplicar · Descartar**, más "Aplicar todas (2)" y la aclaración *"El configurador no cambia nada por su cuenta: las propuestas se aplican con sus botones."* "Aplicar todas" deja **0 propuestas pendientes** y las reglas quedan en `/Reglas`. **Pero "Ver pasos" está crudo: ver DEF-R1-1.** |
+| Asistente del Director / repartir trabajo (M7b) | PASS (pantalla) | `/Asistente` queda habilitado con el prompt publicado: "Contale al asistente qué hay que hacer. Te propone a quién asignarlo o qué pedirle a un agente, y vos decidís.", con sus filtros y "Nueva conversación". **No se recorrió una conversación completa** por presupuesto de sesión. |
+| Empleado y Staff | PASS (parcial) | Empleada: ve "Material de Olvidata" y "Programaciones" (solo las suyas), no ve "Conexiones", y los forzados dan 403/404 (detallado arriba). Staff: `/Nucleo/Conocimiento/{rubro}`, `/Nucleo/VersionConocimiento/{id}` y `/Clientes/Conexiones/{id}` (solo lectura, sin credenciales, con "USO 30 DÍAS" y "Todo con aprobación"). |
+
+## Auto-fixes aplicados
+
+| id | Qué | Archivos | Resultado |
+|---|---|---|---|
+| **OLV-013** (nuevo en el catálogo cross-proyecto, creado por esta corrida) | El historial de vueltas de una programación pintaba el **nombre del enum** (`EsperandoAprobacion`) en vez del rótulo llano, teniendo el partial del design system ya hecho. Los demás estados lo disimulaban porque el nombre del enum coincide con el rótulo (`Completada`, `Cancelada`); los que no coinciden (`Pendiente` → "En cola", `EsperandoSubtareas` → "Esperando a otros agentes") salían igual de mal. | `src/OlvidataAgentes.Web/Views/Programaciones/Detalle.cshtml` (1 línea: `@estadoTarea` → `@await Html.PartialAsync("~/Views/Tareas/_EstadoTarea.cshtml", estadoTarea)`). **Sin lógica de negocio nueva: reutiliza el componente que ya existía.** Sin migración. | **Verificado post-parche**: `/Programaciones/Detalle/7` ahora dice **"Espera aprobación"**, `EsperandoAprobacion` ya no aparece. `dotnet build` 0 errores · `dotnet test` **430/430** (línea base intacta). |
+
+## Defectos y observaciones de esta ronda
+
+| # | Severidad | Dónde | Qué pasa | Estado |
+|---|---|---|---|---|
+| **DEF-R1-1** | **major (UX / producto listo para el cliente)** — **confirma y agrava PA-12** | "Ver pasos" del **configurador de reglas** (`/Tareas/Detalle/{id}` de una conversación de configuración) | A un Director **no técnico**, en la primera pantalla que va a tocar, "Ver pasos" le muestra **nombres de herramienta y JSON crudo**: `Usa estructura_empresa {}` y `Usa proponer_regla_nueva {"alcance":"empresa","modo":"salvo_indicacion","tipo":"regla","titulo":"Regla simulada 1-a","texto":"…"}`. **Lo grave es que el producto ya sabe hacerlo bien**: M10 y M11 resumen sus pasos en castellano llano ("Buscó «trocea» en el material de Olvidata (1 resultado)", "Consultó «CRM local» y contestó bien (200)") y en esas pantallas **no se filtra ni un nombre de herramienta**. El camino viejo del configurador/asistente nunca se migró a ese resumidor. | **Pendiente — no auto-fixable**: hay que redactar el rótulo llano de cada herramienta de plataforma (`estructura_empresa`, `proponer_regla_nueva`, y las del asistente), o sea es decisión de diseño/alcance. **Es lo primero que hay que arreglar antes de la ronda 2.** |
+| OBS-R1-1 | minor (redacción) | `/Conocimiento` (pantalla del miembro) | El resumen dice "**Son 1 documento en total.**" cuando hay un solo documento: concordancia mal resuelta al pluralizar. Con 2 o más el texto es correcto. | Pendiente |
+| OBS-R1-2 | minor (UX, **no es un agujero de seguridad**) | `POST /Conexiones/Nueva` — `GuardiaDestinoHttp` | El chequeo de destino **al guardar** valida literales de IP pero **no resuelve nombres de host**: una base `https://localhost:5199/` **con la lista de dominios vacía** (que por diseño toma el host de la base) **se guarda sin protestar**. **La protección real aguanta**: al llamarla, el guardia resuelve y corta con "«::1» es el propio servidor (loopback): por seguridad, un agente nunca puede llamar a destinos internos del servidor." Verificado apuntando una conexión al **propio portal** (`https://localhost:7200/`) y apretando "Probar": **no llegó a salir**. El costo es de experiencia: el Director guarda una conexión que nunca va a andar y recién se entera al probarla. Lo mismo pasaría con cualquier nombre DNS interno (`intranet.empresa.local`). | Pendiente — sugerido: resolver el host también al guardar, o avisar "esto lo vamos a verificar recién al probarla" |
+| OBS-R1-4 | minor (diagnóstico) | `POST /Conexiones/Probar/{id}` | Cuando el sistema externo devuelve 5xx, el resultado del botón "Probar" es solo **"HTTP 500"**, sin nada de lo que contestó el externo (el cuerpo era `{"error":"El CRM se cayó"}`). CA-M11-12 pide que el error vuelva "con lo que contestó". Al Director probando una conexión recién cargada le falta justamente el dato que le diría si el problema es la credencial, la ruta o el sistema del otro lado. **No verificado por el camino del agente** (solo por el botón "Probar"): puede que ahí sí llegue el cuerpo. | Pendiente |
+| OBS-R1-3 | minor (criterio no cumplido al pie de la letra) | `POST /Programaciones/Crear` — `ProgramacionesController.cs:250-252` | **CA-M12-12 dice "403 aunque fuerce el POST"**, pero el controller **no rechaza: sanea**. Una Empleada que fuerza el POST con `ResponsableUsuarioId` de otra persona y `PuedeAccionesConAprobacion=true` obtiene **201/redirect** y la programación queda creada **a su propio nombre y con la autonomía apagada** (verificado por SQL: `ResponsableUsuarioId = laura@qa.test`, `PuedeAccionesConAprobacion = 0`). **La propiedad de seguridad se cumple** (no hay escalación de privilegios), pero los `SinPermiso` del service (`ProgramacionTareaService.cs:560-567`) quedan inalcanzables desde la web y el usuario cree haber guardado algo que no guardó. | Pendiente — decisión de Joaquín: dejarlo así (fail-safe) o devolver 403 como dice el CA |
+
+## Qué NO se llegó a cubrir en esta ronda
+
+Se dice explícitamente para que la ronda 2 no lo dé por hecho:
+
+- **CA-M9-05 / PA-03** (reanudación tras reinicio en segundos) y **CA-M12-04** (vuelta `Reservada` que sobrevive a un
+  reinicio sin duplicarse): requieren matar el proceso con trabajo en curso y cronometrar. No se ejecutó.
+- **CA-M9-01**: el paquete de `dotnet publish` (que `web.config` lleve `ASPNETCORE_ENVIRONMENT=Production` y que no
+  viajen `appsettings.Development.json`, `keys/`, `App_Data/`, `Logs/`). No se ejecutó.
+- **M12**: mensual "día 31" cayendo en mes corto (CA-M12-02), corte por 5 fallas seguidas (CA-M12-08), tope de
+  ejecuciones (CA-M12-09), responsable dado de baja (CA-M12-07), límite de gasto alcanzado (CA-M12-06) y el barrido
+  de los 7 filtros del listado uno por uno (regla 25).
+- **M11**: tope de llamadas por tarea (CA-M11-13), alcance "Solo los Directores" (CA-M11-07), "Permitir consultas sin
+  aprobación" tildado (la rama sin aprobación de CA-M11-09), y el mismo código en dos organizaciones (CA-M11-04).
+- **M10**: tope de resultados por búsqueda (CA-M10-08), `%` y `_` literales (CA-M10-09), documento en Borrador
+  invisible para el agente (CA-M10-01), reimportación idempotente (CA-M10-02) y suscripción vencida (CA-M10-06).
+- **Recorrido del asistente del Director (M7b)**: solo se verificó que la pantalla queda habilitada; no se recorrió
+  una conversación completa ni se aplicó una propuesta de asignación.
+- **Recorridos de punta a punta del encargo** que quedaron a medias: cargar documentos de un cliente y pedir una tarea
+  con documentos, ajustar la respuesta, asignar trabajo a un empleado y revisar consumo (todo eso ya tenía QA de
+  navegador en M5/M6/M7b y no se volvió a correr en esta ronda); y el alta de organización + licencia por staff.
+- **PA-18 / PA-02**: ninguna corrida real contra la API. Sigue siendo decisión de Joaquín.
+
+## Lista priorizada para antes de la ronda 2
+
+1. **DEF-R1-1 (major)** — sacar los nombres de herramienta y el JSON crudo de "Ver pasos" del configurador y del
+   asistente, usando el mismo resumidor en palabras que ya tienen M10 y M11. Cierra además PA-12.
+2. **OBS-R1-2 (minor)** — resolver el host al guardar una conexión, o avisar que la verificación real es al probarla.
+3. **OBS-R1-3 (minor)** — decidir si `Crear`/`Editar` de programaciones devuelve 403 o sigue saneando en silencio.
+4. **OBS-R1-4 (minor)** — que el resultado de "Probar" incluya lo que contestó el sistema externo ante un 5xx.
+5. **OBS-R1-1 (minor)** — "Son 1 documento en total." en `/Conocimiento`.
+6. Correr lo que quedó sin cubrir (lista de arriba), empezando por PA-03/CA-M12-04, que es lo único que toca
+   integridad de datos.
 
 # M8 — Evaluación automática de prompts
 

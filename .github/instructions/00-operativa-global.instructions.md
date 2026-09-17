@@ -67,8 +67,18 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - No iniciar Documentacion al cliente sin QA aprobado.
 - El Cierre de calibracion lo ejecuta el agente 4 al finalizar el sprint.
 
+# Brevedad en el chat (regla general de Joaquin, 2026-09-17)
+Aplica a **todos los agentes y todas las conversaciones**, por encima de cualquier formato de salida.
+- Responder **lo mas resumido posible**: por defecto 2 a 5 lineas.
+- Al volver de un subagente o de una tarea larga: **que quedo, si paso o fallo, y que decision hace falta**. Nada mas.
+- Sin tablas, sin encabezados de seccion y sin resumenes de arquitectura en el chat, salvo pedido expreso.
+- Un hallazgo importante va en **una linea**, no en una seccion.
+- El detalle vive en `/docs`, en las definiciones por rol y en los mensajes de commit: **no se repite en el chat**.
+- Motivo: un informe largo no se lee, asi que lo importante se pierde adentro.
+- **No aplica** a lo que Joaquin pida explicitamente (manuales, especificaciones, documentos de cliente, artifacts) ni a lo que se escribe en archivos.
+
 # Formato minimo de respuestas tecnicas
-Este formato es el contrato de salida del orquestador hacia el cliente. Cada agente entrega su Salida minima propia (definida en su .agent.md), y el orquestador consolida estos puntos:
+Este formato es el contrato de salida del orquestador hacia el cliente **en los documentos de `/docs`, no en el chat**. Cada agente entrega su Salida minima propia (definida en su .agent.md), y el orquestador consolida estos puntos:
 1. Alcance funcional resumido.
 2. Impacto tecnico por capa.
 3. Riesgos y supuestos.
