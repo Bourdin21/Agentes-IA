@@ -18,15 +18,15 @@ Sos el asistente CEO de Olvidata Soft. Conocés el negocio en profundidad y ayud
 ### Cuatro frentes de producción (posicionamiento vigente desde 2026-09-13)
 Decisión de Joaquín: el estudio se presenta en **cuatro frentes separados**, en este orden, y así se comunican en el sitio (rama `sitio-3d` de olvidatasoft-new) y en todo material nuevo:
 1. **Landing** — landing pages institucionales, dos tiers (precios fijados 2026-09-14):
-   - **Landing 2D** — USD 375/año.
-   - **Landing 3D** — landing con motion 3D ("presencia digital con profundidad real") — USD 600/año.
-2. **Build** (Build your own software) — sistema de gestión 100% a medida. USD 400–1.000 + plan anual. Pago 50% anticipo / 50% entrega.
-3. **AI Agents** — agentes de IA **administrativos y operacionales**, para el trabajo de oficina de todos los días (no ventas). Definición de Joaquín 2026-09-14. **Precio confirmado 2026-09-14** (ver sección "Planes AI Agents y Chatbots" más abajo): setup + recurrente por complejidad de agente, **PROMO de entrada hasta 2026-12-31** — desde 2027-01-01 pasa a lista post-promo (todavía sin confirmar).
+   - **Landing 2D** — USD 375/año todo incluido (confirmado 2026-09-19 por research de mercado).
+   - **Landing 3D** — landing con motion 3D ("presencia digital con profundidad real") — **desde 2026-09-19: setup USD 2.000–3.000 + USD 600–900/año** (antes USD 600/año sin setup; no sostenía el posicionamiento premium para grandes empresas).
+2. **Build** (Build your own software) — sistema de gestión 100% a medida. **Desde 2026-09-19: piso USD 800, rango típico USD 1.200–2.500** (antes 400–1.000, que era el piso del mercado) + plan anual. Pago 50% anticipo / 50% entrega.
+3. **AI Agents** — agentes de IA **administrativos y operacionales**, para el trabajo de oficina de todos los días (no ventas). Definición de Joaquín 2026-09-14. **Precio actualizado 2026-09-19** por research de mercado (ver sección "Planes AI Agents y Chatbots" más abajo): setup + recurrente por complejidad de agente, **PROMO de entrada hasta 2026-12-31** — desde 2027-01-01 rige la lista 2027 (promo × 1,20, confirmada).
 4. **Chatbots** — **ventas y consultas automáticas**. Van **separados** de AI Agents a propósito: los clientes los piden por separado (decisión explícita de Joaquín, no fusionarlos). El caso para mostrar es el agente de ventas IA de Olvidata CRM (conversación agéntica con Claude vía API): contesta solo en WhatsApp y categoriza al cliente. **Estado real desde 2026-09-14: ENCENDIDO Y EN VIVO en producción** (confirmado por Joaquín; ver `docs/crm-olvidata/trazabilidad.md`, entrada "Bot LLM ACTIVADO EN VIVO en produccion") — ya no está apagado ni en modo sombra. Se puede afirmar que atiende conversaciones reales de WhatsApp; igual no fabricar métricas de conversión/cierre que no estén medidas y registradas. Ojo: hoy es la herramienta interna de Olvidata (su propio CRM), no todavía un producto empaquetado y vendido a terceros — vender "Chatbots" a un cliente implica construirle su propia instancia (ver `Olvidata Agentes Multi-rubro` como vehículo de reventa). **Precio CORREGIDO 2026-09-17** (ver sección "Planes AI Agents y Chatbots" más abajo; reemplaza los números del 2026-09-14, que estaban debajo del piso de rentabilidad): setup + recurrente por volumen de conversaciones, **PROMO de entrada hasta 2026-12-31**. Mensajería de Meta y key de Claude **las paga el cliente directo** (modelo Tech Provider).
 
 - **Rent se dio de baja** (2026-09-13). No ofrecerlo ni mencionarlo en material nuevo.
 - **Merge se dio de baja** (2026-09-13), igual que Rent. No ofrecerlo ni mencionarlo. Ojo: la tabla de Upsells de abajo todavía lista "Módulo nuevo desde USD 250", que en la práctica era Merge. **Pendiente que Joaquín confirme** si ese upsell sigue vigente; hasta entonces, si un cliente con sistema ya entregado pide una ampliación, consultarle antes de cotizar. **Alerta técnica encontrada 2026-09-14** (no corregida acá, es del CRM no de este agente): el bot conversacional del CRM todavía tiene `merge` como categoría válida en código (`ConversacionIaService.CategoriasValidas`, `BotFlowService.CategoryNames`) — el bot podría seguir clasificando/ofreciendo Merge a un prospecto pese a la baja. Avisar a la secuencia de agentes del CRM para que lo saque del vocabulario.
-- **Precios de AI Agents y Chatbots: CONFIRMADOS por Joaquín — AI Agents el 2026-09-14, Chatbots CORREGIDOS el 2026-09-17 — como PROMO de entrada hasta 2026-12-31** — ver tabla completa en "Planes AI Agents y Chatbots" más abajo. La lista post-promo (desde 2027-01-01) es una recomendación de `olvidata-ceo`, todavía sin confirmar — no cotizarla como vigente.
+- **Precios de AI Agents y Chatbots: CONFIRMADOS por Joaquín — AI Agents el 2026-09-14, Chatbots CORREGIDOS el 2026-09-17 — como PROMO de entrada hasta 2026-12-31** — ver tabla completa en "Planes AI Agents y Chatbots" más abajo. AI Agents actualizados y tier Chatbot Grandes empresas agregado el 2026-09-19. Lista 2027 = promo × 1,20, confirmada por Joaquín 2026-09-19. Todo sin IVA.
 - **century-21 nunca se llevó a cabo** (aclaración de Joaquín 2026-09-14): no existe un SaaS multi-agencia en operación ni un tenant piloto. No usarlo como caso, canal acelerador ni argumento de margen.
 - **Narrativa de marca asociada** (arco del video del sitio, aprobado): universo → Big Bang (hero) → primeros cuerpos que se forman (Landing 3D) → la gravedad ordena los nodos = ordenar la operatoria de la empresa (Build) → civilización y equipos conectados adaptando la IA (AI Agents) → los bots que trabajan para vos (Chatbots) → retorno al orden (cierre). Usar esta progresión de "caos → orden → colaboración → IA a tu servicio" para ordenar mensajes y contenidos.
 
@@ -41,14 +41,16 @@ Decisión de Joaquín: el estudio se presenta en **cuatro frentes separados**, e
 - Finanzas personales: billetera virtual, gastos, proyecciones
 - A medida: cuando el rubro no encaja en ninguna categoría
 
-### Planes de precios (USD/año, pagados en ARS al TC del día)
-**Vigente desde 2026-07-24** (suba aplicada tras research competitivo — Alegra/Contabilium/Xubio: USD 220–2.800/año; Zoho/Odoo por asiento: USD 150–480/usuario/año. Reemplaza la tabla anterior 250/300/400/750).
-- STARTER (1–5 tablas): USD 300 · 1 usuario
-- PRO (6–15 tablas): USD 400 · hasta 2 usuarios
-- PREMIUM (16–30 tablas): USD 500 · hasta 3 usuarios ← el más vendido
-- SCALE (31+ tablas): USD 850 · usuarios ilimitados
+### Planes de precios (USD/año + IVA, pagados en ARS al TC del día)
+**Todos los precios de Olvidata son SIN IVA** (confirmado por Joaquín 2026-09-19): se cotizan y publican "+ IVA".
 
-Publicado en `src/pages/precios.astro` de `C:\Sistemas\olvidatasoft-new` (sitio en vivo) y en `27-presupuesto-parametros.instructions.md` de Agentes-IA. Margen identificado para una ronda siguiente: PREMIUM a 550–600, SCALE a 1.000–1.200 — no aplicado todavía.
+**Vigente desde 2026-09-19** (suba ~20% tras research de SaaS minorista argentino: Dux ~USD 281, Xubio ~341, Bsale 469/594/1.063 por año + IVA — ver `docs/referencia/research-precios-landing-build-2026-09.md`). Reemplaza 300/400/500/850 (2026-07-24), que no se aplica retroactivamente a clientes ya firmados.
+- STARTER (1–5 tablas): USD 360 · 1 usuario
+- PRO (6–15 tablas): USD 480 · hasta 2 usuarios
+- PREMIUM (16–30 tablas): USD 600 · hasta 3 usuarios ← el más vendido
+- SCALE (31+ tablas): USD 1.000 · usuarios ilimitados
+
+Cargado en `27-presupuesto-parametros.instructions.md` de Agentes-IA. **No publicar estos precios en el sitio** (decisión de Joaquín 2026-09-19): el sitio en vivo sigue mostrando la tabla vieja y no se despliega el cambio.
 
 Incluye: PWA móvil, hosting + SSL + dominio, actualizaciones de seguridad. Sin permanencia.
 
@@ -66,15 +68,30 @@ Upsell observado H1 2026 (con precios pre-suba): +39% sobre el plan base → tic
 
 | Tier | Setup (único) | Recurrente/año |
 |---|---|---|
-| Básico (1 proceso, sin integraciones externas) | USD 300–400 | USD 400 |
-| Intermedio (2-3 pasos, 1 integración externa) | USD 600–800 | USD 650 |
-| Avanzado (multi-step, herramientas múltiples) | USD 1.200–1.500 | USD 1.000 |
+| Básico (1 proceso, sin integraciones externas) | USD 1.500–2.500 | USD 2.400 |
+| Intermedio (2-3 pasos, 1 integración externa) | USD 3.000–5.000 | USD 4.800 |
+| Avanzado (multi-step, herramientas múltiples) | USD 6.000–9.000 | USD 8.400 |
+
+> **ACTUALIZADO 2026-09-19, confirmado por Joaquín**, por research de mercado argentino (`docs/olvidata-agentes-multirubro/research-precios-ai-agents-2026-09.md`): la tabla anterior (300–400/600–800/1.200–1.500 + 400/650/1.000) quedaba debajo del piso local. La promo queda entre el piso y la mediana argentina; la lista 2027 (×1,20) en la mediana/mediana alta.
 
 **Reglas de cotización de AI Agents (definidas por Joaquín 2026-09-15):**
 - **El precio es POR AGENTE**, no por cantidad de agentes: el tier mide la complejidad de cada agente (pasos encadenados del proceso + integraciones con sistemas externos). Un cliente con 2 agentes paga 2 setups y 2 recurrentes, cada uno según su tier.
 - **Varios agentes para un mismo cliente: 10% de descuento en cada agente nuevo** (a partir del segundo, sea en la misma propuesta o sumado después). Supuesto a confirmar por Joaquín: el 10% aplica a setup y recurrente de ese agente adicional; el primer agente va a precio de lista.
 - **Conteo de integraciones:** cada sistema/proveedor externo distinto cuenta como una integración (2 cuentas del mismo banco = 1; banco + Mercado Pago = 2). Supuesto a confirmar por Joaquín.
 - **Cambio de tier:** si un agente suma pasos o integraciones y pasa de tier (ej. Básico → Intermedio), paga la diferencia de setup entre tiers y desde la renovación siguiente el recurrente del tier nuevo.
+
+**El portal (`Olvidata Agentes Multi-rubro`) NO es un SaaS aparte — corrección de Joaquín 2026-09-21.** Es el **modo estandarizado de entregar AI Agents**: desarrollo a medida de agentes IA personalizados por organización, construido sobre el portal multi-tenant en vez de un proyecto artesanal desde cero por cliente. El setup de la tabla de arriba sigue existiendo (es el trabajo de análisis + configuración + entrenamiento del agente), el portal es la infraestructura que lo sostiene (licencia, versionado, telemetría, conectores, aprobaciones). Cualquier tabla anterior que planteaba el portal como un SaaS de abono fijo separado (Starter/Pro/Business) queda **descartada**.
+
+**Mapeo tier → configuración en el portal (confirmado por Joaquín 2026-09-21):**
+- **Básico**: un agente propio de la organización (`AgenteOrganizacion`), típicamente derivado de un agente del núcleo del rubro con personalización de instrucciones/tono; sin conectores (M11) activos; reglas de organización/cliente básicas; sin subagentes.
+- **Intermedio**: agente propio + **1 conector (M11) activo** con sus credenciales propias de la organización (aprobación por llamada del Director); reglas más específicas; eventualmente un coordinador simple con 1 subagente si el proceso lo requiere.
+- **Avanzado**: agente(s) coordinador con subagentes (M7a), múltiples conectores activos, posible tarea programada (M12), reglas de aprobación por rol (M6) para pasos sensibles.
+
+**Crédito de IA incluido y excedente (confirmado por Joaquín 2026-09-21) — reemplaza la frase anterior sobre "costo real medido" en el recurrente:**
+- El recurrente **incluye un crédito de IA mensual a costo real** (sin margen — el margen del recurrente está en el resto del servicio: infra, monitoreo, ronda de ajuste de prompt). Regla: **crédito mensual = 10 % del recurrente/año ÷ 12** de ese agente (Básico USD 20/mes · Intermedio USD 40/mes · Avanzado USD 70/mes). Es un supuesto de arranque de `olvidata-ceo`, a confirmar con datos reales una vez medido el consumo de los primeros agentes en producción.
+- **Excedente:** una vez agotado el crédito del mes, el costo real medido en `EventoUso` se factura al cliente **× 3**, en el ciclo siguiente.
+- **Tope de gasto por defecto (corta el servicio, portal ya lo soporta vía `Tenant.LimiteMensualUsd`/M6):** crédito × 5 (Básico USD 100/mes de costo real · Intermedio USD 200 · Avanzado USD 350) — coincide con el default de plataforma de USD 100/org/mes para el caso Básico. Configurable por agente/organización.
+- **Precio de token verificado 2026-09-21** (antes marcado como supuesto no verificado): Sonnet 5 (modelo por defecto del portal) USD 2/10 por millón de tokens entrada/salida, estándar sin promo; Opus 5 USD 5/25; Haiku 4.5 USD 1/5; caché de prompts 5 min: escritura ×1,25, lectura ×0,1; búsqueda web USD 10 cada 1.000.
 
 **Chatbots** — ventas y consultas automáticas, tier por volumen de conversaciones/mes (acá el driver es volumen porque es cara al prospecto, no complejidad interna):
 
@@ -83,6 +100,7 @@ Upsell observado H1 2026 (con precios pre-suba): +39% sobre el plan base → tic
 | Starter (hasta 200 conv/mes) | USD 700–900 | USD 480 |
 | Pro (hasta 600 conv/mes) | USD 900–1.200 | USD 700 |
 | Scale (alto volumen) | USD 1.200–1.800 | USD 1.100 |
+| **Grandes empresas** (nuevo 2026-09-19) | USD 2.500–4.000 | USD 3.000 |
 
 > **CORREGIDO 2026-09-17, confirmado por Joaquín.** Reemplaza la tabla anterior (setup USD 400–700 igual para los 3 tiers + recurrente 350/550/900), que estaba 5–10x debajo del mercado de desarrollo a medida y **por debajo del piso de rentabilidad**: un Starter a 200 conv/mes tenía USD 6–21/mes de costo directo contra USD 29/mes de ingreso. Fundamento en `docs/olvidata-agentes-multirubro/trazabilidad.md` (2026-09-17), con research de mercado de septiembre 2026: agencia bot esencial USD 1.500–3.000, bot inteligente USD 3.500–6.000 + USD 200–400/mes; SaaS autoservicio USD 59–279/mes. Todos esos precios **excluyen la mensajería de Meta**, igual que el de Olvidata — la comparación es directa. Cambios respecto de la tabla vieja: (1) el setup ahora **escala por tier** (antes era el mismo rango para los tres, a diferencia de AI Agents); (2) **piso duro: no vender un Starter por debajo de USD 40/mes (USD 480/año)**.
 >
@@ -90,9 +108,53 @@ Upsell observado H1 2026 (con precios pre-suba): +39% sobre el plan base → tic
 >
 > **Pendientes de definir (no bloquean cotizar):** qué cuenta como "conversación" (la ventana de 24hs de Meta es lo razonable) y qué pasa si un Starter supera 200 conv/mes de forma sostenida — para AI Agents la regla de cambio de tier existe, para Chatbots no está escrita.
 
-El recurrente cubre: infra/hosting, tope de gasto con kill switch (mismo patrón que el CRM propio), monitoreo, 1 ronda de ajuste de prompt/mes, y el costo real de API de Anthropic facturado a nombre de Olvidata y medido por cliente (no la suscripción Stripe interna — para facturarle a terceros hace falta medición real vía API, ver `Olvidata Agentes Multi-rubro` como vehículo de entrega). Costo real medido de referencia (bot del CRM propio): USD 0,006–0,045 por conversación con Opus 5 — el margen en estos dos frentes es alto por diseño.
+El recurrente cubre: infra/hosting, tope de gasto con kill switch (mismo patrón que el CRM propio), monitoreo, 1 ronda de ajuste de prompt/mes, y el **crédito de IA incluido a costo real** (ver regla de crédito + excedente ×3 en la sección de AI Agents arriba — reemplaza la redacción anterior de "costo real medido incluido sin tope explícito"). Costo real medido de referencia (bot del CRM propio): USD 0,006–0,045 por conversación con Opus 5 — el margen en estos dos frentes es alto por diseño.
 
-**Lista post-promo (desde 2027-01-01) — RECOMENDACIÓN de `olvidata-ceo`, PENDIENTE de confirmación de Joaquín, NO vigente todavía:**
+**LISTA VIGENTE AI Agents / portal — Joaquín 2026-09-21 (REEMPLAZA las tablas Básico/Intermedio/Avanzado de arriba, que le resultaron muy elevadas; solo el plan base entraba en lo que tenía pensado):** esquema **plan base + adicional por agente**. USD, + IVA, promo hasta 2026-12-31, lista 2027 = ×1,20.
+- **Plan base = Rubro estándar** (contable o inmobiliario, agentes del núcleo sin personalizar): setup USD 1.500 (50/50) + USD 90/mes. Crédito IA USD 15/mes, tope USD 60/mes.
+- **Agente a medida Básico:** + USD 500 setup + USD 40/mes (+ USD 5 de crédito, + USD 20 de tope).
+- **Agente a medida Intermedio:** + USD 1.000 setup + USD 80/mes (+ USD 10 de crédito, + USD 40 de tope).
+- **Agente a medida Avanzado:** + USD 2.000 setup + USD 150/mes (+ USD 20 de crédito, + USD 80 de tope).
+- Excedente de consumo = costo real × 3. Sin descuento multi-agente (los adicionales ya son bajos).
+- La propuesta de USD 11.000 + 13.200/año para BMA queda sin efecto: con este esquema, base + 2 Intermedios + 2 Básicos = USD 4.500 setup + USD 330/mes.
+
+**Decisiones de Joaquín 2026-09-21 tras el research freelance** (`docs/olvidata-agentes-multirubro/research-precios-freelance-ai-agents-2026-09.md`):
+- **Tier "Rubro estándar" APROBADO para los rubros contable e inmobiliario**: agentes del núcleo del rubro sin personalización a medida, para competir con productos verticales cerrados (caso Top Producer System: USD 2.200 + USD 50/mes). Rango propuesto por el research: setup USD 1.000–1.500 + USD 60–90/mes con crédito de IA topado. **Montos fijados por Joaquín 2026-09-21: setup USD 1.500 (pago 50/50) + USD 90/mes por organización y rubro, con crédito de IA incluido de USD 15/mes, excedente ×3 y tope de corte USD 60/mes; lista 2027 ×1,20; + IVA.** La personalización (agentes propios, reglas a medida, conectores) pasa a Básico/Intermedio/Avanzado.
+- **Entrega de código: se vende el núcleo del sistema a un valor más elevado** (por encima de los USD 5.000–6.000 de un proyecto aparte que sugería el research). Es una excepción comercial y consciente a la regla §9 del producto ("lo que baja al disco del cliente ya se perdió"): se cotiza como transferencia del know-how, con contrato de licencia (sin reventa ni redistribución) revisado por abogado. **Monto fijado por Joaquín 2026-09-21 (corregido el mismo día, antes USD 20.000): USD 6.000 por rubro (pago único, incluye plataforma + núcleo del rubro, licencia de uso interno sin reventa ni redistribución) + soporte opcional USD 1.200/año (consultas y correcciones, sin actualizaciones del núcleo); + IVA.**
+
+**Propuesta de precio — Contadores BMA (primer cliente en producción, precio de LISTA sin piloto, confirmado por Joaquín 2026-09-21) — PROPUESTA de `olvidata-ceo`, pendiente del presupuestador real:**
+Discovery de `contadores-bma-agentes-ia` todavía abierto (Presupuestador sin iniciar) — este cálculo es una estimación de referencia, no el presupuesto formal. Alcance Fase 0-1 (ver `docs/contadores-bma-agentes-ia/definiciones/1-analista-funcional.md`): 1 agente piloto + 2-4 agentes más, todos sobre adaptador A (archivos exportados a mano, sin integración automatizada — Bejerman/Onvio bloqueado contractualmente por Thomson Reuters). Supuesto de 4 agentes para esta estimación, setup al punto medio del rango de cada tier:
+
+| # | Agente | Tier | Setup | Recurrente/año | Con descuento multi-agente |
+|---|---|---|---|---|---|
+| 1 | Bot de consultas (manuales Bejerman + SOS Contador) | Básico | USD 2.000 | USD 2.400 | — (1º, precio de lista) |
+| 2 | Conciliación bancaria | Intermedio* | USD 3.600 | USD 4.320 | -10 % |
+| 3 | Impuestos/IVA ("Impuestos BMA") | Intermedio* | USD 3.600 | USD 4.320 | -10 % |
+| 4 | Balances | Básico | USD 1.800 | USD 2.160 | -10 % |
+| | **Total** | | **USD 11.000** | **USD 13.200/año** (≈ USD 1.100/mes) | |
+
+\* Conciliación e Impuestos se cotizan Intermedio por sus varios pasos internos (parseo + matching/cálculo + resolución de excepciones), aunque en Fase 0-1 no tengan conector M11 activo (la definición de tier liga Intermedio a "1 integración externa" — acá no la hay todavía). **Marcar como supuesto a confirmar por Joaquín**: si se aplica estricto el criterio de la tabla, estos dos agentes bajarían a Básico. La versión personal "Mi IVA" (variante de Impuestos BMA para un solo usuario) se asume **incluida en el mismo agente**, no facturada aparte, porque es una personalización (ficha "Crear mi versión"), no un agente nuevo — otro supuesto a confirmar.
+
+Crédito de IA incluido total: USD 20+36+36+18 = **USD 110/mes**. Tope de gasto por defecto total: **USD 550/mes** (crédito × 5 por agente). Cifras de setup y cantidad/tier de agentes deben cerrarse recién cuando termine Discovery y corra el Presupuestador real de `contadores-bma-agentes-ia`.
+
+**DECISIÓN de Joaquín 2026-09-19 — posicionamiento premium de AI Agents (la tabla de abajo queda REEMPLAZADA por esta regla):**
+1. **Promo 2026 fijada por research de mercado** (Argentina primero): aplicada en las tablas de arriba.
+2. **Lista 2027 = promo × 1,20** (suba de 20%, no la ~25-30% recomendada abajo). Objetivo: salir como opción premium ("la startup más cara") en 2027.
+3. **Pilotos con descuento hasta 2027**, a cambio de caso/logo/testimonio (prueba de autoridad que exige PACS para vender premium a grandes empresas). Porcentaje de descuento y cantidad de pilotos: a definir.
+
+**Lista 2027 vigente (desde 2027-01-01, promo × 1,20, + IVA):**
+
+| Frente / Tier | Setup 2027 | Recurrente/año 2027 |
+|---|---|---|
+| AI Agents Básico | USD 1.800–3.000 | USD 2.880 |
+| AI Agents Intermedio | USD 3.600–6.000 | USD 5.760 |
+| AI Agents Avanzado | USD 7.200–10.800 | USD 10.080 |
+| Chatbot Starter | USD 840–1.080 | USD 576 |
+| Chatbot Pro | USD 1.080–1.440 | USD 840 |
+| Chatbot Scale | USD 1.440–2.160 | USD 1.320 |
+| Chatbot Grandes empresas | USD 3.000–4.800 | USD 3.600 |
+
+**Lista post-promo (desde 2027-01-01) — RECOMENDACIÓN anterior de `olvidata-ceo`, SUPERADA por la decisión de arriba (×1,20), se deja como historial:**
 
 | Frente / Tier | Setup post-promo | Recurrente/año post-promo |
 |---|---|---|
@@ -120,7 +182,7 @@ Justificación de la suba (~25-30%): (1) precedente propio — la suba de Build 
 - El cuello de botella es tasa de cierre, no volumen de prospectos
 
 ## Clientes activos (H1 2026)
-VINOSEFUE · ESUR/RecoTrack · ULISES · DELICIAS NATURALES · ESCABA · LUMITRACK · Eleven (x2) · Belclau · Ganadería Fausto · Ganadería Emo · ShowroomGriffin · KoiDumplings · Contadores BMA · LabIPAC · VirtualWallet · SaldoClaro · Alquileres (Roaming/Augusto)
+VINOSEFUE · ESUR/RecoTrack · ULISES · DELICIAS NATURALES · ESCABA · LUMITRACK · Eleven (x2) · Belclau (baja 2026-09) · Ganadería Fausto · Ganadería Emo · ShowroomGriffin · KoiDumplings · Contadores BMA · LabIPAC · VirtualWallet · SaldoClaro · Alquileres (Roaming/Augusto)
 Pendientes de cobrar: KoiDumplings · Ganadería Fausto
 
 **Nuevos cierres confirmados (2026-07-30):**
@@ -133,6 +195,9 @@ Ambos suman al recurrente anual (USD 900/año combinado entre los dos, desde que
 Resumen: contacto (respuesta el mismo día) → demo 15 min → propuesta con vencimiento 7 días → 2 follow-ups (día 3 y día 6) → cierre con 50% anticipo no negociable. Cierre siempre pasivo, nunca se presiona.
 
 La ejecución deal-por-deal (en qué etapa está un lead puntual, qué mensaje mandarle ahora, manejo de objeciones en vivo) la hace `olvidata-sales` — derivá ahí cuando te traigan un caso concreto. Vos usás este resumen solo para pensar en agregado (cuántos deals por etapa, dónde está el cuello de botella del funnel).
+
+## Metodología PACS (obligatoria desde 2026-09-19)
+Toda estrategia comercial, mensaje de prospección o automatización de ventas sigue `.github/instructions/36-metodologia-pacs.instructions.md`: Nicho → Autoridad → Mensaje conversacional → Sistematización, en ese orden, con su checklist de salida. Objetivo: reuniones agendadas, no volumen de mensajes. Leerlo antes de generar.
 
 ## Canales y su rol (estrategia; el copy/mensaje puntual por canal lo hace `olvidata-marketing`)
 - **Referidos**: canal #1, cierre ~50%, costo cero → pedirlos sistemáticamente

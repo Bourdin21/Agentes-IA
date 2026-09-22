@@ -25,7 +25,7 @@
 # en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
 
 version: 1
-ultima_actualizacion: 2026-09-15
+ultima_actualizacion: 2026-09-19
 
 # IDs retirados / sin asignar (para que un hueco no parezca un error):
 #   PAT-011 - se retiro sin reemplazo y NO se recicla (ver docs/delicias-naturales/definiciones/5-implementador.md)
@@ -2188,3 +2188,86 @@ patrones:
       costo de lo que produjo cada vuelta, nunca se guarda en la programacion; (6) el "ejecutar ahora" de la pantalla
       solo adelanta ProximaEjecucion, no crea nada: asi el camino de creacion es UNO solo y lo que se prueba a mano es
       exactamente lo que va a pasar sola de noche.
+
+  - id: PAT-046
+    nombre: "Automatizacion con n8n (orquestador externo de workflows por webhooks/API)"
+    categoria: integracion
+    descripcion: >
+      n8n (fair-code, Node.js) como orquestador visual de integraciones SaaS <-> SaaS y de avisos: trigger (cron,
+      webhook, mail, cambio en planilla) -> nodos (HTTP, MySQL/MSSQL/Postgres, Gmail, Google Sheets, WhatsApp/Telegram,
+      nodo AI Agent con Claude) -> accion. Se conecta a nuestros sistemas SOLO por su API/webhooks (HTTP con API key),
+      nunca escribiendo directo en la base del sistema: la logica de negocio sigue en los Services del sistema .NET/PHP.
+    cuando_usar: >
+      Pegamento entre servicios de terceros que ya tienen API (ML, Gmail, Sheets, Meta, WhatsApp), avisos y reportes
+      periodicos, prototipos rapidos de una automatizacion antes de codificarla, y automatizacion interna del estudio.
+      NO usar para: logica de negocio del cliente, procesos con auditoria/permisos/estados (eso va en el sistema,
+      ver PAT-045 para tareas programadas auditables), ni como nucleo de un producto propio que se revende.
+    proyecto_origen: ninguno todavia (incorporado al catalogo 2026-09-19 por research, sin implementacion real)
+    proyectos_que_lo_usan: []
+    archivos_referencia: []
+    dependencias: []
+    notas: >
+      Datos verificados 2026-09-19: (1) Base de datos SOLO SQLite o PostgreSQL — MySQL/MariaDB eliminado en n8n 2.0,
+      asi que no puede usar las bases MySQL del estudio como storage (si puede LEERLAS/escribirlas como nodo).
+      (2) Es un proceso Node persistente 24/7 (puerto 5678 + reverse proxy HTTPS): no corre en hosting compartido
+      IIS (SmarterASP) ni PHP (DonWeb/Ferozo) — requiere VPS con Docker o n8n Cloud. RAM: 2 GB minimo documentado.
+      (3) Licencia Sustainable Use: libre para uso interno y para CONSULTORIA (construirle workflows a un cliente en SU
+      instancia); alojar workflows y credenciales de clientes en una instancia NUESTRA compartida requiere licencia
+      Enterprise, y embeberlo en un producto que se cobra requiere licencia Embed. Modelo permitido sin costo de
+      licencia: una instancia interna del estudio + una instancia por cliente a nombre del cliente.
+      (4) Community Edition self-hosted gratis e ilimitada; sin SSO/Git/entornos (eso es Business ~EUR 800/mes).
+      (5) Riesgos: el editor expone credenciales de todo lo conectado — nunca publico sin auth fuerte; backups de la
+      base Postgres/SQLite + clave N8N_ENCRYPTION_KEY (sin ella las credenciales guardadas son irrecuperables);
+      actualizaciones con breaking changes entre majors.
+      Hosting (olvidata-infra 2026-09-19): ninguno de los 3 proveedores actuales sirve; opcion real Hostinger VPS KVM con
+      template n8n (~USD 6,5-9/mes, precio promocional). Integracion con SmarterASP/DonWeb siempre por API/webhooks, nunca
+      MySQL remoto expuesto.
+      Candidatos detectados 2026-09-19: agentes-ia-sistema (C3 tareas programadas / C6 mantenimiento mensual, uso interno),
+      contadores-bma-agentes-ia (ingesta de mails/extractos + lectura SQL Server de Bejerman, instancia del cliente),
+      kite-punta-lara (avisos de dia de kite por Telegram/WhatsApp, prototipo). Descartados: libreria-horizonte (67k
+      publicaciones ML con lotes reanudables PAT-025 — n8n no escala ahi) y olvidata-agentes-multirubro (M11/M12 ya
+      resuelven conectores y tareas; n8n embebido en producto pago exige licencia Embed).
+      Presupuesto: un workflow n8n simple (trigger + 3-6 nodos, API documentada) es rango de "integracion simple",
+      no de modulo nuevo; sumar setup/mantenimiento del VPS si la instancia es del cliente.
+
+  - id: PAT-047
+    nombre: "Ficha de agente en dos vistas: funcional para el cliente y literal para el staff, con DTOs distintos por tipo"
+    categoria: agentes-ia
+    descripcion: >
+      Como mostrar "hasta el minimo detalle" de un agente IA sin filtrar el know-how del prompt. Dos pantallas con la
+      misma distribucion (cabecera + 7 pestanas: que hace, como arma su contexto, reglas, herramientas y ayudas,
+      conocimiento, versiones y pruebas, crear mi version) y DOS familias de DTOs: la del cliente no tiene ningun campo
+      donde pueda viajar texto del nucleo (solo titulo + resumen publico escrito aparte + version); la del staff si lo
+      lleva y solo la arma un service que re-verifica el rol adentro. Nada se arma por separado: la secuencia sale del
+      mismo constructor de contexto que la tarea (orden REAL del render, con el puesto de autoridad de cada paso) y las
+      herramientas de un resolvedor unico extraido del motor (lo que se muestra es lo que corre). El contexto "con una
+      organizacion real" es solo SuperUsuario y queda en AuditLog.
+    cuando_usar: >
+      Cualquier producto donde el prompt/metodo es propiedad intelectual y el cliente igual necesita entender que hace
+      el agente, en que orden recibe su contexto y que puede cambiar con su propia version.
+    proyecto_origen: olvidata-agentes-multirubro (anatomia de agentes, implementado 2026-09-21)
+    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    archivos_referencia:
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Application/DTOs/FichaAgenteDtos.cs"
+        motivo: "DTOs del cliente sin campo para texto del nucleo (PiezaNucleoPublicaDto: titulo, resumen, version)"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Agentes/AnatomiaAgenteService.cs"
+        motivo: "Vista del staff: rol re-verificado en el service, B1 con el mismo render que la tarea, contexto real auditado"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Infrastructure/Services/Motor/ResolvedorHerramientas.cs"
+        motivo: "Resolvedor unico de herramientas extraido del motor sin cambio de comportamiento (Ofrecidas + Todas)"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "tests/OlvidataAgentes.Tests/PortalAnatomiaTests.cs"
+        motivo: "Test de centinelas por HTTP (WebApplicationFactory) sobre todas las URLs de cliente + control positivo del staff"
+        pendiente_verificar: false
+    dependencias: [PAT-028, PAT-030]
+    notas: >
+      Gotchas: (1) el escape de Razor (&#xE9;) y de JSON (\u00E9) esconde un texto con tildes del control de
+      centinelas: decodificar antes de buscar. (2) WebApplicationFactory escucha la construccion de TODOS los hosts del
+      proceso mientras arranca: la coleccion del portal va sin paralelo. (3) Referenciar el proyecto web desde los tests
+      copia sus appsettings (incluido el de Production) a bin: excluirlos en el csproj de tests. (4) La descripcion de
+      herramienta que ve el modelo tambien es know-how: al cliente, rotulo y "que hace" en lenguaje llano.

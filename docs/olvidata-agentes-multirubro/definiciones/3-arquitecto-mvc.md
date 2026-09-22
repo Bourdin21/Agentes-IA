@@ -5,6 +5,19 @@
 
 ## Definiciones vigentes
 
+# M16 — Tablero de actividad al iniciar sesión
+
+Estado: **aprobada por Joaquín 2026-09-19**. Entrada: `1-analista-funcional.md` M16 (RF-M16-01..06) y `2-disenador-funcional.md` M16 (D-M16-1..7). **Sin entidades nuevas y sin migración: es todo lectura sobre lo que ya existe.**
+
+- **Application:** `ITableroService` + `TableroDtos` (los tres bloques y el grafo) + `TableroOptions` (tope de nodos, tope de filas por bloque, segundos de sondeo de respaldo).
+- **Infrastructure:** `Services/Tablero/TableroService.cs`. Consultas **acotadas por código** al tenant de la sesión y a la visibilidad de M2 (`IPermisosOrganizacion`): el Empleado solo sus tareas. Todo con tope de filas; nada de traer y recortar en memoria. El grafo se arma desde las mismas consultas, no con una segunda vuelta a la base.
+- **Tiempo real:** se reusa la infraestructura de M1/M3b. `TareasHub` gana un **grupo por organización** además del grupo por tarea, y `NotificadorTareasSignalR` emite al grupo cuando una tarea cambia de estado o avanza un paso. **Sin hub nuevo.** Si el socket no conecta, sondeo cada 15 s contra un endpoint JSON del propio controller.
+- **Web:** `HomeController.Index` decide: miembro → tablero; staff → la portada actual (no se le inventa un tablero vacío). **Render del lado del servidor primero**: los tres bloques llegan en el HTML y el JavaScript solo los actualiza. Sin JS la pantalla funciona.
+- **El grafo:** librería del CDN, y hay que **sumarla a la lista blanca del CSP** en `SecurityHeadersMiddleware` — el portal hoy solo admite jsdelivr y datatables, así que si la librería no está ahí no carga y **falla en silencio**. Elegir una que ya esté permitida o extender la lista de forma explícita.
+- **Nada de esto toca el motor ni el armado del contexto**: los 5 goldens quedan intactos, y no se agrega una sola llamada al modelo.
+
+Riesgos técnicos: **RT-M16-01** el tablero se carga en cada entrada y se refresca — consultas con tope e índices ya existentes (`(TenantId, Estado)` en tareas); si pesa, se cachea por organización unos segundos, no por usuario. **RT-M16-02** el CSP silencioso. **RT-M16-03** el grupo de SignalR por organización es el lugar más fácil para filtrar datos de otra: el grupo se arma **desde la sesión del servidor**, nunca desde un parámetro del cliente.
+
 # M14 — Instructivos, búsqueda web, espacio del cliente y control de gasto
 
 Estado: **aprobada por Joaquín 2026-09-17** (Discovery, Análisis y Diseño con gate; presupuesto omitido). Entrada: `1-analista-funcional.md` M14 (RF-M14-01..33) y `2-disenador-funcional.md` M14 (D-M14-1..8, P-M14-01..10). **Una entrega, una migración: `InstructivosM14`.**

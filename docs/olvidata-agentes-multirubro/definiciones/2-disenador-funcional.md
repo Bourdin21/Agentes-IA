@@ -5,6 +5,28 @@
 
 ## Definiciones vigentes
 
+# M16 — Tablero de actividad al iniciar sesión
+
+Estado: **Diseño cerrado**. Entrada: `1-analista-funcional.md` M16 (RF-M16-01..06).
+
+**D-M16-1 — Tres bloques en orden de urgencia, siempre los tres.** *Ahora* · *Te espera* · *Lo que pasó*. El orden no cambia según haya o no actividad: mover bloques según el estado hace que la pantalla se sienta distinta cada vez y la persona pierde el mapa. Cuando *Ahora* está vacío dice **«No hay nada corriendo en este momento»** y ofrece *Pedir una tarea* — no un espacio en blanco.
+
+**D-M16-2 — El gráfico ilustra, no reemplaza.** Arriba van las listas, que son lo accionable; el gráfico va **al costado en escritorio y abajo en mobile**. Motivo: un diagrama de nodos es lindo para entender el sistema y malo para trabajar. Quien entra apurado necesita «tenés 2 aprobaciones», no una constelación.
+
+**D-M16-3 — Qué dibuja el gráfico.** Nodos: personas, agentes y clientes. Aristas: «pidió» (persona → agente), «le pidió ayuda a» (agente → agente, las partes de M7a) y «trabaja sobre» (agente → cliente). Lo vivo se distingue **con movimiento y con etiqueta**, nunca solo con color. Al tocar un nodo, su detalle y el salto a la pantalla real. Sin actividad viva, dibuja la del día en gris.
+
+**D-M16-4 — Reemplaza Inicio.** `Home/Index` pasa a ser el tablero. El staff de Olvidata, que no tiene organización en sesión, sigue viendo su portada actual con los accesos del backoffice: no se le inventa un tablero vacío.
+
+**D-M16-5 — En vivo con respaldo.** SignalR empuja los cambios (ya existe `TareasHub` con su grupo por tarea; acá hace falta un grupo **por organización**). Si el socket no conecta, sondeo cada 15 s. **Sin JavaScript la pantalla igual renderiza los tres bloques**, servidos por el servidor: el tablero es HTML con mejoras, no una aplicación de página única.
+
+**D-M16-6 — Qué NO se muestra.** Ni el texto del pedido, ni el de la respuesta, ni los documentos. El tablero dice **qué** está pasando y **entre quiénes**. Para el contenido se entra a la tarea, que ya tiene sus permisos.
+
+**D-M16-7 — Vocabulario.** «Ahora», «Te espera», «Lo que pasó». En las aristas, el mismo criterio de M7a: **«le pidió ayuda a»**, nunca «delegó» ni «subagente». Los estados con ícono y texto, por los helpers que ya existen.
+
+Pantallas: **P-M16-01 Tablero** (`Home/Index`, todo miembro) con los tres bloques y el gráfico · **P-M16-02** ajuste del layout, porque *Inicio* pasa a llamarse **Tablero** en el menú.
+
+Riesgos de diseño: **R-M16-05 — el gráfico con muchos nodos se vuelve ilegible**: tope de nodos y agrupar el resto en «y N más». **R-M16-06 — el movimiento molesta**: respetar `prefers-reduced-motion`. **R-M16-07 — «Lo que pasó» se puede leer como vigilancia** de un Director sobre su equipo: se muestra por agente y por cliente, **no un ranking de personas**.
+
 # M14 — Criterio de programación Claude: proyectos, skills, búsqueda web y control de gasto
 
 Estado: **Diseño cerrado, esperando gate de Joaquín**. Entrada: `1-analista-funcional.md` M14 (RF-M14-01..33, CA 12, R-M14-01..06).

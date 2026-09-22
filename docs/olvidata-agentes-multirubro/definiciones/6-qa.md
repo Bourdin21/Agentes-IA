@@ -35,9 +35,30 @@ confirmar el banner. `Anthropic__Simulado=true`, `Anthropic__ApiKey` inválida d
 el costo es cero."* **Ningún `appsettings` editado.** Camino de verificación: servidor MCP `playwright` (Chromium
 real, disponible en esta sesión) + `mysqlsh` contra `olvidata_agentes_dev`.
 
+## QA anatomía de agentes (2026-09-21)
+
+Commits bajo prueba: 16480a3, 6614cc9, 437133c, e573151, 104a1ff. Portal local simulado (costo cero, 0 llamadas a
+anthropic.com), Playwright por Python (el MCP no conectó), curl y `mysqlsh`.
+
+- **Fuga del núcleo (CA-AA-03, CP-AA-01/02/11): PASS.** Barrido HTTP con 3.060 fragmentos reales del núcleo (prompts,
+  instrucciones, reglas de plataforma, conocimiento, declaraciones de precedencia y 31 descripciones al modelo) contra
+  ~300 respuestas de Director y Empleado (orgs 1 y 19): catálogo, Ficha ×7 pestañas con y sin cliente, SecuenciaParcial,
+  VistaPrevia, Ejecutar, Detalle/Editar/Crear de derivados, Tareas/Detalle, ids de otra org y rubros fuera de la
+  suscripción. 0 fragmentos, 0 nombres técnicos. Control positivo: el mismo barrido como staff sí los detecta.
+  `Nucleo/*` para miembros → AccessDenied; Administración con `tenantId` → 403.
+- **CP-AA-07: PASS** (Laura ve su área y sus preferencias, no las del área Contable ni las de Martín).
+- **Reimportación: PASS** (contable, plataforma, inmobiliario: 0 versiones nuevas; ningún cuerpo versionado contiene `ficha:`).
+- **CP-AA-12: PASS tras fix** (390 px, claro y oscuro, Director, staff y SuperUsuario; 0 errores de consola).
+- **DEF-AA-01 (Alta, corregido 6e166fb):** `Nucleo/Agente?pestana=2` con organización y miembro mostraba reglas y
+  preferencias reales sin fila en AuditLog y sin validar que el miembro fuera de esa organización. Ahora valida y audita
+  `VerSecuencia`. Test nuevo.
+- **DEF-AA-02 (Media, corregido c196004):** badge de etapas múltiples desbordaba la página a 390 px en el catálogo.
+- Observación baja: `fw-semibold` inerte en `_FichaQueHace` y `_FichaReglas` (subtítulos sin negrita; patrón preexistente).
+- Tests: 686/686, exit 0.
+
 ## Reglas cross-proyecto validadas
 
-- Ultima validacion de reglas cross-proyecto: 2026-09-17
+- Ultima validacion de reglas cross-proyecto: 2026-09-21
 - **Ninguna regla nueva desde la ronda 2 (2026-09-16).** El último commit de `Agentes-IA` que toca
   `32-estandares-qa-implementador.instructions.md`, `docs/qa/regresiones-manuales.yml` o
   `33-verificacion-automatizada-qa.instructions.md` sigue siendo `0b6508d` (2026-09-16 11:54), ya analizado por la

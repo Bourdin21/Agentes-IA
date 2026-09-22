@@ -139,14 +139,16 @@ Reglas practicas de uso del dataset:
 
 Incluir siempre en el presupuesto como linea separada post-desarrollo. El plan corresponde al servicio continuo del servidor y soporte, NO es parte del costo de desarrollo.
 
-**Vigente desde 2026-07-24** (suba aplicada tras research competitivo — ver `docs/analisis-pricing-2026-07.md` si existe, o el historial de la sesion que la evaluo). Reemplaza la tabla anterior (250/300/400/750).
+**Vigente desde 2026-09-19** (suba ~20% tras research de SaaS minorista argentino, ver `docs/referencia/research-precios-landing-build-2026-09.md`). Reemplaza 300/400/500/850 (2026-07-24), sin retroactividad para clientes ya firmados. **Precios sin IVA: se cotizan "+ IVA".**
+
+**Piso de desarrollo Build (2026-09-19):** ningun Build se cotiza por debajo de USD 800; rango tipico USD 1.200–2.500. Si la formula PERT a la tasa vigente da menos, se lleva al piso.
 
 | Plan     | Tablas BD        | USD/año | Incluye                                                  |
 |----------|------------------|---------|----------------------------------------------------------|
-| STARTER  | 1 – 5            | 300     | 1 admin, soporte email, actualizaciones de seguridad     |
-| PRO      | 6 – 15           | 400     | Hasta 2 usuarios, soporte WhatsApp, 1 ronda de ajuste    |
-| PREMIUM  | 16 – 30          | 500     | Hasta 3 usuarios, soporte prioritario, 2 rondas ajuste   |
-| SCALE    | 31+              | 850     | Hasta 10 sesiones, usuarios ilimitados, 3 rondas ajuste  |
+| STARTER  | 1 – 5            | 360     | 1 admin, soporte email, actualizaciones de seguridad     |
+| PRO      | 6 – 15           | 480     | Hasta 2 usuarios, soporte WhatsApp, 1 ronda de ajuste    |
+| PREMIUM  | 16 – 30          | 600     | Hasta 3 usuarios, soporte prioritario, 2 rondas ajuste   |
+| SCALE    | 31+              | 1.000   | Hasta 10 sesiones, usuarios ilimitados, 3 rondas ajuste  |
 
 **Regla de usuarios — vigente desde 2026-08-27, ajustada 2026-08-27:** la cantidad de usuarios **no depende del tamaño del sistema y no modifica el precio del plan**. El plan se determina EXCLUSIVAMENTE por cantidad de tablas de negocio (tabla de arriba); la columna "Incluye" de cada plan es descriptiva, no un tope que dispare un cargo calculado. No se computa ni se suma ningun cargo por usuario dentro del presupuesto. Lo unico que corresponde es una **mencion de detalle** en el documento cliente (no una cifra que modifique el total): a partir de mas de 10 usuarios, pueden aplicar valores extra a acordar en su momento — sin calcularlos ni mostrarlos como parte de este presupuesto. Si en el futuro un cliente concreto supera los 10 usuarios, se conversa y cotiza ese extra aparte, no se anticipa un numero en la propuesta inicial.
 

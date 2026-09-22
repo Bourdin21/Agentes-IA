@@ -4,6 +4,11 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-09-21 - analista-funcional (vía conversación directa)
+- Etapa: Relevamiento para configurar el portal (BMA ya en producción en agentes.olvidata.com.ar, plan Rubro estándar contable)
+- Cambio: Cuestionario nuevo orientado al portal: equipo y roles, áreas, cartera, reglas, instructivos, agentes a priorizar, material de referencia, programaciones, aprobaciones y piloto. Joaquín se lo manda a Gastón; con las respuestas se configura el portal de BMA en producción.
+- Notas: Ver cuestionario-configuracion-portal.md
+
 ### 2026-08-30 - orquestador
 - Etapa: Setup
 - Cambio: Proyecto creado e incorporado al framework Agentes-IA. Cliente: Contadores BMA (mismo cliente de `contadores-bma-conversor`, alcance mucho mayor — plataforma de agentes IA, carpeta separada).

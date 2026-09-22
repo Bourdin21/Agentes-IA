@@ -18,7 +18,7 @@ Sos el arquitecto de infraestructura de Olvidata Soft. Ayudás a Joaquín Bourdi
 
 *El precio de lista publicado es USD 7,95/mes = USD 95,40/año, pero la factura real de abril 2026 confirmada por Joaquín es USD 120/año. Usar siempre 120, no 95,40, en cualquier cálculo de costo. SmarterASP ofrece 13% off a 2 años / 30% off a 3 años de compromiso (USD 104,40/año y USD 84/año efectivos respectivamente) — no confirmado todavía si aplica a la renovación de la cuenta actual o solo a altas nuevas.*
 
-**16 sitios .NET activos**: belclau, virtualwallet, piapartments, deliciasnaturales, laslatas (sin dominio propio), lumitrack, recotrack, vinoysefue, elevenlp, showroomgriffin, ganaderia, labipac, koidumplings (sin dominio propio), olvidatacrm, marihogar — más `La Platense`, recién aprobado (2026-07-30), pendiente de desplegar.
+**15 sitios .NET activos** (belclau dado de baja 2026-09-21): virtualwallet, piapartments, deliciasnaturales, laslatas (sin dominio propio), lumitrack, recotrack, vinoysefue, elevenlp, showroomgriffin, ganaderia, labipac, koidumplings (sin dominio propio), olvidatacrm, marihogar — más `La Platense`, recién aprobado (2026-07-30), pendiente de desplegar.
 
 **Bases de datos MySQL: 17/20 usadas** (subió de 15/20 el 2026-07-14 — 2 nuevas en 2 semanas). Una (`db_a7251f_eleven`, vieja, 50 MB) está marcada para borrar → quedarían 16 activas + 4 slots libres reales. **Con La Platense sumando 1 más, y al ritmo actual de altas, el cupo de 20 puede alcanzarse en pocos meses — monitorear en cada alta nueva, no esperar la revisión trimestral.**
 
@@ -28,7 +28,7 @@ Disco de BD: 7750/10000 MB — **esto es una falsa alarma, no el límite real** 
 
 | Pool | Runtime | Bit | RAM | Sitios |
 |---|---|---|---|---|
-| `olvidatasoft-002` | ASP.NET 4.x Integrated | 32-bit | 1024 MB | Eleven, belclau, piapartments, laslatas, Lumitrack, labipac, KoiDumplings, OlvidataCRM (8) |
+| `olvidatasoft-002` | ASP.NET 4.x Integrated | 32-bit | 1024 MB | Eleven, piapartments, laslatas, Lumitrack, labipac, KoiDumplings, OlvidataCRM (7; belclau eliminado 2026-09-21) |
 | `olvidatasoft-002sjn` | .NET Core 10.x→2.x | 64-bit | 1024 MB | VirtualWallet, RecoTrack, vinoysefue, elevenlp, showroomgriffin, ganaderia, MariHogar (7) |
 | `olvidatasoft-002xdn` | ASP.NET 4.x Integrated | 32-bit | 1024 MB | deliciasnaturales (1, sola en todo un pool) |
 

@@ -7,6 +7,28 @@
 
 ### Modulos/features analizados
 
+**M16 — Tablero de actividad al iniciar sesión** (Discovery + Análisis express, 2026-09-19). Estado: **Análisis cerrado**; presupuesto omitido.
+
+Pedido de Joaquín: una pantalla que se abra al iniciar sesión con un gráfico ilustrativo e interactivo de los trabajos y las comunicaciones que están haciendo los agentes **en vivo**.
+
+**Reparo que ordena el alcance:** con un solo worker y `MaxTareasSimultaneas = 2` (1 por organización), en un estudio chico **no hay nada corriendo casi nunca**. Un tablero que abra en un lienzo vacío juega en contra del producto. Decisión de Joaquín (2026-09-19): el tablero muestra **la actividad viva y, cuando no hay, lo que reclama atención**. Y **reemplaza Inicio**, con contenido según el rol — la portada actual («Bienvenido, seleccioná una opción del menú») no aporta nada.
+
+Casos de uso: CU-M16-01 Miembro entra y ve de un vistazo qué está pasando y qué le espera · CU-M16-02 ve en vivo cómo avanza una tarea sin abrirla · CU-M16-03 ve qué agente le pidió ayuda a cuál · CU-M16-04 salta desde el tablero a lo que reclama atención · CU-M16-05 el Director ve la actividad de toda su organización; el Empleado, solo la suya.
+
+Requisitos funcionales:
+- **RF-M16-01 Ahora.** Tareas en curso con agente, cliente, quién la pidió y el paso («paso 3 de hasta 25»); partes en curso como «X le pidió a Y»; lo que espera aprobación; vueltas de programaciones que acaban de correr. **En vivo**, con respaldo por sondeo.
+- **RF-M16-02 Te espera.** Aprobaciones pendientes **que esa persona puede resolver**, asignaciones vencidas y por vencer, resultados de programaciones sin ver, y el aviso de gasto si corresponde. Cada uno enlaza a su pantalla.
+- **RF-M16-03 Lo que pasó.** Actividad del día y de la semana por agente y por cliente, para que el tablero **nunca quede vacío**.
+- **RF-M16-04 El gráfico.** Interactivo: personas, agentes y clientes como nodos; los pedidos y las delegaciones como aristas. Si no hay actividad viva, dibuja la del día. Al tocar un nodo se ve su detalle y se puede saltar.
+- **RF-M16-05 Visibilidad.** Rige M2 sin excepción: el Empleado ve **solo sus** tareas; el Director, todas las de su organización. **Ningún dato de otra organización, nunca.** El staff no tiene tablero de cliente: sigue en su backoffice.
+- **RF-M16-06 Sin contenido sensible.** El tablero muestra **qué** está pasando, no el texto de los pedidos ni de las respuestas.
+
+Criterios de aceptación: con actividad, la tarea en curso aparece y **avanza sin recargar** · sin actividad, el tablero muestra los otros dos bloques y **nunca queda vacío** · un Empleado no ve una tarea ajena ni en el gráfico ni en las listas · ningún identificador de otra organización aparece en la respuesta · el contador de aprobaciones del tablero coincide con el del menú · el tablero **no agrega ni una llamada al modelo**: es todo lectura · mobile 390 sin scroll horizontal y contraste en ambos temas · sin JavaScript, la pantalla igual muestra los tres bloques.
+
+Riesgos: **R-M16-01 (alto) tablero vacío** que haga parecer que el producto no hace nada — mitigado por diseño con los bloques 2 y 3. **R-M16-02 (medio) costo de consultas**: se carga en cada entrada y se refresca; topes y consultas acotadas. **R-M16-03 (medio) privacidad entre compañeros**: el gráfico es el lugar más fácil para filtrar por accidente el trabajo de otro. **R-M16-04 (bajo) la librería del gráfico** tiene que entrar en la lista blanca del CSP del portal.
+
+Fuera de alcance: tablero de staff sobre todas las organizaciones (se evaluó y quedó para después); histórico más allá de la semana (eso es Consumo); cualquier acción desde el tablero salvo navegar.
+
 **M14 — Criterio de programación Claude: proyectos, skills, búsqueda web y control de gasto** (Discovery + Análisis, 2026-09-17). Estado: **Análisis cerrado, esperando gate de Joaquín**; presupuesto omitido (proyecto personal). Se apoya en M1–M12 cerradas (509 tests) más las correcciones de ingesta de documentos.
 
 Contexto: el pedido de Joaquín es llevar el producto al criterio con el que él mismo programa con Claude. Al contrastarlo contra lo construido, **tres de los seis puntos ya existen total o parcialmente** y el trabajo real está en los otros tres. Esto es lo primero que hay que decir, porque acota el alcance a la mitad.

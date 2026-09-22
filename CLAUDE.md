@@ -91,6 +91,7 @@ Leer según el agente activo:
 - `32-estandares-qa-implementador` — estandares de implementacion derivados del barrido de errores QA cross-proyecto
 - `34-integracion-afip-arca` — circuito completo de facturacion electronica AFIP/ARCA (WSAA, certificado, WSFEv1, Notas de Credito), depurado contra produccion real
 - `35-pantalla-control-stock` — patron de pantalla de control de stock/inventario (listado editable inline vs. formulario de ajuste)
+- `36-metodologia-pacs` — growth B2B para agentes comerciales de Olvidata (nicho → autoridad → mensaje conversacional → sistematizacion); objetivo: reuniones agendadas
 - `33-verificacion-automatizada-qa` — QA ejecuta verificacion automatizada por navegador para casos objetivamente chequeables (catalogo de regresiones + estandares 32 + criterios de aceptacion criticos); el resto sigue siendo manual
 
 ## Skills (carga bajo demanda)

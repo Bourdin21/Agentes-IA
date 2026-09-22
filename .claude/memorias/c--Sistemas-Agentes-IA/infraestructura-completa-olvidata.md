@@ -142,6 +142,107 @@ El dominio principal (`olvidata.com.ar`, IP `168.197.50.202`) y varios subdomini
 
 **Pendiente de confirmar (no bloqueante para arrancar el plan):** con qué panel exacto administra Joaquín este Cloud Server (cPanel/WHM, Plesk, otro) — dado que DonWeb/Ferozo es el proveedor, lo más probable es cPanel/WHM clásico, pero no se confirmó en vivo contra el panel.
 
+## ⚠️ Relevamiento en vivo 2026-09-21 (vía MCP `smarterasp`, solo lectura — corrige el snapshot de arriba)
+
+**16 sitios activos (cambiaron 2 desde el 2026-07-30):** `laslatas` ya no existe en la cuenta. Se sumaron `LaPlatense` (ferreterialaplatense.com.ar — **ya desplegada y con dominio propio**, no "pendiente de desplegar" como decía el snapshot anterior) y `AgentesIA` (agentes.olvidata.com.ar — **sitio nuevo, sin documentar en ninguna memoria hasta ahora**, confirmar con Joaquín qué es y agregarlo al inventario). `KoiDumplings` ya tiene dominio propio (portaldelinversor.com.ar), dejó de estar "sin dominio propio".
+
+**Bases de datos: 16 activas** (bajó de 17), incluye `db_a7251f_laplaten` y `db_a7251f_agentes` nuevas. `db_a7251f_eleven` (la vieja marcada "a borrar" desde 2026-07-14) **sigue sin borrarse**. Con 16/20, cupo real hoy = 4 libres — la presión de "se agota en pocos meses" bajó respecto al snapshot anterior, pero sigue siendo el límite a vigilar en cada alta.
+
+**No se pudo confirmar RAM real de pools ni fecha exacta de vencimiento de SSL/dominio** — el MCP de solo-lectura no expone agrupación por pool (no hay forma de saber si la fusión pendiente `002xdn`→`002` se hizo) ni fechas de expiración de certificado/dominio (solo un booleano `configurado`/`sin avisos`). Tampoco hay tool de FTP/cPanel para tocar el servidor DonWeb desde acá. **La cuenta de recursos del plan (`hosting_get_resource_usage`) devolvió `databaseCount: 44`, que no coincide con las 16 BD reales listadas — no confiar en ese campo, usar el listado directo.**
+
+**Ningún cambio de infraestructura se ejecutó en esta pasada** — ver pendientes y por qué no se tocaron en [[project-hosting-sharding-smarterasp]] y en la trazabilidad del pedido del 2026-09-21.
+
+### Actualización 2026-09-21 (respuestas de Joaquín + re-chequeo vía API)
+
+1. **`AgentesIA` (agentes.olvidata.com.ar) identificado**: es el proyecto **"Olvidata Agentes Multi Rubro"** (`docs/olvidata-agentes-multirubro/`) — sitio 17 de la cuenta (contando La Platense), queda agregado al inventario activo.
+2. **`laslatas`: confirmado sin ningún resto en el servidor.** Se verificó explícitamente `websites_list`, `databases_list`, `domains_list` y `ftp_list_users` — no aparece ningún sitio, BD, dominio ni usuario FTP con ese nombre. No hizo falta borrar nada (ya estaba completamente limpio, probablemente dado de baja en algún momento entre el 2026-07-30 y hoy sin quedar registrado en esta memoria).
+3. **`KoiDumplings` con dominio propio confirmado**: `portaldelinversor.com.ar`, dnsStatus/sslStatus "configured".
+4. **`db_a7251f_eleven` (la vieja, marcada para borrar desde 2026-07-14) ya no existe** — confirmado por `databases_list`: la cuenta bajó de 16 a 15 BD activas. **Cupo real hoy: 15/20, 5 slots libres** (mejor margen que el 16-17/20 de los snapshots anteriores).
+5. **SSL de `virtualwallet.com.ar` renovado por Joaquín** — no se pudo re-verificar la fecha de vencimiento vía API (`ssl_get_status` solo devuelve datos del dominio tempurl por defecto del sitio, no del dominio custom mapeado; no expone fechas, solo un booleano `expirationWarning`). Se toma como confirmado por Joaquín directamente. **Sigue pendiente el dominio nic.ar de virtualwallet.com.ar (vencía 13/09/2026 según el snapshot viejo) — no mencionado en la confirmación, chequear aparte.**
+6. **Fusión de pools — sigue sin ejecutarse**, no hay tool de API para mover un sitio entre application pools (`website_update_application_pool_runtime` solo cambia runtime/pipeline del pool propio de un sitio, no reasigna a otro pool). Es 100% manual en el panel. Pasos entregados a Joaquín:
+   - Pool Manager (Control Panel V10 → Advance options → Pool Manager) → confirmar que la distribución de sitios por pool sigue igual a la última foto confirmada (2026-07-30: `olvidatasoft-002` con 8 sitios ASP.NET 4.x 32-bit, `olvidatasoft-002sjn` con 7 sitios .NET Core 64-bit, `olvidatasoft-002xdn` con solo `deliciasnaturales`).
+   - Websites → `deliciasnaturales` → cambiar su Application Pool de `olvidatasoft-002xdn` a `olvidatasoft-002` (mismo runtime ASP.NET 4.x Integrated, mismo bitness 32-bit, sin reconfiguración adicional).
+   - Guardar — IIS recicla el proceso de `deliciasnaturales` (downtime esperado: segundos, solo ese sitio, nadie más se toca).
+   - Verificar `deliciasnaturales.com.ar` carga bien.
+   - Volver a Pool Manager: `olvidatasoft-002xdn` en 0 sitios → eliminarlo/dejarlo en 0 MB. RAM de la cuenta pasa de 3072/3072 (100%) a 2048/3072 (67%), libera 1024 MB (un pool entero) para el próximo cliente que necesite aislamiento propio.
+   - No se sabe si `LaPlatense` y `AgentesIA` (altas nuevas desde el último relevamiento) ya están en algún pool con margen o forzaron una redistribución — confirmar su pool actual en el mismo Pool Manager antes de dar la fusión por completa.
+
+### Corrección 2026-09-21 (v2) — config real de los 3 pools pegada por Joaquín desde el panel + cruce contra el stack real de cada repo local
+
+**`olvidatasoft-002xdn` NO se eliminó — sigue existiendo, vacío, y sigue consumiendo 1024 MB de la cuota.** Mi lectura anterior (que asumía que al no tener sitios el pool ya no contaba para la cuota) era incorrecta — **RAM real hoy: 3072/3072 MB (100%, SIN margen)**, no 2048/3072 como se había registrado antes. Config confirmada de los 3 pools (tal cual la ve Joaquín en el panel):
+
+| Pool | Runtime | Bitness | RAM | Load User Profile | Sitios |
+|---|---|---|---|---|---|
+| `olvidatasoft-002` | ASP.NET 4.x Integrated | 32-bit | 1024 MB | Disabled | belclau, deliciasnaturales, KoiDumplings, labipac, Lumitrack, OlvidataCRM, piapartments (7) |
+| `olvidatasoft-002xdn` | ASP.NET 4.x Integrated | 32-bit | 1024 MB | Disabled | **ninguno — vacío, pendiente de eliminar** |
+| `olvidatasoft-002sjn` | .NET Core | 64-bit | 1024 MB | Disabled | AgentesIA, elevenlp, ganaderia, LaPlatense, MariHogar, RecoTrack, showroomgriffin, vinoysefue, VirtualWallet (9) |
+
+**Hallazgo nuevo — 3 sitios de `olvidatasoft-002` están en el pool equivocado.** Se cruzó cada sitio de `002` contra el `TargetFramework` real de su `.csproj` en `C:/Sistemas/<repo>` (no contra metadata desactualizada):
+- `deliciasnaturales` → `v4.7.2` (.NET Framework) — **correcto en `002`**.
+- `Lumitrack` → `v4.7.2` (.NET Framework) — **correcto en `002`**.
+- **`KoiDumplings` → `net10.0`, `OlvidataCRM` → `net10.0`, `labipac` → `net10.0` — LAS TRES SON .NET 10 (ASP.NET Core), están mal ubicadas en un pool "ASP.NET 4.x Integrated" 32-bit en vez de `002sjn` ("`.NET Core`" 64-bit, donde SÍ están correctamente los otros 9 sitios .NET 10 confirmados por csproj: VirtualWallet, RecoTrack, vinoysefue, elevenlp/Eleven, showroomgriffin, ganaderia, MariHogar, LaPlatense, AgentesIA).** Riesgo concreto, no solo prolijidad: un pool 32-bit de ASP.NET 4.x puede no tener instalado el hosting bundle de .NET Core en 32-bit — si el pool recicla o hay un redeploy, esos 3 sitios pueden fallar a arrancar (502.5) aunque hoy figuren "Active".
+- `belclau` → **no es un sitio .NET, es WordPress/PHP** (confirmado por archivos `wp-admin`, `wp-config.php`, etc. en `C:/Sistemas/belclaunew`) — corre bajo IIS vía FastCGI, no depende del Managed Runtime del pool, así que convivir en `002` no lo rompe, pero es una mezcla rara (WordPress + .NET Framework en el mismo pool). No urgente, solo anotado.
+- `piapartments` → no se encontró repo local en `C:/Sistemas` ni `ruta_repositorio` en su metadata (proyecto "cerrado") — no se pudo confirmar su stack real. Pendiente de confirmar con Joaquín si sigue necesitando estar activo.
+
+**Plan de acción concreto (ninguno ejecutado — todo requiere el panel, no hay tool de API para mover sitios entre pools ni para borrar/editar un pool):**
+1. **Eliminar `olvidatasoft-002xdn`** (vacío, cero sitios) → libera 1024 MB de inmediato. **Downtime: cero**, no hay nada corriendo ahí. RAM pasa de 3072/3072 (100%) a 2048/3072 (67%).
+2. **Mover `KoiDumplings`, `OlvidataCRM` y `labipac` de `002` a `002sjn`** (coincide con su stack real, .NET 10) — uno por uno, en horario de baja carga. **Downtime: segundos por sitio** (recycle individual al cambiar de pool), no afecta a los demás sitios del pool de origen ni destino. Pool `002` queda en 4 sitios (belclau, deliciasnaturales, Lumitrack, piapartments), `002sjn` en 12.
+3. **(Recomendado, no urgente) Habilitar "Load User Profile" en `002sjn`** — los 9 (pronto 12) sitios son ASP.NET Core con cookies de sesión/antiforgery vía Data Protection API; con Load User Profile deshabilitado, las claves de cifrado no persisten de forma confiable entre reciclados de pool → cada recycle puede desloguear a todos los usuarios activos o invalidar tokens. **Downtime: recicla TODO el pool de una sola vez** (los 12 sitios simultáneamente, no uno por uno) — hacerlo recién después del paso 2, en horario de bajísimo tráfico, no antes (para no reciclar el pool dos veces). Para `002` no es urgente (ASP.NET Framework usa `machineKey` a nivel de máquina por defecto, no depende tanto del perfil de usuario).
+4. Confirmar con Joaquín si `piapartments` sigue activo/necesario (repo no encontrado localmente) antes de tocar nada de `002`.
+
+**Resultado esperado tras 1+2:** RAM 2048/3072 MB (67%), 1024 MB libres para el próximo pool aislado; `002` con 4 sitios bien tipados (3 .NET Framework/PHP), `002sjn` con 12 sitios .NET Core, todos donde corresponde por stack real.
+
+### Decisión 2026-09-21 (v3) — Joaquín NO borra `002xdn`: lo usa como pool dedicado para el portal Agentes IA
+
+**Cambia el paso 1 del plan de arriba: no se borra `002xdn`.** Se reconfigura y se usa como pool aislado para `AgentesIA` (agentes.olvidata.com.ar, proyecto `docs/olvidata-agentes-multirubro/`, repo `C:\Sistemas\Olvidata Agentes Multi-rubro`, stack real confirmado: ASP.NET Core .NET 10 + EF Core + MySQL, `OlvidataAgentes.Web`). Stack revisado contra el repo y `docs/deploy-smarterasp.md`:
+
+- **Data Protection ya persiste a filesystem** (`Program.cs`: `AddDataProtection().PersistKeysToFileSystem(ContentRoot/keys)`) — **no depende de Load User Profile**, a diferencia del caso genérico de VirtualWallet/RecoTrack/etc. en `002sjn` (que sí quedó recomendado habilitarlo, ver más arriba). Para `002xdn` no hace falta tocar ese switch.
+- **Hallazgo de secretos — `website_list_environment_secrets` confirmó `"scope": "application-pool"`: las variables de entorno son del POOL, no del sitio.** El listado actual de `AgentesIA` (hoy en `002sjn`) devuelve 16 secretos, **incluyendo uno de RecoTrack** (`ConnectionStrings__RecoTrackMySql`) — confirma que los 9 sitios de `002sjn` comparten un mismo pool de variables de entorno visibles entre todos (mala higiene de secretos, aparte del tema RAM). De los 4 que `deploy-smarterasp.md` dice que Agentes IA necesita (`Anthropic__ApiKey`, `ConnectionStrings__DefaultConnection`, `Olvidata_Email__Smtp__Password`, `Seed__SuperUser__Password`), **solo `Olvidata_Email__Smtp__Password` aparece en el pool actual** — los otros tres no están como env var del pool, así que deben estar escritos directo en `appsettings.Production.json` en el servidor (no confirmado, preguntar a Joaquín antes de mover).
+
+**Pasos concretos en el panel (en este orden):**
+1. `Pool Manager` → `olvidatasoft-002xdn` → **"Change to .Net Core"** (hoy está en ASP.NET 4.x Integrated). Pool vacío, downtime cero.
+2. Mismo pool → **cambiar a 64-bit** (hoy 32-bit; el .NET 10 real corre en 64-bit, igual que `002sjn`). Downtime cero, sigue vacío.
+3. Dejar **Load User Profile en Disabled** (no hace falta para este sitio, ver arriba).
+4. **Antes de mover el sitio:** cargar en `002xdn` → Environment Variables los mismos 4 secretos que usa hoy (`Anthropic__ApiKey`, `ConnectionStrings__DefaultConnection`, `Olvidata_Email__Smtp__Password`, `Seed__SuperUser__Password`) — **confirmar primero con Joaquín si los 3 que no aparecen en el pool viejo están en `appsettings.Production.json` del servidor** (en ese caso no hace falta cargarlos como env var, alcanza con que ese archivo siga en el sitio tras el move) o si hay que agregarlos como variable nueva.
+5. `Websites` → `AgentesIA` → cambiar su Application Pool de `002sjn` a `002xdn`. **Downtime: segundos** (recycle de ese sitio solo; los otros 8 sitios de `002sjn` no se tocan, sus env vars de pool quedan intactas).
+6. Verificar: `agentes.olvidata.com.ar` carga, `/health` OK, login funciona, revisar `Logs/arranque-*.log` por si falta alguna clave.
+
+**Impacto en RAM: con esta decisión, `002xdn` deja de estar libre — RAM queda en 3072/3072 MB (100%, sin margen), no se libera nada.** El paso "mover `KoiDumplings`/`OlvidataCRM`/`labipac` de `002` a `002sjn`" (plan v2, más arriba) **sigue vigente y ahora es más importante**: es la única acción de costo cero que queda para sacar esos 3 sitios de un pool 32-bit que no les corresponde, ya que no va a quedar ningún pool de reserva para aislar nada más sin pagar (addon de RAM o cuenta nueva).
+
+### Ejecutado y verificado 2026-09-21 (v4) — move de AgentesIA a `002xdn` confirmado OK
+
+Joaquín ejecutó los pasos 1-5 (pool reconfigurado, secretos confirmados **en `appsettings.Production.json` del servidor, no como env var** — no hacía falta cargar nada en el pool nuevo, no se perdió nada) y movió `AgentesIA` de `002sjn` a `002xdn`. Verificación hecha desde acá (paso 6):
+
+- `website_get_application_pool_settings(site-1884659)` → **`bitness: 64`, pool configurado, 1024 MB** — confirmado .NET Core 64-bit como se pidió.
+- `https://agentes.olvidata.com.ar/` → 200. `https://agentes.olvidata.com.ar/health/vivo` → 200 (tardó ~7,7s la primera vez, esperable sin AlwaysRunning — PA-07 del proyecto sigue abierto, no es un problema nuevo). `/health` → 302 (redirige a login, esperable: es un endpoint autenticado, no un error).
+- `website_get_logs(site-1884659)` → solo dos entradas de actividad de hosting (`changepool Running` / `changepool Success`), sin errores. No se pudo leer `Logs/arranque-*.log` de la app (son archivos del sitio, no expuestos por este MCP de solo-lectura) — si Joaquín quiere el chequeo más fino de `ValidacionArranque`, hay que mirarlo por FTP/panel directamente.
+
+**Distribución de pools final (2026-09-21):**
+| Pool | Runtime | Bitness | RAM | Sitios |
+|---|---|---|---|---|
+| `olvidatasoft-002` | ASP.NET 4.x Integrated | 32-bit | 1024 MB | belclau, deliciasnaturales, KoiDumplings, labipac, Lumitrack, OlvidataCRM, piapartments (7) — **KoiDumplings/OlvidataCRM/labipac siguen mal ubicados, ver plan v2 arriba, sigue pendiente** |
+| `olvidatasoft-002sjn` | .NET Core | 64-bit | 1024 MB | elevenlp, ganaderia, LaPlatense, MariHogar, RecoTrack, showroomgriffin, vinoysefue, VirtualWallet (8) |
+| `olvidatasoft-002xdn` | .NET Core | 64-bit | 1024 MB | AgentesIA (1) |
+
+RAM: **3072/3072 MB (100%, sin margen)** — los 3 pools están al tope de RAM y todos con sitios adentro, no queda ningún pool libre para un cliente nuevo. **Pendiente real más urgente de infraestructura hoy: mover `KoiDumplings`, `OlvidataCRM` y `labipac` a `002sjn`** (gratis, corrige el stack mal ubicado) — es la única palanca que queda sin pagar; después de eso, cualquier cliente nuevo que necesite pool propio ya implica addon de RAM o cuenta nueva.
+
+### Ejecutado y verificado 2026-09-21 (v5) — move de KoiDumplings/OlvidataCRM/labipac confirmado OK, plan de fusión CERRADO
+
+Joaquín movió los 3 sitios de `002` a `002sjn`. Verificado desde acá:
+- `website_get_application_pool_settings` de los 3 (`KoiDumplings` site-1857210, `OlvidataCRM` site-1860209, `labipac` site-1846587) → **`bitness: 64`, `runtime: no-managed-code`** (.NET Core) — quedaron bien tipados.
+- `website_get_logs` de los 3 → solo `changepool Success`, sin errores.
+- Dominios productivos: `portaldelinversor.com.ar` (KoiDumplings), `portal.olvidata.com.ar` (OlvidataCRM), `portal.lab-ipac.com.ar` (labipac) → **los 3 responden 200**.
+- **Bonus confirmado de paso:** `loadUserProfile: true` en los 3 y también en `VirtualWallet` (chequeado aparte) — **`002sjn` ya tiene Load User Profile habilitado** (la recomendación de la sección anterior ya se aplicó, no quedó pendiente).
+
+**Distribución de pools FINAL (2026-09-21, cierra el plan de fusión/reubicación iniciado el 2026-07-14):**
+| Pool | Runtime | Bitness | RAM | Load User Profile | Sitios |
+|---|---|---|---|---|---|
+| `olvidatasoft-002` | ASP.NET 4.x Integrated | 32-bit | 1024 MB | Disabled | belclau (WordPress/PHP), deliciasnaturales, Lumitrack, piapartments (4) |
+| `olvidatasoft-002sjn` | .NET Core | 64-bit | 1024 MB | **Enabled** | AgentesIA no — ver abajo; KoiDumplings, OlvidataCRM, labipac, elevenlp, ganaderia, LaPlatense, MariHogar, RecoTrack, showroomgriffin, vinoysefue, VirtualWallet (11) |
+| `olvidatasoft-002xdn` | .NET Core | 64-bit | 1024 MB | Disabled | AgentesIA (1) |
+
+RAM sigue en 3072/3072 MB (100%, sin margen — sin cambios, esto solo reubicaba sitios, no liberaba pools). **No queda ninguna acción de infraestructura pendiente sin costo.** Todo lo que sigue (sumar un cliente nuevo con pool propio, más BD, etc.) ya requiere addon o cuenta nueva — ver regla de break-even en [[project-hosting-sharding-smarterasp]]. Únicos pendientes reales que quedan abiertos, no de infraestructura de pools: confirmar stack de `piapartments` (repo no encontrado localmente) y el vencimiento del dominio nic.ar de virtualwallet.com.ar (13/09/2026 según snapshot viejo, no confirmado si Joaquín ya lo renovó junto con el SSL).
+
 ## Why (por qué importa este documento)
 
 Antes de este relevamiento, la única memoria de infraestructura era [[project-hosting-sharding-smarterasp]], enfocada solo en la cuenta SmarterASP y su techo de RAM/BD. No existía registro de: el servidor DonWeb separado, el inventario completo de SSL con vencimientos, ni los dominios nic.ar con sus fechas. Cualquier decisión de arquitectura (dónde poner un cliente nuevo, cuándo escalar, qué certificado renovar) necesita este cuadro completo, no solo la parte de SmarterASP.
@@ -149,3 +250,10 @@ Antes de este relevamiento, la única memoria de infraestructura era [[project-h
 ## How to apply
 
 Usar este documento como snapshot base para el agente `olvidata-infra` (ver `~/.claude/agents/olvidata-infra.md`) y para cualquier análisis de capacidad, costo o riesgo de infraestructura. **Es un snapshot de un momento dado (2026-07-30) — antes de tomar una decisión real (ej. dónde desplegar La Platense), confirmar con Joaquín si hay altas/bajas de sitios o BD desde esta fecha, y si la RAM de los pools sigue en el estado del 2026-07-14 o cambió.** Actualizar este documento cada vez que se haga un relevamiento nuevo del panel de hosting, no dejar que se desactualice silenciosamente.
+
+### Baja belclau — 2026-09-21
+
+- **Sitio `belclau` (WordPress/PHP, pool `olvidatasoft-002`) eliminado de SmarterASP** por baja del servicio del cliente. BD `db_a7251f_bcnew_1` (MYSQL5049.site4now.net) incluida en la baja.
+- **Resguardo interno (solo Joaquín)** en `C:/Sistemas/_backups/belclau/2026-09-21/`: `db/db_a7251f_bcnew_1.sql` (mysqldump completo, 38 MB, 22 tablas) + `sitio/` (13.119 archivos, 5,15 GB: uploads, themes, plugins y 6 `.wpress` de All-in-One WP Migration, el último del 31/08/2026 con el sitio entero). Faltaron 11 carpetas de código WordPress/plugins + cache google-fonts (reconstruibles, sin contenido del cliente).
+- Pool `002` queda con un sitio menos (sin impacto en RAM: la cuota es por pool, no por sitio). Pendiente: decidir qué hacer con el dominio `belclau.com.ar` (vence 05/04/2027) y su correo si lo tuviera.
+- Aprendizaje operativo: el FTP de SmarterASP (IIS) no soporta MLSD y corta conexiones en descargas largas — para backups grandes usar descarga con reconexión y resume; la API MCP de alta/rotación de usuarios FTP falló 5 veces (`ftp_user_create_failed`).

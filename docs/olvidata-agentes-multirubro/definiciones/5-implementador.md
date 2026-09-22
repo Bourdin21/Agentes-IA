@@ -1,9 +1,670 @@
 # Memoria - Implementador
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-09-17 (correcciones de la QA de M14)
+## Ultima actualizacion: 2026-09-21 (PA-05: backoffice del SuperUsuario y organización pausada que frena al motor)
 
 ## Definiciones vigentes
+
+# PA-05 — Backoffice del SuperUsuario: administrar organizaciones desde `Organizaciones y licencias`
+
+Estado: **implementado 2026-09-21; pendiente de QA; sin commit ni deploy (los hace Joaquín)**. Pedido textual de Joaquín:
+*«no-reply@olvidata.com.ar debería poder configurar todo el portal, incluidas organizaciones, plan, consumo, pausar plan.
+Cada organización tiene un listado de usuarios, con distintos roles.»* Cierra el pendiente **PA-05** de `metadata.md`
+(staff sin UI para editar miembros + la tarea encolada de una organización suspendida que igual ejecutaba el worker).
+Repo `C:\Sistemas\Olvidata Agentes Multi-rubro`, commit base `fe6c03e` (producto **en producción**). Gate: no hay
+definiciones 2/3 propias; es un pendiente registrado desde M2 y pedido directo de Joaquín, como las correcciones de M16.
+
+### Escaneo de reutilizacion
+- Sin match en otros proyectos del estudio: se reutilizó lo del propio repo. Núcleo del bloqueo/desbloqueo y la regla del
+  último Director (M2, `MiembroService` + `Tenant.VersionMiembros`), invalidación por `IResolvedorSesion.Invalidar`
+  (M2 RF-11), "se muestra una sola vez" por TempData (clave de activación), `NucleoTextos.EstadoLicencia` (M15) para los
+  badges con ícono, `btn-swal-confirm` para las confirmaciones.
+
+### Plan por etapas (el orden en que se hizo)
+1. Línea base: `dotnet test` **625/625**.
+2. Contrato: permiso `PuedeAdministrarOrganizaciones` (SuperUsuario), `IOrganizacionBackofficeService`, 4 métodos nuevos en `IMiembroService`, DTOs.
+3. Services: `OrganizacionBackofficeService` (editar, impacto, estado, extender licencia), métodos de backoffice en `MiembroService`, `GeneradorContrasena`.
+4. Worker: reclamo de tareas, bucle de la tarea y reclamo de programaciones miran `Tenant.Estado`.
+5. Web: 6 acciones en `ClientesController` con `RequireSuperUsuario`, 2 vistas nuevas, ficha e índice ajustados.
+6. Tests (16 nuevos + 1 reescrito), suite completa, smoke contra el portal local con MySQL y modelo simulado.
+
+### Archivos y capas modificadas
+- **Application:** `Interfaces/IOrganizacionBackofficeService.cs` (nuevo), `Interfaces/IMiembroService.cs`, `Interfaces/IPermisosOrganizacion.cs`, `DTOs/OrganizacionDtos.cs` (`MiembroBackofficeEditarDto`, `OrganizacionEditarDto`, `ImpactoEstadoOrganizacionDto`).
+- **Infrastructure:** `Services/Organizacion/OrganizacionBackofficeService.cs` y `GeneradorContrasena.cs` (nuevos), `MiembroService.cs` (el bloqueo pasó a un núcleo privado `AlternarEstadoAsync` compartido por Director y SuperUsuario), `PermisosOrganizacion.cs`, `DependencyInjection.cs`, `Services/Motor/ProcesadorTareas.cs`, `Services/Programaciones/EjecutorProgramaciones.cs`.
+- **Web:** `Controllers/ClientesController.cs` (Editar GET/POST, CambiarEstado, ExtenderLicencia, EditarMiembro GET/POST, CambiarEstadoMiembro, GenerarContrasena), `Views/Clientes/Editar.cshtml` y `EditarMiembro.cshtml` (nuevas), `Details.cshtml` (card Organización con estado y acciones, aviso de organización no activa, botón y modal de vencimiento, columna Editar en miembros, badges con ícono), `Index.cshtml` (estado con ícono), `Helpers/OrganizacionTextos.cs` (nuevo), `Models/AgentesViewModels.cs`.
+- **Tests:** `BackofficeSuperUsuarioTests.cs` (nuevo), `ProgramacionesTests.cs` (1 test reescrito + 1 nuevo).
+- **Datos: sin tocar. Ni una entidad, ni una columna, ni una migración EF.** `Mcp` y `Cli` sin tocar.
+
+### Decisiones de implementacion
+- **DI-PA05-1 — "Pausar" es `EstadoTenant.Suspendido`.** No se agregó un estado nuevo: el enum ya tenía Activo/Suspendido/Baja y el login ya lo respetaba (M9). En pantalla se dice **Pausada** (la palabra del pedido); en código y base sigue `Suspendido`.
+- **DI-PA05-2 — Cómo frena al motor una organización pausada (lo que dejó abierto PA-05).** Nada se cancela ni se borra: pausar es reversible con un clic, así que el trabajo **se retiene**. Tres puntos del worker miran `Tenant.Estado`:
+  1. **`ProcesadorTareas.ReclamarSiguienteAsync`**: las organizaciones no activas se suman a la lista de excluidas (misma técnica que los clientes saturados). Sus tareas Pendientes — y las EnCurso con lease vencido — quedan en la cola y la cola de los demás clientes sigue. Al reactivar, las toma el próximo ciclo.
+  2. **Bucle de `ProcesadorTareas.EjecutarAsync`**, al principio de cada vuelta (antes de ejecutar herramientas y antes de llamar al modelo): si la organización ya no está activa, la tarea **vuelve a Pendiente** sin worker ni lease, y **no cuenta como intento** (`Intentos - 1`), así una pausa larga no la acerca al máximo que la da por fallida. Los pasos guardados quedan: al reactivar sigue exactamente donde estaba, sin repetir la llamada ni el efecto de la herramienta (test). **Límite aceptado:** una llamada al modelo que ya estaba en vuelo termina y se cobra; la siguiente no sale.
+  3. **`EjecutorProgramaciones.ReclamarAsync`**: no reserva vueltas de organizaciones no activas (ni retoma sus Reservadas). La programación queda Activa, **sin sumar fallas**, con la próxima ejecución vencida; al reactivar dispara **una** vuelta (la regla de siempre de M12: se recalcula desde ahora) y sigue su calendario.
+  - Las tareas que esperan aprobación o partes (M6/M7a) no gastan; cuando se despiertan pasan a Pendiente y las frena el punto 1.
+  - **Suspendido y Baja frenan igual.** La baja se diferencia en el texto y en la intención, no en el efecto: los datos se conservan y se puede reactivar. Las licencias no se revocan solas; la API de licencias ya rechazaba emitir tokens a un "cliente no activo".
+- **DI-PA05-3 — Cambio deliberado de comportamiento en programaciones (criterio vs. código).** El test `Con_la_empresa_suspendida_ninguna_vuelta_crea_tareas` esperaba que la vuelta de una empresa suspendida se **reservara y se cerrara Bloqueada** con una falla. Con eso, cinco barridos (cinco días de una diaria) alcanzaban para **terminar la programación sola**: el cliente pausado la encontraba muerta al volver. Se cambió el código y se reescribió el test (`..._y_la_programacion_espera_intacta`). El cierre Bloqueado de la fase 2 **se conserva** para la carrera "pausaron entre la reserva y la creación de la tarea" (test nuevo).
+- **DI-PA05-4 — Sesiones.** Pausar/reactivar invalida la sesión cacheada de **todos** los miembros de la organización (`IResolvedorSesion.Invalidar` uno por uno): el corte rige en su próxima request, no a los 60 s del TTL. Mismo límite de M2 (RT-01): la invalidación es por proceso.
+- **DI-PA05-5 — Miembros desde el backoffice.** El SuperUsuario **sí** cambia nombre y email (el Director no). Mismo núcleo que el Director para bloquear (`AlternarEstadoAsync`) y la misma regla del último Director con `VersionMiembros` y reintento. Al cambiar el email se mueve también el `UserName` **solo si era igual al email anterior** (alta estándar), para no romper un usuario legado. Email duplicado se valida contra `NormalizedEmail` y `NormalizedUserName` de todos los usuarios.
+- **DI-PA05-6 — Contraseña generada.** Formato `Abcd-efgh-2345` (sin I/l/O/0/1, fácil de dictar), `RandomNumberGenerator`, validada contra los `PasswordValidators` de Identity antes de guardar. Se guarda el hash, se rota el `SecurityStamp` (cierra las sesiones abiertas con la contraseña anterior en la revalidación de Identity), se limpia el lockout y se invalida la sesión. Viaja por TempData (cookie cifrada) y se muestra **una sola vez**, como la clave de activación. Nunca se loguea; el audit trail excluye `PasswordHash` y `SecurityStamp` (M2) y hay un test que lo verifica. **No obliga a cambiarla en el próximo ingreso**: no existe ese mecanismo en el portal.
+- **DI-PA05-7 — Editar organización.** El slug se muestra y no se edita. Pasar a "Propia de la organización" exige una clave si no había una; vacía conserva la cargada; **pasar a "Olvidata" borra la clave del cliente** (no se guarda un secreto que no se usa). El límite de gasto no se toca desde acá (ya tiene su card).
+- **DI-PA05-8 — Extender licencia.** Cualquier fecha futura (también sirve para adelantar el vencimiento; el mensaje lo dice). Misma clave de activación: no se emite otra. Una revocada no se extiende. La fecha es día argentino y vence al final del día, igual que el alta. **Arreglo de paso:** la columna "Vigente hasta" mostraba el día **siguiente** al elegido (el alta guarda las 00:00 del día siguiente); ahora muestra el día elegido (`OrganizacionTextos.DiaDeVencimiento`).
+- **DI-PA05-9 — Permisos en dos capas.** Las 6 acciones nuevas llevan `[Authorize(Policy = "RequireSuperUsuario")]` y cada service vuelve a verificar `PuedeAdministrarOrganizaciones`. El Administrador sigue viendo la ficha (controller en `RequireAdministracion`) **sin ningún botón nuevo**. Un test lee `ClientesController.cs` y falla si una acción nueva pierde la policy. **No se tocaron** `CrearLicencia`, `RevocarLicencia` ni `CambiarLimiteGasto`: el Administrador los sigue pudiendo usar como antes (fuera del pedido; si Joaquín quiere que sean solo del SuperUsuario, es cambiar la policy).
+- **DI-PA05-10 — Consultas cruzadas.** `Licencias`, `TareasAgente`, `ProgramacionesTarea` y `Areas` se leen con `IgnoreQueryFilters([AppDbContext.FiltroTenant])` y acotadas explícitamente al `TenantId` de la ficha, con comentario. `Users` y `Tenants` no tienen filtro de tenant. La organización interna (`EsInterna`) no se puede editar ni pausar (404).
+- **DI-PA05-11 — Confirmaciones con números reales.** `ImpactoAsync` cuenta miembros activos, tareas en cola, tareas en curso y programaciones activas, y `OrganizacionTextos` arma el texto: quién queda afuera, qué pasa con el motor y qué pasa al volver.
+
+### Migraciones EF
+**Ninguna.** No se tocó el modelo. El deploy es solo código: `scripts/deploy-prod.ps1` no tiene nada que aplicar en la base.
+
+### Evidencia de build y tests (medida SIN pipe, leyendo el resumen impreso)
+- Línea base: **Con error: 0, Superado: 625, Omitido: 0, Total: 625**.
+- Final: **Con error: 0, Superado: 641, Omitido: 0, Total: 641** (625 + 16 nuevos; 1 reescrito), medido dos veces. `BackofficeSuperUsuarioTests` + `ProgramacionesTests`: 55/55.
+- `dotnet build OlvidataAgentes.slnx`: **0 errores, 0 advertencias**.
+- **Los 5 goldens intactos**: `git status tests/OlvidataAgentes.Tests/Goldens` vacío; el prompt de sistema no se tocó.
+- Costo cero: tests con modelo guionado; el portal local se levantó con `Anthropic__Simulado=true` y la línea *MODELO SIMULADO* confirmada en el log de arranque.
+
+### Verificación contra el portal local (MySQL dev, modelo simulado)
+Sin navegador: el MCP de Playwright no conectó (timeout), así que **no hubo verificación visual** (tema oscuro, 390 px). Se hizo un
+smoke con `curl` contra `https://localhost:7200` sobre una organización descartable `smoke-pa05` creada con la consola
+Admin: como SuperUsuario, alta de Directora → editar organización → confirmación de pausa con números → pausar
+(Estado 2, aviso "Organización pausada.") → reactivar → emitir licencia (la columna muestra el día elegido) → extender
+(vence 2027-04-01 03:00 UTC = fin del 31/03) → degradar a la única Directora (rechazado con el mensaje) → bloquearla
+(rechazado, sigue Activa) → cambiar nombre y email (el `UserName` se movió) → generar contraseña (se mostró una vez; al
+recargar, 0 apariciones). Como `adminqa@qa.test` (Administrador): la ficha abre **sin botones nuevos** y las 4 acciones
+probadas van a AccessDenied. Como `dira@qa.test` (Directora de otra organización): todo AccessDenied, incluida la ficha. Log
+sin errores. **La organización, la usuaria, la licencia y sus filas de auditoría se borraron**; el tenant 19 y el 20 no se tocaron.
+Se detuvo un portal que había quedado prendido desde el 2026-09-20 (bloqueaba el build) y el que se levantó para el smoke.
+
+### Riesgos residuales
+- La llamada al modelo que ya estaba en vuelo al pausar se completa y se cobra (una, como máximo, por tarea en curso).
+- Invalidación de sesión por proceso (RT-01 de M2): con más de una instancia, las demás toman la pausa al vencer el TTL de 60 s. Hoy SmarterASP corre una.
+- Al reactivar, todo lo retenido arranca junto (limitado por `MaxTareasPorCliente`) y cada programación vencida dispara una vuelta.
+- La contraseña generada no se fuerza a cambiar en el primer ingreso.
+- Sin verificación visual (ver arriba): QA tiene que mirar la ficha a 390 px y en tema oscuro.
+
+### Pruebas mínimas para QA
+1. SuperUsuario: editar nombre/CUIT/email/quién paga; pasar a "Propia" sin clave → error; con clave → OK; volver a Olvidata → la clave se borra. El slug no se puede cambiar.
+2. Pausar una organización con una sesión de un miembro abierta: el miembro queda afuera en su próxima acción, con el mensaje de organización suspendida. Reactivar: vuelve a entrar.
+3. **Worker:** con el modelo simulado, crear una tarea de una organización, pausarla antes de que corra → queda Pendiente y no se ejecuta; la de otra organización sí. Reactivar → corre y termina. Una programación vencida de la organización pausada no crea vuelta; al reactivar crea una.
+4. Extender una licencia: el modal trae el vencimiento actual; guardar otra fecha; la columna muestra el día elegido. Una revocada no muestra el botón.
+5. Miembros: editar nombre/email/rol/área; con un solo Director activo, la pantalla lo avisa, no ofrece Bloquear y el cambio a Empleado se rechaza. Con dos Directores, sí. Bloquear/desbloquear. Generar contraseña: se ve una vez, la anterior deja de servir.
+6. Administrador (`adminqa@qa.test`): ve la ficha sin Editar datos, Pausar, Dar de baja, vencimiento ni editar miembro; por URL directa → acceso denegado. Miembro de una organización → acceso denegado en todo `/Clientes`.
+7. Mobile 390 y tema oscuro de la ficha, Editar y Editar miembro; confirmaciones legibles.
+
+### Checklist de merge
+- [x] Build 0/0 · [x] 641/641 · [x] goldens intactos · [x] sin migración · [x] `Mcp`/`Cli` sin tocar · [x] permisos en policy y service · [x] consultas cruzadas justificadas · [x] auditoría automática (sin hash ni stamps)
+- [ ] QA funcional · [ ] verificación visual 390 / oscuro · [ ] commit y deploy (Joaquín)
+
+
+# M16 — Tablero de actividad al iniciar sesión
+
+Estado: **implementada 2026-09-19; el gráfico rehecho por niveles el 2026-09-20; pendiente de QA**. Entrada:
+`1-analista-funcional.md` M16 (RF-M16-01..06), `2-disenador-funcional.md` M16 (D-M16-1..7) y `3-arquitecto-mvc.md` M16
+(RT-M16-01..03), las tres aprobadas. Repo: `C:\Sistemas\Olvidata Agentes Multi-rubro`, commit base `9bb5f93`, línea base
+**601/601**. **Sin migración EF: es todo lectura sobre lo que ya existe. Ni una llamada al modelo. Sin commits.** `Mcp` y
+`Cli` sin tocar. Los 5 goldens de contexto, intactos (nada de M16 se acerca al armado del contexto).
+
+> **2026-09-20 — el gráfico se rehízo entero.** Joaquín lo pidió así: *«El mapa de la actividad se tiene que ver de una
+> manera más organizada: personas, agentes, tareas y clientes tienen que ser niveles.»* Lo que había era una nube de
+> fuerzas donde todo flotaba junto; lo que hay ahora son **cuatro columnas con su rótulo** que se leen de un lado al
+> otro. El detalle está más abajo, en **DI-M16-13..19**; lo de arriba de esa lista sigue valiendo tal cual, salvo lo que
+> esas decisiones corrigen explícitamente. Línea base de esta vuelta: commit `83c057f`, **621/621**.
+
+### Escaneo de reutilizacion
+
+Se revisaron los `5-implementador.md` de los demás proyectos del estudio: **ninguno tiene un tablero de actividad ni un
+gráfico de nodos**, así que no hubo código para traer de otro repo. Lo que sí se reusó, todo del propio portal:
+
+| Fuente | Qué se tomó | Grado |
+|---|---|---|
+| `ServicioTareas.Visibles()` (M2/RF-12) | La regla de visibilidad por rol tal cual: Director todas, Empleado solo las suyas | Literal |
+| `ProgramacionTareaService.BaseListado()` (M12) | Qué programaciones ve cada uno, para las vueltas recientes | Literal |
+| `IAprobacionService.ContarPendientesParaMiAsync`, `IProgramacionTareaService.ResultadosSinVerAsync`, `IControlGasto.AvisoParaMiAsync` | **Se llaman, no se reimplementan.** Es la única forma de garantizar el criterio "el contador del tablero coincide con el del menú" | Literal |
+| `Views/Tareas/Detalle.cshtml` (M3b) | El patrón de refresco: SignalR más sondeo de respaldo que recarga HTML del servidor, no una aplicación de página única | Patrón |
+| `Helpers/SubtareasTextos.cs` (M7a) | Forma del helper de estado, tupla `(Texto, Icono, Clase)` siempre con texto; y el vocabulario «le pidió ayuda a» | Patrón |
+| `Views/Shared/_AvisoGasto.cshtml` (M6) | El aviso de gasto del bloque *Te espera*, sin una línea nueva | Literal |
+| `site.css` → `.ov-alert`, `.ov-badge`, `.card`, `.ov-page-head` | Todo el armazón visual de los bloques | Literal |
+
+### Plan por etapas (el orden en que se hizo)
+
+1. DTOs, contrato y opciones en Application.
+2. `TableroService` en Infrastructure, con la visibilidad de M2 copiada de `ServicioTareas`.
+3. Tiempo real: grupo por organización en `TareasHub` y emisión en `NotificadorTareasSignalR`.
+4. `HomeController` decide tablero o portada; parcial de los tres bloques renderizado por el servidor.
+5. El gráfico: CSS, isla de datos JSON y `tablero.js`.
+6. Tests, build, y recién ahí la verificación en el navegador.
+
+### Archivos y capas modificadas
+
+**Application**
+
+- Nuevo `DTOs/TableroDtos.cs`: `TableroDto` (con `Vacio`), `TableroAhoraDto` / `TareaVivaDto` / `VueltaRecienteDto`,
+  `TableroEsperaDto` / `AsignacionEsperaDto`, `TableroPasadoDto` / `ActividadTableroDto`, `GrafoTableroDto` /
+  `NodoTableroDto` / `AristaTableroDto`, `AlcanceGrafo`, `TiposNodoTablero`, `RelacionesTablero`.
+- Nuevo `Interfaces/ITableroService.cs` (un solo método, `ObtenerAsync`).
+- Nuevo `Settings/TableroOptions.cs` (sección `Tablero` de `appsettings.json`): topes de filas, tope de nodos y
+  segundos de sondeo.
+
+**Infrastructure**
+
+- Nuevo `Services/Tablero/TableroService.cs`. Consultas acotadas por código al tenant y a la visibilidad de M2, todas
+  con tope; el grafo sale de **la misma consulta** que las listas, no de una segunda vuelta más abierta. Registrado en
+  `DependencyInjection.cs`.
+
+**Web**
+
+- `Hubs/TareasHub.cs`: grupo por organización (`GrupoOrganizacion`) y `SeguirOrganizacion()` **sin parámetros**.
+- `Services/NotificadorTareasSignalR.cs`: además del grupo por tarea, emite al grupo de la organización.
+- `Controllers/HomeController.cs`: `Index` decide tablero o portada; nuevo `Actividad` devuelve el parcial.
+- Nuevos `Models/TableroViewModel.cs`, `Helpers/TableroTextos.cs`, `Views/Home/Tablero.cshtml`,
+  `Views/Home/_TableroBloques.cshtml`, `wwwroot/js/tablero.js`.
+- `Views/Shared/_Layout.cshtml`: "Inicio" pasa a "Tablero" (con `fa-gauge-high`) **solo para miembros**; el staff sigue
+  viendo "Inicio".
+- `Middleware/SecurityHeadersMiddleware.cs`: **solo comentario** — queda escrito que d3 y SignalR salen de jsdelivr,
+  que ya estaba permitido, y por qué se eligió un origen ya permitido.
+- `wwwroot/css/site.css`: bloque `ov-tablero-*` / `ov-grafo-*` y los tres colores del gráfico.
+
+**Tests**: nuevo `tests/OlvidataAgentes.Tests/TableroTests.cs` (20 tests).
+
+### Decisiones de implementacion
+
+- **DI-M16-1 — d3 v7 desde jsdelivr, que YA estaba en el CSP.** RT-M16-02 avisaba que un CDN nuevo no da error: no
+  carga y nadie se entera. En vez de agregar un origen se eligió una librería del origen que ya estaba. d3 además
+  dibuja **SVG**, que es lo único que permite que los nodos tomen los tokens `--ov-*` y cambien solos con el tema
+  oscuro; una librería de canvas (vis-network) habría necesitado su propia paleta duplicada. Hay un **test** que
+  compara los `<script src>` de la vista contra el `script-src` del middleware: si alguien cambia de CDN sin tocar el
+  CSP, falla en el build y no en silencio.
+- **DI-M16-2 — El respaldo del gráfico está en el HTML y se oculta cuando el dibujo existe.** El lienzo arranca
+  `hidden` y el script lo muestra recién cuando terminó de dibujar. Si d3 no cargó, lo que queda a la vista es la lista
+  de vínculos en palabras que el servidor ya mandó. Cuando el gráfico sí aparece, esa lista pasa a `visually-hidden`
+  — **sigue en el DOM**, porque un SVG de nodos no se lee con un lector de pantalla.
+- **DI-M16-3 — El aviso al grupo de la organización va vacío.** Al grupo lo escuchan también los Empleados, que no ven
+  las tareas de sus compañeros: mandarles el número de tarea ya sería contarles que existe. Reciben "algo se movió" y
+  releen `/Home/Actividad`, que aplica la visibilidad del lado del servidor.
+- **DI-M16-4 — `SeguirOrganizacion()` no recibe el tenant.** Sale de la sesión resuelta en el servidor (RT-M16-03). Hay
+  un test que falla si alguien le agrega un parámetro.
+- **DI-M16-5 — El gráfico baja de vivo a hoy, y de hoy a la semana.** El diseño pedía vivo → día. Con la organización
+  real (Contadores BMA) apareció el caso aburrido: *Lo que pasó* decía "4 en 7 días" y el gráfico, al lado, mostraba un
+  recuadro vacío porque ninguna era de hoy. Se agregó el tercer escalón y el badge dice cuál está mostrando: "En vivo",
+  "Hoy" o "Esta semana". Es el mismo motivo que sostiene R-M16-01.
+- **DI-M16-6 — El refresco no toca el DOM si el HTML no cambió.** El sondeo corre cada 15 s con socket o sin él, pero
+  compara el HTML recibido con el anterior: la vuelta sin novedades no parpadea, no rearma el dibujo y no le borra a
+  nadie el nodo que había elegido. Tampoco refresca con la pestaña de fondo ni mientras el foco está adentro del
+  gráfico.
+- **DI-M16-7 — Solo tareas de tipo `Trabajo`, también para el Director.** Las conversaciones de plataforma
+  (configurador de reglas, asistente de reparto) son la persona configurando el sistema, no trabajo para un cliente:
+  incluirlas pondría "Asistente para repartir trabajo" como un nodo más al lado de los agentes del rubro.
+- **DI-M16-8 — Los ids del grafo son opacos (`p1`, `a2`, `c3`).** No viaja ningún id de usuario, de agente ni de
+  cliente. Lo único con id real es el salto del nodo, que apunta a **una tarea que ya es visible para quien mira** por
+  construcción: sale de la misma consulta que las listas.
+- **DI-M16-9 — Los tres colores del gráfico se verificaron con el validador de paletas**, contra las dos superficies
+  (`#ffffff` y `#1e293b`): banda de luminosidad, piso de croma, separación para daltonismo y contraste. El ámbar del
+  cliente baja un paso en tema oscuro (`#f59e0b` → `#d97706`) porque el claro se sale de la banda sobre `#1e293b`. La
+  identidad **nunca es solo color**: cada tipo tiene su forma (círculo, cuadrado, rombo) y su entrada en la leyenda, y
+  lo vivo lleva el anillo que late **más la etiqueta "en curso"** (D-M16-3). El anillo se queda quieto con
+  `prefers-reduced-motion` (R-M16-06).
+- **DI-M16-10 — `_TableroBloques` es el mismo parcial que renderiza la pantalla y que devuelve el refresco.** Una sola
+  forma de dibujar el tablero; el JavaScript no arma ni un `<li>`.
+- **DI-M16-11 — Sin DataTables.** La regla de la instrucción 25 es para los listados de una entidad; acá hay resúmenes
+  con tope de 5 a 8 filas que enlazan a las pantallas reales (Tareas, Aprobaciones, Asignaciones, Resultados), que sí
+  tienen su grilla con filtros.
+- **DI-M16-12 — *Lo que pasó* no tiene, ni puede tener, una lista de personas** (R-M16-07). Hay un test que recorre las
+  propiedades de `TableroPasadoDto` y falla si alguna se llama Persona, Miembro o Usuario: el día que alguien quiera
+  agregar el ranking, se va a topar con el test antes que con la pantalla.
+
+### El gráfico por niveles (2026-09-20)
+
+Lo que cambió de capa a capa: **Application** — `TiposNodoTablero` suma `Tarea` y la lista `Niveles` (que *es* el orden
+de las columnas); `RelacionesTablero` reemplaza `TrabajaSobre` por `Ejecuta` (agente → tarea) y `EsPara` (tarea →
+cliente); `NodoTableroDto` suma `Nivel`, `Orden` y `Estado`; nuevo `NivelGrafoDto`; `TableroOptions.MaxNodosGrafo` pasa
+a `MaxNodosPorNivel`. **Infrastructure** — `ArmadorGrafo` reescrito. **Web** — `TableroTextos.Nivel()`, la isla de datos
+manda niveles y orden, la leyenda suma Tareas y «le pidió ayuda a», la lista de respaldo se agrupa por nivel, y
+`tablero.js` pasa de simulación de fuerzas a disposición calculada. **Sin migración EF, otra vez: no hay ni una columna
+nueva.**
+
+- **DI-M16-13 — La tarea es el nodo del medio, y de él cuelga la cadena entera.** El recorrido se lee
+  `persona → agente → tarea → cliente`; una tarea sin cliente termina en su nivel, sin arista de salida. Como
+  consecuencia, **si una tarea no entra en el tope de su nivel, la fila entera se saltea**: media cadena dibujada (un
+  cliente suelto, un agente sin tarea) confunde más de lo que muestra. El nodo lleva `#218` como etiqueta y su estado
+  como detalle, así que el gráfico dice además *en qué anda* cada trabajo sin mostrar una línea de su texto (RF-M16-06
+  sigue en pie).
+- **DI-M16-14 — Las partes de M7a se quedan DENTRO del nivel de los agentes, como un arco punteado.** Era la decisión
+  fina del pedido. Sacarlas del nivel (poner al ayudante en una quinta columna) rompía la lectura, y dejarlas como una
+  flecha entre columnas obligaba a que alguna volviera hacia atrás. Van como **un arco al costado de la columna, del
+  coordinador al ayudante**, punteado para que se lea como un desvío y no como el camino, con su entrada propia en la
+  leyenda. La dirección la garantiza el orden del nivel (DI-M16-15), no el dibujo. Y el ayudante igual tiene su propia
+  tarea en la columna de al lado: la parte también es un nodo.
+- **DI-M16-15 — Los agentes se ordenan por topología, no por nombre.** Es lo que hace imposible la flecha hacia atrás:
+  un Kahn sobre las aristas «le pidió ayuda a» deja al coordinador **siempre por delante** del que ayudó, con desempate
+  por nombre para todo lo demás. Determinístico igual, y si alguna vez llegara un ciclo (no puede: el padre de una tarea
+  siempre es anterior) lo que quedó sin ubicar se agrega por nombre en vez de desaparecer del dibujo. Hay un test con el
+  ayudante renombrado para que, por orden alfabético, fuera primero: si alguien saca la topología, falla.
+- **DI-M16-16 — El lugar de cada nodo lo decide el servidor; el navegador solo lo pasa a píxeles.** `Nivel` y `Orden`
+  viajan en el DTO. Personas y clientes por nombre, tareas de la más nueva a la más vieja (el número ya es la línea de
+  tiempo), agentes por topología. **Cuidado con no confundir dos órdenes distintos**: los nodos *entran* por recencia
+  (las filas llegan ordenadas, así que el tope deja afuera lo viejo) y *se dibujan* por la regla determinística. Hay un
+  test que pide el tablero dos veces y compara `nivel:orden:etiqueta`, y otro que falla si alguien vuelve a meter
+  `forceSimulation` en el JS — que es la forma silenciosa de deshacer todo esto.
+- **DI-M16-17 — El tope es por nivel, no global.** El nivel que se llena primero es siempre el de tareas; un tope global
+  dejaba columnas enteras sin dibujar por culpa de él. Cada columna cuenta su propio «y N más» al pie, y el `Omitidos`
+  del DTO es la suma. El navegador suma a ese número **lo que no entra por espacio**: si en una columna no caben los 8,
+  muestra los que caben y el resto va al mismo cartel. El alto del dibujo reserva ese renglón — sin la reserva el cartel
+  se dibujaba por debajo del borde del SVG, que es justo el aviso que no se puede perder.
+- **DI-M16-18 — Columnas si entran, filas apiladas si no; y el SVG se mide en píxeles reales.** Se sacó el `viewBox`:
+  ahora el script mide la tarjeta y dimensiona el SVG, así que el texto mide lo que dice que mide y desapareció la media
+  query que inflaba las etiquetas para compensar la escala. Por debajo de **416 px** cuatro columnas dejan ~80 px para
+  cada nombre, así que ahí el dibujo da vuelta los niveles y los apila como filas — un teléfono cae siempre de ese lado.
+  Las etiquetas **se recortan midiéndolas** (`getComputedTextLength`), no contando letras: calcular por cantidad de
+  letras fallaba apenas cambiaba el tamaño de fuente y el nombre se salía del dibujo por el costado.
+- **DI-M16-19 — Dos arreglos de legibilidad que no estaban pedidos pero se veían feos.** (a) Las columnas cortas van
+  **centradas** contra la más larga: si no, los clientes quedan todos arriba y las flechas trepan en diagonal desde
+  abajo. (b) Las etiquetas llevan un **halo del color de la tarjeta** (`paint-order: stroke fill`): en un dibujo de
+  cuatro columnas siempre hay una línea que pasa por donde está un nombre, y sin el halo la línea se le mete entre las
+  letras. El contorno va debajo del relleno, así que el texto se lee igual y lo que cambia es lo que pasa por atrás.
+- **Lo que NO cambió, a propósito:** los tres colores (y por lo tanto no hubo que revalidar nada — se volvió a correr el
+  validador contra `#ffffff` y `#1e293b` y sigue pasando); la forma por tipo; la etiqueta «en curso» además del anillo;
+  el escalón vivo → hoy → semana con su badge; `prefers-reduced-motion`; la visibilidad de M2 dentro del gráfico; el
+  respaldo en palabras sin JavaScript; d3 desde jsdelivr y su test de CSP. **La tarea es el único nodo sin color propio
+  —es el eslabón, no una categoría más—**: va en tinta neutra con su hexágono, que es lo que permitió sumar un cuarto
+  tipo sin tocar la paleta validada. Se sacó el arrastre de nodos: con los niveles fijos, mover un nodo a mano solo
+  podía romper la disposición.
+
+### Migraciones EF
+
+Ninguna. Ni una columna nueva: todo sale de datos que ya estaban.
+
+### Evidencia de build y tests (medida SIN pipe, leyendo el resumen impreso)
+
+- `dotnet build OlvidataAgentes.slnx`: **0 errores, 0 advertencias**. La advertencia preexistente CS0114 de
+  `HomeController.StatusCode` desapareció porque se le puso `new` al reescribir el archivo (mismo comportamiento: la
+  declaración ya ocultaba el método base). La de `ReglasPropuestasAgentesTests` (xUnit2013) sigue estando y aparece
+  cuando recompila ese proyecto.
+- `dotnet test tests/OlvidataAgentes.Tests`: **621 OK de 621** (601 de línea base + 20 nuevos).
+- `LectorDocumentosTests` falló una vez en cada una de dos corridas intermedias, siempre un test distinto de esa clase
+  y siempre verde al correrla sola (31/31): es la flojera conocida bajo carga, no una regresión de M16.
+
+**Del gráfico por niveles (2026-09-20):** `dotnet build OlvidataAgentes.slnx` **0 errores, 0 advertencias**. (En una
+corrida intermedia apareció 1 advertencia: la xUnit2013 preexistente de `ReglasPropuestasAgentesTests`, que se muestra
+solo en el build en el que recompila ese proyecto. No es de M16 y ya estaba anotada arriba.) `dotnet test`:
+**Con error: 0, Superado: 625, Omitido: 0, Total: 625** (621 de línea base + 4 nuevos), medido dos veces y sin una sola
+vuelta roja. `TableroTests` sola: **24/24**. Los 47 tests de contexto y goldens, verdes y con los `.txt` sin tocar.
+
+Los 4 tests nuevos son los que sostienen el pedido: el recorrido de cuatro niveles con toda arista avanzando un nivel;
+la tarea sin cliente que termina en su nivel; el orden determinístico (dos llamadas seguidas, mismo `nivel:orden`); y el
+coordinador por delante del ayudante con el nombre en contra. Se reescribieron otros tres: el de M7a (ahora comprueba
+que la ayuda no salga del nivel), el del tope (ahora por nivel) y el de ids opacos (ahora con la `t` de tarea).
+
+### Verificación en el navegador (dev, MODELO SIMULADO confirmado en el log de arranque)
+
+`https://localhost:7200`, organización **Contadores BMA** (tenant 20), con datos reales.
+
+- **Director (`direccion@bma.test`), sin actividad viva**: los tres bloques presentes. *Ahora* dice "No hay nada
+  corriendo en este momento." con el botón *Pedir una tarea*; *Te espera* dice "No tenés nada pendiente. Todo al día.";
+  *Lo que pasó* muestra 4 agentes y 2 clientes, "0 hoy · 4 en 7 días". El gráfico dibuja los 8 nodos de la semana
+  (2 personas, 4 agentes, 2 clientes) con badge "Esta semana". Al tocar el nodo *Gastón*: "Persona · Gastón / 3
+  trabajos / Gastón le pidió a …" y el enlace *Ver la tarea*.
+- **Empleado (`gaston@bma.test`)**: ve **3 agentes, él mismo y su cliente**. No aparecen "Dirección BMA", "Cierre y
+  balance" ni "SERVICIO TERAPIA RENAL S.A.": la tarea de la Directora no está ni en las listas ni en el gráfico.
+- **Con actividad**: con una tarea creada con el modelo simulado, *Ahora* muestra «Gastón le pidió a «Ingresos
+  Brutos»» · Trabajando · Paso 1 de hasta 25 · recién, con su barra de avance, y el gráfico pasa a "En vivo" con el
+  anillo que late y la etiqueta "en curso". **Sin recargar**, el bloque se llenó a los ~2,5 s de crear la tarea y se
+  vació solo cuando terminó. Las dos tareas de prueba (#218 y #219) y sus 4 filas de `EventosUso` **se borraron**:
+  Contadores BMA quedó con sus 4 tareas originales y Gastón con su preferencia de tema como estaba.
+- **Consola del navegador: 0 errores, ninguna violación de CSP.** El único warning es el de
+  `apple-mobile-web-app-capable`, preexistente del layout.
+- **Tema oscuro** verificado (tarjetas, tablas y los tres colores del gráfico). **Mobile 390**: los tres bloques
+  apilados y el gráfico abajo; `scrollWidth` 388 contra `clientWidth` 385 — los 3 px los aporta el dropdown de usuario
+  del topbar, **preexistente**; nada de `ov-tablero-*` ni `ov-grafo-*` se pasa del ancho. En teléfono las etiquetas del
+  gráfico se agrandan por media query, porque el SVG se escala al ancho de la tarjeta.
+
+**Del gráfico por niveles (2026-09-20)**, mismo portal y mismo modelo simulado (confirmado en el log de arranque):
+
+- **Director, sin actividad viva**: cuatro columnas rotuladas PERSONAS · AGENTES · TAREAS · CLIENTES, y la semana de
+  Contadores BMA se lee entera de izquierda a derecha — Dirección BMA y Gastón, sus 4 agentes, las tareas #205 a #202 y
+  los 2 clientes. Tocando el nodo `#204`: *«Tarea · #204 / Completada / Comunicación con el cliente trabaja en #204 /
+  #204 es para Cliente CUIT 30-70823732-5»* y el enlace *Ver la tarea*.
+- **Con actividad**: se creó una tarea con el modelo simulado (#220, coordinador del estudio sobre SERVICIO TERAPIA
+  RENAL) y la cadena apareció completa. El anillo que late, la etiqueta «en curso», las aristas vivas en color primario
+  y **el arco punteado de M7a dentro de la columna de agentes**, del coordinador al ayudante, se verificaron dibujados.
+- **Empleado (`gaston@bma.test`)**: ve **solo su cadena** — él, sus 3 agentes, sus 3 tareas y su cliente. Se buscó en el
+  HTML del tablero «Dirección BMA», «Cierre y balance», «SERVICIO TERAPIA», «#220», «#205», «Coordinador del estudio» y
+  el texto del pedido de prueba: **ninguno aparece**. La visibilidad de M2 sigue intacta dentro del gráfico.
+- **Sin actividad ninguna**: se comprobó el estado vacío real (los tres bloques con sus mensajes y el gráfico diciendo
+  «Cuando haya trabajo, acá se dibuja quién le pidió qué a quién»).
+- **Sin JavaScript**: el respaldo del servidor ahora se lee nivel por nivel — *«Personas · Gastón le pidió a … | Agentes
+  · Comunicación con el cliente trabaja en #204 | Tareas · #204 · Completada es para Cliente CUIT… | Clientes · …»*.
+- **Mobile 390**: los niveles se apilan como filas, flujo de arriba hacia abajo, con su rótulo cada una. `scrollWidth`
+  **385 contra `clientWidth` 385**: desapareció incluso el desborde de 3 px que quedaba, porque el SVG ya no se escala.
+  Se verificó además por `getBBox` que **ninguna etiqueta se sale del lienzo**.
+- **Tema oscuro** verificado: el hexágono de la tarea toma la superficie de la tarjeta y el halo de las etiquetas cambia
+  con el tema, igual que el resto.
+- **Consola: 0 errores, ninguna violación de CSP.** El único warning sigue siendo el de `apple-mobile-web-app-capable`.
+- **Datos de prueba borrados**: la tarea #220, su paso y sus 2 filas de `EventosUso`. Contadores BMA quedó con sus 4
+  tareas originales (#202–#205) y `eventosuso` con su máximo anterior (550). Para ver el estado vacío se corrió hacia
+  atrás la fecha de la tarea #201 del tenant 19 y **se restauró al valor exacto** (`2026-09-19 20:41:52.381619`).
+
+### Pruebas mínimas para QA
+
+1. Entrar como Director y como Empleado de la misma organización: el Empleado no puede ver en el gráfico ni en las
+   listas una tarea que no pidió él.
+2. Entrar como staff de Olvidata: tiene que seguir viendo la portada del backoffice, no un tablero vacío.
+3. Con una tarea corriendo, mirar el tablero sin recargar: tiene que aparecer y después desaparecer sola.
+4. Apagar JavaScript: los tres bloques y la lista de vínculos del gráfico tienen que seguir estando.
+5. Comparar el número de *Aprobaciones* del tablero con el contador del menú.
+6. Buscar el texto de un pedido dentro del HTML del tablero: no tiene que estar.
+7. Mobile 390 y tema oscuro.
+8. Una organización sin ninguna actividad todavía: los tres bloques tienen que estar igual, con sus mensajes.
+
+Del gráfico por niveles:
+
+9. Mirar el gráfico y leerlo en voz alta de izquierda a derecha: tiene que dar una frase («Gastón le pidió a Ingresos
+   Brutos, que trabaja en la #203, que es para tal cliente»). Los cuatro rótulos tienen que estar a la vista.
+10. Refrescar la pantalla varias veces: **ningún nodo se mueve de lugar**. Es el criterio central del pedido.
+11. Buscar una arista que apunte hacia la izquierda (o hacia arriba en mobile): **no tiene que haber ninguna**. La única
+    que no cruza de columna es la punteada de «le pidió ayuda a», y va siempre del coordinador al que ayudó.
+12. Una tarea sin cliente: la cadena tiene que cortarse en la columna de Tareas, sin flecha de salida.
+13. Una organización con muchas tareas: cada columna corta en 8 y dice «y N más» al pie, y ese cartel **tiene que
+    verse** (no quedar debajo del borde del dibujo).
+14. Achicar la ventana de a poco: al pasar por ~416 px el dibujo da vuelta los niveles de columnas a filas sin recargar
+    y **sin scroll horizontal**.
+15. Un nombre largo de cliente: la etiqueta se recorta con «…» y no se sale del recuadro, en escritorio y en teléfono.
+
+### Checklist de merge
+
+- [x] Build **0 errores, 0 advertencias**.
+- [x] Suite completa **625/625**, medida sin pipe (621 de línea base + 4 nuevos).
+- [x] Los 5 goldens de contexto, verdes y sin tocar.
+- [x] Sin migración EF.
+- [x] `Mcp` y `Cli` sin tocar.
+- [x] Sin commits; `git status` solo con los 9 archivos de M16.
+- [x] Datos de prueba creados en dev, borrados al terminar; la fecha que se movió, restaurada al valor exacto.
+- [x] Verificado en el navegador con los dos roles, en los dos temas y a 390 px.
+- [x] d3 sigue saliendo de jsdelivr; el test que compara los `<script src>` contra el `script-src` del CSP, verde.
+- [x] Los tres colores del gráfico, sin tocar y revalidados contra las dos superficies.
+- [ ] QA funcional (pendiente).
+
+### Riesgos y supuestos
+
+- El sondeo cada 15 s por pestaña abierta es el costo que acepta RT-M16-01. Si pesa, lo que corresponde es cachear por
+  organización unos segundos (no por usuario) o subir `Tablero:SegundosSondeo`.
+- El gráfico corta en **8 nodos por nivel** y cuenta "y N más" en cada columna. Con una organización grande el corte va
+  a ser lo normal: lo que entra es lo más reciente, así que se ve lo último y no una muestra al azar.
+- `NodoTableroDto.Trabajos` cuenta **participaciones** en las tareas dibujadas (un agente coordinador suma por cada
+  parte que pidió). Es el tamaño de la figura, no una métrica para leer.
+- **La disposición por niveles no minimiza cruces.** Con varias tareas sobre pocos clientes, las curvas que llegan a la
+  columna de clientes se cruzan. Se decidió no tocarlo: cualquier reacomodo por baricentro entra en tensión con el
+  criterio de Joaquín de que los nodos no se muevan, y el cruce de una curva molesta bastante menos que un nodo que
+  salta de lugar. Si alguna vez pesa, lo que corresponde es ordenar la columna de clientes por baricentro **a partir de
+  la base determinística**, no cambiar la regla de orden.
+- El tope por nivel y el ancho de la tarjeta son dos límites distintos: el servidor corta en 8 y el navegador puede
+  cortar antes si no le entran. Los dos suman al mismo cartel, así que el número siempre dice la verdad de lo que falta.
+- El "tablero de staff sobre todas las organizaciones" sigue fuera de alcance, como dice el análisis.
+
+# M15 — Ficha de rubro para el staff (Nucleo/Rubro enriquecida)
+
+Estado: **implementada 2026-09-18, pendiente de QA**. Entrada: pedido de Joaquín (la información de un rubro se veía a
+pedazos y **qué organizaciones lo tienen habilitado no se veía en ningún lado**). Repo:
+`C:\Sistemas\Olvidata Agentes Multi-rubro`, commit base `e248922`. **Sin migración EF. Solo lectura: ni un `<form>` de
+escritura ni un endpoint POST nuevo. Ninguna llamada a la API real, sin commits.** `Mcp` y `Cli` sin tocar.
+
+### La decisión de dónde ponerla: se enriquece `Nucleo/Rubro`, no se crea una pantalla nueva
+
+Una pantalla nueva habría repetido nombre, descripción, "incluido en todas las suscripciones", etapas y el desglose de
+artefactos — o sea, casi todo lo que `Nucleo/Rubro` ya mostraba. Dos pantallas que dicen lo mismo envejecen distinto y
+obligan a elegir cuál mirar. `Nucleo/Rubro` **ya es la ficha del rubro**: le faltaban tres cosas (el desglose por tipo
+con publicados/pendientes, quién lo tiene habilitado, y el estado de importación), no una pantalla.
+
+De paso se **eliminó una duplicación que ya existía**: la card suelta "Material de referencia" pasó a ser una fila del
+desglose, con su botón "Ver el material" en la fila. Antes había dos lugares donde se contaba el material.
+
+**Rubros como datos, no como ABM.** La pantalla no da de alta ni edita: un rubro sigue siendo un manifiesto del repo que
+entra con la consola Admin, versionado por hash, con diff, historial y gate de publicación. Eso quedó escrito en el
+resumen XML de `IFichaRubroService` y de `FichaRubroService` para que no se erosione.
+
+### Escaneo de reutilizacion
+| Fuente | Qué se tomó | Grado |
+|---|---|---|
+| `Views/Clientes/Details.cshtml` (vocabulario de licencias) | Las tres palabras Vigente / Vencida / Revocada y el criterio `!Revocada && VigenteHasta > ahora` → `NucleoTextos.EstadoLicencia` | Patrón |
+| `Helpers/PruebasTextos.cs` (M8) | Forma del helper de estado: tupla `(Texto, Icono, Clase)`, nunca color solo | Patrón |
+| `AgenteOrganizacionService.cs:89` | `IgnoreQueryFilters([AppDbContext.FiltroTenant])` para consultar licencias como staff | Literal |
+| `ClientesController.Index` | Exclusión de la organización interna (`!t.EsInterna`, RT-M8-11) | Literal |
+| `site.css` → `.ov-detail-grid` | Bloque de pares etiqueta/valor del resumen. **Sin una línea de CSS nueva** | Literal |
+
+No se agregó nada al catálogo de patrones: es una pantalla de detalle de backoffice, sin componente reutilizable nuevo.
+
+### Archivos y capas modificadas
+**Application**
+- `DTOs/AgentesDtos.cs`: `FichaRubroDto`, `DesgloseArtefactosDto`, `OrganizacionConRubroDto`.
+- `Interfaces/INucleoServices.cs`: `IFichaRubroService` (un solo método, `ObtenerAsync(slug)`).
+
+**Infrastructure**
+- Nuevo `Services/Nucleo/FichaRubroService.cs`. Cuatro consultas: última versión importada, versiones esperando
+  publicación, desglose por tipo y organizaciones habilitadas. Registrado en `DependencyInjection.cs`.
+
+**Web**
+- Nuevo `Helpers/NucleoTextos.cs`: nombre de cada tipo de artefacto (singular, plural, una línea de ayuda y clase de
+  badge), estado de licencia y fechas en hora argentina. Reemplaza los dos `switch` inline que había en la vista.
+- `Controllers/NucleoController.cs`: `Rubro(string id)` inyecta `IFichaRubroService` y pasa la ficha. Nada más.
+- `Models/AgentesViewModels.cs`: `NucleoRubroViewModel` suma `Ficha` y `AhoraUtc`.
+- `Views/Nucleo/Rubro.cshtml`: resumen, etapas (con estado vacío), "Qué trae este rubro", "Quién lo tiene habilitado" y
+  "Detalle de los artefactos".
+
+**Tests**: nuevo `tests/OlvidataAgentes.Tests/FichaRubroTests.cs` (6 tests).
+
+### Decisiones de implementacion
+- **DI-M15-1 — "Última versión importada", no "última importación".** No hay registro de importaciones, y un import que
+  no cambia ningún hash **no da de alta versiones**. Se informa lo que sí es verificable (el `CreatedAt` de la versión
+  más nueva) y el rótulo dice exactamente eso. Prometer "última importación" sería mentir en los casos aburridos.
+- **DI-M15-2 — Una fila por organización, con la mejor licencia.** Una organización puede tener varias licencias con el
+  mismo rubro. La fila responde "¿lo puede usar hoy?": gana vigente sobre vencida y vencida sobre revocada, y al lado va
+  "N licencias incluyen el rubro". El mismo orden ordena la tabla: las vigentes arriba.
+- **DI-M15-3 — "Pendientes" del desglose cuenta artefactos, no versiones.** La pregunta del staff es "¿me falta publicar
+  algo de este tipo?". El total de versiones esperando el gate va aparte, en el resumen de arriba.
+- **DI-M15-4 — `IgnoreQueryFilters([FiltroTenant])` aunque hoy sea redundante.** La sesión de staff ya llega con acceso
+  global (`ResolvedorSesion`), así que el filtro no filtra nada. Se ignora igual, por nombre y con comentario: la
+  intención queda escrita donde está la consulta y no depende de una decisión que vive en otro archivo. **El filtro de
+  borrado lógico sigue puesto.**
+- **DI-M15-5 — La consulta va en un service, no en el controller.** `NucleoController` consulta `_db` directo en otras
+  acciones, pero la única forma de probar la travesía del filtro de tenant en esta suite (que es de servicios, no de
+  controllers) es que la consulta viva en Infrastructure. Además es donde están todos los demás `IgnoreQueryFilters`.
+- **DI-M15-6 — `Clientes/Details.cshtml` no se tocó.** Podría usar `NucleoTextos.EstadoLicencia`, pero el helper agrega
+  un ícono y eso cambiaría una pantalla que QA ya validó. Queda como mejora menor, anotada abajo.
+
+### Migraciones EF
+Ninguna. No se agregó ni cambió una sola columna: todo sale de datos que ya estaban.
+
+### Evidencia de build y tests
+- `dotnet build OlvidataAgentes.slnx`: **0 errores, 2 advertencias** — las dos preexistentes (CS0114 en
+  `HomeController.StatusCode`, xUnit2013 en `ReglasPropuestasAgentesTests`).
+- `dotnet test`: **595 OK / 5 fallidos de 600**. Los 6 tests nuevos pasan.
+- **Los 5 fallos son PREVIOS a esta etapa y están en el commit `e248922`.** Verificado guardando los cambios con
+  `git stash` y corriendo la suite limpia: **589 OK / 5 fallidos de 594**, los mismos 5 tests. Son los **4 goldens de
+  contexto** (`AgentesOrganizacionTests`, `ConfiguradorReglasTests` ×2, `AsistenteDirectorTests`,
+  `M14GoldenYPantallasTests`) fallando con hash distinto desde el carácter 0. Nada de M15 toca el render del contexto.
+  **Queda como hallazgo para QA: la línea base real del repo no es 594/594.**
+
+### Verificación en el portal (dev, MODELO SIMULADO confirmado en el log de arranque)
+- `contable`: 2 organizaciones (Contadores BMA y Estudio Contable Demo), las dos vigentes al 16/09/2027; 10 agentes,
+  6 reglas sugeridas y 8 materiales, todos publicados, 0 pendientes.
+- `plataforma`: "Ninguna todavía" con la explicación de que es el rubro técnico y no se licencia; 1 versión esperando
+  publicación (es PA-13, el configurador v2 en Borrador).
+- `inmobiliario`, `estudio-software`: 200. Slug inexistente: 404.
+- Un Director de cliente (`socio@contable.test`) sobre `/Nucleo` recibe **403 Acceso denegado**.
+- Mobile 390: `scrollWidth == clientWidth` (385/385), **sin scroll horizontal de página**. Tema oscuro verificado.
+- **Cero `<form>` dentro de `<main>`** en los 4 rubros: el único formulario de la página es el logout del layout.
+
+### Riesgos y supuestos
+- La lista de organizaciones es de **todos los tenants por diseño**. Si alguna vez una policy de cliente llegara a esta
+  acción, mostraría datos de otras organizaciones. Hoy lo corta `[Authorize(Policy = "RequireAdministracion")]` a nivel
+  de controller (y sigue abierto PA-22: confirmar si el backoffice debería exigir `RequireSuperUsuario`).
+- Rendimiento: la consulta trae todas las licencias del rubro y agrupa en memoria. Con miles de licencias habría que
+  agrupar en SQL. Hoy son decenas.
+- `Nucleo/Index` sigue sin una columna de organizaciones: para saber quién usa un rubro hay que entrar a su ficha.
+  Deliberado (era eso o una segunda consulta cross-tenant en el listado); anotado como mejora.
+- `Clientes/Details.cshtml` mantiene su propio `if/else` de estado de licencia (DI-M15-6).
+
+### Pruebas minimas para QA
+1. Entrar como SuperUsuario a Núcleo IP → Contable y verificar contra la base: organizaciones con el rubro habilitado,
+   estado y fecha de vencimiento de cada licencia, y el total del encabezado.
+2. Revocar una licencia de una organización que tenga el rubro y recargar: la fila tiene que pasar a **Revocada** y caer
+   al final de la tabla.
+3. Una organización con dos licencias del mismo rubro (una vencida y una vigente): **una sola fila**, estado Vigente y
+   "2 licencias incluyen el rubro".
+4. Rubro `plataforma`: lista vacía con la explicación de que no se licencia.
+5. Entrar con un usuario de cliente a `/Nucleo/Rubro/contable`: **403**.
+6. Mobile 390 y tema oscuro: sin scroll horizontal de página, badges legibles, ningún enum crudo en pantalla.
+7. Confirmar que **no hay ninguna acción de escritura**: ni alta, ni edición, ni baja de rubros desde el portal.
+
+### Checklist de salida para merge
+- [x] Build 0 errores, advertencias iguales a la línea base.
+- [x] Tests nuevos verdes; los fallos restantes probados como preexistentes.
+- [x] Sin migración EF.
+- [x] Solo lectura verificada en el HTML servido.
+- [x] Policy `RequireAdministracion` heredada del controller; 403 probado con usuario de cliente.
+- [x] `IgnoreQueryFilters` por nombre y con comentario que dice por qué.
+- [x] Mobile 390 y tema oscuro.
+- [x] `Mcp` y `Cli` sin tocar. Sin commits.
+
+
+# D-M14-8 + PA-37 (el configurador propone instructivos) y PA-38 (el visto, por persona)
+
+Estado: **implementado 2026-09-17, pendiente de QA**. Entrada: `metadata.md` (PA-37, PA-38), `6-qa.md` → QA M14
+(DEF-M14-5 y DEF-M14-9) y `2-disenador-funcional.md` M14 (D-M14-8). Repo: `C:\Sistemas\Olvidata Agentes Multi-rubro`,
+commit base `78ac1f8`. **Dos migraciones EF: `PropuestaInstructivo` y `VistoPorPersona` (esta última CON DATOS).**
+**Ninguna llamada a la API real, sin commits.** `Mcp` y `Cli` sin tocar.
+
+Las dos eran las deudas que M14 dejó anotadas y que Joaquín aprobó cerrar juntas. La primera tenía un orden obligatorio:
+**el dispositivo antes que la guarda.** Si se cerraba el alta de reglas de tipo `Procedimiento` antes de darle al
+configurador dónde poner los pasos, su propuesta empezaba a fallar **en la cara del Director sin que él hubiera hecho
+nada mal**. Así que se hizo en tres pasos, en este orden: (a) la herramienta, (b) el prompt, (c) recién ahí la guarda.
+
+### (a) La herramienta: `proponer_instructivo`
+
+Se **reusa entero el circuito de tarjeta y botón de las propuestas de regla** (`PropuestaRegla` + `IPropuestaReglaService`
++ `_TarjetasPropuesta`), con un tipo nuevo `TipoPropuestaRegla.Instructivo`. No se armó un circuito paralelo: aplicar,
+descartar, "Aplicar todas", "ya resuelta", el token de concurrencia y el éxito parcial ya estaban resueltos ahí y
+duplicarlos era garantizar que se despeguen.
+
+- **La herramienta valida con los mismos textos del formulario** (`MensajesInstructivos.TituloVacio`, `PasosVacios`,
+  `LargoParaQueSirve`…). Están en castellano llano y no nombran ningún código, así que sirven igual para el modelo y para
+  "Ver pasos": no hacen falta pares nuevos en `MotivosParaLaPersona` (PA-29).
+- **Va siempre a toda la empresa.** El configurador configura la empresa, no las preferencias de nadie (el mismo criterio
+  que ya tenía con las reglas, RF-M4b-09). Un instructivo "Solo yo" se carga desde su pantalla.
+- **Al aplicarla se crea el instructivo en el MISMO guardado que la propuesta queda Aplicada**
+  (`IInstructivoService.CrearAsync(dto, origen)`), con el mismo manejo de "otro Director la resolvió primero" que las
+  reglas: `DbUpdateConcurrencyException` sobre `PropuestaRegla` → "ya resuelta" y el instructivo **no** se crea.
+- **"Editar y aplicar"** abre el formulario de instructivos precargado (`Instructivos/Crear?propuesta=id`), no el de
+  reglas: `DatosParaInstructivoAsync` es un método aparte y el formulario de instructivos **nunca** abre una propuesta de
+  regla (404). Cancelar vuelve a la conversación con la propuesta todavía pendiente.
+
+### (b) El prompt (`nucleo/plataforma/agentes/configurador-reglas.md`)
+
+Sección nueva **"Regla o instructivo: la pregunta que desempata"**, con la misma frase que ya usa la pantalla (*¿esto vale
+siempre, o solo cuando hago esta tarea?*), y se sacó la línea que mandaba a usar el tipo `procedimiento`. El prompt
+**sigue sin publicar** (PA-13): se reimportó y quedó como **versión 2 en Borrador** (`#110`; la `#65` sigue ahí). Nada se
+publicó. Los 4 goldens de contexto no se tocan: el test del configurador usa su propio texto de fixture, no este archivo.
+
+### (c) La guarda, recién ahora (PA-37 / DEF-M14-5)
+
+`ReglaService.CrearInternoAsync` rechaza `Tipo == Procedimiento` con `MensajesInstructivos.ProcedimientoNoSeCrea`, que
+dice **qué hacer en su lugar** en vez de "valor inválido". Es **solo el alta**: una regla que ya es procedimiento se
+sigue editando sin que le cambie el tipo en silencio (DI-M14-6), y las 4 que hay en dev quedan como están.
+
+La guarda equivalente está además **antes**, en las dos herramientas de propuesta: `proponer_regla_nueva` y
+`proponer_cambio_regla` ya no ofrecen `procedimiento` en su esquema y, si el modelo lo manda igual, contestan
+`MensajesAlModelo.ProcedimientoEsInstructivo` —que nombra `proponer_instructivo` para que se corrija solo— con su par
+redactado para la persona. **Esa es la razón del orden**: el Director no llega a ver una propuesta que después iba a
+fallar.
+
+### PA-38: el "visto" es de cada persona (DEF-M14-9)
+
+`EjecucionProgramada.VistoAt`/`VistoPorId` se fueron; entra
+**`EjecucionProgramadaVista (TenantId, EjecucionProgramadaId, UsuarioId, VistoAt)`** con índice único
+`(EjecucionProgramadaId, UsuarioId)` —que es a la vez la garantía contra el doble marcado y el índice por el que entra el
+contador— y `(TenantId, UsuarioId)`. La vuelta sigue siendo un registro inmutable: el visto **se le cuelga**, no la
+modifica (mismo criterio que `AvisoGasto` con los períodos de M6).
+
+- `MarcarVistoAsync` inserta una fila por persona; marcar dos veces (dos pestañas) **no es un error**: el resultado
+  buscado ya está. Solo devuelve "no existe" cuando la vuelta no es visible para quien la pide.
+- La bandeja y `ContadorResultadosViewComponent` preguntan por *lo que ESTA persona no vio*.
+- El índice viejo `(ProgramacionTareaId, VistoAt)` pasó a `(ProgramacionTareaId, ResueltaAt)`, que es como se ordena la
+  bandeja.
+
+**La migración con datos** (`VistoPorPersona`, la primera del módulo) copia las dos columnas a filas **antes** de
+borrarlas: crear la tabla → `INSERT … SELECT` → recién ahí `DROP COLUMN`. El `EXISTS` sobre `AspNetUsers` no es adorno:
+una marca de un usuario que ya no está no entraría por la FK y haría fallar toda la migración. La vuelta atrás rehace las
+columnas y copia **la primera persona que la vio** (el modelo viejo admite una sola).
+
+### Archivo por archivo
+
+**Domain.** `Enums/EnumsReglas.cs`: `TipoPropuestaRegla.Instructivo`. `Entities/PropuestaRegla.cs`: `ParaQueSirve` y
+`ResultadoInstructivoId`/`ResultadoInstructivo`. `Entities/Programaciones.cs`: sale el visto de `EjecucionProgramada`,
+entra `EjecucionProgramadaVista`.
+
+**Application.** `DTOs/ConfiguradorDtos.cs`: `ParaQueSirve`, `ResultadoInstructivoId`, `EsInstructivo`,
+`PuedeEditarYAplicar` con el tipo nuevo y `PropuestaInstructivoFormularioDto`. `DTOs/InstructivosDtos.cs`:
+`ProcedimientoNoSeCrea` y `PropuestaRegistrada`. `Motor/MensajesAlModelo.cs`: `ProcedimientoEsInstructivo`.
+`Interfaces/IInstructivoService.cs` (sobrecarga con `OrigenAplicacion`), `IPropuestaReglaService.cs`
+(`DatosParaInstructivoAsync`), `IProgramaciones.cs` (el visto, por persona).
+
+**Infrastructure.** `Services/Configurador/HerramientasConfigurador.cs`: `HerramientaProponerInstructivo` + las dos
+guardas de `procedimiento` + `PideProcedimiento`. `Services/Configurador/PropuestaReglaService.cs`: proyección, aplicar y
+`DatosParaInstructivoAsync`. `Services/Configurador/ResumenHerramientasConfigurador.cs` y `Services/Motor/MotivosParaLaPersona.cs`:
+el rótulo llano y el par de la herramienta nueva. `Services/Instructivos/InstructivoService.cs`: alta con propuesta.
+`Services/Reglas/ReglaService.cs`: la guarda del alta. `Services/Motor/ProveedorModeloSimulado.cs`: la segunda tarjeta
+del guion es un instructivo (y **solo si la versión del configurador ofrece la herramienta**: con una vieja el motor la
+rechazaría). `Services/Programaciones/ProgramacionTareaService.cs`: el visto por persona. Configuraciones EF y las dos
+migraciones.
+
+**Web.** `Controllers/InstructivosController.cs`: `Crear(propuesta)`, POST con `OrigenAplicacion` y vuelta a la
+conversación. `Models/InstructivosViewModels.cs` + `Views/Instructivos/Form.cshtml`: los dos hidden, el aviso y Cancelar.
+`Helpers/ConfiguradorTextos.cs` + `Views/Tareas/_TarjetasPropuesta.cshtml`: "Nuevo instructivo", *Para qué sirve* en vez
+de *Dónde aplica*, "Ver instructivo" y el link de editar. `ViewComponents/ContadorResultadosViewComponent.cs`.
+
+### Decisiones de implementacion
+
+- **DI-P37-1 Se extendió `PropuestaRegla` en vez de crear `PropuestaInstructivo`.** Una tabla nueva obligaba a clonar
+  tarjetas, acciones, permisos y concurrencia. Dos columnas nulas que solo usa un tipo son más baratas que dos circuitos
+  que se despegan.
+- **DI-P37-2 El tipo `procedimiento` se sigue LEYENDO aunque no se ofrezca.** Contestar "valor desconocido" no le diría
+  al modelo que existe `proponer_instructivo`. Se lee para poder redirigir.
+- **DI-P37-3 El configurador no puede leer los instructivos que ya existen.** No tiene `instructivos_listar` (es de
+  tareas de trabajo). Si propone un título repetido, la tarjeta queda **"No se pudo aplicar: Ya hay un instructivo con
+  ese título"** y se resuelve con *Editar y aplicar* cambiando el título — camino probado, no callejón. Sumarle la
+  lectura es chico y queda **anotado como pendiente**.
+- **DI-P38-1 Marcar algo ya visto devuelve éxito, no 404.** Lo que se pedía ya está; el 404 queda para la vuelta que esa
+  persona no puede ver.
+- **DI-P38-2 El helper de tests crea los procedimientos como dato, no por el servicio.** `EntornoReglas.CrearReglaAsync`
+  los crea como regla común y les deja el tipo viejo en la base: es exactamente el dato que dejó el alta de antes de M14,
+  que es lo que tienen los goldens y las 4 reglas de dev.
+
+### Evidencia
+
+`dotnet build OlvidataAgentes.slnx --no-incremental` → **0 errores, 2 advertencias** (las preexistentes:
+`HomeController.StatusCode` y el `xUnit2013` de M7a). `dotnet test` → **594/594**. Línea base verificada contra el commit
+`78ac1f8` en un worktree aparte: **587**; +6 tests nuevos y +1 caso que se suma solo al `[Theory]` del barrido de PA-29
+(la herramienta nueva entra en la lista que se recorre). **Los 4 goldens de hash de contexto intactos**: el `git diff` de
+`tests/` no toca una sola línea con `HashGolden`.
+
+Migraciones aplicadas a `olvidata_agentes_dev` y **verificadas por SQL, ida y vuelta**: para poder probar la copia de
+datos —en dev no había ningún resultado marcado— se simularon por SQL dos vistos (vueltas 8 y 19 de la org 1, marcadas
+por `dira@qa.test`), se migró (**2 filas** en `EjecucionesProgramadasVistas` con su tenant, persona y fecha; columnas
+viejas e índice borrados), se probó el `Down` (**las dos volvieron a las columnas** y la tabla desapareció) y se volvió a
+aplicar. Después se borraron esas dos filas de prueba: **el entorno quedó como estaba** (0 vistos, 11 vueltas, 33
+propuestas, 0 instructivos, 4 reglas `Procedimiento`, 154 tareas, 493 eventos). Organizaciones 1, 4, 18, 19 y 20 intactas.
+
+Prompt reimportado: `1 versiones nuevas, 4 sin cambios`; configurador **#110, Numero 2, Borrador**; 51 versiones
+publicadas, las mismas de antes. Portal levantado en Development con **MODELO SIMULADO confirmado** en el arranque.
+
+### Pendientes que deja
+
+- **El configurador sigue sin versión publicada (PA-13)**, así que *"Configurar conversando"* no está disponible en el
+  portal: **este flujo no se puede recorrer en el navegador** hasta que Joaquín publique el prompt. Lo verificado son los
+  tests.
+- **`Anthropic:Simulado` no está en `appsettings.Development.json` (dice `false`) ni en los user-secrets**, donde sí está
+  la API key real: el portal solo queda en simulado si se arranca con `Anthropic__Simulado=true`. El que estaba corriendo
+  al empezar **no lo tenía**. Conviene fijarlo en dev.
+- **DI-P37-3**: darle al configurador la lectura de los instructivos que ya existen.
 
 # Correcciones de la QA de M14 (DEF-M14-1, 2, 4, 6, 7 y 12)
 
@@ -2346,6 +3007,35 @@ Estado: **implementada 2026-09-14, pendiente de QA (etapa 6)**. Entrada: `1-anal
 - Deuda fuera de alcance: el staff no tiene UI para cambiar nombre/email/rol/estado de un miembro (P-08 es solo lectura + alta); `Users/*` y `Clientes/Index` del template conservan textos sin tildes y tabla no DataTables; el resolvedor no mira `Tenant.Estado` (organización suspendida); herramienta `dotnet-ef` 10.0.2 más vieja que el runtime 10.0.9.
 
 ## Historial de ajustes
+- 2026-09-21: **Anatomía de agentes (catálogo + ficha), 4 etapas con commit local cada una.** Diseño `docs/diseno-anatomia-agentes.md` aprobado por Joaquín con D1 (bloque `ficha:`), D2 (contexto real solo SuperUsuario y auditado) y D3 (título + `resumen_publico`).
+  - **E1 (16480a3):** `IResolvedorHerramientas` extraído de `ProcesadorTareas` sin cambio de comportamiento (mismo conjunto y orden; `Todas` anota familia, condición y si se ofrece) + `DescripcionesHerramientas` (rótulo y "qué hace" llanos) con test de cobertura sobre el registro.
+  - **E2 (6614cc9):** `Agentes/Ficha` y `Agentes/Detalle` en 7 pestañas, `IFichaAgenteService` (DTO del cliente sin campo para texto del núcleo), catálogo con "Ver ficha", etapas, coordinador primero. Herramientas en lenguaje llano también en detalle y formulario. Portal real en tests con `WebApplicationFactory` y centinelas en todas las URLs de cliente (CP-AA-01).
+  - **E3 (437133c):** `Nucleo/Agente` y `Nucleo/ContextoArmado` (staff), `IAnatomiaAgenteService` con rol re-verificado adentro; B1 sin organización byte a byte el de una tarea; con organización el mismo hash que una tarea creada ahora, solo SuperUsuario y con fila en `AuditLog`.
+  - **E4 (e573151):** importador lee `ficha:`, `resumen_publico` y todas las etapas del manifiesto. **Migración `AnatomiaAgentes`** (`Artefactos.FichaJson` longtext, `Artefactos.ResumenPublico` varchar 500, tabla `ArtefactoEtapas`), aplicada en `olvidata_agentes_dev`; reimportados contable y plataforma contra MySQL dev: **0 versiones nuevas**. Fichas escritas para los 10 agentes de contable y los 2 de plataforma; resumen público para las 3 reglas de plataforma.
+  - DI-AA-1: la ficha y el resumen viven en `Artefacto`, fuera del cuerpo versionado: no cambian el hash de versión ni los goldens. DI-AA-2: la colección de tests del portal corre sin paralelo y el csproj de tests excluye los appsettings del portal (su `Production.json` rompía `ServidorLocalDePrueba` con 400 "Invalid Hostname"). DI-AA-3: CSS `ov-capa*` en `site.css` (donde viven las clases de M4), no en `olvidata-theme.css`.
+  - Evidencia (sin pipe): línea base 653/654 (el flaky conocido de `LectorDocumentosTests`); E1 659/659, E2 671/671, E3 680/680, **E4 685/685**. Goldens intactos. Sin llamadas a Anthropic, sin deploy.
+  - Pendiente: QA funcional y visual (CP-AA-12: 390 px y tema oscuro; el MCP de Playwright no conectó). En producción: aplicar la migración y reimportar contable y plataforma para cargar fichas, resúmenes y etapas.
+- 2026-09-21: **PA-05 — backoffice del SuperUsuario.** Editar organización (sin slug), pausar/reactivar/dar de baja con confirmación que cuenta lo afectado, extender licencias, editar miembros (nombre, email, rol, área, bloqueo) y generar contraseña de una sola vez, todo con `RequireSuperUsuario` y verificación en el service. Una organización no activa **frena al motor** en tres puntos (reclamo, bucle antes de cada llamada, reclamo de programaciones) sin cancelar nada. Cambio deliberado en programaciones de empresas suspendidas (DI-PA05-3). Sin migración, 641/641, goldens intactos. Decisiones DI-PA05-1..11.
+- 2026-09-19: **Fines de línea fuera del hash del contexto (cierra el hallazgo abierto de la entrada de abajo).** El prompt de sistema salía con los saltos mezclados: las declaraciones `<precedencia>` de `ConstructorContexto.cs` son literales crudos (`"""`) y el compilador de C# conserva el fin de línea **del archivo fuente**, mientras todo el resto del render usa `\n`. Confirmado que era peor de lo anotado: `git ls-files --eol` da `i/lf w/crlf`, o sea que **el índice de git ya guarda LF y el working tree CRLF** — un build desde CI, desde Linux o desde un clon con `core.autocrlf=false` ya producía otro hash que el de esta máquina. Se normalizó ahora, que es el momento barato (nada desplegado; las tareas de dev y demo son descartables).
+  - **Dónde se arregló: en `BloqueSistema` (`src/OlvidataAgentes.Application/Motor/ModeloConversacion.cs`), no en los literales.** El record normaliza a LF al construirse (`\r\n` y `\r` sueltos) y expone `Texto` de **solo lectura sobre un campo privado**: no hay setter, no hay `with`, no hay forma de construir un bloque con CRLF. Se eligió el tipo y no cada literal porque el texto del bloque es exactamente lo que entra a `CalcularHash`, y así queda cubierto todo constructor presente y futuro — los 4 formatos, `RevisorAutomatico` (que también arma su prompt con un literal crudo) y `ProcesadorTareas`. **No puede volver a romperse por una herramienta de formateo**: `dotnet format`, "normalizar saltos de línea" del editor o un `core.autocrlf` distinto ya no tienen por dónde llegar al hash, y el arreglo no depende de que nadie se acuerde de nada. Encaja con el patrón que el repo ya usa en las **entradas** (`ReglaService`, `AgenteOrganizacionService`, `ImportadorRubro` ya normalizan al guardar); esto es el último filtro en la **salida**.
+  - **DI-CRLF-1:** no se tocó `ConstructorContexto.cs` (queda sin cambios, byte a byte) ni se agregó una regla `eol` al `.gitattributes` para los `.cs`: el arreglo es de código, no de configuración de checkout, así que vale también para quien clone con otra configuración.
+  - **Los 5 goldens recalculados, y el diff se lee claro: los `.txt` no cambiaron ni un byte.** Regenerados con `OLVIDATA_GOLDEN_REGENERAR=1`, `git status` de `tests/OlvidataAgentes.Tests/Goldens/` quedó vacío. Los 5 tests fallaron **solo en `VerificarHash`** (nunca en `VerificarTexto`), que es la prueba de que el único cambio son los saltos de línea. Hashes nuevos en `Infra/Golden.cs`: formato-1-cm-panaderia `782c9568…`→`5117f901…`, formato-1-tasador-ferreteria `5553ed2e…`→`37218376…`, formato-2-agente-organizacion `3b2656b6…`→`a4094bf7…`, formato-3-configuracion `dde29dcb…`→`bea8f773…`, formato-4-asistente `10be2a34…`→`039c7e7b…`.
+  - **La defensa se reemplazó por una que no tiene número que corregir.** `CasoGolden.VerificarFinDeLinea` contaba CRLF esperados (10/10/10/8/9) y el parámetro `SaltosCrLf` desapareció del record: ahora exige **cero retornos de carro** en el contexto armado y, si falla, dice en castellano que se arregla en `BloqueSistema` y nunca en el assert.
+  - **Test permanente nuevo** `ConstructorContextoTests.El_fin_de_linea_del_texto_de_origen_no_entra_al_prompt_de_sistema_ni_al_hash`: mete el CRLF a propósito, así que **no depende de cómo esté guardado el checkout** (la guarda de cero CR sola no alcanzaría en un clon con LF). Comprueba el bloque (`\r\n`, `\r` y `\n` dan el mismo bloque y por lo tanto el mismo hash) y además de punta a punta, guardando el prompt del agente con CRLF en la base y verificando que el contexto armado y el hash no se mueven.
+  - **Verificación pedida por Joaquín, hecha a mano sobre el archivo fuente:** `ConstructorContexto.cs` convertido a **LF puro** (`i/lf w/lf`, 0 bytes CR) → 32/32 verde; convertido a **CRLF** (515 CR / 515 LF) → 32/32 verde, con los mismos hashes. El archivo se restauró y `cmp` lo confirma idéntico al original. **El hash no se movió en ninguno de los dos casos.**
+  - **Aceptado:** las tareas y conversaciones que ya existen en dev y demo dejan de reconstruir su hash y sus seguimientos fallan sin llamar al modelo. No se migró nada, por decisión.
+  - Sin migración EF. Tres archivos tocados (`ModeloConversacion.cs`, `Infra/Golden.cs`, `ConstructorContextoTests.cs`); `Mcp` y `Cli` sin tocar. Sin commits.
+  - **Evidencia medida sin pipe** (`dotnet test > archivo 2>&1`, leyendo el resumen impreso): línea base **Con error: 0, Superado: 600, Total: 600**; tras el cambio **Con error: 5** (los 5 goldens, solo por hash) sobre 601; final **Con error: 0, Superado: 601, Omitido: 0, Total: 601**. `dotnet build OlvidataAgentes.slnx`: 0 errores, **0 advertencias**.
+- 2026-09-19: **Goldens de contexto: texto versionado + constantes recalculadas.** Diagnóstico confirmado: no había regresión del producto — el render nunca cambió y las 7 constantes `HashGolden*` (5 valores distintos, 2 duplicados literalmente entre `AgentesOrganizacionTests` y `M14GoldenYPantallasTests`) **nacieron mal y nunca coincidieron con ningún estado del repo**. Se verificó primero que el texto actual es *correcto* (orden de las 9 secciones, rótulos coherentes con lo que nombra `<precedencia>`, escapado de `&`/`<`/`>` en reglas e instrucciones de la empresa, y nada que no deba estar: sin instructivos, sin herramientas, sin búsqueda web, sin ids de tenant ni de usuario), y recién después se recalcularon los hashes desde el texto real.
+  - **Lo principal: el texto ahora se versiona.** `tests/OlvidataAgentes.Tests/Goldens/*.txt` guarda el contexto renderizado de los 5 casos (formatos 1×2, 2, 3 y 4) con sus bloques y su marca de caché. El test **compara el texto y además el hash**, y **el texto primero**: al fallar deja el contexto nuevo en `<nombre>.actual.txt` y el mensaje trae el `git diff --no-index` listo para pegar. Verificado rompiendo el render a propósito: el diff muestra en castellano el rótulo que cambió, en vez de dos hexadecimales.
+  - Todo centralizado en `tests/OlvidataAgentes.Tests/Infra/Golden.cs` (`Goldens` + `CasoGolden`), con el comentario de qué garantiza cada golden y qué hacer si falla. **Se eliminó la duplicación de constantes**, que es cómo `HashGoldenTasadorFerreteria` estuvo mal sin que se notara: el assert anterior fallaba primero y lo tapaba.
+  - Regeneración explícita con `OLVIDATA_GOLDEN_REGENERAR=1` (reescribe los `.txt` y deja el hash en un `.hash.tmp`); en ese modo no se verifica nada, así que el verde que cuenta es el de la corrida siguiente sin la variable.
+  - **Hallazgo — CERRADO el 2026-09-19** (ver la entrada de arriba: se normalizó en `BloqueSistema` y se recalcularon los 5 hashes). Lo que se había detectado: el hash depende de los **fines de línea de `ConstructorContexto.cs`**. Las declaraciones `<precedencia>` son literales crudos (`"""`) y el compilador de C# conserva el fin de línea del archivo fuente, que está en CRLF; todo el resto del render usa `
+`. Un `dotnet format`, un "normalizar saltos" del editor o un clon con otro `core.autocrlf` cambia **los 5 hashes a la vez sin cambiar una letra del texto** — y es la explicación más probable de por qué las constantes nacieron mal. Queda cubierto por `CasoGolden.VerificarFinDeLinea`, que cuenta los CRLF y avisa en castellano. **Normalizar los literales a `
+` volvería el hash independiente del checkout, pero cambia los 5 hashes y rompe la reconstrucción de las tareas ya guardadas: se deja a criterio de Joaquín.**
+  - Sin migración EF. `Mcp` y `Cli` sin tocar. Sin commits. Los cambios sin commitear de M15 quedaron intactos.
+  - **Evidencia medida sin pipe** (`dotnet test > archivo 2>&1` + `$?`): línea base **595 OK / 5 fallidos de 600** (los 5 goldens), resultado final **600/600, `EXITCODE_REAL=0`, 0 `[FAIL]`**.
+- 2026-09-18: M15 ficha de rubro para el staff. Se enriqueció `Nucleo/Rubro` en vez de crear una pantalla nueva (evita dos pantallas casi iguales) y se absorbió la card duplicada de material de referencia. Nuevos `IFichaRubroService`/`FichaRubroService` y `NucleoTextos`; la lista de organizaciones cruza el filtro de tenant con `IgnoreQueryFilters([FiltroTenant])` justificado. Sin migración, solo lectura, 6 tests nuevos. Decisiones DI-M15-1..6. **Hallazgo: los 4 goldens de contexto ya fallaban en `e248922` (589/594), no es regresión de esta etapa.**
 - 2026-09-14: Implementación de M2 Organización (Domain→Application→Infrastructure→Web), migración `OrganizacionM2` aplicada y verificada en MySQL dev, 13 tests nuevos (48/48 OK). Decisiones DI-1..DI-11. PAT-027 completado en el catálogo.
 - 2026-09-14: Implementación de M3 Reglas por alcance: `Regla`/`ReglaEvento`, `ReglaService`, `ConstructorContexto` (3 bloques con caché, instantánea por ids + hash verificado en el motor), vista previa y reglas aplicadas, rubro técnico `plataforma` (3 reglas en Borrador en dev). Migración `ReglasM3` aplicada y verificada con SQL y EF contra MySQL real (transacciones revertidas). 13 tests nuevos (61/61 OK). Decisiones DI-M3-1..17. PAT-028 completado en el catálogo.
 - 2026-09-14: Implementación de M3b Seguir conversando: ajustes del autor con re-apertura atómica, normalización de la conversación, pasos por turno, `CierreTurno`, caché en el último mensaje, detalle como conversación, reglas cambiadas, preferencias ajenas ocultas, listado con mensajes y última actividad, modelo simulado solo en Development. Migración `ConversacionM3b` aplicada y verificada con SQL y EF contra MySQL real (37 pasos, 0 restos). 22 tests nuevos (83/83 OK). Decisiones DI-M3b-1..13. PAT-029 completado en el catálogo.
