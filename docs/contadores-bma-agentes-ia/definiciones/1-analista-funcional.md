@@ -1,6 +1,6 @@
 # Analista Funcional — contadores-bma-agentes-ia
 
-Estado: EN CURSO — Discovery iniciado 2026-08-30
+Estado: **ANÁLISIS CERRADO 2026-09-23** — Discovery iniciado 2026-08-30, relevamiento estructural y research técnico incorporados el 2026-09-23, cuestionario de cierre respondido por Joaquín el mismo día.
 
 ---
 
@@ -69,6 +69,76 @@ La Variante A es la que generaría el mayor punto de dolor automatizable (carga 
 3. **Presentaciones impositivas repetitivas** (IVA, IIBB CM03/CM05) armadas hoy revisando datos de Bejerman y cargando a mano en SOS — automatizable vía la API de SOS Contador, en la capa de adaptadores.
 4. **Bot de consultas combinado**: la base de ayuda de SOS Contador está bien estructurada por módulo (a diferencia de la documentación de Bejerman/Onvio, más dispersa) — buen candidato a cargar primero en el bot de soporte, junto con los manuales de Bejerman ya contemplados.
 
+## Relevamiento estructural del estudio (aportado por Joaquín, 2026-09-23)
+
+Este bloque responde varias preguntas abiertas y **cambia el modelo de entrega del proyecto**. Es el aporte que le da
+forma al estudio: hasta acá el proyecto era una hipótesis de plataforma a medida; con esto pasa a ser una configuración
+del producto propio de Olvidata.
+
+### Las tres ramas del estudio
+
+El estudio se organiza en tres ramas de la contaduría. Todo está relacionado; el objetivo declarado es **estandarizar la
+forma de trabajo para que todos trabajen igual y darle un lineamiento al estudio**.
+
+| Rama | Qué hace | Sistema que usa | Contra qué corrobora |
+|---|---|---|---|
+| **Contabilidad** | Balances, conciliaciones | SOS Contador | ARCA |
+| **Impuestos** | IVA, Ingresos Brutos, liquidaciones a empresas, retenciones, pagos | SOS Contador | ARCA |
+| **Sueldos** | Liquidación de remuneraciones | **ONVIO de Bejerman** | Web de **ARBA** (convenio multilateral, locales y demás datos) |
+
+### El circuito real de Contabilidad e Impuestos, y dónde está el dolor
+
+SOS Contador **importa desde ARCA** todos los movimientos declarados de las empresas: pagos, facturas, todo. El usuario
+después **corrobora esos datos contra ARCA** para constatar que la información quedó bien cargada, porque **el sistema
+suele fallar**: facturas duplicadas, facturas que están en ARCA y no aparecen en SOS Contador, y casos equivalentes.
+
+Esa corroboración manual, repetida por empresa y por período, es **el punto de dolor nuclear del proyecto** — y es la
+tarea que más justifica todo lo demás. No es una tarea de criterio: es una comparación de dos conjuntos de comprobantes
+que hoy se hace a ojo.
+
+> **Camino de crecimiento identificado:** integrar ARCA por **web services**. Textual del relevamiento: *si se puede
+> automatizar las consultas se resuelve la mayor parte de la operatoria*. Queda como evaluación técnica (ver preguntas
+> abiertas 8 y 9), no como supuesto: el estudio tiene experiencia con ARCA en el lado de **emisión** (WSFEv1, ver
+> `34-integracion-afip-arca.instructions.md` y los proyectos marihogar / delicias-naturales / la-platense), que **no es
+> el mismo servicio** que consultar los comprobantes recibidos de un tercero.
+
+### El modelo de entrega cambia: el usuario releva, Olvidata destraba
+
+Definición de Joaquín, y es la que ordena todo el diseño:
+
+- **Cada usuario es el encargado de hacer su propio análisis funcional** de lo que necesita resolver. No hay un
+  relevamiento central de Olvidata tarea por tarea: la herramienta que lo hace posible es el **analista de
+  automatizaciones** (M15 del producto, publicado 2026-09-23), que conversa con cada persona, encuentra lo que repite y
+  le deja propuesto el instructivo, la regla, la tarea programada y el agente propio.
+- **Olvidata queda como respaldo**, no como implementador de cada tarea: entra solo para las **implementaciones de
+  configuración necesarias para destrabar un problema técnico de compatibilidad**, con scripts o código que resuelvan el
+  problema puntual (un formato que no parsea, un conector que falta, un agente base nuevo).
+- Para que ese autoservicio no sea "cada uno hace lo que quiere", **el sistema tiene que tener cargada la documentación
+  de ARCA y ARBA**: es lo que acota hasta dónde llega el alcance de lo que cada usuario define, y lo que permite que la
+  automatización de la operatoria diaria se construya en conjunto y no a los tumbos.
+
+**Consecuencia directa:** el proyecto deja de ser una plataforma a medida (servidor central + Claude Agent SDK + agente
+liviano por PC, hipótesis del research inicial) y pasa a ser **una configuración del producto `olvidata-agentes-multirubro`**
+— multi-tenant .NET, ya construido, con M10 (conocimiento por rubro), M11 (conectores), M12 (programaciones), M14
+(instructivos) y M15 (analista de automatizaciones). El trabajo de Olvidata se concentra en el **rubro contable del
+núcleo** y en los conectores, no en construir una plataforma nueva. Esto **requiere confirmación explícita** antes de
+cerrar Análisis (pregunta abierta 10): invalida buena parte del plan de 5 fases de arriba, que se escribió sobre la
+hipótesis anterior.
+
+### Qué queda resuelto de las preguntas abiertas
+
+- **Pregunta 6 — RESUELTA, con una variante que no estaba prevista.** No es (A) traslado Bejerman→SOS ni (B) carteras
+  separadas: la división es **por rama de trabajo**. Contabilidad e Impuestos viven en SOS Contador; Sueldos vive en
+  ONVIO de Bejerman. Los dos sistemas conviven en el mismo cliente, sin traslado de datos entre ellos.
+- **Pregunta 7 — RESUELTA.** Sueldos se liquida en **ONVIO de Bejerman**. No hay doble carga de sueldos en SOS Contador,
+  así que el punto de dolor 2 de la sección anterior **queda descartado**.
+- **Pregunta 4 — PARCIALMENTE RESUELTA.** Aparece la tarea nuclear (corroboración SOS ↔ ARCA) y el circuito de Sueldos
+  (ONVIO ↔ ARBA). Sigue faltando el catálogo por persona, que ahora **lo produce el propio analista de automatizaciones**
+  en vez de una reunión de relevamiento — ese es el cambio de modelo.
+- **El bloqueo contractual de Thomson Reuters pierde centralidad.** Onvio queda acotado a Sueldos, y lo que hay que
+  automatizar de esa rama es la **constatación contra ARBA**, no el acceso a Onvio. Las preguntas 2 y 3 siguen abiertas,
+  pero ya no bloquean el grueso del proyecto.
+
 ## Preguntas abiertas — bloquean el cierre de Discovery/Análisis
 
 1. ~~¿Qué línea de Bejerman tiene instalada Contadores BMA?~~ **RESUELTA 2026-08-30**: Bejerman Web (cloud), no Premium/ERP on-premise.
@@ -78,6 +148,137 @@ La Variante A es la que generaría el mayor punto de dolor automatizable (carga 
 5. Cantidad de empleados/puestos de trabajo reales que usarían el sistema.
 6. **¿Cómo se complementan Bejerman Web y SOS Contador en el flujo real del estudio?** Dos variantes a confirmar (ver sección "SOS Contador" arriba, marcadas como **hipótesis a validar**): (A) Bejerman genera los datos de gestión/sueldos y el estudio los traslada a mano hacia SOS Contador para liquidar y presentar impuestos — ej. "cargo las ventas del mes en Bejerman, después las vuelvo a tipear/importar en SOS para armar el IVA"; o (B) cada sistema es autocontenido para una cartera de clientes distinta, sin traslado de datos entre uno y otro — ej. "los clientes con Bejerman quedan en Bejerman, los que están en SOS quedan en SOS, no se mezclan". La respuesta define si corresponde construir el adaptador de traslado Bejerman→SOS como parte de la Fase 0-1.
 7. **¿El estudio usa el módulo de Sueldos de Bejerman, el de SOS Contador (Sueldos v2), o ambos para el mismo cliente?** Ej. variante 1: "todo sueldo se liquida en Bejerman, SOS Contador no se usa para esto" (sin duplicación); variante 2: "liquidamos en Bejerman y después cargamos de nuevo en SOS para que quede en la contabilidad" (duplicación de carga, candidato directo a automatizar).
+
+8. ~~¿Qué web service de ARCA cubre la consulta de los comprobantes de un contribuyente?~~ **RESUELTA 2026-09-23: no existe.** Ver el research. Queda como estaba escrita, abajo, para que se vea qué se preguntó:
+   ~~ El estudio necesita leer lo
+   que ARCA tiene declarado (lo que SOS importa) para compararlo. La experiencia previa de Olvidata es de **emisión**
+   (WSFEv1), que no sirve para esto. Hay que confirmar contra la documentación oficial de ARCA qué servicio expone los
+   comprobantes recibidos/emitidos de un CUIT, con qué alcance y con qué límites, y **qué habilitación y qué delegación
+   de clave fiscal** necesita el estudio para consultar por sus clientes. Es el dato que decide si la tarea nuclear se
+   resuelve por conector o sigue dependiendo de un archivo exportado a mano.
+9. **PARCIALMENTE RESUELTA 2026-09-23** (regímenes generales sí; Convenio Multilateral va por COMARB, a verificar). ¿Qué expone ARBA por servicio y qué solo por web? Para Sueldos hay que constatar convenio multilateral, locales y
+   otros datos. Confirmar qué padrones tienen consulta automatizada y cuáles solo pantalla.
+10. **¿Se confirma que el proyecto se entrega como configuración de `olvidata-agentes-multirubro`** y no como plataforma
+    a medida? Es la decisión que reescribe el plan de fases y el presupuesto. (Ver "El modelo de entrega cambia".)
+11. **¿Cuántas personas hay por rama y quién usa qué?** Sigue abierta la pregunta 5 (cantidad de puestos), ahora con la
+    apertura por rama: define cuántas licencias y cuántos relevamientos propios se esperan.
+12. ~~¿SOS Contador expone por API los comprobantes ya importados?~~ **RESUELTA 2026-09-23: sí, los recibidos.** Si sí, la comparación contra ARCA se puede hacer
+    entre dos conectores sin ningún archivo de por medio. La API existe y es pública (ver research arriba); falta
+    confirmar que cubre este caso.
+
+## Resultado del research de ARCA, ARBA y SOS (2026-09-23)
+
+Detalle completo y fuentes: [research-arca-arba-sos-2026-09.md](../research-arca-arba-sos-2026-09.md).
+
+**El hallazgo que explica todo:** la documentación oficial de SOS Contador dice que su importación automática
+(**Autoimpo**) *"recupera comprobantes con una antigüedad máxima de 12 a 15 días hacia atrás"* y que los más viejos
+*"no se volverán a importar automáticamente"*. **Los faltantes no son un bug: son una limitación documentada del
+producto.** Todo comprobante que un proveedor carga tarde en ARCA nunca entra solo. El control contra ARCA que hace el
+estudio es, con esta configuración, estructuralmente necesario.
+
+La misma fuente dice que SOS **deduplica por CAE**, así que los duplicados probablemente vienen de mezclar Autoimpo con
+importación manual, o de comprobantes sin CAE. **A confirmar con el estudio.**
+
+- **Pregunta 8 (ARCA) — RESUELTA, y en contra de lo esperado.** **No existe** un web service de ARCA que devuelva la
+  lista de comprobantes recibidos: el catálogo oficial (50+ servicios) no lo tiene. Lo más cercano es **WSCDC**
+  (constatación: valida un comprobante puntual, no lista nada). **Mis Comprobantes es un servicio del portal web**, con
+  clave fiscal, que exporta a Excel/CSV hasta 365 días por consulta. → **El conector de ARCA se cae del alcance.** El
+  control se hace igual, con el archivo que la persona baja: acción humana, sin problema contractual ni credenciales de
+  terceros. Lo único que no se puede es evitarle ese paso.
+- **Pregunta 9 (ARBA) — RESUELTA A MEDIAS.** Las alícuotas de percepción/retención de **regímenes generales** y el
+  padrón de IIBB **sí** tienen servicio web (consulta por CUIT y período, sin operador). Pero el **Convenio
+  Multilateral** —justo lo que nombró el relevamiento— va por **COMARB**, que es otro organismo: **queda por verificar.**
+- **Pregunta 12 (SOS) — RESUELTA A FAVOR.** La API existe, usa token y **sí lista los comprobantes recibidos**:
+  `GET /compra/listado/:periodo` y `POST /compra/consulta`, más `/compra/detalle/:id` y `PUT`/`DELETE /compra/:id` para
+  corregir. **Consecuencia: el cruce necesita UN solo archivo** (el export de ARCA), porque el lado SOS entra por API.
+  **Límite:** no hay endpoint de **ventas** — los emitidos siguen necesitando export, pero no es donde está el dolor.
+  Endpoints y autenticación en `.github/instructions/37-servicios-externos-fiscales.instructions.md`.
+
+## Respuestas del cierre de Análisis (Joaquín, 2026-09-23)
+
+Cuestionario completo en [cuestionario-cierre-analisis.md](../cuestionario-cierre-analisis.md).
+
+### Modelo y alcance — CONFIRMADO
+
+- **A1: SÍ.** Se entrega como **configuración del producto `olvidata-agentes-multirubro`**. Queda cerrada la pregunta 10
+  y con ella el cambio de modelo: **el plan de 5 fases de agosto queda derogado** (estaba escrito sobre la hipótesis de
+  plataforma a medida).
+- **A2: las tres ramas** desde el arranque (Contabilidad, Impuestos, Sueldos).
+- **A3:** el conversor de sueldos ya entregado **se absorbe más adelante**, no ahora. Sigue en producción como está.
+
+### Gente — 6 personas, 4 de ellas Directores
+
+| Persona | Usuario | Rama / rol |
+|---|---|---|
+| Marcial Bourdin | `mbourdin@contadoresbma.com.ar` | **Director** · piloto |
+| Maximiliano Mendy | `mmendy@contadoresbma.com.ar` | **Director** |
+| Andrea Puglisi | `sueldos@contadoresbma.com.ar` | **Director** · Sueldos |
+| Gastón | (ya tiene usuario) | **Director** · piloto |
+| Marcela Videla | `marcelavidela80@gmail.com` | Empleada |
+| Daniela Videla | `danividela.91.21@gmail.com` | Empleada |
+
+- **B1:** 2 personas por rama (Contabilidad, Impuestos, Sueldos). **Todos usan todos los agentes**, salvo los **agentes
+  propios de los Directores**, que quedan personales. → En el producto esto sale solo: un agente de la organización con
+  visibilidad **Personal** lo ve únicamente su creador; con visibilidad **Organización**, todos. No hace falta nada nuevo.
+- **B2: ~100 empresas** en cartera, **20 de Convenio Multilateral**.
+- **B4:** el piloto lo hacen **Marcial y Gastón**.
+
+> **Observación para tener presente, no es un bloqueo.** 4 Directores sobre 6 personas es una proporción alta. En el
+> producto, Director habilita aplicar lo que alcanza a **toda la empresa** (instructivos y reglas de todos, programaciones
+> a nombre de otro, publicar agentes para la empresa, topes de gasto). Con 4 personas pudiendo hacerlo, el lineamiento
+> depende de que se pongan de acuerdo entre ellos — que es justamente lo que el proyecto quiere estandarizar. **Sugerencia:
+> arrancar el piloto con Marcial y Gastón como Directores y sumar a los otros dos cuando el criterio esté asentado.**
+> Es reversible en cualquier momento desde la consola.
+
+### Accesos — todo disponible, con una alerta
+
+- **C1: la delegación de clave fiscal ya la tiene el estudio.** → El camino de ARCA queda habilitado (para lo que ARCA
+  expone, que no incluye listar comprobantes).
+- **C2: sí**, tienen credenciales de ARBA.
+- **C3: sí**, hay acceso de estudio a la cartera en SOS.
+- **C4:** sería la **primera vez** que usan la API de SOS. → Prever una prueba de la API contra una CUIT real antes de
+  construir encima: nunca se ejerció en este estudio.
+
+> 🔴 **ALERTA — credenciales en archivos.** Tanto en C1 como en C2 la respuesta fue *"tienen archivos con las credenciales
+> de cada usuario"*. Eso es un riesgo real y hay que tratarlo como parte del proyecto, no como un comentario al pasar:
+> son claves fiscales de ~100 contribuyentes de terceros en archivos planos.
+>
+> **Lo que aporta el producto:** las credenciales de un conector se guardan **cifradas por organización**, con lista
+> blanca de dominios por conexión y sin que ningún agente pueda elegir a dónde se conecta (M11, guardia de destinos).
+> Migrar esas credenciales al sistema **es una mejora de seguridad concreta**, no solo una comodidad.
+>
+> **Lo que NO resuelve el producto:** los archivos que ya existen. Eso es una decisión del estudio y conviene plantearla
+> explícitamente en la reunión de arranque.
+
+### La tarea nuclear
+
+- **D1: CONFIRMADO.** Los duplicados vienen de **mezclar Autoimpo con importación manual**. La hipótesis del research
+  era correcta: SOS deduplica por CAE, así que el duplicado lo introduce el doble camino de carga. **Esto se puede
+  atacar antes que cualquier agente**: ordenar el circuito de carga elimina una de las dos causas de diferencias.
+- **D2 a D7: las releva el propio analista de automatizaciones con cada persona.** Decisión de Joaquín, y es exactamente
+  el modelo del proyecto: la frecuencia del control, cuánto tarda, qué hacen con las diferencias, si miran emitidos y qué
+  constatan en ARBA **no se releva en una reunión central** — sale de la conversación de cada usuario con el analista.
+
+### Decisiones de Olvidata
+
+- **E1: el agente remite a la fuente oficial.** **No se cargan** calendario, alícuotas ni escalas. Es la opción
+  conservadora y la que evita el peor error posible: un vencimiento viejo dicho con seguridad. **Olvidata no queda
+  comprometida a mantener datos que cambian todo el tiempo.**
+- **E2: tope de USD 50/mes** para la organización.
+- **E3: sí**, arrancar en etapa *"Tu forma de trabajar"*.
+- **E4: sí**, versionar el repo `Agente Contable-IA` en git.
+
+> **Sobre el tope de USD 50/mes.** Con Sonnet 5 (USD 2/10 por millón, verificado 2026-09-23) una tarea de agente con
+> contexto típico ronda los **USD 0,05-0,06**. Para ~100 clientes con un control mensual cada uno, eso da unos **USD 6**;
+> con varias tareas por cliente y por rama, entre **USD 25 y 40**. **El tope entra, pero sin mucho aire** — y las
+> conversaciones de relevamiento con el analista suman aparte. Conviene **revisarlo después del primer mes real** con el
+> consumo a la vista, que el producto muestra por miembro, por agente y por cliente. El tope no rompe nada: frena y avisa.
+
+### Onvio
+
+- **F1 y F2: sin respuesta.** Nadie preguntó todavía al ejecutivo de cuenta de Thomson Reuters y no está a mano el
+  contrato firmado. **No bloquea**: Onvio queda acotado a Sueldos y lo que se automatiza de esa rama es la constatación
+  contra ARBA, no el acceso a Onvio. Queda anotado por si en algún momento interesa.
 
 ## Opciones de integración (stack + infraestructura) — para llevar a la reunión de discovery
 
@@ -149,4 +350,10 @@ En la arquitectura en capas de la sección anterior, los scripts determinístico
 
 ## Próximo paso
 
-Reunión de discovery con Contadores BMA para responder las preguntas abiertas antes de cerrar Análisis y pasar a Diseño.
+1. **Confirmar la pregunta 10** (entrega como configuración del producto vs. plataforma a medida). Es el gate: cambia el
+   plan de fases, la arquitectura y el presupuesto.
+2. Con eso confirmado, el **esquema de agentes** del estudio está diseñado en
+   [2-disenador-funcional.md](2-disenador-funcional.md) (2026-09-23).
+3. Verificar las preguntas 8, 9 y 12 (servicios de ARCA, ARBA y SOS) — son las que deciden cuánta operatoria se
+   automatiza de verdad y cuánta sigue dependiendo de un archivo exportado a mano.
+4. Reunión con el equipo del estudio para la cantidad de puestos por rama (pregunta 11) y el arranque del piloto.
