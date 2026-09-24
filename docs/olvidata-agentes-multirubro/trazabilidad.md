@@ -1049,3 +1049,10 @@ Piso duro: **no vender Starter por debajo de USD 40/mes**. Sigue promo hasta el 
 
 - Resultado: aprobado para producción tras 2 fixes (6e166fb auditoría de la secuencia simulada; c196004 badge de etapas a 390 px). Sin fuga del núcleo a Director/Empleado por ninguna vía probada. Tests 686/686.
 - Pendiente de despliegue: migración `AnatomiaAgentes` + reimportar contable y plataforma.
+
+### 2026-09-22 — Entrega progresiva por etapas del menú
+
+- Origen: aprobado por Joaquín (plan "Primeros pasos de Gastón", Contadores BMA). Feature chica, sin etapas 1–4 formales.
+- Impacto en capas: Domain (`EtapaEntrega`, `Tenant.EtapaEntrega`), Application (`EtapasEntrega`/`OpcionMenu`, `IContextoUsuario.EtapaEntrega`, `IPermisosOrganizacion.VeEnMenu`, DTO), Infrastructure (resolvedor de sesión, backoffice, migración `EtapaEntregaOrganizacion` default 3), Web (`_Layout`, `Clientes/Editar`, `Clientes/Details`).
+- Solo oculta el menú; no bloquea acciones ni herramientas. Staff ve todo.
+- Evidencia (sin pipe): 696/696 OK. **Pendiente: QA funcional y visual; en producción, aplicar la migración.**

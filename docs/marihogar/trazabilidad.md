@@ -1390,3 +1390,23 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - **Desvío consciente de PAT-008** (filtro por cada columna visible): la columna "Vendedor" queda en la grilla sin su filtro. Se le avisó al cliente en el momento y se dejó anotado en `1-analista-funcional.md` para que un QA futuro no lo levante como bug.
 - Build 0 errores. Sin migración EF.
 - Motivo: pedido explícito del cliente.
+
+### 2026-09-23 — implementador-dotnet (CR-77: Nota de Crédito — corregir la factura vs. anular la venta)
+- Etapa: Implementación (CR aprobado por el cliente, sin flujo formal — alcance ya cerrado).
+- Origen: caso real de producción (Venta #724, 23/09/2026). El usuario emitió una NC para anular la venta de verdad ("cambio por otro colchón"), pero la NC de CR-55 nunca toca `Venta.Estado`; al borrar el pago a mano para "deshacerla", `EliminarPagoAsync` recalculó el estado y la venta quedó **Pendiente**, con stock descontado y sin pago.
+- Cambio: al generar la Nota de Crédito el usuario elige qué está haciendo — **"Corregir la factura"** (default, comportamiento CR-55 intacto: la venta no cambia de estado y vuelve a poder facturarse) o **"Anular la venta"**, que encadena `VentaService.CancelarAsync` (revierte stock, da de baja los pagos en acreditación Pendiente, reversa en CC Local solo lo efectivamente acreditado, deja `MotivoCancelacion`).
+- **Decisión de arquitectura**: la orquestación vive en `ComprobantesAfipController.GenerarNotaCredito`, no en `ComprobanteAfipService` — `VentaService` ya inyecta `IComprobanteAfipService`, así que la dependencia inversa cerraría un ciclo de DI que revienta en runtime. El controller inyecta los dos sin problema.
+- **Decisión**: el flag NO se agregó a `GenerarNotaCreditoInput` (el service no lo consume: sería un campo muerto). Viaja del form al controller y muere ahí. El `VentaId` a cancelar se lee del comprobante server-side, nunca del form (sería manipulable).
+- **Dos transacciones separadas, deliberado**: la NC en AFIP es irreversible, así que un fallo de la cancelación nunca hace rollback de la NC. En ese caso el mensaje aclara explícitamente que la NC sí se emitió y que la venta hay que cancelarla a mano.
+- **Guards de `CancelarAsync` verificados por lectura y NO modificados**: `TieneComprobanteAsociadoAsync` ya excluye desde CR-55/MH-013 las facturas con NC Emitida, así que la venta cuya factura se acaba de anular pasa el guard sin tocarlo. Caso residual correcto: una venta con varias facturas vigentes sigue bloqueada por las que no se anularon. El guard de Entrega asociada se mantiene tal cual.
+- Escaneo de reutilización cross-proyecto: **0 hits portables** (la-platense tiene "devolución con NC + anulación de venta" en el plan de entregas, todavía sin implementar).
+- Impacto en capas: **solo Web** (`ComprobantesAfipController.cs`, `ComprobantesAfip/Details.cshtml`). Sin cambios en Domain/Application/Infrastructure. Sin migración EF.
+- Build 0 errores, sin warnings nuevos. Sin smoke test (regla del proyecto). **No se tocó la Venta #724 de producción** — su corrección la decide el usuario aparte.
+- Motivo: pedido explícito del cliente sobre un caso real de producción.
+
+### 2026-09-23 — orquestador (CR-78: la vista bloqueaba cancelar una venta con factura ya anulada por NC)
+- Detectado en producción al probar CR-77 sobre la Venta #724. El servidor permitía la cancelación, la pantalla no la ofrecía.
+- Causa: `Ventas/Details.cshtml` usaba `ComprobanteAfipEstado` (estado del ÚLTIMO comprobante, que tras emitir una NC es la propia NC) en vez del criterio del guard `VentaService.TieneComprobanteAsociadoAsync`, que ya excluye correctamente las facturas anuladas por NC (CR-55/MH-013). Caso de manual de REG-004: la vista con su propia copia del criterio, desincronizada del servicio.
+- Fix: `VentaDetailDto.TieneFacturaVigente` poblado en `GetByIdAsync` invocando el MISMO `TieneComprobanteAsociadoAsync` del guard — una sola fuente de verdad, no una segunda copia. La vista usa ese flag y el mensaje explica que anulando la factura con una NC la venta vuelve a poder cancelarse.
+- Dry-run previo sobre la Venta #724 (solo lectura): sin entrega, factura #336 anulada por NC #337 Emitida, CC Local ya neutro (ingreso #1259 reversado por #1264), stock del producto 31 en 0 con el movimiento -1 de la venta. Al cancelar desde la pantalla, el stock vuelve a 1 y no se postea movimiento de caja (no hay pagos no-Pendientes que reversar). Se decidió NO corregir el dato por SQL: el camino de la UI hace lo mismo en una transacción y deja AuditLog a nombre del usuario.
+- Build 0 errores. Sin migración EF.

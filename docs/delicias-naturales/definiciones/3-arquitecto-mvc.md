@@ -392,6 +392,23 @@ Ambas se pueden aplicar como una sola migracion EF si el Implementador lo prefie
 8. **Caso SaldoFavor cruzado**: editar el Metodo de un pago normal HACIA SaldoFavor (debe validar `saldoDisponible`) y editar un pago SaldoFavor HACIA otro metodo (debe re-acreditar el debito original).
 9. **Migracion**: aplicar contra copia de produccion, verificar que pagos/movimientos historicos siguen visibles y sin cambios de valor tras la migracion (solo columnas nuevas en `NULL`).
 
+# ITERACION 4: Agrupar por categoria en modal "Stock bajo"
+
+## Estado: APROBADO — presupuesto salteado (deuda tecnica/UI menor, mismo criterio ya usado en iteraciones previas de este ciclo)
+
+## 0. Escaneo de reutilizacion
+Sin componente equivalente en otros proyectos (ver Diseño §0).
+
+## 1-4. Mapa de componentes / capas / migraciones / riesgos
+- Presentacion unicamente: `Views/Productos/Index.cshtml` (agrupado GroupBy + select de categoria + JS de filtrado combinado) y `Controllers/ProductosController.cs` (agregar `.Include(p => p.Categoria)` a la query de `productosBajoMinimo`, unico gap tecnico real).
+- Datos: sin cambios, sin migracion.
+- Negocio: sin cambios, no hay logica nueva (agrupar es presentacion pura sobre datos ya calculados).
+- Riesgo: bajo, unico cuidado tecnico documentado en Diseño §5 (ocultar encabezados de grupo sin filas visibles al filtrar).
+
+## 5. Pruebas funcionales
+Cubre las 3 HU de Diseño: agrupado correcto (incluido "Sin categoria"), filtro por categoria aisla el grupo, combinacion buscador+categoria. Regresion: el conteo del boton/alert y el comportamiento existente (colores, boton editar Admin, buscador solo) no cambian.
+
 ## Historial de ajustes
 - 2026-06-XX: Creacion. Arquitectura iteracion 2 modulo Solicitudes de Ingreso de Stock. Diseno aprobado, gate de presupuesto OK.
+- 2026-09-23: Arquitectura iteracion 4 "Agrupar por categoria en modal Stock bajo" — 100% Presentacion, sin migracion. Presupuesto salteado (mejora de UI menor, deuda tecnica). Gate de Implementacion habilitado.
 - 2026-09-07: Arquitectura iteracion 3 "Editar Pago" — se decide extraer `Services/PagoService.cs` (alineado con el patron cross-proyecto VentaService/EgresoPagoService de marihogar/ganaderia, refactor acotado: solo la logica de reversion+alta de Pago, no todo el Controller). Se decide ademas agregar `MovimientoCaja.PagoId` (cierra el riesgo #1 marcado en Diseño, ahora mas relevante porque toda edicion de pago pasa por reversion). 2 migraciones EF (o 1 combinada), 5 riesgos tecnicos identificados (T1 regresion por refactor es el de mayor cuidado), estrategia de pruebas de 9 puntos. Gate de presupuesto habilitado.

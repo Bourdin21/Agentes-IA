@@ -657,6 +657,34 @@ Pedido explícito del cliente (21/08/2026), en la misma entrega que el cierre de
 
 **Impacto en capas**: Application (`IPagoOrdenCompraService`), Infrastructure (`PagoOrdenCompraService.cs`), Web (`OrdenesCompraController.cs`, `OrdenesCompra/Details.cshtml`). Sin migración EF.
 
+## CR-78 — La pantalla de Venta bloqueaba cancelar una venta cuya factura ya estaba anulada por Nota de Crédito
+
+Detectado en producción el 23/09/2026, probando CR-77 sobre la Venta #724: el servidor permitía cancelarla (su única factura estaba anulada por la NC #337) pero la pantalla mostraba "Esta venta tiene un comprobante AFIP emitido y no se puede cancelar" y ni siquiera ofrecía el botón.
+
+**Causa**: `Ventas/Details.cshtml` tenía **su propia copia del criterio**, distinta de la del servicio: miraba `ComprobanteAfipEstado`, que es el estado del **último** comprobante de la venta — y después de emitir una NC, el último comprobante es la NC misma (Emitida). El guard real de `VentaService.CancelarAsync` (`TieneComprobanteAsociadoAsync`) sí está bien: exige Factura A/B Emitida **y** que no tenga una NC Emitida asociada (CR-55/MH-013). Es exactamente el patrón que REG-004 previene: un botón derivado de una copia del criterio en la vista, que se desincroniza del servicio.
+
+**Fix**: `VentaDetailDto.TieneFacturaVigente`, poblado en `GetByIdAsync` llamando al mismo `TieneComprobanteAsociadoAsync` que usa el guard — una sola fuente de verdad. La vista pasa a usar ese flag. El mensaje además ahora explica la salida: si la factura se anula con una NC, la venta vuelve a poder cancelarse.
+
+**Impacto en capas**: Application (`VentaDtos.cs`), Infrastructure (`VentaService.cs`), Web (`Ventas/Details.cshtml`). Sin migración EF.
+
+## CR-77 — Nota de Crédito: elegir si se corrige la factura o se anula la venta
+
+Caso real de producción (23/09/2026, Venta #724): el usuario generó una Nota de Crédito para **anular la venta de verdad** (motivo "cambio por otro colchón"), pero la NC de CR-55 solo anula el comprobante ante AFIP y nunca toca `Venta.Estado` — la venta siguió viva y pagada. Para "deshacerla" el usuario borró el pago a mano, y `EliminarPagoAsync` recalculó el estado dejando la venta en **Pendiente**, con el stock descontado y sin pago. Venta inconsistente.
+
+**Diagnóstico**: no es un bug de CR-55 sino un alcance incompleto. CR-55 se diseñó para un único escenario ("me equivoqué al facturar, quiero volver a facturar la misma venta"), pero en la operación la NC se usa también para el escenario opuesto ("esta venta no va más"). Los dos son legítimos y solo el usuario sabe cuál está haciendo.
+
+**Alcance confirmado con el cliente**: al generar la Nota de Crédito el usuario elige explícitamente qué está haciendo, con **"Corregir la factura" como opción por defecto** (no cambia nada para quien ya venía usando la pantalla):
+- **Corregir la factura** (default, comportamiento histórico de CR-55): se anula la factura ante AFIP y la venta queda disponible para volver a facturarse. La venta **no** cambia de estado. Caso típico: CUIT mal cargado, cliente equivocado.
+- **Anular la venta**: además de la NC, la venta se **cancela** con todo el circuito que ya existe (`VentaService.CancelarAsync`): revierte el stock, da de baja los pagos que quedaron en acreditación Pendiente, reversa en Cuenta Corriente del local **solo lo efectivamente acreditado** (CR-64/CR-65) y deja el `MotivoCancelacion` con la referencia a la NC.
+
+**Arquitectura**: la orquestación vive en `ComprobantesAfipController.GenerarNotaCredito`, **no** en `ComprobanteAfipService`. Motivo: `VentaService` ya inyecta `IComprobanteAfipService`, así que la dependencia inversa cerraría un ciclo de DI que revienta en runtime; el controller puede inyectar los dos sin problema. El flag viaja del form al controller y no entra al `GenerarNotaCreditoInput` (el service no lo usa: sería un campo muerto). El `VentaId` a cancelar se lee del comprobante server-side, nunca del form (sería manipulable).
+
+**Dos transacciones separadas, deliberadamente**: la NC ya emitida en AFIP es irreversible, así que un fallo al cancelar la venta **nunca** hace rollback de la NC. En ese caso el mensaje al usuario dice explícitamente que la NC sí se emitió y que la venta hay que cancelarla a mano — para que no crea que tiene que volver a generar la NC (lo que además está bloqueado por la regla de a lo sumo 1 NC por factura).
+
+**Guards de `CancelarAsync` sin cambios**: el de Entrega asociada se mantiene tal cual (una venta con entrega sigue sin poder cancelarse, y si falla se muestra el mensaje del `ServiceResult`). El de `TieneComprobanteAsociadoAsync` ya excluye desde CR-55/MH-013 las facturas anuladas por una NC Emitida, así que la venta cuya factura se acaba de anular pasa el guard sin tocarlo. Caso residual conocido: una venta facturada en **varias** facturas y anulada solo en una sigue bloqueada por la(s) otra(s) vigente(s) — es el comportamiento correcto y el mensaje del guard lo explica.
+
+**Impacto en capas**: Web únicamente (`ComprobantesAfipController.cs`, `ComprobantesAfip/Details.cshtml`). Sin cambios en Application/Infrastructure/Domain. Sin migración EF.
+
 ## CR-76 — Quitar el filtro "Vendedor" del listado de Ventas
 
 Pedido explícito del cliente (03/09/2026): "en el listado de Ventas quitar filtro Vendedor".
@@ -1093,6 +1121,8 @@ Pedido explícito del cliente, en paralelo al deploy de CR-44 (19/08/2026): "se 
 **Impacto en capas**: Application (`OrdenCompraInput.Fecha` nuevo, `IOrdenCompraService.RecibirAsync` con parámetro opcional nuevo), Infrastructure (`OrdenCompraService.CreateAsync`/`UpdateAsync`/`RecibirAsync`, helper privado `CalcularFecha` compartido), Web (`OrdenCompraFormViewModel.Fecha`, `OrdenesCompraController.MapInput`/`Edit` GET/`Recibir`, `OrdenesCompra/Create.cshtml` — input de fecha junto al selector de Proveedor, `OrdenesCompra/Details.cshtml` — SweetAlert de fecha en "Marcar recibida"). **Sin migración EF** (ambas columnas ya existían en el esquema desde el sprint original, solo se dejó de hardcodear `DateTime.UtcNow`).
 
 ## Historial de ajustes
+- 2026-09-23 — CR-78: ver sección "CR-78" más arriba. La vista de Venta bloqueaba la cancelación tras anular la factura con una NC porque miraba el último comprobante (la NC) en vez del criterio real del guard. Nuevo `VentaDetailDto.TieneFacturaVigente` resuelto con el mismo método del servicio. Sin migración EF.
+- 2026-09-23 — CR-77: ver sección completa "CR-77 — Nota de Crédito: elegir si se corrige la factura o se anula la venta" más arriba. Al generar la NC el usuario elige entre "Corregir la factura" (default, comportamiento CR-55 intacto) y "Anular la venta", que encadena `VentaService.CancelarAsync`. Orquestado en el controller para no cerrar un ciclo de DI con VentaService. Dos transacciones separadas a propósito (la NC en AFIP es irreversible). Guards de cancelación sin tocar. Solo Web, sin migración EF.
 - 2026-09-03 — CR-76: ver sección completa "CR-76 — Quitar el filtro 'Vendedor' del listado de Ventas" más arriba. Se retira end-to-end (no solo el control: también `VentaFiltro.VendedorId`, porque persiste en sesión y habría seguido filtrando invisible) más el combo ya sin consumidores. La columna Vendedor se mantiene — desvío consciente de PAT-008, a pedido del cliente. Sin migración EF.
 - 2026-09-03 — CR-75: ver sección completa "CR-75 — Control de ventas con pagos todavía no acreditados" más arriba. Nueva línea "Sin acreditar" en el Resumen del detalle + checkbox "Solo ventas con pagos pendientes de acreditación" y badge en el listado. NO cambia Estado ni Saldo pendiente (se descartó explícitamente con el cliente: rompería remito y facturación AFIP). Sin migración EF.
 - 2026-09-03 — CR-74: ver sección completa "CR-74 — Tarjeta de crédito: agregar la opción '1 pago'" más arriba. Se suma 1 al conjunto de cuotas válidas (server y cliente) y a la semilla de Configuración > Cuotas de tarjeta (5 filas fijas: 1/3/6/9/12), mostrado como "1 pago" en todas las pantallas. Sin migración EF — la fila la siembra SeedData al iniciar.

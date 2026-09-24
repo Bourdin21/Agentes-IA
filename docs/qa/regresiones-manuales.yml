@@ -3201,3 +3201,105 @@ regresiones:
       - "SQL: reproducir el GROUP BY del informe y verificar que ningun grupo tiene mas de un TenantId distinto."
       - "Navegador: la grilla tiene columna de organizacion."
     nota_generalizacion: "Regla del estudio: en cuanto una consulta saca el filtro global de tenant, TODO lo que venga despues (GroupBy, Distinct, Any, joins por nombre) perdio la separacion entre organizaciones y hay que reponerla explicitamente. El caso mas traicionero es agrupar por un nombre que el usuario elige, porque dos organizaciones pueden elegir el mismo. En QA: ante cualquier informe cross-tenant, leer la clave del GroupBy antes que la pantalla."
+
+  - id: KOI-015
+    modulo: Consultas EF / proyeccion a record reutilizable (ConceptosGastoQuery)
+    titulo: "Un .Where() aplicado DESPUES de una proyeccion a record no lo traduce EF Core: la consulta compila, pasa el build y revienta en runtime con 500"
+    severidad: critical
+    reproducido_en: "KoiDumplings QA-B 2026-09-23 (localhost:7102, Chromium via playwright npm, base koidumplings_qa_b). Introducido por el item 4 del sprint 'Fixes y mejoras' (commit 5a52462), que centralizo la regla del importe en un IQueryable<ImporteConceptoRow>."
+    pasos:
+      - "Abrir /RepartoGeneral con cualquier rol administrativo."
+      - "Abrir /EstadoResultados/Anual (esta en el sidebar del INVERSOR como 'Historial de Resultados')."
+      - "Abrir /Dashboard con cualquier rol y mirar el grafico Historico (XHR a /Dashboard/Historico?meses=12)."
+    sintoma: "HTTP 500 en las dos pantallas y en el endpoint del grafico. El canvas #chartHistorico queda con 0 pixeles pintados (medido por getImageData) y la consola muestra 'Failed to execute json on Response: Unexpected end of JSON input'. En el log: System.InvalidOperationException: The LINQ expression '...new ImporteConceptoRow(...).PeriodoMensualId == @p_Id' could not be translated."
+    expectativa: "Las tres pantallas cargan en 200 con los totales calculados con la regla unica."
+    causa_raiz: "ConceptosGastoQuery.ImportesAplicados(db) devuelve IQueryable<ImporteConceptoRow> ya PROYECTADO (select new ImporteConceptoRow(...)). Cualquier .Where() encadenado despues obliga a EF a empujar el predicado por encima del constructor del record, y EF no sabe traducir 'new Record(...).Prop'. Falla IGUAL con el predicado escalar (r.PeriodoMensualId == p.Id) que con el de lista (ids.Contains(r.PeriodoMensualId)): no es el Contains, es el filtrar despues de proyectar. Es invisible al compilador y al analisis estatico, y el implementador no ejecuta la app por diseno, asi que llego entero a QA."
+    capa: Infrastructure
+    archivos_fix:
+      - path: KoiDumplings.Infrastructure/Data/ConceptosGastoQuery.cs
+        motivo: "Que el filtro entre ANTES de proyectar: sobrecarga ImportesAplicados(db, Expression<Func<ConceptoGasto,bool>> filtro) que aplica el where sobre ConceptosGasto y recien despues arma el record. Alternativa equivalente: ImportesAplicadosDe(db, IReadOnlyCollection<int> periodoIds)."
+      - path: KoiDumplings.Infrastructure/Services/InversionesService.cs
+        motivo: "Linea ~249: pasar ids al metodo en vez de encadenar .Where(r => ids.Contains(r.PeriodoMensualId))."
+      - path: KoiDumplings.Infrastructure/Services/DashboardService.cs
+        motivo: "Linea ~105: idem."
+      - path: KoiDumplings.Infrastructure/Services/EstadoResultadosService.cs
+        motivo: "Linea ~1244: pasar p.Id en vez de encadenar .Where(r => r.PeriodoMensualId == p.Id)."
+      - path: KoiDumplings.Infrastructure/Services/Importacion/ImportacionExcelKoiService.cs
+        motivo: "Linea ~522: idem (mismo patron; no se pudo ejercitar por UI en esta corrida)."
+    migracion_ef: "No aplica: es un defecto de consulta, sin cambio de esquema."
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /RepartoGeneral, GET /EstadoResultados/Anual, GET /Dashboard/Historico?meses=12"
+      condicion_falla: "Alguna responde 500, o el canvas del grafico historico queda con 0 pixeles pintados."
+    criterio_aceptacion:
+      - "Las tres respuestas son 200 y los totales coinciden con el SQL equivalente de la regla unica."
+      - "Ningun consumidor encadena .Where() sobre el IQueryable ya proyectado."
+    pruebas_minimas:
+      - "GET /RepartoGeneral -> 200 y la columna Utilidad U$D coincide con el USD del E.R. mensual de cada mes."
+      - "GET /EstadoResultados/Anual -> 200 con rol Inversor (esta en su sidebar)."
+      - "GET /Dashboard/Historico?meses=12 y ?meses=24 -> 200 y el canvas dibuja."
+    nota_generalizacion: "Aplica a TODO proyecto del estudio que centralice una regla de negocio en un IQueryable proyectado a record/DTO y lo ofrezca como punto de reuso. La refactorizacion 'una sola fuente de la regla' es correcta, pero el metodo que devuelve el IQueryable ya proyectado es una trampa: invita a que cada consumidor le encadene su propio .Where(), y ese es justamente el uso que EF no traduce. Regla: un helper de consulta compartido recibe el filtro como parametro y proyecta AL FINAL; nunca devuelve un IQueryable proyectado para que el llamador lo filtre. Chequeo barato para QA: tras cualquier refactor que unifique una regla de calculo, abrir TODAS las pantallas que la consumen — el build en verde no dice nada, porque la falla es de traduccion en runtime."
+
+  - id: KOI-016
+    modulo: Gestion de usuarios / guarda de privilegio (UsersController.CanManageUser)
+    titulo: "Un usuario privilegiado SIN fila en AspNetUserRoles queda gestionable: la guarda resuelve el rol con FirstOrDefault() ?? \"\" y compara por desigualdad (fail-open)"
+    severidad: major
+    reproducido_en: "KoiDumplings QA-A 2026-09-23 (defecto D-A03, base koidumplings_qa_a); fix verificado por el implementador contra la app real el mismo dia (base koidumplings_impl, 21 acciones rechazadas)"
+    pasos:
+      - "Borrar la fila de AspNetUserRoles del usuario SuperUsuario (simula un seed/mantenimiento/restore parcial)."
+      - "Entrar como Administrador y abrir /Users."
+      - "Sobre el id del SuperUsuario: GET Details, GET Edit, POST ToggleEstado, POST ResetPassword, POST SetPassword, POST EnviarRecuperacion, POST Delete."
+      - "Variante 2: un usuario con DOS roles, uno de ellos el privilegiado."
+    sintoma: "El SuperUsuario aparece en el listado del Administrador como 'Sin rol' y las acciones se EJECUTAN: queda bloqueado (Estado=2) y con una contraseña reseteada que nadie conoce. En la variante 2, el usuario con doble rol se cuela si FirstOrDefault() devuelve el rol no privilegiado."
+    expectativa: "Ni el usuario sin rol resoluble ni el que tiene el rol privilegiado entre sus roles se muestran o se gestionan desde la sesion del rol inmediato inferior."
+    causa_raiz: "CanManageUser() hacia PuedeGestionarRol(targetRoles.FirstOrDefault() ?? string.Empty) con PuedeGestionarRol(rol) => rol != RolSuperUsuario. Sin fila de roles el rol es cadena vacia, que no es igual a 'SuperUsuario', asi que la guarda devolvia true. Es una decision fail-open sobre la identidad mas privilegiada; el listado repetia la misma logica (?? 'Sin rol'), asi que pantalla y servidor coincidian... en dejar pasar."
+    capa: Web
+    archivos_fix:
+      - path: KoiDumplings.Web/Controllers/UsersController.cs
+        motivo: "PuedeGestionar(rolesDelDestino, emailDelDestino): 1) la cuenta del seed (Seed:SuperUser:Email) es intocable siempre; 2) Contains sobre la lista COMPLETA de roles, no FirstOrDefault; 3) sin rol -> fail-closed; 4) salida de rescate: al usuario sin rol lo gestiona solo el SuperUsuario logueado. El listado consume la misma funcion. Ademas, el par RemoveFromRoles/AddToRole de Edit restituye el rol anterior si el alta falla."
+      - path: KoiDumplings.Infrastructure/Data/SeedData.cs
+        motivo: "SuperUserEmail(IConfiguration): un unico lugar define cual es la cuenta del seed, que antes estaba escrita dos veces con su default."
+    migracion_ef: "No aplica: es una guarda de autorizacion, sin cambio de esquema."
+    deteccion_qa:
+      tipo: http
+      selector_o_endpoint: "GET /Users/Details/{idPrivilegiado}, GET /Users/Edit/{id}, POST /Users/{ToggleEstado|ResetPassword|SetPassword|EnviarRecuperacion|Delete}"
+      condicion_falla: "Alguna responde 200 sobre la accion (o redirige con mensaje de exito) en vez de AccessDenied, o el usuario aparece en el listado del rol inferior."
+    criterio_aceptacion:
+      - "Las acciones sobre el usuario sin rol y sobre el de doble rol terminan todas en AccessDenied, sin tocar Estado ni PasswordHash ni escribir auditoria."
+      - "El rol maximo conserva una via para devolverle el rol al usuario que quedo sin ninguno."
+      - "Un Administrador sigue gestionando con normalidad a los usuarios con rol comun."
+    pruebas_minimas:
+      - "Sin la fila de roles del privilegiado: 7 acciones como Administrador -> 7 AccessDenied y 0 cambios en la base."
+      - "Usuario con [Administrador, SuperUsuario]: invisible en el listado del Administrador y 7 AccessDenied."
+      - "Como SuperUsuario: el usuario sin rol se ve y se abre (rescate)."
+    nota_generalizacion: "Aplica a TODO proyecto del estudio con roles jerarquicos y una pantalla de gestion de usuarios. Regla: la guarda se evalua sobre la lista completa de roles, el caso 'sin rol' es fail-closed, y la identidad privilegiada se cruza tambien por un dato que no dependa de la tabla de roles (el email del seed). El modo de falla es traicionero porque la barrera existe y se ve funcionar: 8 de 8 acciones rechazadas mientras la fila de roles este; alcanza con que falte para que las 8 pasen."
+
+  - id: KOI-016
+    modulo: Confidencialidad por rol / dato derivable entre pantallas
+    titulo: "Ocultar una cifra sensible en una pantalla no sirve si el complemento aritmetico sigue visible en otra del mismo menu: el secreto se recupera con una resta"
+    severidad: high
+    reproducido_en: "KoiDumplings QA-B re-test 2026-09-23 (localhost:7102, Chromium via playwright npm, base koidumplings_qa_b, build 8c22af6). Escenario: mes en curso con lado A del E.R. = 19.317.431, lado B = 6.742.889 (total local 26.060.320) y punto de venta informando 17.500.000."
+    pasos:
+      - "Entrar con un usuario del rol restringido (Inversor)."
+      - "Sidebar > 'Mes actual': anotar la tarjeta 'Ventas registradas' (solo lo que informa el punto de venta)."
+      - "Sidebar > 'Historial de Resultados' (/EstadoResultados/Anual): leer la columna Ventas de ESE MISMO mes (total del local, facturado + informal)."
+      - "Restar. Variante de control: cambiar SOLO el lado B en la base y repetir — la primera cifra no se mueve y la segunda si."
+    sintoma: "El rol restringido obtiene la porcion que la pantalla venia a ocultar: total del local 26.060.320 menos punto de venta 17.500.000 = 8.560.320, que es el lado B mas la brecha de conciliacion. Moviendo el lado B de 0 a 17.000.000 la fila anual acompaña 1 a 1 (19.317.431 -> 36.317.431) mientras 'Ventas registradas' queda clavada en 17.500.000."
+    expectativa: "Ninguna combinacion de las pantallas alcanzables por el rol permite separar la parte facturada de la no facturada."
+    causa_raiz: "Se endurecio UNA pantalla (Mes actual paso a mostrar solo datos del punto de venta) sin revisar el resto del menu del mismo rol. La pantalla endurecida publica el MINUENDO (lado A) y la otra publica el MINUEDO+SUSTRAENDO (total local): juntas entregan el sustraendo. Paradoja del cambio: mientras Mes actual mostraba el total del local —igual que la anual— no habia nada que restar; al pasarla a 'solo punto de venta' se creo la diferencia. Endurecer una pantalla puede EMPEORAR la exposicion global si el resto del menu no se mueve con ella."
+    capa: Web
+    archivos_fix:
+      - path: "(decision de negocio, no de codigo)"
+        motivo: "Las salidas son: (a) que el rol restringido no vea la cifra del punto de venta por separado; (b) que las pantallas del rol expongan SIEMPRE la misma base (todas total del local, o todas punto de venta); o (c) aceptar el riesgo por escrito. Elegir una es del dueño, no del implementador."
+    migracion_ef: "No aplica."
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Todas las pantallas del menu del rol restringido, comparadas entre si para un MISMO periodo"
+      condicion_falla: "Dos pantallas del mismo rol publican magnitudes de la misma familia con bases distintas (una parcial y otra total), de modo que su diferencia reconstruye el dato reservado."
+    criterio_aceptacion:
+      - "Barrer TODAS las pantallas del rol y tabular que base usa cada cifra monetaria (total del local vs. parcial)."
+      - "Prueba de movimiento: alterar SOLO la parte reservada en la base y confirmar que ninguna cifra visible del rol se mueve."
+    pruebas_minimas:
+      - "Poner la parte reservada en 0, en un valor chico y en uno grande; en las tres corridas ninguna cifra del rol puede cambiar."
+      - "Restar de a pares todas las cifras monetarias del rol para el mismo periodo y verificar que ninguna da la parte reservada."
+    nota_generalizacion: "Aplica a TODO proyecto con un rol de acceso parcial (portal de cliente, de inversor, de proveedor) donde exista un dato reservado que sea la DIFERENCIA entre dos magnitudes publicables. Regla del estudio: la confidencialidad no se evalua pantalla por pantalla sino sobre el CONJUNTO de lo que el rol alcanza; el barrido tiene que ser sobre el menu completo del rol y para un mismo periodo, y la prueba decisiva es mover solo el dato reservado y ver si algo visible se mueve. Corolario contraintuitivo, y es el que se olvida: endurecer una sola pantalla puede abrir la brecha en vez de cerrarla, porque introduce una base distinta a la del resto y crea una resta que antes no existia."

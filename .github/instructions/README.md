@@ -24,6 +24,8 @@ Esta carpeta divide las reglas en modulos reutilizables por etapa y por capa.
 - 36-metodologia-pacs
 - **37-servicios-externos-fiscales** — que expone ARCA, ARBA, COMARB, SOS Contador y Onvio, que tarea acorta cada
   servicio y **que NO existe**. Obligatorio **antes de cotizar cualquier conector** de un proyecto contable/impositivo
+- **38-diseno-pantallas-portal** — decisiones de diseño de pantallas del portal (listados con filtros plegados,
+  conversaciones como expediente, grillas de tarjetas, estados vacíos). Leer ANTES de maquetar una pantalla nueva.
 
 ## Como usar
 - Las reglas globales definen marco comun de trabajo y formato de salida.

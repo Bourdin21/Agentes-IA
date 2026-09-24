@@ -1,9 +1,53 @@
 # Memoria - QA
 
 ## Proyecto: DeliciasNaturales
-## Ultima actualizacion: 2026-09-07
+## Ultima actualizacion: 2026-09-23
 
-## Estado go/no-go
+## Reglas cross-proyecto validadas
+Ultima validacion de reglas cross-proyecto: 2026-09-23
+
+---
+
+# ITERACION 4: Agrupar por categoria en modal "Stock bajo" — QA 2026-09-23
+
+## Estado go/no-go: **GO**
+Sin defectos. Sin auto-fixes. Sin condiciones de deploy (no hay migracion; deploy de binario + vista).
+
+## Camino de verificacion
+Playwright MCP NO disponible en esta sesion (no expone `mcp__playwright__*`) → revision estatica linea por linea + build real + consultas a la base local `delicias` (MySQL 8). Sin ejecucion en navegador.
+- `MSBuild DeliciasNaturales.csproj /t:Build /p:Configuration=Debug /p:MvcBuildViews=true` corrido por QA → **EXIT 0, 0 errores** (previo borrado de `obj/*/AspnetCompileMerge`).
+- Base local: 156 productos activos en stock bajo, 6 categorias, 0 productos huerfanos de categoria, 0 categorias soft-deleted entre ellos, 0 categorias llamadas "Sin categoria", 0 nombres de categoria duplicados.
+
+## Cobertura HU1-HU3
+| HU | Criterio | Resultado | Evidencia |
+|---|---|---|---|
+| HU1 | Grupos con nombre + cantidad | PASS | `tr.stock-bajo-grupo` con `@g.Nombre` + badge `@g.Productos.Count` |
+| HU1 | Orden alfabetico de grupos y de productos, "Sin categoria" al final | PASS | `OrderBy(key==null?1:0).ThenBy(key)`; `g.OrderBy(p => p.Nombre)`. Sin `?.` en la vista (compatible con CodeDom) |
+| HU2 | Select aisla una categoria (filas + encabezado) | PASS | `filtrarStockBajo()`: `cat === categoria`; encabezados se muestran solo si `visiblesPorCategoria[cat] > 0`. Select lista solo categorias presentes, con conteo |
+| HU3 | Texto + categoria combinados (AND) | PASS | Condicion conjunta en el mismo recorrido; ambos eventos (`input`/`change`) llaman a la misma funcion |
+| UI | "Sin resultados" con filtros combinados | PASS | `#stock-bajo-sin-resultados` toggle por `visibles === 0`; queda excluido del recorrido por clase `.stock-bajo-item` |
+| UI | Reset al reabrir el modal | PASS | `shown.bs.modal` limpia select y texto, `trigger('input')` re-evalua todo |
+
+## Regresion del comportamiento previo
+- Contador del alert y badge del `<h5>`: siguen sobre `productosBajoMinimo.Count` (total sin filtrar) — PASS.
+- Colores `table-danger` (sin stock) / `table-warning` (bajo minimo), labels de stock/minimo/unidad: codigo intacto — PASS.
+- Boton editar solo Admin; `colspan` 5/4 del encabezado de grupo y de "sin resultados" consistente con la columna condicional — PASS.
+- `.Include(p => p.Categoria)` es de referencia, no de coleccion: no aplica el gotcha EF6+MySQL de multiples Include de colecciones — PASS.
+- Clases CSS nuevas (`form-row`, `col-md-7/5`, `mb-md-0`, `table-secondary`, `badge-dark`) existen en el Bootstrap 4.5 servido (`Content/bootstrap.css`) — PASS (OLV-018).
+
+## Desvio del buscador (decision QA)
+**Aceptable, no se marca como pendiente para el cliente.** Diseño dice "el buscador ya existente **sigue** filtrando..." — el alcance era conservarlo, no redefinirlo; el comportamiento real preexistente es texto completo de la fila, y cambiarlo seria una modificacion de comportamiento fuera del pedido. No es regresion.
+Observacion menor (mejora opcional, sin ticket): como la fila incluye el badge "Sin stock" y las cantidades, buscar "sin" trae todas las filas sin stock (32 productos activos tienen "sin" en el nombre, ej. "Sin TACC"), y buscar digitos matchea cantidades. Los codigos son alfanumericos (`PJG-2500`), asi que el impacto real es bajo. El placeholder "Buscar por nombre o codigo..." es preexistente.
+
+## Observacion tecnica (no defecto)
+El implementador declara que agrupar por key `null` evita mezclar el grupo sin categoria con una categoria real llamada "Sin categoria". Es cierto en el agrupado de servidor, pero en el cliente ambos grupos compartirian `data-categoria="Sin categoria"` y el select los filtraria juntos. Teorico: `Producto.CategoriaId` es `int` no nullable y no hay huerfanos ni categoria con ese nombre.
+
+## Catalogo cross-proyecto y reglas nuevas (desde 2026-09-07; campo de fecha inexistente hasta hoy → se toma la corrida anterior como referencia)
+Aplicables a este cambio (Presentacion/JS/Razor): KOI-014 / KOI-B02 (JS sobre markup condicional) PASS — el modal solo se renderiza con productos en stock bajo, pero el JS usa selectores jQuery que no fallan con conjunto vacio; OLV-017 (Razor-email) PASS — `(@g.Productos.Count)` precedido de `(`, y `producto@(...)` preexistente usa expresion explicita; OLV-018 PASS; OLV-020 (GROUP BY por nombre) N/A — app monotenant y no hay nombres de categoria duplicados; OLV-006 (buscar por columna visible) PASS — nombre y codigo matchean. KOI-B01 (hidden antes del checkbox) PASS — grep sobre `Views/**/*.cshtml` sin ocurrencias del patron. Resto de items nuevos (KOI-009..013, OLV-001..016 salvo los citados, CRM-017..023, VSF-003): N/A por stack (ASP.NET Core / Select2 / SweetAlert2 / tema oscuro / multitenant / bots, inexistentes aqui). **Arrastrados sin validar (retroactivo, fuera del alcance de esta iteracion): REG-011 (combos en edicion) y REG-012 (todas las propiedades editables en Alta/Edicion)** — ejecutar en la proxima corrida con alcance de ABMs.
+
+---
+
+## Estado go/no-go (iteracion 3, 2026-09-07)
 
 **GO CONDICIONADO** para el deploy de las 18:00 del 2026-09-07 (iteracion 3 "Editar Pago").
 

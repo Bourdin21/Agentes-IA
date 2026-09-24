@@ -294,8 +294,31 @@ Al cerrar el diseño de "Editar pago", Joaquin pregunto si esto alcanza para ges
 3. **Pago/dinero**: reconciliar lo que el cliente pago contra lo que ahora corresponde — con "Editar pago" (esta feature) se puede hacer a mano, pero alguien tiene que calcular el numero correcto cruzando venta+factura+pagos (exactamente lo que se hizo a mano para la venta 9444).
 Joaquin decidio explicitamente NO ampliar el alcance de esta feature y tratar esto como un Discovery separado a futuro: una accion nueva tipo "Registrar devolucion" sobre una Venta Facturada, que reciba el/los productos devueltos y orqueste automaticamente las 3 partes (generar la NC, calcular y aplicar el ajuste de pago/saldo a favor necesario, dejar el producto marcado como devuelto). No tiene fecha de inicio asignada.
 
+## Sesion: Agrupar por categoria en modal "Productos con stock bajo"
+
+### Pedido
+Pantalla Productos (`Views/Productos/Index.cshtml`), modal "Productos con stock bajo" (`ViewBag.ProductosBajoMinimo`, `ProductosController.Index`): hoy es una tabla plana ordenada por nombre, sin agrupar. Pedido explicito: "agregar conjunto o filtro por categoria... el usuario quiere ver los productos agrupados mas ordenadamente. algo que visualmente sea mas sencillo."
+
+### Alcance
+- Agrupar visualmente por Categoria dentro del modal (encabezado de grupo + productos debajo, orden alfabetico de categoria y de producto).
+- Filtro/select de categoria en el modal (junto al buscador ya existente) para poder aislar una sola categoria.
+- Mantener el buscador por nombre/codigo ya existente y el resto del comportamiento (colores sin-stock/bajo-minimo, boton editar Admin).
+- Gap tecnico encontrado: la query de `ProductosBajoMinimo` en `ProductosController.Index` NO incluye `.Include(p => p.Categoria)` (a diferencia de la query principal de la pantalla) — hay que agregarlo para no disparar lazy-load por fila o traer null.
+
+### No incluido
+- Cambios al criterio de "que es stock bajo" (StockActual < StockMinimo o <=0) — solo presentacion.
+
+### Criterios de aceptacion
+- El modal muestra los productos agrupados por categoria, con nombre de categoria visible como separador.
+- El select de categoria filtra el modal a esa categoria unicamente (o "Todas").
+- Buscar por nombre/codigo sigue funcionando combinado con el filtro de categoria.
+- Sin categoria asignada -> grupo "Sin categoria".
+
+Analisis cerrado (alcance chico y sin ambiguedad, no requirio preguntas al cliente).
+
 ## Historial de ajustes
 - Sesion Dashboard Ampliado: analisis cerrado, 5 items aprobados. Presupuesto USD 100 acordado (lista USD 125, descuento fidelidad USD 25). Documento cliente en repo del proyecto.
+- 2026-09-23: Analisis cerrado de "Agrupar por categoria en modal Stock Bajo" — mejora de presentacion, sin cambios de reglas de negocio.
 - 2026-09-01: Discovery/analisis preliminar de "Cierre de Caja Diaria y Mensual" a partir de investigacion extensa de la diferencia de cierre de agosto 2026. 7 preguntas abiertas para el cliente (P1-P7) antes de poder cerrar el alcance — gate de Diseno NO habilitado todavia.
 - 2026-09-07: Discovery/analisis de "Ajuste directo de un Pago", a partir del incidente de la venta 9444 (Factura desconectada por reversion de estado sin guard). Patron PAT-020 (ledger inmutable) identificado como base de diseño. P1-P3 resueltas por Joaquin el mismo dia (Administrador+Vendedor, mostrar ambos pagos viejo/nuevo, sin limite de tiempo) — Analisis cerrado, gate de Diseno habilitado.
 

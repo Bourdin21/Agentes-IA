@@ -635,3 +635,43 @@ El cliente dice "no sé por qué está esto". El texto describe un flujo de 6 ho
 - **La barrera de cierre del Gerente (B3) tiene que estar en el servidor.** Ocultar el botón no es control de acceso.
 - **A1 cambia el comportamiento de un repositorio genérico**: hay que verificar que ningún otro consumidor dependa (hoy no lo hay) del hecho de que no guardaba.
 - **C1 toca el formateo de importes de todo el sistema.** Centralizarlo en `FormatoMoneda` reduce el riesgo, pero hay que revisar que ningún lugar dependa de ver centavos — en particular el tipo de cambio, que **no es un importe** y debe conservar sus decimales.
+
+
+## 16. Diseño — Sprint "Fixes y mejoras" (Septiembre 2026)
+
+**Reutilización cross-proyecto (escaneo de `docs/*/definiciones/`):** el ítem 1 reutiliza el ABM de usuarios de **CRM Olvidata** y **MariHogar** (mismo Identity + roles); el ítem 3 reutiliza el patrón de **endpoint disparado por cron externo con API key** ya usado en el fichador de KOI y en Ganadería; el ítem 7 reutiliza la regla de `appearance: textfield` ya aplicada en el EDR de KOI (Entrega 1, ítem d3). No hay pantalla nueva: los 10 ítems caen sobre pantallas existentes.
+
+### 16.1 · Ítem 1 — Gestión de usuarios completa
+Pantalla `Usuarios` (`/Users`), hoy con listado, alta, edición, detalle y activar/desactivar.
+
+- **Qué se agrega:** eliminar usuario, y un menú de contraseña con tres acciones: **fijar una contraseña** (el Administrador la escribe), **resetear** (el sistema genera una y la muestra una sola vez) y **mandar el mail de recuperación** (el mismo flujo de "olvidé mi contraseña", asincrónico).
+- **Regla de alcance:** un Administrador ve y gestiona todos los usuarios salvo los SuperUsuario, que no aparecen en su listado y cuyas acciones le son rechazadas por el servidor aunque arme la URL a mano. El SuperUsuario sigue viendo y gestionando todo.
+- **Eliminar:** si el usuario tiene un inversor vinculado o movimientos registrados, el sistema **no borra**: ofrece desactivar y lo explica. Un borrado que deja liquidaciones huérfanas no es una opción.
+- Toda acción de contraseña queda auditada (sin guardar la contraseña).
+
+### 16.2 · Ítem 2 y 3 — Mes actual: ventas por día y actualización diaria
+- **Gráfico:** barras, una por día del mes en curso, con el monto vendido. Mismo criterio visual que el gráfico de evolución diaria del Dashboard (colores ya usados en las tarjetas de ventas).
+- **De dónde sale el dato:** hoy la serie diaria vive en una caché en memoria de 5 minutos, que se pierde cuando el sitio se duerme; por eso la pantalla quedaba clavada. Pasa a **guardarse en la base**, así sobrevive al reinicio y la pantalla siempre tiene algo que mostrar.
+- **Actualización:** un trabajo diario trae del POS las ventas del mes en curso y actualiza lo guardado. La pantalla muestra **cuándo se actualizó por última vez**; si el dato quedó viejo, lo dice en vez de disimularlo.
+- El botón manual de "traer de Ayres" del EDR **no se toca**.
+
+### 16.3 · Ítem 4 — Que el cierre y la vista anual digan lo mismo
+- Los cuatro conceptos manuales con el importe en la columna equivocada se corrigen en los dos meses afectados (agosto 2025 y mayo 2026), moviendo el valor a donde corresponde.
+- Las dos pantallas pasan a calcular el total con **la misma regla**, de un solo lugar del código.
+- **Las liquidaciones ya repartidas no se tocan** (decisión del dueño). Los dos meses van a mostrar su resultado real, que es peor que el que se repartió; queda escrito en la documentación del cliente.
+
+### 16.4 · Ítem 5 — El Encargado configura conceptos
+El Encargado accede a la pantalla de conceptos (subgrupos) para **ver y dar de alta**, no para dar de baja ni para tocar los porcentajes de referencia, que siguen siendo del Administrador. Es el mismo criterio con el que ya carga gastos pero no cierra el mes.
+
+### 16.5 · Ítem 6 — Reparto general en dólares
+Se suma la columna **Utilidad U$D**, calculada con el tipo de cambio del período, de modo que coincida con el que muestra el EDR de ese mes. Un período sin tipo de cambio cargado muestra un guion, no un cero.
+
+### 16.6 · Ítems 7 y 8 — Carga numérica
+- **7:** ningún campo numérico muestra flechitas ni responde a la rueda del mouse, en todas las pantallas de carga del sistema.
+- **8:** en las grillas de carga, **Enter baja al mismo campo de la fila siguiente** (y Shift+Enter sube). En la última fila, Enter guarda y no salta a la nada. No se rompe el comportamiento de Tab.
+
+### 16.7 · Ítem 9 — Filtros de liquidaciones
+A los filtros de año y mes se suman **inversor** y **estado** (pendientes / pagadas / todas), combinables entre sí. El filtro elegido se conserva al volver del detalle.
+
+### 16.8 · Ítem 10 — Eliminar un concepto
+Al eliminar, el sistema pregunta **con qué alcance**: *"sólo para este mes"* (lo saca de ese mes y se puede volver a agregar) o *"para siempre"* (sale del catálogo y no aparece en los meses siguientes, conservando los históricos). En un mes histórico **sólo se ofrece la primera opción**. Se mantiene la regla de que el importe tiene que estar en 0 para poder eliminar.

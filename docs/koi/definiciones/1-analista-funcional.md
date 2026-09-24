@@ -1043,3 +1043,52 @@ El cliente describe: *"por cada mes, a cada tipo de cambio, tenés el recupero e
 - **R-B03 (medio):** redondear importes al guardar rompería la conciliación al centavo contra el Excel del cliente (ver P-B03).
 - **R-B04 (medio):** sacar "facturado vs informal" (ítem 23) es por un tema **legal**. Hay que barrer TODOS los informes del inversor, no sólo el que el cliente nombró — incluidos PDF/Excel exportables si los hay.
 - **R-B05 (bajo):** el repositorio genérico queda arreglado, pero conviene revisar que ningún otro consumidor futuro repita el patrón.
+
+
+## 17. Discovery + Análisis — Sprint "Fixes y mejoras" (Septiembre 2026)
+
+**Entrada:** 10 ítems del dueño del estudio (2026-09-23), sobre la Entrega 1 ya deployada y probada. **Presupuesto salteado** por decisión del dueño (quinta vez consecutiva). Alcance base: `7cdfe20`..`f017f01` más la corrección de datos de este sprint.
+
+### 17.1 · Hallazgo del Discovery que reencuadra el ítem 4
+
+El dueño reportó: *"cierro mayo con -1.230.000 pero la vista anual me tira -28M"*. **El número equivocado es el del cierre, no el de la vista anual.**
+
+Causa: cuatro conceptos del catálogo viejo —CMV, Otros gastos, Honorarios y Publicidad— son `TipoConcepto = Manual` pero tienen su importe guardado en `ImporteCalculado`, con `ImporteManual = 0`. Las dos pantallas lo leen distinto:
+- **Mensual** (`ObtenerAsync`): para un concepto manual toma `ImporteManual` → los lee como **0**.
+- **Anual** (`ObtenerResumenAnualAsync`, línea ~1246): `ImporteCalculado ?? ImporteManual` → sí los suma.
+
+Medido en producción, los únicos dos meses afectados:
+
+| Mes | Estado | Gasto que la mensual NO cuenta | Liquidaciones ya generadas |
+|---|---|---|---|
+| 2025-08 | Cerrado | $ 15.680.662,00 | 15 |
+| 2026-05 | Cerrado | $ 27.263.960,72 | 15 |
+
+Los dos meses **cerraron y repartieron sobre un resultado más alto que el real**. **Decisión del dueño (2026-09-23): corregir el dato y la fórmula, sin tocar las liquidaciones ya repartidas.** Queda registrado que esos dos repartos quedaron por encima del resultado real.
+
+### 17.2 · Los 10 ítems
+
+| # | Pedido | Tipo | Criterio de aceptación |
+|---|---|---|---|
+| 1 | El Administrador gestiona usuarios de todos los roles salvo SuperUsuario, con CRUD completo más resetear contraseña, fijar una contraseña él mismo, y mandarle al usuario el mail de "olvidé mi contraseña" | Mejora | Un Administrador puede crear, ver, editar, activar/desactivar y eliminar cualquier usuario que no sea SuperUsuario, y dispone de las tres acciones de contraseña. Sobre un SuperUsuario no puede nada. |
+| 2 | Gráfico de barras de "ventas x día" en Mes actual | Mejora | La pantalla muestra un gráfico de barras con la venta de cada día del mes en curso. |
+| 3 | Mes actual quedó clavado en la última vez que se pidió "traer datos de Ayres"; que se actualice solo, con un cron diario | Defecto + mejora | Los datos del mes en curso se refrescan solos todos los días, sin que nadie apriete nada, y sobreviven a que el sitio se duerma. |
+| 4 | El cierre y la vista anual no coinciden | **Defecto de datos** | Los dos meses afectados muestran el mismo resultado en las dos pantallas, y ese resultado incluye los cuatro conceptos que hoy se pierden. |
+| 5 | El Encargado puede configurar conceptos nuevos del mes que carga | Mejora | Un Encargado puede dar de alta un concepto y usarlo en el mes que está cargando, sin pasar por el Administrador. |
+| 6 | Reparto general: columna de utilidad en U$D, con los valores del EDR de ese mes | Mejora | La grilla suma una columna en dólares cuyo valor coincide con el que muestra el EDR mensual de ese período. |
+| 7 | Sacar las flechitas de aumentar/disminuir de **todos** los inputs numéricos | Defecto | Ningún campo numérico del sistema muestra las flechitas, ni las responde con la rueda del mouse. Ya se corrigió una vez sobre el EDR (ítem d3 de la Entrega 1) y quedaron otros. |
+| 8 | Que Enter pase a la fila de abajo al cargar números | Mejora | En las grillas de carga, Enter mueve el foco al mismo campo de la fila siguiente. |
+| 9 | Liquidaciones: filtrar por inversor y por pendientes/pagadas, además de por fecha | Mejora | Los tres filtros conviven y se pueden combinar. |
+| 10 | Eliminar un concepto: que sea sólo para el mes corriente, o que ofrezca hacerlo permanente. En los meses históricos, sólo para el mes corriente | Mejora de UX | Las dos operaciones ya existen ("sacar del mes" y "dar de baja del catálogo"); lo que falta es que la pantalla las presente como una sola decisión clara y que en un mes histórico sólo ofrezca la del mes. |
+
+### 17.3 · Premisas verificadas contra el código
+- **Ítem 7:** el arreglo anterior se hizo sobre el EDR. Hay que barrer el resto de las pantallas con carga numérica.
+- **Ítem 9:** hoy `LiquidacionesController.Index` sólo recibe `anio` y `mes`.
+- **Ítem 10:** `QuitarConceptoDelMes` y `DarDeBajaSubgrupoAsync` ya existen y hoy se ofrecen como dos botones distintos, ambos sólo cuando el importe está en 0.
+- **Ítem 5:** `ConfiguracionController` entero está bajo `SoloAdministrador`; el Encargado no entra.
+- **Ítem 3:** el pool del hosting se apaga por inactividad a los 20 minutos (verificado en el log de IIS del 2026-09-22), así que **un temporizador interno no alcanza**: el disparo tiene que venir de afuera.
+
+### 17.4 · Riesgos
+- El ítem 4 toca datos de meses **cerrados**. Backup previo obligatorio y corrección acotada a las filas afectadas.
+- El ítem 1 amplía lo que un Administrador puede hacer sobre otras cuentas: la barrera sobre SuperUsuario tiene que ser del lado del servidor, no del menú.
+- El ítem 2 muestra ventas diarias a un rol Inversor: son totales del local, sin desglose A/B, así que no toca el barrido legal E1 — igual se revalida.

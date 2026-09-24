@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: delicias-naturales
-## Ultima actualizacion: 2026-09-07
+## Ultima actualizacion: 2026-09-23
 
 ## Definiciones vigentes
 
@@ -18,6 +18,31 @@
 ### Proximos pasos pendientes
 - QA funcional del fix en `/Ventas/ListarVentas` (ver pruebas minimas en trazabilidad.md / reporte de esta tarea).
 - Evaluar si se quiere aplicar preventivamente el mismo patron en `PagosController.ListarPagos` (requiere decision de negocio, no autorizado en este hotfix).
+
+---
+
+# ITERACION 4: Agrupar por categoria en modal "Stock bajo"
+
+## Estado: IMPLEMENTADO — build limpio (`MvcBuildViews=true`), pendiente QA y deploy
+
+## 0. Escaneo de reutilizacion
+Sin equivalente en otros proyectos (confirmado en Diseño §0). Se reutiliza el buscador y la estructura del modal ya existentes.
+
+## 1. Cambios por capa
+- `Controllers/ProductosController.cs` (`Index`): `.Include(p => p.Categoria)` en la query de `productosBajoMinimo` (Include de referencia, no de coleccion: no aplica el gotcha EF6-MySQL de multiples Include de colecciones).
+- `Views/Productos/Index.cshtml`:
+  - `gruposStockBajo` calculado en la vista: `GroupBy(Categoria?.Nombre)`, orden alfabetico con el grupo sin categoria (key `null`) forzado al final via `OrderBy(key == null)` + `ThenBy(key)`; productos por `Nombre` dentro de cada grupo. Se agrupa por la key `null` (no por el literal "Sin categoria") para que una categoria real con ese nombre no se mezcle ni se ordene mal.
+  - `<select id="filtro-categoria-stock-bajo">` junto al buscador: "Todas las categorías" + una opcion por grupo presente (con conteo), `value` y `data-categoria` = nombre del grupo.
+  - Filas `tr.stock-bajo-grupo` (encabezado con nombre + badge de cantidad, `table-secondary`) y `tr.stock-bajo-item` con `data-categoria`; columnas, colores sin-stock/bajo-minimo y boton editar Admin sin cambios.
+  - JS `filtrarStockBajo()`: combina texto (misma regla legacy: texto completo de la fila normalizado) + categoria; oculta encabezados cuyo grupo quedo con 0 filas visibles; `#stock-bajo-sin-resultados` cuando no queda ningun producto. Al abrir el modal se resetean ambos filtros. Se lee `attr('data-categoria')` (no `.data()`) para evitar conversion de tipos de jQuery con nombres numericos.
+  - Contadores del alert y del `<h5>` intactos (total sin filtrar).
+
+## 2. Migraciones EF
+Ninguna.
+
+## 3. Riesgos residuales
+- Bajo. El buscador sigue matcheando contra todo el texto de la fila (igual que antes), no solo nombre/codigo: se preservo el comportamiento legacy.
+- Sin smoke test funcional (regla del rol); verificacion visual en QA.
 
 ---
 
@@ -103,3 +128,4 @@ Grep completo de `db.Pagos` / `.Pagos` / `MovimientosCaja` en `Controllers/`, `S
 ## Historial de ajustes
 - 2026-07-01: HOTFIX de produccion (excepcion de proceso, sin discovery/diseno/arquitectura/presupuesto previos — decision explicita del cliente para este caso puntual). Bug: 500 intermitente (`NullReferenceException` en `MySql.Data.EntityFramework.SelectStatement.AddColumn`) al filtrar `/Ventas/ListarVentas` por numero de venta. Causa raiz: 3 Include de coleccion (`Facturas`, `Pagos`, `ProductosVenta`) + WHERE complejo + OrderBy dinamico + Skip/Take en la misma IQueryable, combinacion no soportada por el provider EF6-MySQL. Fix aplicado: separar la query en dos pasos — (1) `query.Select(v => v.Id).Skip(start).Take(length)` para obtener los Ids de la pagina sin Includes de coleccion, (2) segunda query con todos los Include necesarios, filtrando por `pageIds.Contains(v.Id)`, sin Skip/Take/OrderBy dinamico, reordenada en memoria con `pageIds.IndexOf` para preservar el orden ya calculado. Build verificado con MSBuild (`DeliciasNaturales.sln`, Configuration=Debug) — exit code 0, sin errores nuevos (solo warnings preexistentes de binding redirects y TypeScript tools version). Se detecto patron identico de riesgo en `PagosController.ListarPagos` (linea ~168) — no tocado, reportado como riesgo residual.
 - 2026-09-07: Iteracion 3 "Editar Pago" implementada (Analisis/Diseño/Arquitectura cerrados; Presupuesto salteado por decision de Joaquin, deuda tecnica interna). Nuevo `Services/PagoService.cs` (`ReversarPago`, `RegistrarPagoInterno`, `EditarPago`, `ObtenerPagosDeVenta`) con la logica extraida literalmente de `PagosController`; `RegistrarPago`/`EliminarPago` refactorizados para usarlo sin cambio de comportamiento; nueva accion `EditarPago` bajo `lock(_registrarPagoLock)` abarcando reversion+alta; `ActualizarFechaPago` eliminada. 1 migracion EF combinada `202609071405299_AddCamposEdicionPago` (4 columnas nullable en `pagos` y `movimientoscaja`), verificada aplicada contra MySQL local. Nuevo `ViewModels/PagoVentaViewModel.cs` y `Views/Ventas/_ModalEditarPago.cshtml`; `_TablaPagos.cshtml` reescrito para mostrar los pagos reemplazados tachados con motivo. Dos hallazgos propios fuera de lo escrito en el diseño: (1) el guard `montoRestante <= 0` heredado de `RegistrarPago` bloqueaba el caso principal de HU1 (corregir hacia abajo un sobrepago) — se hizo edit-aware sin tocar el alta normal, mas clamp del excedente a `Math.Max(0, montoRestante)`; (2) `RecycleBinService` listaba como restaurables los pagos reemplazados, lo que habria duplicado importes cobrados — se excluyen del listado y se bloquea la restauracion. Build `MvcBuildViews=true` exit code 0. Pendiente: probar la migracion contra copia del dump de produccion (riesgo T4), QA funcional, y alta de PAT-023 en el catalogo.
+- 2026-09-23: Iteracion 4 "Agrupar por categoria en modal Stock bajo" implementada. `.Include(p => p.Categoria)` en `ProductosController.Index` + agrupado/select/JS combinado en `Views/Productos/Index.cshtml`. Sin migracion. Build `MvcBuildViews=true` OK (solo warnings preexistentes). Pendiente QA y deploy.

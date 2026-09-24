@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: marihogar
-## Ultima actualizacion: 2026-09-03 (CR-71 — "Pagos con tarjeta" lista todos los pagos de ventas)
+## Ultima actualizacion: 2026-09-23 (CR-77 — Nota de Crédito: corregir la factura vs. anular la venta)
 
 ## Definiciones vigentes
 
@@ -1663,7 +1663,63 @@ Sobre Discovery + Análisis v10 (`1-analista-funcional.md`), Diseño v7 (`2-dise
 
 **Checklist de salida para merge**: [x] Build limpio 0 errores, sin warnings nuevos. [x] Sin migración EF (ninguna entidad ni columna tocada). [x] `AcreditarPagoAsync` y `DashboardService` intactos (sin diff). [x] Policy `RequireAdministracion` del controller sin cambios. [x] Revisión de código propia (relectura de la vista completa: 9 `<th>` = 9 columnas en el `columns` del DataTable, índice de `order` recalculado). [ ] Verificación visual manual del usuario en navegador — pendiente, ver "Pruebas mínimas" arriba. [ ] Decisión del cliente sobre si renombrar el ítem de menú — pendiente. [ ] Deploy a producción — pendiente (responsabilidad del orquestador).
 
+## CR-77 (2026-09-23) — Nota de Crédito: elegir entre "corregir la factura" y "anular la venta"
+
+**Gate verificado antes de codificar**: pedido con alcance ya cerrado y confirmado por el cliente sobre un caso real de producción (Venta #724, 23/09/2026). Diseño y Arquitectura tomados de la sección "CR-77" de `1-analista-funcional.md` — mismo criterio de consolidación que CR-55 en adelante (ninguno de esta serie abrió sección propia en las definiciones 2/3/4). Sin gate de presupuesto (extensión menor sobre una pantalla ya entregada).
+
+**Escaneo de reutilización**: `grep` de "nota de crédito"/"notacredito" sobre `docs/*/definiciones/5-implementador.md` de los proyectos del estudio → **0 hits portables**. `la-platense` menciona "devolución de mercadería con nota de crédito AFIP y anulación de venta" pero es **alcance planificado, todavía no implementado** (aparece en el plan de entregas, sin sección de implementación ni código); `ShowroomGriffin` y `vinosefue` son menciones sueltas en comentarios, sin circuito de NC. Se reutilizó todo del propio repo: `ComprobanteAfipService.GenerarNotaCreditoAsync` (CR-55) y `VentaService.CancelarAsync` (M6 + fixes CR-64/CR-65) sin tocar ninguno de los dos. **Nada nuevo para el catálogo de patrones.**
+
+**Cambios por capa**
+
+**Domain / Application / Infrastructure**: sin cambios. Decisión explícita: el flag **no** se agregó a `GenerarNotaCreditoInput` — el service no lo consume, así que sería un campo muerto. Viaja del form al controller y muere ahí.
+
+**Web**
+- `Controllers/ComprobantesAfipController.cs` — inyecta `IVentaService` además de `IComprobanteAfipService` (antes solo tenía el segundo). `GenerarNotaCredito` recibe `bool anularVenta = false` (default = comportamiento histórico) y, cuando corresponde, encadena `_ventaService.CancelarAsync(ventaId, motivo, VendedorId)`. Se agregó la property `VendedorId` (mismo patrón exacto que `VentasController`/`EntregasController`/`PagosTarjetaController`: `User.FindFirstValue(ClaimTypes.NameIdentifier)`) y un helper privado `Truncar`.
+- `Views/ComprobantesAfip/Details.cshtml` — el SweetAlert2 de "Generar Nota de Crédito" pasa de `input: 'textarea'` a `html` propio con 2 radios ("Corregir la factura" **checked** por default / "Anular la venta") + el textarea de motivo, validado en `preConfirm` con las mismas 2 reglas de antes (obligatorio, máx. 500). Campo hidden `anularVenta` en `formGenerarNC`. Texto de ayuda del botón actualizado.
+
+**Decisiones propias (dentro del margen del implementador)**
+
+1. **Orquestación en el controller, no en el service** (venía indicada y se respetó): `VentaService` ya inyecta `IComprobanteAfipService`, así que meter `IVentaService` dentro de `ComprobanteAfipService` cerraría un ciclo de DI que revienta al resolver el grafo en runtime.
+2. **`VentaId` leído del comprobante, nunca del form**: se obtiene con `GetByIdAsync(result.Data)` sobre la NC recién creada. Un `ventaId` enviado por el cliente sería manipulable y permitiría cancelar cualquier otra venta desde esta acción.
+3. **Doble check del estado de la NC**: aunque `GenerarNotaCreditoAsync` ya devuelve `Success = true` **solo** en la rama `Estado == Emitido` (un rechazo de AFIP vuelve con `Success = false` y el Id igual cargado en `Data`), la cancelación se condiciona además a `EstadoReal == Emitido` leído de la base. Es barato y deja la precondición explícita en el call site, en vez de depender de un invariante del service que un cambio futuro podría aflojar.
+4. **`MotivoCancelacion` = "Anulación por Nota de Crédito #<id>. <motivo>", truncado a 500**: tanto el motivo de la NC como `Venta.MotivoCancelacion` están limitados a 500 en la base (`AppDbContext`), así que anteponer la referencia puede pasarse del límite con un motivo largo. Se trunca en vez de fallar.
+5. **Mensajería del caso parcial**: si la NC se emite y la cancelación falla, se limpia `SuccessMessage` y se muestra un `ErrorMessage` que arranca diciendo que **la NC sí se emitió correctamente** y que lo que falló es la cancelación de la venta. Motivo: la NC en AFIP es irreversible y además no se puede volver a generar (regla de a lo sumo 1 NC por factura), así que un mensaje ambiguo llevaría al usuario a intentar re-emitirla y a chocar con ese guard sin entender por qué.
+
+6. **Mensaje de éxito rearmado, no concatenado**: cuando la cancelación sale bien no se concatena al mensaje del service, porque ese termina en "la venta vuelve a estar disponible para facturar" — exactamente lo contrario de lo que acaba de pasar. Se rearma con el CAE de la NC más la confirmación de la cancelación.
+
+**Guards de `CancelarAsync`: verificados, no modificados**
+
+- `TieneComprobanteAsociadoAsync` (`VentaService.cs`) filtra facturas `Emitido` **excluyendo** las que ya tienen una NC `Emitido` asociada (subconsulta `!Any(nc => nc.ComprobanteAsociadoId == c.Id && nc.Estado == Emitido)`, agregada en CR-55/MH-013). Leído línea por línea: **la venta cuya factura se acaba de anular pasa el guard sin cambios**. Caso residual conocido y correcto: si la venta tiene **más de una** factura vigente y solo se anula una, las otras la siguen bloqueando y la cancelación devuelve el mensaje del guard.
+- `TieneEntregaAsociadaAsync` sin tocar, como estaba indicado: una venta con Entrega sigue sin poder cancelarse y se muestra el mensaje del `ServiceResult` tal cual.
+
+**Dos transacciones separadas, deliberadamente**: la NC vive en su propia transacción dentro del service y la cancelación en la suya dentro de `CancelarAsync`. Nunca se hace rollback de la NC por un fallo de la cancelación — el comprobante ya existe en AFIP con CAE y no se puede deshacer desde el sistema.
+
+**Migraciones EF**: ninguna.
+
+**Evidencia de build**: `dotnet build MariHogar.Web/MariHogar.Web.csproj` → **0 errores**, 9 warnings preexistentes (NU1902 de MailKit/MimeKit + CS0114 en `HomeController`), ninguno nuevo.
+
+**Sin smoke test propio** (regla del proyecto): no se levantó la app ni se simularon requests. **No se tocó la Venta #724 de producción** — su corrección la decide el usuario aparte.
+
+**Pruebas mínimas para QA**
+
+1. Factura emitida sin NC → "Generar Nota de Crédito" → el diálogo abre con **"Corregir la factura" seleccionado**; confirmar con motivo → NC emitida, la venta **sigue en su estado anterior** (no se cancela) y vuelve a poder facturarse. Es la regresión de CR-55: tiene que comportarse exactamente igual que antes.
+2. Mismo flujo eligiendo **"Anular la venta"** → NC emitida **y** venta en `Cancelada`, con stock revertido, pagos en acreditación Pendiente dados de baja, movimiento de reversión en CC Local solo por lo efectivamente acreditado y `MotivoCancelacion` con la referencia a la NC.
+3. **"Anular la venta"** sobre una venta **con Entrega asociada** → la NC se emite igual y el cartel dice que la NC se emitió pero la venta no se pudo cancelar, con el motivo del guard. La venta queda sin cancelar (correcto).
+4. Motivo vacío o de más de 500 caracteres → el diálogo no deja confirmar (validación client-side) y, si se fuerza, el service la rechaza igual.
+5. Rechazo de AFIP con "Anular la venta" elegido → la venta **no** se cancela (la NC no quedó Emitida) y se muestra el error de AFIP con la NC reintentable.
+
+**Checklist de salida para merge**
+- [x] Build `MariHogar.Web/MariHogar.Web.csproj` limpio, 0 errores, sin warnings nuevos.
+- [x] Sin migración EF.
+- [x] Lógica de negocio fuera del controller (el controller solo orquesta 2 services ya existentes; nada de reglas nuevas).
+- [x] Guards de `CancelarAsync` verificados por lectura, sin modificar.
+- [x] Textos de UI en castellano rioplatense, con tildes.
+- [x] `VentaId` resuelto server-side (no manipulable desde el form).
+- [ ] Verificación manual del usuario en navegador — pendiente, ver "Pruebas mínimas".
+- [ ] Deploy a producción — pendiente.
+
 ## Historial de ajustes
+- 2026-09-23: **CR-77 cerrado en dev — Nota de Crédito con elección entre "corregir la factura" y "anular la venta"** (ver sección completa "CR-77 (2026-09-23)" más arriba). Nace de un caso real de producción (Venta #724) que quedó inconsistente: la NC de CR-55 nunca tocaba `Venta.Estado`. Escaneo de reutilización: **0 hits portables** (la-platense lo tiene planificado pero no implementado). Solo Web: el controller inyecta `IVentaService` y encadena `CancelarAsync` cuando el usuario elige anular; el flag NO entra a `GenerarNotaCreditoInput` (sería campo muerto). `VentaId` leído del comprobante, nunca del form. Dos transacciones separadas a propósito (la NC en AFIP es irreversible). Guards de `CancelarAsync` verificados por lectura y **sin modificar** — `TieneComprobanteAsociadoAsync` ya deja pasar la venta cuya factura se acaba de anular (CR-55/MH-013). Sin migración EF. Build 0 errores. Sin smoke test (regla del proyecto). Pendiente: verificación manual del usuario y deploy.
 - 2026-09-03: **CR-71 cerrado en dev — "Pagos con tarjeta" lista todos los pagos de ventas** (ver sección completa "CR-71 (2026-09-03)" más arriba). Se retira el filtro fijo por `TarjetaCredito` de CR-59; la pantalla suma filtro + columna "Forma de pago" (ordenable) y "solo pendientes" queda cubierto por el filtro de Estado ya existente. Solo pagos de Ventas (pagos a proveedores fuera de alcance, confirmado con el cliente). Sin renombrar controller/ruta/menú (decisión documentada). Sin migración EF. Build 0 errores. Pendiente: verificación manual del usuario y deploy.
 - 2026-09-02: **CR-70 cerrado — Gasto con varias líneas de pago** (ver sección completa "CR-70 (2026-09-02)" más arriba). Diseño+Arquitectura tomados de `1-analista-funcional.md` (mismo criterio que CR-64..CR-69). Escaneo de reutilización: **0 hits cross-proyecto** y nada en `catalogo.yml` — se reutilizó el patrón **interno** `PagoVenta`/`VentaService`/`Ventas/Create.cshtml` (modelado, `Pagos.Any(...)`, `FormasPago` fuera de la query paginada, transporte `pagosJson`), adaptado sin copiar literal (Gasto no tiene cuotas, tarjeta, acreditación diferida ni baja de línea suelta). `GastoPago` nueva (sin `SoftDestroyable`), `Gasto.FormaPago` retirado, `Gasto.Monto` pasa a ser la suma de las líneas. **1 migración EF con backfill** (`AddGastoPagoLineas`), editada a mano porque EF scaffoldeó el `DropColumn` **antes** del `CreateTable`; `Down()` lossy y documentado. Verificado contra `marihogar_dev`: 492 Gastos → 492 líneas, 0 sin línea, sumas y distribución de forma de pago idénticas, columna vieja eliminada. Un solo movimiento de Egreso por gasto (sin cambio en CC Local/Caja). 7 decisiones propias documentadas + 2 tools corregidos por el grep de referencias colgantes. Build 0 errores, sin warnings nuevos. Sin smoke test (regla del proyecto).
 - 2026-09-02: **CR-62 cerrado — Gastos (categoría/forma de pago/recurrentes) + CC Local (usuario/origen clickeable/saldo filtrado)** (ver sección completa "CR-62 (2026-09-02)" más arriba). Gate del cliente verificado como aprobado antes de codificar (USD 118). Escaneo de reutilización re-ejecutado: **sin hits cross-proyecto** (único match textual, vinosefue, es un falso positivo) — todo reutilizado del propio repo (`MarcaService`/`MarcasController`/`Marcas/*` para el CRUD, `StockService.ListarMovimientosAsync` para la resolución de nombre, `PagosTarjeta/Index` para el href en el render, `DashboardController.Index` para el período por defecto, `tools/ActualizarStockProductos` para el script). 6 partes: 2 enums ampliados (agregado puro), `GastoRecurrente` + CRUD nuevo integrado como selector en `Gastos/Create` (nunca toca Monto/Fecha), `MovimientoCCLocal.UsuarioId` + resolución de nombre + los 2 call sites de `VentaService` sin GUID en el texto, script de corrección retroactiva dry-run, `Gastos/Details` nueva, Origen clickeable + mes actual por defecto + `ObtenerSaldoFiltradoAsync`. **2 migraciones EF** separadas, aplicadas solo contra `marihogar_dev`. Dry-run del script: 0 filas afectadas en dev (confirmado por diagnóstico de contexto que no es un regex roto); lógica de reemplazo verificada aparte contra las 2 cadenas literales reales, 9/9 casos OK. `ObtenerSaldoActualAsync`/Dashboard sin tocar. 7 decisiones propias documentadas. Build 0 errores, sin warnings nuevos. Sin smoke test (regla del proyecto).

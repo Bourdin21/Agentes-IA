@@ -1,0 +1,4 @@
+- [KOI — E25 sin aplicar](project_koi-e25-pendiente.md) — el deploy sin el script deja la vista anual mostrando el número equivocado; verificar antes de tocar totales de gastos.
+- [Commitear sólo el repo de código](feedback_commits-solo-repo-de-codigo.md) — nunca commitear Agentes-IA: arrastra trabajo de otros proyectos.
+- [KOI — AuditLogs con hashes viejos](project_koi-auditlogs-con-hashes-viejos.md) — el código ya no los escribe, pero las filas viejas de producción sí los tienen; avisar antes de exportar o abrir Auditoría.
+- [KOI — E26 y la tarea programada](project_koi-e26-tarea-programada.md) — "Mes actual" necesita cinco pasos de puesta en marcha; con cuatro no se actualiza, y queda una decisión E1 abierta.

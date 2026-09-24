@@ -627,3 +627,45 @@ Se reutiliza `ParametroPorcentaje`, la entidad que el sistema ya usa para porcen
 - [x] Serie diaria sin romper la política de descarte de detalle
 - [x] Barrido legal por dato, no por pantalla
 - [ ] **Presupuesto: SALTEADO por decisión del dueño (2026-09-09)**
+
+
+## 14. Arquitectura — Sprint "Fixes y mejoras" (Septiembre 2026)
+
+### 14.1 · Ítem 4 — corrección de datos y unificación de la fórmula
+- **Raíz del defecto:** `EstadoResultadosService.ObtenerResumenAnualAsync` suma `c.ImporteCalculado ?? c.ImporteManual`, mientras que el resto del sistema elige la columna **según `Subgrupo.TipoConcepto`**. Con cuatro conceptos manuales que tienen el importe en `ImporteCalculado`, las dos pantallas divergen.
+- **Fix de código:** extraer la regla a un único helper (`ImporteAplicado(concepto, subgrupo)`) y consumirlo desde `ObtenerAsync`, `ObtenerResumenAnualAsync`, `DashboardService` e `IndicadoresService`. Ningún consumidor puede volver a tener su propia versión.
+- **Fix de datos:** migración EF **sólo de datos** que, para las filas `TipoConcepto = Manual` con `ImporteManual = 0` y `ImporteCalculado` no nulo, mueve el valor a `ImporteManual` y deja `ImporteCalculado` en null. Acotada por nombre de subgrupo y verificada por total; **backup previo** y `AuditLog` por fila. Alcance real medido: 2 meses, 4 conceptos cada uno.
+- **No se tocan las liquidaciones** de esos meses (decisión del dueño). El `ResultadoEjercicio` que van a mostrar esos meses deja de coincidir con lo repartido, y eso es lo correcto.
+
+### 14.2 · Ítem 3 — actualización diaria del POS bajo un hosting que se duerme
+- **Restricción dura:** el pool de SmarterASP se apaga por inactividad a los 20 minutos. Un `BackgroundService` con temporizador **no se ejecuta** si nadie entra al sitio. Por eso el disparo va **de afuera**.
+- **Diseño:** acción nueva `POST /Integraciones/SincronizarVentasDiarias`, `[AllowAnonymous]` pero exigiendo una **API key** por header (misma mecánica que ya usa el fichador), idempotente y acotada al mes en curso. La llama la tarea programada del panel del hosting, una vez por día.
+- **Persistencia:** tabla nueva `VentasDiariasCache` (`Anio`, `Mes`, `Dia`, `Monto`, `Cubiertos`, `ActualizadoUtc`), con índice único por `(Anio, Mes, Dia)`. Reemplaza a la caché en memoria de 5 minutos como fuente de la pantalla; la caché queda sólo como amortiguador del Dashboard.
+- El trabajo real se encola en el `IBackgroundJobQueue` ya existente (PAT-025), así el request responde rápido y el scope de DI es propio.
+
+### 14.3 · Ítem 1 — gestión de usuarios
+- `UsersController` mantiene `SoloAdministrador`. Se agregan `Delete`, `SetPassword`, `ResetPassword` y `EnviarRecuperacion`, todas `[HttpPost] [ValidateAntiForgeryToken]`.
+- `CanManageUser()` es el único punto de decisión y ya excluye SuperUsuario: las acciones nuevas **pasan por él** antes de tocar nada. El listado lo aplica también como filtro.
+- Contraseñas vía `UserManager`: `GeneratePasswordResetTokenAsync` + `ResetPasswordAsync` (nunca escribir el hash a mano). El mail de recuperación reutiliza el flujo de `AccountController.ForgotPassword`, que ya encola el envío.
+- `Delete`: guard previo por inversor vinculado o registros asociados; si no pasa, devuelve el motivo y ofrece desactivar.
+
+### 14.4 · Resto de los ítems
+| Ítem | Capa | Cambio |
+|---|---|---|
+| 2 | Web | Vista `MesActual/Index` + endpoint que sirve la serie desde `VentasDiariasCache`. Sin lógica de negocio nueva. |
+| 5 | Web | Política nueva `GestionConceptos` (SuperUsuario + Administrador + Encargado) aplicada **por acción** sobre `Subgrupos` y `SubgrupoCreate`; el resto de `ConfiguracionController` sigue en `SoloAdministrador`. |
+| 6 | Infrastructure + Web | `InversionesService.ObtenerRepartoGeneralAsync` suma `UtilidadUsd` usando el `TipoCambio` del período; la vista agrega la columna con `data-order` para que ordene numéricamente. |
+| 7 | Web | Regla CSS global para `input[type=number]` (`appearance: textfield`, sin spinner) más `wheel` desactivado, en `site.css`. Barrido de todas las vistas con carga numérica. |
+| 8 | Web | Helper JS común de navegación por grilla (Enter/Shift+Enter), aplicado a las grillas de carga. Sin dependencias nuevas. |
+| 9 | Web + Infrastructure | `LiquidacionesController.Index` recibe `inversorId` y `estado`; la consulta los aplica en el servidor, no en el cliente. |
+| 10 | Web | La vista unifica los dos botones en una sola confirmación con dos opciones; en un mes histórico sólo ofrece "sólo este mes". **El servidor no cambia**: siguen siendo `QuitarConceptoDelMes` y `DarDeBajaSubgrupo`, cada uno con su guard. |
+
+### 14.5 · Migraciones
+- **E25_NormalizarImportesManuales** — sólo datos (ítem 4).
+- **E26_VentasDiariasCache** — tabla nueva (ítem 3).
+Las dos se generan pero **no se aplican a producción** desde el implementador: el script queda para que lo corra el orquestador, igual que E24.
+
+### 14.6 · Riesgos
+- La corrección de datos toca meses cerrados: sin backup previo no se ejecuta.
+- La API key del endpoint nuevo va en `appsettings.Production.json` (gitignoreado), nunca versionada.
+- El ítem 5 amplía el acceso a configuración: la política nueva se aplica por acción, no al controller, para no abrir de más.

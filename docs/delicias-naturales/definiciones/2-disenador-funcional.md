@@ -374,6 +374,43 @@ Con `PagoAnteriorId` en el registro NUEVO alcanza (no hace falta un campo invers
 **HU7** — Como Administrador o Vendedor, quiero poder cambiar el metodo de pago de un pago ya cargado (ej. se anoto como Efectivo y en realidad fue Transferencia), para que los reportes por metodo de pago sean correctos.
 - Cambiar el Metodo hacia o desde `SaldoFavor` revalida `saldoDisponible`/genera el movimiento de cuenta corriente correspondiente igual que un alta nueva con ese metodo (no se asume valido solo porque el pago viejo ya existia).
 
+# ITERACION 4: Agrupar por categoria en modal "Stock bajo"
+
+## Estado: DISEÑO CERRADO
+
+## 0. Escaneo de reutilizacion
+No hay un patron de "agrupar tabla por categoria dentro de un modal" ya construido en otro proyecto del historial (los agrupamientos existentes en otros proyectos son de listados DataTables server-side, no modales client-side). Se reutiliza si: Bootstrap ya usado en toda la app (`table-warning`/`table-danger`, `input-group` de busqueda ya existente en este mismo modal).
+
+## 1. Flujo de pantalla
+- Se agrega un `<select id="filtro-categoria-stock-bajo">` junto al buscador existente, con "Todas las categorias" + una opcion por cada categoria presente en `ProductosBajoMinimo` (no el listado completo de categorias del sistema, solo las que tienen algun producto en stock bajo).
+- La tabla se reemplaza por grupos: una fila de encabezado de grupo (nombre de categoria + cantidad de items de ese grupo) seguida de las filas de producto de esa categoria, en orden alfabetico de categoria y de producto dentro de cada una. Productos sin `CategoriaId` van al grupo "Sin categoria" al final.
+- El buscador de texto ya existente sigue filtrando por nombre/codigo, combinado con el filtro de categoria (JS: una fila se muestra si matchea AMBOS filtros; un encabezado de grupo se oculta si su grupo quedo sin filas visibles).
+
+## 2. Validaciones / UI
+- Sin resultados (por buscador + categoria combinados): mismo mensaje "No se encontraron productos con ese criterio" ya existente.
+- El contador de "N productos con stock bajo" del botón/alert y del `<h5>` del modal no cambia (sigue siendo el total sin filtrar).
+
+## 3. Contrato de datos (Controller -> Vista)
+- `ProductosController.Index`: agregar `.Include(p => p.Categoria)` a la query de `productosBajoMinimo` (hoy no lo tiene — gap encontrado en Analisis; sin esto, agrupar por `p.Categoria.Nombre` dispara lazy-load por fila o revienta si el proxy no esta disponible fuera de contexto).
+- Vista: agrupar en el propio `.cshtml` con LINQ (`productosBajoMinimo.GroupBy(p => p.Categoria?.Nombre ?? "Sin categoria").OrderBy(g => g.Key)`), no requiere ViewModel nuevo ni cambios de ruta.
+
+## 4. Impacto por capa
+- Presentacion unicamente: `Views/Productos/Index.cshtml` (agrupado + select) y `Controllers/ProductosController.cs` (agregar el Include faltante). Sin cambios de Negocio ni Datos, sin migracion.
+
+## 5. Riesgos
+- Bajo. Unico cuidado: el JS de filtrado debe recorrer TR de encabezado de grupo y TR de producto por separado (son elementos distintos), y ocultar el encabezado cuando las 0 filas de su grupo quedan visibles — de lo contrario quedan encabezados de categoria "vacios" flotando tras filtrar.
+
+## 6. Historias de usuario
+**HU1** — Como usuario que abre el modal de stock bajo, quiero ver los productos agrupados por categoria, para ubicar mas rapido lo que me interesa sin escanear una lista plana larga.
+- Cada grupo muestra su nombre de categoria y cantidad de items: los productos aparecen ordenados alfabeticamente dentro de su grupo, los grupos ordenados alfabeticamente entre si, "Sin categoria" al final.
+
+**HU2** — Como usuario, quiero poder filtrar el modal a una sola categoria, para revisar el stock bajo de un rubro puntual.
+- Elegir una categoria del select deja visibles solo sus productos (y su encabezado); el resto de los grupos se ocultan.
+
+**HU3** — Como usuario, quiero poder combinar el buscador de texto con el filtro de categoria, para acotar aun mas la busqueda.
+- Escribir en el buscador con una categoria seleccionada filtra dentro de esa categoria unicamente.
+
 ## Historial de ajustes
 - 2026-06-XX: Creacion. Diseno iteracion 2 del modulo Solicitudes de Ingreso de Stock a partir de devolucion del cliente.
+- 2026-09-23: Diseno cerrado iteracion 4 "Agrupar por categoria en modal Stock bajo" — solo Presentacion, 3 historias de usuario, sin migracion.
 - 2026-09-07: Diseno cerrado de "Ajuste directo de un Pago" (iteracion 3) — modal de ajuste sobre el listado de pagos de Venta, migracion EF (UsuarioId/Observacion/PagoAnteriorId en Pago), reversion+alta atomica reusando EliminarPago/RegistrarPago bajo el mismo lock. Mismo dia, alcance ampliado a pedido de Joaquin: el boton "Editar fecha" existente (`ActualizarFechaPago`) se unifica con el ajuste de monto en un unico boton/endpoint "Editar pago" (Fecha+Monto+Metodo), con la decision explicita de que TODA edicion (incluida solo-fecha) pasa siempre por reversion+alta con motivo obligatorio — sin camino liviano alternativo. `ActualizarFechaPago` queda reemplazado/eliminado. 7 historias de usuario (HU1-HU7). Patron nuevo candidato a catalogar (variante de PAT-020). Pendiente aprobacion para pasar a Arquitectura.

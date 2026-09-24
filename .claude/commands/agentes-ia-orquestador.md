@@ -14,7 +14,7 @@ $ARGUMENTS
 1. Confirmar el proyecto. Si `docs/<proyecto>/` no existe, crearlo desde `C:/Sistemas/Agentes-IA/docs/templates/proyecto/`.
 2. Leer `C:/Sistemas/Agentes-IA/.github/prompts/09-orquestador-flujo-completo.prompt.md`.
 3. Leer `docs/indice.md` y `docs/<proyecto>/trazabilidad.md`.
-4. Cargar instrucciones: `00`, `01`, `10`, `26`, `27`, `28`, `29` (en `C:/Sistemas/Agentes-IA/.github/instructions/`).
+4. Cargar instrucciones: `00`, `01`, `10`, `26`, `27`, `28`, `29` y **`38`** (en `C:/Sistemas/Agentes-IA/.github/instructions/`). La `38` son las decisiones de diseño de pantallas del portal: va en Diseño (etapa 2) y se le pasa al implementador en la etapa 5.
 
 ## Secuencia obligatoria (no saltar etapas — cada una cierra su archivo antes de la siguiente)
 

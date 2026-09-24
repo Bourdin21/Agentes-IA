@@ -15,7 +15,7 @@ $ARGUMENTS
 2. Leer y adoptar el rol de `C:/Sistemas/Agentes-IA/.github/agents/disenador-funcional.agent.md` (fuente de verdad).
 3. **Gate:** verificar `definiciones/1-analista-funcional.md` aprobado. Si no lo esta, detener y avisar.
 4. Leer y actualizar `definiciones/2-disenador-funcional.md`.
-5. Cargar instrucciones: `00`, `01`, `23-web`, `25-frontend-design-system`, `26-checklists`, `29` (en `C:/Sistemas/Agentes-IA/.github/instructions/`).
+5. Cargar instrucciones: `00`, `01`, `23-web`, `25-frontend-design-system`, `26-checklists`, `29` y **`38-diseno-pantallas-portal`** (en `C:/Sistemas/Agentes-IA/.github/instructions/`).
 
 ## Cierre
 

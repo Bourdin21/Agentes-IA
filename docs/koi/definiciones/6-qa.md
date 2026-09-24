@@ -1,11 +1,149 @@
 # Memoria QA — KoiDumplings
-# Última actualización: 2026-09-11 (Etapa 6 — regresión completa de todo lo entregado desde el 2026-09-08)
-# Última validación de reglas cross-proyecto: 2026-09-11
+# Última actualización: 2026-09-23 (Etapa 7b — re-test del sprint "Fixes y mejoras", agente A: GO)
+# Última validación de reglas cross-proyecto: 2026-09-23
 
 ## Estado del sistema (2026-09-08)
 - Build: **PASS** — `dotnet build` 0 errores, 9 warnings, todos preexistentes (8 × NU1902 MailKit/MimeKit = VUL-001, 1 × CS0114 `HomeController.StatusCode`).
 - EF migrations: sin cambios pendientes. Última: `20260908162332_E19_ConceptoGastoImporteEditadoManual` (aplicada en producción).
 - Producción: `https://portaldelinversor.com.ar/koi/` — 23 pantallas verificadas, **0 errores 500**.
+
+---
+
+## Etapa 7 — QA del sprint "Fixes y mejoras" — AGENTE B (corrida 2026-09-23)
+
+**Alcance:** ítems **2, 3, 6, 7, 8 y 9** + barrido legal **E1**, sobre `5a52462`, `ef47250` y `e7c24d8`
+(base `f017f01`). Estado de Resultados, conceptos y gestión de usuarios quedaron para el agente A.
+
+### Camino de verificación usado — IMPORTANTE
+El MCP `playwright` **no estaba disponible** en la sesión. Se declaró y se usó el camino equivalente ya
+validado el 2026-09-11: **Chromium real vía el paquete npm `playwright` 1.63 desde Node**, contra
+`https://localhost:7102` (Development) y la base aislada `koidumplings_qa_b`, cruzando cada número con SQL.
+**Ayres no es alcanzable desde esta máquina**: se montó un **stub fiel al contrato** (login → `tokenAccess`,
+`GET /ventas` con Bearer, fechas de ida `yyyy-MM-dd` y de vuelta `dd/MM/yyyy`, sobre anidado, estados `C`/`X`).
+**Producción no se tocó.** Por regla dura del pedido **no se modificó código fuente**, así que el auto-fix
+obligatorio quedó suspendido y declarado.
+
+### Lo verificado en verde (con evidencia)
+- **Ítem 3 — endpoint de sincronización.** Sin header → **401**; clave equivocada (incluida una con el mismo
+  prefijo y un carácter de más) → **401**; clave correcta → **202**; repetido → **200 `yaEncolada:true`**;
+  `GET` → 405. **Fail-closed verificado de verdad**: con `Integraciones:ApiKey` vacía los 4 intentos dan
+  **503** y no se escribe nada. El trabajo encolado **escribe**: 23 filas (corta en HOY, no a fin de mes),
+  total 17.500.000, días sin ventas en **0** y no omitidos, **anuladas `X` excluidas** (140 cubiertos = 20×7),
+  3 tramos de 10 días. **Idempotente**: segunda corrida deja 23 filas, mismo total, 0 duplicados.
+- **Ítem 2 — gráfico.** Canvas con **91.379 píxeles pintados** (getImageData), barras, **una sola serie**,
+  23 labels, suma = SQL exacto. "Actualizado el 23/09/2026 a las 16:01 h". **Borde de 26 h exacto**:
+  25 h sin aviso, 26 h con aviso; redacta "hace un día / 2 días / 8 días". Tabla vacía → 200 con
+  "Todavía no se actualizó" (distinto de "vendió $ 0"). Con el **E.R. del mes vacío** la pantalla igual dibuja
+  el gráfico: los tres bloques son independientes, que era el punto del rediseño.
+- **Ítem 7 — flechitas.** **82 inputs `type=number`** en 5 pantallas de carga, **100 % con
+  `appearance: textfield`**. La regla está en `site.css` **y** en `olvidata-theme.css`. **Rueda real**
+  (`mouse.wheel` ×5) sobre un campo enfocado: el valor no se mueve.
+- **Ítem 8 — Enter.** Las dos grillas (`.concepto-input` 46 campos, `.consumo-input` 15): Enter baja 1,
+  Shift+Enter sube 1, última fila hace **blur sin navegar**, Tab intacto. **6 Enter seguidos en Preview de
+  cierre: 0 navegaciones, sin modal, y 2026-07 sigue Abierto.**
+- **Ítem 9 — filtros.** Los 4 filtros cruzados contra SQL, uno a uno y combinados (12 casos, todos exactos).
+  **Se aplican en el servidor**: el cliente recibe 19 / 15 / 1 filas según el filtro, no 280. Los combos no
+  colapsan. El filtro **sobrevive al detalle** (Reabrir → Cancelar) **y a un POST** (marcar pagadas: 15→13
+  pendientes, 0→2 pagadas, vuelve con el filtro puesto).
+- **E1 — lo explícito.** 11 patrones (facturado/informal/lado A/B/blanco/declarado/fiscal…) → **0 hits** en el
+  texto visible **y** en el HTML servido completo. Gráfico de **una sola serie** rotulada "Ventas". **La serie
+  no viaja por un endpoint aparte** (va en el ViewModel; único XHR: notificaciones).
+- **PAT-017 / IDOR cerrado.** Inversor ligado al id 26: propio → 200; ids 27, 28 y 1 → **AccessDenied**.
+- **Permisos.** El Inversor recibe AccessDenied en Liquidaciones, RepartoGeneral, Users, Inversores,
+  E.R. Mensual, Configuración y Audit.
+
+### Defectos
+| Id | Sev. | Qué | Estado |
+|---|---|---|---|
+| **KOI-015** (DEF-B01) | **CRÍTICA** | `ConceptosGastoQuery.ImportesAplicados` devuelve un `IQueryable` **ya proyectado** a `ImporteConceptoRow`; cualquier `.Where()` encadenado después **EF no lo traduce**. **500 reproducido** en `/RepartoGeneral`, `/EstadoResultados/Anual` y `/Dashboard/Historico?meses=12\|24` (canvas `#chartHistorico` con **0 píxeles pintados**). Falla igual con el predicado escalar que con el `Contains`: el problema es **filtrar después de proyectar**. 4 call sites (`InversionesService:249`, `EstadoResultadosService:1244`, `DashboardService:105`, `ImportacionExcelKoiService:522`). Introducido por el ítem 4 (`5a52462`). El build compila en verde: es falla de traducción en runtime. **`/EstadoResultados/Anual` está en el sidebar del Inversor.** | Alta en el catálogo; **fix NO aplicado** por la regla dura del pedido |
+| **DEF-B02** | **ALTA** | **E1**: no hay desglose expuesto, pero **sí derivable**. "Ventas Totales" = A+B = $ 22.500.000 y la suma de las barras = A = $ 17.500.000 → la resta da **$ 5.000.000 = exactamente B**. Los montos diarios están **literales en el fuente** (`"monto":900000.00`) y el tooltip da el valor exacto por barra. **Es información nueva de este sprint.** | **Decisión del dueño pendiente** |
+| **DEF-B03** | MEDIA | Regla nueva **OLV-002**: `badge bg-warning text-dark` ("Pendiente") mide **9,46 en claro** y **1,49 en oscuro** — el tema pisa `text-dark` a `rgb(241,245,249)` sobre amarillo. En Liquidaciones e Inversores | A implementación |
+| **DEF-B04** | BAJA | Regla nueva **OLV-018**: el proyecto sirve **Bootstrap 5.1.0**, que no trae `fw-semibold` (existe desde 5.2). Resuelve a **font-weight 400**. Usada en **20 vistas** | A implementación |
+| OBS-B05 | Obs. | `btn-primary`/`bg-primary` blanco sobre `#2b9de4` = 2,98 en los **dos** temas; `#64748b` del sidebar/footer = 3,75–4,31. Pre-existente, del design system compartido | Backlog del baseline |
+| OBS-B06 | Obs. | La copia de dev **no tiene** las filas defectuosas del ítem 4 (0 filas, 0 AuditLogs de normalización): el defecto estaba en producción. **La corrección de datos del ítem 4 no pudo ejercitarse acá** | Para el agente A / copia de producción |
+
+### Re-test del agente B tras los fixes (misma corrida, 2026-09-23 — build `8c22af6`)
+
+Entorno actualizado: `343818f`, `e431905`, `8c22af6` en `https://localhost:7102`, base `koidumplings_qa_b`
+con **E24, E25, E26 y E27** aplicadas.
+
+- **KOI-015 CERRADO.** Las 16 rutas del barrido dan **200**, sin errores de consola ni 5xx.
+  `/RepartoGeneral` abre; `/EstadoResultados/Anual` abre; `#chartHistorico` pasó de **0 a 175.033
+  píxeles pintados** (12 puntos, 3 series) para SuperUsuario y para Inversor.
+- **Ítem 6 CERRADO — PASS.** Las **22 filas** de Utilidad U$D coinciden con SQL **una por una**
+  (`data-order` invariante: 30762.21, 3387.09, 0, -878.91, …). Orden **numérico** verificado por
+  monotonía ascendente (-1.345 → 30.762). **Guion**: forzando `TipoCambio` a **NULL** y a **0**, las dos
+  filas muestran `—` con `data-order` vacío y quedan agrupadas al ordenar, sin leerse como 0. La única
+  fila que muestra `U$D 0` es Junio 2026, que efectivamente dio 0.
+- **Estados del dato (PASS).** Caché vacía → las **cuatro** tarjetas muestran `—`, sin canvas, con aviso,
+  0 errores JS: **ningún cero engañoso**. Filas con `Tickets` NULL (las viejas, previas a E27) → Ventas y
+  Cubiertos con su valor real y **Ticket Promedio / Cant. de Tickets en `—`**, sin división por cero ni
+  promedio absurdo. Dato de 40 h → aviso presente y tarjetas correctas.
+- **Regresión de los ítems 3, 2, 7, 8 y 9: intacta.** Endpoint 401/401/401/**202**/**200 `yaEncolada`**/405
+  + **503** fail-closed con clave vacía; caché 23 filas, 17.500.000, 140 cubiertos, **40 tickets** (E27
+  puebla bien), días 7/14/21 en 0, idempotente (0 duplicados). Gráfico 91.379 px, 1 serie, suma exacta,
+  0 errores. 82 inputs sin flechitas + rueda real bloqueada. Enter/Shift+Enter/blur/Tab y **6 Enter sin
+  cerrar el período** (2026-07 sigue Abierto). Los 10 casos de filtros coinciden con SQL y el filtro
+  sobrevive al detalle.
+
+#### E1 — el intento de romperlo
+
+**Dentro de `Mes actual`, el implementador tiene razón y se confirma.** Escenario con el local distinto
+del POS (local A 19.317.431 + B 6.742.889 = 26.060.320; POS 17.500.000). Las cuatro tarjetas salen del
+POS y cierran entre sí (17.500.000 / 437.500 = 17.500.000÷40 / 40 / 140 / 125.000 por cubierto). La torta
+**manda sólo porcentajes** (57.9, 28.5, 13.7) y sus tooltips también. Los tooltips de las barras sólo dicen
+Vendido y Cubiertos del POS. **Búsqueda exhaustiva sobre 207 números distintos** (visibles + HTML servido +
+datasets), con 1, 2 y 3 operandos y +, −, ×, ÷ y porcentajes: **el total del local, el lado B y el lado A
+del E.R. NO se reconstruyen**. Los tres "hits" que devolvió la búsqueda son falsos positivos sobre enteros
+chicos (173, 51) alcanzables por azar desde valores de layout. Ningún secreto aparece literal en el HTML.
+
+**Pero la pantalla no es el perímetro, y el dato sigue siendo deducible — DEF-B07 (ALTA).** Con el rol
+Inversor, **sin tocar una sola URL a mano, sólo con dos links de su propio sidebar**:
+
+1. "Mes actual" → **Ventas registradas = $ 17.500.000** (sólo POS).
+2. "Historial de Resultados" (`/EstadoResultados/Anual`) → fila **Septiembre 2026: Ventas 26.060.320**,
+   que es el **total del local (A+B)**.
+3. Resta → **$ 8.560.320** (= lado B + la brecha POS vs. E.R.).
+
+**Prueba de movimiento (la decisiva):** moviendo **sólo el lado B** en la base, "Ventas registradas" queda
+clavada en 17.500.000 mientras la fila anual acompaña **uno a uno**: B=0 → 19.317.431; B=6.742.889 →
+26.060.320; B=17.000.000 → 36.317.431. La anual es una función directa del secreto.
+
+**Paradoja del fix, y es el punto:** mientras `Mes actual` mostraba el total del local —lo mismo que la
+anual— **no había nada que restar**. Al pasarla a "sólo punto de venta" se publicó el lado A a alguien que
+ya veía el total, y **se creó la diferencia**. El fix cerró la deducción dentro de una pantalla y abrió la
+de dos pantallas, a un clic de distancia. **La confidencialidad hay que evaluarla sobre el menú completo
+del rol, no pantalla por pantalla.** Alta en el catálogo como **KOI-016**.
+
+**Fuga menor de la torta (DEF-B08, MEDIA):** los porcentajes de canal se calculan sobre el **local (A+B)**,
+no sobre el POS. Comprobado moviendo sólo el lado B: pasan de 57,9/28,5/13,7 a **39,8/20,4/39,8** con el
+POS intacto. No son invertibles a pesos por sí solos, pero son una función del secreto en una pantalla que
+se declaró "sólo punto de venta", y delatan el movimiento del lado informal.
+
+**El Administrador sigue viendo el total real (PASS):** E.R. Mensual muestra 26.060.320, el lado A
+19.317.431 y los seis campos A/B de carga; el Dashboard muestra Ventas Totales y el desglose por canal con
+las columnas "CON IMPTO. / S/IMPTO. (A)".
+
+#### Go / No-go del área B tras el re-test
+**GO condicionado a una decisión de negocio.** Todo lo técnico del área quedó en verde: los ítems **2, 3,
+6, 7, 8 y 9 pasan**, KOI-015 está cerrado y los estados del dato no mienten. Queda abierto **DEF-B07**, que
+no es un bug de código sino la misma decisión de E1 corrida de lugar: mientras el Inversor vea el total del
+local en la anual y el total del POS en Mes actual, la resta existe. **DEF-B08** (la torta) sí es corregible
+en código.
+
+### Reglas cross-proyecto
+Última validación previa: **2026-09-11**. El catálogo pasó de **71 a 92** ítems: **21 reglas nuevas**
+(`OLV-001…OLV-020` + `CRM-023`, de `olvidata-agentes-multirubro`, 2026-09-14 al 16). `32-estandares-qa-implementador`
+sin cambios posteriores. Ejecutadas todas las aplicables: **FAIL en OLV-002 y OLV-018**; **PASS** en OLV-001,
+003, 005, 007, 008, 009, 011, 012, 013, 017, 019; **OBS** en OLV-004; **N/A** OLV-006, 010, 014, 015, 016, 020 y
+CRM-023 (multi-tenant / flujos inexistentes en KOI). Del catálogo viejo: **FAIL en REG-004** y en **KOI-005/006**
+(el link del sidebar del Inversor a `/EstadoResultados/Anual` da 500), PASS el resto del alcance.
+**Alta nueva: `KOI-015`** — el catálogo queda en **93** ítems.
+
+### Go / No-go del área B
+**NO-GO.** Dos bloqueantes: **KOI-015** y la **decisión sobre E1**. Los ítems **3, 2, 7, 8 y 9 están en verde**
+con evidencia cruzada contra SQL y navegador real; el **ítem 6 quedó BLOCKED** porque su pantalla no abre
+(su fórmula sí se cruzó contra el E.R. mensual en 5 meses: 30.762,21 / 3.387,09 / -878,91 / 8.919,36 / 10.759,67).
 
 ---
 
@@ -295,3 +433,122 @@ Además, dos observaciones operativas para el dueño (no son defectos del módul
 - [ ] Commit y deploy del fix de KOI-010 (los hace el dueño)
 - [ ] Actualizar MailKit/MimeKit a 4.17.0 (VUL-001)
 - [ ] KOI-007 / KOI-008 (DataTables) — backlog menor
+
+
+---
+
+# Etapa 7 — Sprint "Fixes y mejoras" (corrida 2026-09-23) — **agente A: ítems 4, 5, 10 y 1**
+
+**Commits:** `5a52462` (E29), `ef47250` (E30), `e7c24d8` (E31) sobre `f017f01`. Matriz completa en
+`<scratch>/qa/resultados-sprint-A.md`. Los ítems 2, 3, 6, 7, 8 y 9 los cubrió el agente B.
+
+### Camino de verificación
+MCP `playwright` **no disponible** — declarado, y sustituido por **Chromium real vía el paquete npm
+`playwright` 1.63.0 desde Node** (`33-verificacion-automatizada-qa`). App `https://localhost:7101`,
+base `koidumplings_qa_a` (vínculo app↔base verificado por la conexión MySQL del PID, no por
+`appsettings`). **Producción no se tocó.** Foto SQL antes/después: **22 períodos idénticos al centavo**.
+
+### Veredicto por ítem
+| Ítem | Veredicto |
+|---|---|
+| 4 — cierre vs. vista anual | **NO-GO** — D-A01 (la anual da 500) + D-A02 (E25 aborta) |
+| 5 — el Encargado da de alta conceptos | **GO** (con O-A01) |
+| 10 — eliminar concepto con alcance | **GO** (con O-A02) |
+| 1 — gestión de usuarios | **NO-GO** — D-A02 (las 3 acciones de contraseña en 500) + D-A03 |
+
+### Defectos nuevos
+
+**D-A01 — [CRÍTICO] Cuatro rutas en 500 por el código del ítem 4.** `ConceptosGastoQuery.ImportesAplicados`
+proyecta a un `record` y los cuatro consumidores encadenan el `.Where` **después** de la proyección; EF no
+traduce a través del constructor del record. Caen `/EstadoResultados/Anual` (la pantalla que el ítem 4
+venía a arreglar, visible para **todos** los roles incluido Inversor), `/Dashboard/Historico`,
+`/EstadoResultados/ExportarAnualExcel` y `/RepartoGeneral`. Un quinto consumidor
+(`ImportacionExcelKoiService:522`) tiene la misma forma. **Engaña:** un año sin períodos devuelve 200
+porque el bucle no ejecuta la consulta. *Fix propuesto:* filtrar **antes** de proyectar, dentro de
+`ConceptosGastoQuery`.
+
+**D-A02 — [CRÍTICO] `AuditLogs.Action` es `varchar(20)`; los literales nuevos miden 22, 25, 26 y 31.**
+Las etapas 29 y 30 declararon "sin migraciones EF". Rompe: las tres acciones de contraseña (500),
+`Users/Edit` con contraseña (**regresión de legado**, ya existía antes del sprint) y el script
+`E25_normalizar.sql` (`ERROR 1406`, aborta en la primera sentencia y **no mueve ninguna fila**).
+**Lo grave es el orden:** la contraseña se cambia antes del registro de auditoría, así que el 500 llega
+con el daño hecho — `ResetPassword` deja la cuenta con una clave generada que **nunca se muestra**
+(verificado: `qa.admin2@qa.koi` quedó inaccesible). Ampliando la columna a `varchar(64)` sólo en la base
+QA, E25 corre limpio y sus 4 controles dan lo esperado (0 pendientes, 0 períodos divergentes, las dos
+reglas iguales en 1.423.104.404,31). *Columna restaurada a `varchar(20)` al cerrar.*
+
+**D-A03 — [ALTO] La rendija del SuperUsuario sin rol es real.** `CanManageUser` resuelve el rol con
+`FirstOrDefault() ?? ""` y compara por desigualdad: sin fila en `AspNetUserRoles`, el SuperUsuario aparece
+en el listado como "Sin rol" y un Administrador **lo edita, lo bloquea y le resetea la contraseña**
+(verificado: quedó `Estado = 2` con hash distinto; restaurado desde `koidumplings_dev`). Es una decisión
+**fail-open** sobre la identidad más privilegiada.
+
+**O-A01 — [obs]** El alta de un concepto porcentual por el Encargado no se rechaza: el servidor la
+**coerciona a Manual en silencio** y contesta "creado correctamente".
+**O-A02 — [obs]** "Para siempre" deja el concepto visible con badge "Histórico" e importe 0 en el mes
+desde el que se dio de baja.
+
+### Lo que sí quedó verificado (con evidencia)
+- **Regla unificada del importe:** mensual, Dashboard y cierre dan el mismo número en 6 períodos, cruzado
+  contra SQL. Con el defecto de producción **sembrado a mano** en 2026-05, las tres convergen; tras E25
+  vuelven a incluir el gasto. La **anual no se pudo comparar** (D-A01).
+- **El defecto del ítem 4 NO existe en `koidumplings_dev`:** los cuatro conceptos tienen las dos columnas
+  iguales, E25 movió **0 filas** y escribió **0 AuditLogs**. El alcance real de producción (8 filas,
+  $ 15.680.662 y $ 27.263.960,72) **no está verificado por este QA**.
+- **Ítem 5:** 15 rutas/POST del resto de `ConfiguracionController` → todas AccessDenied; alta manual OK;
+  el concepto nuevo aparece en el E.R. del mes en curso.
+- **Ítem 10:** los dos caminos contra la base (lápida + revivir; baja de catálogo con históricos
+  conservados), guard de importe 0 en los dos, mes histórico sin "Para siempre", mes cerrado sin botón.
+- **Ítem 1:** la **barrera sobre SuperUsuario aguanta las 8 acciones armando el POST a mano**; el combo de
+  Editar preselecciona el rol actual y no lo degrada; los guards de borrado (inversor, auditoría, uno
+  mismo) explican y ofrecen desactivar; **la auditoría ya no guarda el hash** (`AffectedColumns` = solo
+  `["UpdatedAt"]`); POST sin antiforgery → 400.
+
+### Reglas cross-proyecto nuevas desde 2026-09-11 (diff `c09e84d`..`HEAD`)
+11 reglas nuevas en el `32` + 33 ítems nuevos en el yml. Ejecutadas las de mi alcance:
+**REG-011** PASS · **REG-012** PASS · **VSF-003** PASS con nota (E25 no filtra por `Subgrupo.DeletedAt` a
+propósito) · **CRM-019** PASS (sin `StartsWith` en consultas EF) · **OLV-010** PASS · **OLV-019** PASS con
+O-A01 · **OLV-008** PASS · **OLV-015/016** PASS. El resto (contraste/tema oscuro, Select2, filtros
+persistidos, multi-tenant, topes de gasto) no aplica a mis ítems o es del agente B.
+
+### Altas sugeridas para `regresiones-manuales.yml` (no escritas — el archivo tiene cambios de otros proyectos en curso)
+- **KOI-012** — proyección a un `record` con `.Where` encadenado después: EF no traduce, 500 en runtime con build verde.
+- **KOI-013** — literal de auditoría más largo que la columna `Action`: el `SaveChanges` tira y se lleva puesta la operación que **ya se ejecutó**.
+- **KOI-014** — guarda de privilegio que resuelve el rol con `FirstOrDefault() ?? ""`: sin rol = gestionable (fail-open).
+
+### Pendientes bloqueantes
+- [ ] **D-A01** — filtrar antes de proyectar y re-verificar las 5 rutas.
+- [ ] **D-A02** — migración EF que amplíe `AuditLogs.Action` a ≥ 64, desplegada **antes o junto** al código y al script E25.
+- [ ] **D-A03** — guarda fail-closed sobre usuarios sin rol resoluble.
+- [ ] Pre-vuelo de E25 contra producción para confirmar el alcance real (8 filas esperadas).
+- [ ] Documentar al cliente que agosto-2025 y mayo-2026 repartieron por encima del resultado real.
+- [ ] **Código y script E25 van juntos:** el código sin el script hace que la anual pase a mostrar el número **optimista equivocado** en esos dos meses.
+
+
+---
+
+## Etapa 7b — RE-TEST del sprint "Fixes y mejoras" (2026-09-23, agente A) — **GO**
+
+**Build:** `343818f`, `e431905`, `8c22af6` sobre los tres commits del sprint. **Base:** `koidumplings_qa_a` con **E24, E25, E26 y E27**; `AuditLogs.Action` en `varchar(50)`, modelo EF `HasMaxLength(50)` — sin drift. Vínculo app↔base re-verificado (PID 26728 → `:61172` → `koidumplings_qa_a`).
+
+| Defecto | Veredicto |
+|---|---|
+| **D-A01** — 4 rutas en 500 | **CERRADO** |
+| **D-A02** — `AuditLogs.Action` corta | **CERRADO — era diferencia de entorno, no defecto de producción** |
+| **D-A03** — SuperUsuario sin rol | **CERRADO** |
+| Ítems 5 y 10 | **siguen PASS**, sin cambios |
+| Regresión de períodos sanos | **PASS** — 22 períodos idénticos al centavo |
+
+**D-A01.** El fix fue el propuesto: `ConceptosGastoQuery` ya no expone `IQueryable`; recibe los ids de período, filtra **antes** de proyectar y materializa adentro (`ImportesAplicadosAsync` / `TotalesPorPeriodoAsync`), y los 4 consumidores pasaron al API nuevo. **Verificado con contenido, no con el status:** `Anual` 2024/2025/2026 con 2/12/8 filas y sus totales, `Dashboard/Historico` con 22 meses de decimales exactos, `ExportarAnualExcel` devolviendo un xlsx real (magic `504b`), `RepartoGeneral` con 22 filas. **Las 22 filas de la anual coinciden una por una con SQL.** El falso negativo del año sin datos sigue existiendo (`?anio=2030` → 200 vacío), por eso se probó sobre años con datos.
+
+**Criterio 4c, que estaba BLOCKED, ahora PASS.** Con el defecto de producción **sembrado** en 2026-05, las **cuatro** pantallas convergen en 41.540.795 (antes la anual habría dicho 58.371.917 y la mensual 41.540.795 — esa era la divergencia del dueño). `E25_normalizar.sql` corre con `EXIT=0`: 3.1 → 0 pendientes, 3.2 → 0 períodos divergentes, 3.3 → las dos reglas iguales, 3.4 → 2 filas auditadas. Después, las cuatro vuelven a 58.371.917 con el gasto incluido.
+
+**D-A02 — corrección de mi reporte anterior.** No era un defecto de producción: mi base venía de `koidumplings_dev`, tres migraciones atrás, con `Action` en `varchar(20)`; producción tenía **E24** desde el 11/9. Lo que sí valió del hallazgo es el modo de falla, confirmado: **la contraseña se cambia antes del registro de auditoría**, así que cualquier excepción ahí deja la cuenta modificada con la clave sin mostrar. Ahora las tres acciones y `Users/Edit` con contraseña dan 302; la clave generada **se muestra una sola vez**, **loguea**, y no queda en la auditoría (0 apariciones); 0 filas nuevas con `PasswordHash`/`SecurityStamp`. Literales de `Action`: 11 distintos, máximo 31 (`MailRecuperacionEnviadoPorAdmin`) + 26 del script — entran holgados en 50.
+
+**D-A03.** `PuedeGestionar(roles, email)` es fail-closed: cuenta del seed intocable por identidad, lista **completa** de roles, y sin rol resoluble sólo la gestiona un SuperUsuario. Cuatro escenarios × 8 acciones: **Administrador 32/32 rechazos**; SuperUsuario 24/32, y las 8 que pasan son las de `qa.sinrol`, que es exactamente lo que la regla 3 habilita. **Cero daño** — los cuatro objetivos quedaron con estado, email y hash intactos, contra la corrida anterior donde el SuperUsuario terminaba bloqueado y con la clave cambiada. Confirmado también el caso del **doble rol** Administrador+SuperUsuario, que antes se colaba por `FirstOrDefault`.
+
+**Observación nueva — O-A03:** ningún SuperUsuario se gestiona desde la pantalla, **ni siquiera por otro SuperUsuario** (las reglas 1 y 2 no tienen válvula de escape). Es endurecimiento deliberado, pero deja sin camino en la app para resetear la contraseña de un segundo SuperUsuario: queda "olvidé mi contraseña" o la base. **O-A01** (el porcentual del Encargado se coerciona en silencio) y **O-A02** (el concepto dado de baja sigue visible como "Histórico" en ese mes) siguen abiertas, ninguna bloqueante.
+
+**Pendiente que sigue vigente:** el código y `E25_normalizar.sql` **van juntos**, y el alcance real en producción (8 filas) **sigue sin verificar** — hay que correr el pre-vuelo del script contra producción antes de aplicarlo.
+
+**Veredicto del área A (ítems 4, 5, 10 y 1): GO.**
