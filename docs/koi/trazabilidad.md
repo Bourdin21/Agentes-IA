@@ -1,4 +1,4 @@
-# Trazabilidad del proyecto
+﻿# Trazabilidad del proyecto
 
 Registro acumulativo de decisiones y ajustes por etapa y agente.
 
@@ -885,3 +885,15 @@ Respuestas a los cinco puntos que la corrida de QA dejó como decisión, más un
 - **Verificado contra la app real** (stub de Ayres en `127.0.0.1:8522`, base `koidumplings_impl`): **dato fresco** → `ok` y **no sincroniza** (marca y filas idénticas); **dato vencido de 25 h** → `ok` y **una** sincronización que reescribe 23 días; **10 llamados seguidos** después → 0 sincronizaciones nuevas; **12 llamados en paralelo** con la memoria limpia → **1 encolada, 1 ejecutada** (7 cortadas por el lock, 4 por el anti-rebote). `POST /Integraciones/Latido` → 405. El POST con clave, intacto: 202 / 401 / 401.
 - **`E26_tarea_programada.md` actualizado** con la configuración real del panel (URL del latido, 180 min, timeout 60) y el porqué; se borró la sección que proponía un `.bat` o un cron externo para sortear la falta de headers.
 - Build `dotnet build KoiDumplings.slnx -c Release`: **0 errores**. El POST con clave de la Etapa 31 no se tocó.
+
+### 2026-09-23 — Implementador (Etapa 36: la barra de KOI de la comparativa pasa a medir los últimos 12 meses)
+
+- Entrada: defecto reportado por el dueño sobre el Reporte de Rendimiento. La barra de KOI dibujaba el **recupero acumulado desde el ingreso** (22 meses en un caso real) al lado de tres referencias **anuales** —S&P 500 12 %, bonos 8 %, propiedades 5 %—: dos unidades distintas dibujadas como una sola, con la barra de KOI siempre al 100 % del ancho. Sobre `08d1d42`. **Producción no se tocó**, sin migraciones.
+- **Decisión del dueño (2026-09-23):** la barra pasa a ser el **rendimiento de los últimos 12 meses**. La ventana **termina en el último mes cerrado** (mismo corte que la rentabilidad mensual promedio, 2026-09-10), suma **sólo lo cobrado** (liquidaciones Pagada, igual que el recupero y que el gráfico de pagos), va **en dólares** y se divide por el **mismo capital aportado**. Ninguno de los cuatro criterios es nuevo: los cuatro ya los usaba el reporte.
+- **Con menos de 12 meses desde el ingreso, la ventana se acorta y la barra lo dice** (*"8 meses desde el ingreso (Ene 26 - Ago 26), sin anualizar"*). **No se anualiza**: sería publicar un número que no ocurrió.
+- **Cada barra rotula su período** ("Anual" las tres referencias, la ventana KOI) y la nota al pie lo acompaña. Rotular sólo a KOI no alcanzaba: el lector seguiría suponiendo que las otras miden lo mismo.
+- **Corregido en la misma pasada:** la frase "Está por encima de todas las referencias de mercado" se decidía con el recupero acumulado y podía contradecir al gráfico que tiene arriba. Ahora sale del mismo número que dibuja la barra. Es el único otro consumidor de `Benchmarks` en el repo, verificado por grep.
+- **El resto del reporte no se tocó:** "% Recupero", rentabilidad mensual promedio y gráfico de pagos, idénticos.
+- **Verificado con Chromium real contra `koidumplings_impl`, cruzado contra SQL.** Minjo Wang (ingreso Nov 2024): **44,3 % → 9,4 %**; Andrés Caicedo (Abr 2025): **15,7 % → 5,5 %**; un caso de **8 meses** (ingreso sintético Ene 2026): **3,0 %**, rotulado y sin anualizar. Cuenta a mano de Minjo: 345,28 + 0 + 358,14 + 197,04 + 459,38 + 478,28 + 132,87 = **1.970,99** ÷ 21.000 = **9,39 %**; las dos Pendientes de la ventana no suman. Con `git stash` y el código anterior, la misma corrida devuelve 44,3 % y 15,7 % — **la prueba detecta el defecto**. Sin ningún período cerrado: barra en 0 % con su rótulo, 200, sin excepciones.
+- **Hallazgo de método:** el primer control por SQL dio 11,43 % en vez de 9,4 % porque contaba una liquidación **borrada lógicamente**. La app tenía razón (`HasQueryFilter`). Toda verificación por SQL de este reporte tiene que filtrar `DeletedAt IS NULL`.
+- Build `dotnet build KoiDumplings.slnx -c Release`: **0 errores**. Memoria actualizada en `5-implementador.md` (Etapa 36).

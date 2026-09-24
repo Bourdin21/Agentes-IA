@@ -1,7 +1,38 @@
 ﻿# Memoria Implementador — KoiDumplings
-# Última actualización: 2026-09-23 (sesión actual — Etapa 35: la sincronización diaria se dispara con un despertador, no con una orden)
+# Última actualización: 2026-09-23 (sesión actual — Etapa 36: la barra de KOI de la comparativa pasa a ser el rendimiento de los últimos 12 meses)
 
 ## Módulos implementados
+
+### Etapa 36 — La barra de KOI de la comparativa pasa a ser el rendimiento de los últimos 12 meses (2026-09-23)
+- **Entrada:** defecto reportado por el dueño sobre el Reporte de Rendimiento del inversor, bloque "Comparativa de mercado". Sobre `08d1d42`. **Producción no se tocó**, sin migraciones, sin deploy.
+- **El problema, en una línea:** la barra de KOI dibujaba `RecuperoPorc` —el recupero **acumulado desde que el inversor entró**, 22 meses en el caso de Minjo Wang— pegada a tres referencias que son porcentajes **anuales** (S&P 500 12 %, bonos 8 %, propiedades 5 %). El gráfico ponía 44,3 % de casi dos años al lado de 12 % de uno y la barra de KOI salía al 100 % del ancho: **dos unidades distintas dibujadas como si fueran la misma**. No daba ningún error; simplemente el reporte afirmaba algo que no era cierto.
+- **Decisión del dueño (2026-09-23):** que la barra sea el **rendimiento de los últimos 12 meses**, para que sea comparable con el porcentaje anual de las referencias.
+- **Los cuatro criterios del cálculo, todos heredados de números que el reporte ya hacía** (ninguno es nuevo, y ésa es la razón de que el número cierre con el resto de la pantalla):
+  1. **La ventana termina en el último mes CERRADO**, el mismo corte que la rentabilidad mensual promedio (decisión del 2026-09-10). El mes en curso está incompleto y mediría de menos.
+  2. **Sólo lo efectivamente cobrado** (liquidaciones `Pagada` con `NetoUsd`), igual que el recupero y que el gráfico de pagos de al lado, donde las barras claras no suman.
+  3. **En dólares**, que es la unidad del reporte y la de las referencias.
+  4. **Sobre el mismo capital aportado** que el recupero, nada más que acotado a la ventana.
+- **Menos de 12 meses desde el ingreso: se acorta la ventana y la pantalla lo dice.** El ingreso sólo puede **acortar** la ventana, nunca alargarla, y la barra rotula *"8 meses desde el ingreso (Ene 26 - Ago 26), sin anualizar"*. **No se anualiza a propósito:** multiplicar ocho meses por 12/8 publicaría un número que no ocurrió, que es exactamente la clase de afirmación que este cambio vino a sacar de la pantalla.
+- **Cada barra dice qué período mide.** `BenchmarkComparativoDto` tiene un campo nuevo, `Periodo`: `"Anual"` para las tres referencias y `"Últimos 12 meses (Sept 25 - Ago 26)"` para KOI, en una línea gris debajo del nombre. **Rotular sólo a KOI no alcanzaba:** el lector sigue suponiendo que las otras tres miden lo mismo. La nota al pie se amplió en la misma dirección ("El porcentaje de KOI es lo cobrado en el período indicado en su barra sobre el capital aportado, para que las dos cosas se puedan comparar").
+- **Efecto secundario que había que arreglar en la misma pasada (LP-002):** la frase *"Está por encima de todas las referencias de mercado de la comparativa"* del bloque ANÁLISIS DE RENTABILIDAD se decidía con `RecuperoPorc`. Con la barra corregida, esa frase podía afirmar que KOI supera a todas **debajo de un gráfico donde la barra de KOI está por debajo del S&P**. Ahora sale del **mismo número que dibuja la barra** (`Benchmarks.First(EsKoi).Porcentaje`). Es el único otro consumidor de `Benchmarks` en todo el repo — se verificó por grep, no por memoria.
+- **El resto del reporte NO se tocó:** el KPI "% Recupero" sigue siendo el acumulado desde el ingreso (44,3 % para Minjo, 22 meses), la rentabilidad mensual promedio sigue igual y el gráfico de pagos mensuales también. La pregunta "cuánto llevo recuperado" se contesta arriba; la comparativa contesta otra, y ahora cada una dice cuál.
+- **Sin meses cerrados todavía:** la barra queda en 0 % con el rótulo *"Todavía no hay meses cerrados para medir"*. Un 0 % mudo al lado de un S&P de 12 % se leería como "KOI no rinde", que no es lo que pasa.
+- **Cambios por capa:** **Aplicación** — `DTOs/InversionesDtos.cs` (campo `Periodo`); **Negocio** — `Services/InversionesService.cs` (ventana, y dos helpers privados: `UltimoPeriodoCerradoAsync()`, que **deduplica** la consulta que ya hacía `ObtenerMiInversionAsync`, e `IndiceMes()`); **Presentación** — `Views/MiInversion/Reporte.cshtml` (línea de período, pie y origen del `superaATodos`). **Sin migraciones EF.**
+- **Build:** `dotnet build KoiDumplings.slnx -c Release` → **0 errores**.
+- **Verificación con Chromium real** (paquete npm `playwright` desde Node; el MCP no levanta), app contra `koidumplings_impl`, entrando como Administrador y cruzando cada número contra SQL:
+
+  | Inversor | Ingreso | Antes (acumulado) | Ahora (ventana) | Ventana |
+  |---|---|---|---|---|
+  | Minjo Wang (26) | Nov 2024, 22 meses | **44,3 %** | **9,4 %** | Últimos 12 meses (Sept 25 - Ago 26) |
+  | Andrés Caicedo (40) | Abr 2025, 17 meses | **15,7 %** | **5,5 %** | Últimos 12 meses (Sept 25 - Ago 26) |
+  | Caicedo con ingreso sintético Ene 2026 | Ene 2026, 8 meses | 15,7 % | **3,0 %** | 8 meses desde el ingreso (Ene 26 - Ago 26), sin anualizar |
+
+  - **Cuenta a mano de Minjo Wang, cobrado en la ventana:** 345,28 + 0,00 + 358,14 + 197,04 + 459,38 + 478,28 + 132,87 = **1.970,99 U$D** ÷ 21.000 = **9,3857 % → 9,4 %**. Las dos liquidaciones **Pendientes** de la ventana (Feb 26 = 812,77 y Ago 26 = 2.460,98) **no suman**, que es el criterio 2.
+  - **La prueba detecta el defecto:** con `git stash` y el código anterior recompilado, la misma corrida devuelve **44,3 %** y **15,7 %**, las dos barras al **100 %** del ancho y **sin línea de período**. Con el código nuevo, 9,4 % y 5,5 %.
+  - **Rama sin meses cerrados**, forzando todos los períodos a Abierto: `200`, barra en **0 %** con *"Todavía no hay meses cerrados para medir"*, sin excepciones ni errores de consola. Los estados se restauraron al valor exacto del respaldo.
+  - **El resto del reporte, sin cambios** en la misma corrida: `% Recupero` 44,3 % / 15,7 %, `Rentabilidad mensual` 2,0 % / 0,9 %, y el gráfico de pagos **pintado** (44.427 píxeles no transparentes en `#chartPagos`). Cero errores de consola y cero respuestas 5xx en las cuatro corridas.
+  - **"Sept 25" no es una rareza:** sale de `EtiquetaCorta`, el mismo helper que rotula el eje del gráfico de pagos, así que la ventana y el eje dicen el mes igual.
+- **Ojo con el SQL de control:** la primera cuenta a mano dio 11,43 % en vez de 9,4 % porque sumaba una liquidación **borrada lógicamente** (la de Feb 26 del inversor 26, reemplazada por otra). El `HasQueryFilter` global de `AppDbContext` la excluye y la app tenía razón. **Cualquier verificación por SQL de este reporte tiene que filtrar `DeletedAt IS NULL` en `Liquidaciones` y en `PeriodosMensuales`.**
 
 ### Etapa 35 — El disparo de la sincronización diaria se invierte: de orden a despertador (2026-09-23)
 - **Entrada:** el panel de SmarterASP **no puede hacer lo que pedía el endpoint de la Etapa 31**. El formulario de *Scheduled Task* tiene **tres campos** —URL, timeout y frecuencia en minutos—: llama por **GET** y **sin credenciales**, no elige método ni manda headers. La "Dedicated Windows Task" tampoco ofrece más. O sea que el disparo externo **no puede autenticarse**, y el diseño anterior (POST + clave por header) no tenía cómo dispararse solo. Sobre `a7324f2`. **Producción no se tocó**, sin migraciones.
@@ -1673,6 +1704,10 @@ Coincide exactamente con lo validado manualmente contra producción por el orque
 - KOI-006: Link Notificaciones → System
 
 ## Pendientes
+- **Etapa 36 (barra de KOI de la comparativa).** Sin pendientes técnicos de código y **sin migraciones**. Falta (a) el re-QA y (b) el **deploy**.
+  - **Lo que hay que mirar en el re-QA:** que el KPI "% Recupero" **siga siendo el acumulado** (no debe haberse movido) y que la barra de KOI y la frase "Está por encima de todas las referencias" **digan lo mismo**. Si alguna vez vuelven a divergir, es que alguien las separó de nuevo.
+  - **Nota para quien toque la comparativa:** la barra de KOI y el KPI de recupero **miden cosas distintas a propósito** desde el 2026-09-23. Volver a poner `RecuperoPorc` en la barra —o sumarle al cálculo una liquidación Pendiente, o correr la ventana al mes en curso— reabre el defecto sin dar ningún error: el gráfico simplemente vuelve a comparar peras con manzanas.
+  - **Nota para quien verifique este reporte por SQL:** `Liquidaciones` y `PeriodosMensuales` tienen `HasQueryFilter` de borrado lógico. Una consulta de control **sin** `DeletedAt IS NULL` da de más y hace parecer que la pantalla está mal cuando la pantalla tiene razón. Ya pasó en esta misma etapa.
 - **Etapa 35 (despertador).** Sin pendientes técnicos de código y **sin migraciones**. En el panel del hosting hay que cargar la tarea con la configuración de `E26_tarea_programada.md`: URL `https://portaldelinversor.com.ar/Integraciones/Latido`, frecuencia **180** minutos, timeout **60**. **Ya NO hace falta que la tarea mande headers ni que elija POST** — ése era el problema que este cambio resuelve.
   - **La clave de `Integraciones:ApiKey` sigue siendo necesaria**, pero sólo para el POST manual. Si no se carga, el despertador funciona igual (no la usa) y el POST queda apagado con 503.
   - **Nota para quien toque el despertador:** la decisión se toma contra **lo guardado**, nunca contra una variable en memoria — el pool se apaga a los 20 minutos y cualquier estado en proceso se pierde. Y la respuesta tiene que seguir siendo la misma siempre: si alguna rama devuelve algo distinto, la diferencia misma es información.
