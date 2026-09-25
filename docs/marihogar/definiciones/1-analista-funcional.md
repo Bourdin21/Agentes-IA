@@ -1,7 +1,7 @@
 # Memoria - Analista funcional
 
 ## Proyecto: marihogar *(nombre provisional — confirmar con cliente)*
-## Ultima actualizacion: 2026-08-15
+## Ultima actualizacion: 2026-09-25
 
 ## Definiciones vigentes
 
@@ -251,6 +251,65 @@ Etapa 1 ya en producción. El cliente usó el sistema y trajo 7 pedidos de cambi
 - `Ganaderia.Domain/Entities/Ganaderia/FacturaVenta.cs` — patrón exacto de impuestos editables (Subtotal, `PorcentajeIva`/`MontoIva`, `PorcentajeIIBB`/`MontoIIBB`, `PorcentajeOtrasPercepciones`/`MontoOtrasPercepciones`, Total) a reutilizar para CR-1. No modela tipo de comprobante A/B/C ni "facturado/en negro" — eso es concepto nuevo de este proyecto (no tiene precedente en ganadería, se documenta como tal).
 - `Ganaderia.Domain/Entities/Ganaderia/FacturaVentaIngreso.cs` + `Enums/Ganaderia/PlazoCuotas.cs` — patrón de cuota calculada a 30/60/90 días desde una fecha base. Marihogar ya lo reutilizó parcialmente en Sprint 4 (`Cheque.Cuota`), pero sin un campo de fecha base explícito (`FechaEmision`) separado de `FechaVencimiento` — ver CR-2.
 
+### CR-81 — Beneficiario del cheque/echeq distinto del proveedor de la OC *(Discovery cerrado 2026-09-25 — Análisis BLOQUEADO, esperando P1 a P6)*
+
+**Caso real que lo dispara** (25/09/2026). Mari Hogar compró mercadería a una fábrica **en conjunto con otra persona**: juntaron la plata entre los dos y pagaron partes distintas del mismo pedido. La **factura del proveedor quedó a nombre de la otra persona**, no de Mari Hogar. Mari Hogar quiere pagar su parte con un **echeq**, y el echeq no se le entrega a la fábrica sino a la otra persona. Hoy el sistema no tiene dónde registrar eso: asume que el cheque se entrega al proveedor de la OC.
+
+**Estado actual verificado en el código** (no supuesto — base para el análisis):
+
+| Hecho | Dónde |
+|---|---|
+| `Cheque` guarda `Numero`, `Banco`, `FechaEmision`, `FechaVencimiento`, `Cuota` (días libres desde CR-60), `Estado`, `Notificado`. **No tiene beneficiario.** | `Domain/Entities/Cheque.cs` |
+| El beneficiario se **asume** igual al proveedor de la OC: el listado de Cheques muestra columna "Proveedor" y filtra por proveedor, ambos derivados de `PagoOrdenCompra.OrdenCompra.Proveedor`. En este caso esa columna diría "la fábrica" cuando el documento se entregó a un tercero. | `ChequeListItemDto.ProveedorNombre`, `Cheques/Index.cshtml` |
+| `MetodoPago.Cheque` se referencia en **8 lugares, 3 archivos** (`PagoOrdenCompraService` + 2 tools). Toda la lógica posterior — proyección financiera, cheques por vencer, acreditación, notificaciones, reversión por rechazo — trabaja sobre la **fila `Cheque`**, nunca sobre el método de pago. | `grep MetodoPago.Cheque` |
+| Un pago con Cheque arranca siempre `Pendiente` (CR-46) y el `MovimientoCCProveedor.Pago` se postea al **acreditar**, no al entregar. | `PagoOrdenCompraService.RegistrarPagoAsync`, `ChequeService.AcreditarAsync` |
+| Los pagos de OC **no** impactan CC Local / Caja, sólo la CC del proveedor. | `CajaService` sin referencias a OC |
+| Sin factura a nombre propio, el IVA de la compra **no es crédito fiscal**: Posición de IVA suma `OrdenCompra.MontoIva` sólo de las OC con `Facturada=true` en Confirmada/Recibida. Con `Facturada=false` la OC no aporta crédito. | `DashboardService.CalcularCreditoFiscalAsync` (CR-80) |
+| Rentabilidad real toma el costo del `PrecioCompra` de la última `OrdenCompraItem` recibida antes de la venta; la valuación de inventario usa `Producto.PrecioCompra` **actual**, y recibir una OC no lo pisa. | `RentabilidadService`, `InventarioService` (CR-80) |
+
+**Cómo se carga hoy el caso, sin tocar código** (ya resuelto con el usuario, es el punto de partida del alcance): OC a la **fábrica real** con el **producto real** y **sólo las unidades de Mari Hogar**; `Facturada=false` con IVA/IIBB/otros en 0 (la factura no es propia, no hay crédito fiscal que declarar); `PrecioCompra` unitario **con el IVA adentro**, porque ese IVA es costo y no se descarga — así la rentabilidad real sale bien sin tocar nada; nota interna con el nombre de quién tiene la factura. Lo único que **no** tiene lugar en el sistema es a quién se le entrega el echeq.
+
+**Lo que falta, acotado**: el requerimiento que el usuario formuló primero fue "una opción nueva de echeq en el listado de formas de pago", pero el problema que describió es otro — *"este echeq no tiene destinatario porque el proveedor no es nuestro"*. Un `MetodoPago.Echeq` nuevo obligaría a duplicar en `PagoOrdenCompraService` la validación de número/banco/fechas y la creación de la fila `Cheque`, sin aportar nada: la fila `Cheque` es la que mueve toda la lógica posterior. El dato que falta es el **beneficiario**.
+
+**Opciones de alcance planteadas (hipótesis a validar con el cliente, ninguna aprobada):**
+
+- **Opción A — beneficiario.** `Cheque.Beneficiario` (texto opcional, default = razón social del proveedor de la OC). Visible y editable en el form de pago y en `OrdenesCompra/Details`; en el listado de Cheques se muestra junto a (no en vez de) la columna Proveedor. Resuelve exactamente el caso descripto. 1 migración, 1 columna nullable, 0 cambios en la máquina de estados.
+- **Opción B — A + instrumento.** Además, distinguir echeq de cheque físico con un `Cheque.EsEcheq` (bool) o un tipo de documento, para verlo y filtrarlo en el listado. Sigue siendo la misma entidad y la misma máquina de estados: es un atributo, no un método de pago.
+- **Opción C — compra conjunta como concepto.** Modelar la compra a nombre de un tercero de verdad: quién participó, qué parte puso cada uno, qué parte de la factura es propia, y la posición de IVA derivada de eso. Es un alcance mucho mayor y **el analista no lo recomienda hoy**: no hay evidencia de que el caso sea recurrente (ver P3), y con `Facturada=false` + nota interna el sistema ya queda consistente en IVA, inventario y rentabilidad.
+
+**Recomendación preliminar del analista: Opción A, y B sólo si la respuesta a P2 es afirmativa.** Descartar C hasta tener frecuencia real del caso.
+
+**Preguntas abiertas — bloquean el cierre del Análisis** (cada una con variantes contrastadas; todas las hipótesis son del analista, sin confirmar):
+
+- **P1 — ¿A nombre de quién se emite el echeq?** (a) A la fábrica (ej. "G P V SOCIEDAD ANONIMA CANNON"): entonces no falta nada, el caso se carga hoy tal cual. (b) A la otra persona con la que compraste (ej. el "colomar" que figura en la nota interna de la OC #000018): ahí sí falta el campo. *Hipótesis: (b).*
+- **P2 — ¿Necesitás distinguir echeq de cheque físico en el listado?** (a) No: un cheque es un cheque, lo único distinto es a quién se lo das. (b) Sí: querés filtrar los echeq aparte, porque los emitís desde el homebanking y el número no se parece al de una chequera. *Hipótesis: (b), sin certeza — es lo que decide si entra el segundo campo.*
+- **P3 — ¿Cada cuánto comprás en conjunto con otro comerciante?** (a) Caso aislado, una o dos veces al año: alcanza el campo beneficiario + nota interna. (b) Es habitual, varias veces por año con la misma gente: conviene evaluar la Opción C en un CR propio. *Hipótesis: (a).*
+- **P4 — ¿El pago con el echeq se sigue imputando a la OC de la fábrica?** (a) Sí: la deuda que el sistema registra es por **tu** parte y el echeq la cancela, aunque el papel se lo des al otro — la CC de la fábrica cierra en cero. (b) No: querés que el sistema registre a la otra persona como el acreedor real de esa parte (implica que tu proveedor en esa OC es la persona, no la fábrica, y contradice el pedido de "cargar el nombre de la fábrica y el producto"). *Hipótesis: (a).*
+- **P5 — ¿La parte del otro entra al sistema?** (a) No: la OC es sólo por tus unidades, y esa mercadería nunca fue tuya. (b) Querés ver el pedido completo y marcar qué parte es tuya (esto es Opción C). *Hipótesis: (a), es lo acordado en la conversación.*
+- **P6 — ¿Dónde querés ver el beneficiario?** (a) Sólo en `OrdenesCompra/Details`, junto a la línea de pago. (b) También como columna y filtro en el listado de Cheques — hoy ese listado muestra "Proveedor", que en este caso es engañoso. *Hipótesis: (b) para la columna, (a) para el filtro: filtrar por texto libre rinde poco.*
+
+**Criterios de aceptación preliminares** (sujetos a P1/P2/P6, no cerrados):
+- CA-CR81.1: al registrar un pago con cheque, el Administrador puede indicar un beneficiario distinto del proveedor de la OC; si lo deja vacío, el beneficiario es la razón social del proveedor.
+- CA-CR81.2: `OrdenesCompra/Details` muestra el beneficiario en la línea de pago del cheque cuando difiere del proveedor.
+- CA-CR81.3: el listado de Cheques nunca muestra al proveedor de la OC como si fuera el beneficiario cuando hay un beneficiario cargado distinto.
+- CA-CR81.4: los cheques ya existentes (sin beneficiario) siguen mostrándose y operándose exactamente igual que hoy — la máquina de estados Pendiente/Acreditado/Rechazado, la proyección financiera, "Cheques por vencer" y las notificaciones no cambian.
+- CA-CR81.5: cargar un beneficiario no altera la CC del proveedor: el `MovimientoCCProveedor.Pago` se sigue posteando al acreditar, contra el proveedor de la OC.
+
+**Impacto por capa (preliminar)**: Domain (`Cheque.cs`, 1-2 columnas nullable → **migración EF sí**), Application (`ChequeDtos.cs`, `PagoOrdenCompraDtos.cs`), Infrastructure (`PagoOrdenCompraService.cs`, `ChequeService.cs` sólo para proyectar el campo), Web (`OrdenesCompra/Details.cshtml`, `Cheques/Index.cshtml`).
+
+**Riesgos y supuestos:**
+- R-CR81.1: el pedido tal como llegó ("una opción de echeq en las formas de pago") no es el requerimiento real. Si se implementa literal, se duplica lógica de cheque sin resolver el destinatario. **Este es el riesgo principal y es el motivo por el que el CR pasa por análisis antes de definirse.**
+- R-CR81.2: un beneficiario como texto libre no es una entidad — no se puede reportar por beneficiario ni cruzar con la CC de nadie. Es deliberado (mismo criterio que `NotaInterna`), pero si P3 resulta (b) queda corto.
+- R-CR81.3: la carga correcta del caso (`Facturada=false`, IVA 0, `PrecioCompra` con IVA adentro) es **procedimiento, no código**: si el usuario marca la OC como facturada, el Dashboard le va a contar crédito fiscal que no puede usar. Se cubre con el manual, no con una validación (el sistema no puede saber a nombre de quién está la factura).
+- S-CR81.1: la mercadería de la otra persona nunca entra al stock de Mari Hogar (supuesto de P5(a)).
+- S-CR81.2: el echeq se comporta igual que un cheque a efectos del sistema (se acredita o se rechaza, tiene banco, número y vencimiento). Sin evidencia en contra.
+
+**Banderas tempranas**: migración EF **sí** (columnas nullable, sin backfill — los cheques existentes quedan sin beneficiario y eso significa "el proveedor de la OC"). Integración externa **no**. Máquina de estados **no** (no se toca Pendiente/Acreditado/Rechazado).
+
+**Perfil de cliente**: B2C retail (casa de decoración y hogar), escala mediana — cliente ya establecido, con el sistema en producción desde 2026-07 y 80 CRs de recorrido, capacidad de pago demostrada. No corresponde descuento de expansión agresiva.
+
+**Condición de paso a Análisis cerrado**: respuestas a P1, P2 y P4 (las tres que definen el alcance). P3, P5 y P6 pueden resolverse con la hipótesis del analista si el cliente no las contesta.
+
 ### CR-80 — Tres métricas de gestión nuevas (inventario, rentabilidad real, IVA) + reestructuración del Dashboard
 
 Pedido explícito del cliente (24/09/2026), sobre una propuesta de 6 métricas candidatas derivadas de la estructura de datos existente. Confirmó 3 y descartó 3:
@@ -326,22 +385,6 @@ Se reagrupa por **la pregunta que responde cada número**, no por el orden en qu
 - **S-CR80.1** — Todas las métricas son de **solo lectura** sobre datos existentes: ninguna columna nueva, ninguna migración EF.
 - **S-CR80.2** — El `PrecioCompra` de `OrdenCompraItem` está cargado sin IVA (Subtotal de la OC es "suma de líneas sin impuestos"), igual que `Producto.PrecioCompra`, así que costo y precio de venta se comparan sobre la misma base.
 
-## CR-54 — Registrar pago con Transferencia: admite fecha pasada (backdatear) al cargar
-
-Pedido explícito del cliente (21/08/2026): "registrar pago de las compras con transferencia el usuario quiere poder seleccionar fechas pasadas para cargar transferencias realizadas". Complementa CR-53 (que permite corregir la fecha después de registrado) con la posibilidad de cargarla bien desde el principio.
-
-El campo "fecha tentativa de pago" (CR-44) ya existía en la pantalla de Registrar pago, pero tenía `min=hoy` — solo servía para programar un pago a futuro, cualquier fecha pasada quedaba descartada (el pago se registraba con `Fecha=ahora`, sin importar qué se hubiera tipeado). Para Transferencia específicamente (pedido explícito, mismo alcance que CR-53), ahora una fecha pasada en ese mismo campo **backdatea** el pago: queda `Estado=Pagado` de inmediato (no programado) pero con `Fecha` = la fecha real elegida, cascadeada también al `MovimientoCCProveedor.Pago` que se postea en el momento — mismo criterio de consistencia que el resto de los "fecha real" de esta sesión (CR-42/44/45/46/53). Una fecha futura sigue programando el pago exactamente como antes (CR-44 intacto); vacío sigue pagando "ahora". El `min=hoy` del datepicker se saca únicamente para Transferencia — el resto de los métodos (Efectivo/MercadoPago/Depósito) no fue pedido, mantienen el comportamiento anterior.
-
-**Impacto en capas**: Infrastructure (`PagoOrdenCompraService.RegistrarPagoAsync`), Web (`OrdenesCompra/Details.cshtml`). Sin migración EF.
-
-## CR-53 — Fecha de pago con Transferencia editable
-
-Pedido explícito del cliente (21/08/2026), en la misma entrega que el cierre de CR-52: "hacer que se pueda modificar la fecha de pago con transferencia de las compras".
-
-`PagoOrdenCompra.Fecha` se fijaba una única vez, a `DateTime.UtcNow`, al registrar el pago — sin forma de corregirla después (ej. el pago se carga hoy pero la transferencia real se hizo días antes). Nuevo método `IPagoOrdenCompraService.ActualizarFechaPagoTransferenciaAsync(pagoOrdenCompraId, nuevaFecha)`, acotado a `Metodo=Transferencia` (pedido explícito — los demás métodos ya tienen su propio mecanismo: Cheque vía acreditación desde CR-46, el resto no fue pedido), nunca futura. Si el pago ya está `Pagado` (con su `MovimientoCCProveedor.Pago` ya posteado), la corrección se cascadea a ese movimiento para que el ledger de Cuenta Corriente no quede con una fecha distinta a la del pago que lo originó — mismo criterio de consistencia ya aplicado en CR-42/44/45/46. Disponible en cualquier estado de la OC (mismo criterio que la nota interna de CR-50), acción propia en `OrdenesCompra/Details.cshtml`: un ícono de lápiz junto a la fecha de cada pago con Transferencia abre un selector de fecha (SweetAlert2, mismo patrón visual que "Marcar recibida").
-
-**Impacto en capas**: Application (`IPagoOrdenCompraService`), Infrastructure (`PagoOrdenCompraService.cs`), Web (`OrdenesCompraController.cs`, `OrdenesCompra/Details.cshtml`). Sin migración EF.
-
 ## CR-78 — La pantalla de Venta bloqueaba cancelar una venta cuya factura ya estaba anulada por Nota de Crédito
 
 Detectado en producción el 23/09/2026, probando CR-77 sobre la Venta #724: el servidor permitía cancelarla (su única factura estaba anulada por la NC #337) pero la pantalla mostraba "Esta venta tiene un comprobante AFIP emitido y no se puede cancelar" y ni siquiera ofrecía el botón.
@@ -351,24 +394,6 @@ Detectado en producción el 23/09/2026, probando CR-77 sobre la Venta #724: el s
 **Fix**: `VentaDetailDto.TieneFacturaVigente`, poblado en `GetByIdAsync` llamando al mismo `TieneComprobanteAsociadoAsync` que usa el guard — una sola fuente de verdad. La vista pasa a usar ese flag. El mensaje además ahora explica la salida: si la factura se anula con una NC, la venta vuelve a poder cancelarse.
 
 **Impacto en capas**: Application (`VentaDtos.cs`), Infrastructure (`VentaService.cs`), Web (`Ventas/Details.cshtml`). Sin migración EF.
-
-## CR-77 — Nota de Crédito: elegir si se corrige la factura o se anula la venta
-
-Caso real de producción (23/09/2026, Venta #724): el usuario generó una Nota de Crédito para **anular la venta de verdad** (motivo "cambio por otro colchón"), pero la NC de CR-55 solo anula el comprobante ante AFIP y nunca toca `Venta.Estado` — la venta siguió viva y pagada. Para "deshacerla" el usuario borró el pago a mano, y `EliminarPagoAsync` recalculó el estado dejando la venta en **Pendiente**, con el stock descontado y sin pago. Venta inconsistente.
-
-**Diagnóstico**: no es un bug de CR-55 sino un alcance incompleto. CR-55 se diseñó para un único escenario ("me equivoqué al facturar, quiero volver a facturar la misma venta"), pero en la operación la NC se usa también para el escenario opuesto ("esta venta no va más"). Los dos son legítimos y solo el usuario sabe cuál está haciendo.
-
-**Alcance confirmado con el cliente**: al generar la Nota de Crédito el usuario elige explícitamente qué está haciendo, con **"Corregir la factura" como opción por defecto** (no cambia nada para quien ya venía usando la pantalla):
-- **Corregir la factura** (default, comportamiento histórico de CR-55): se anula la factura ante AFIP y la venta queda disponible para volver a facturarse. La venta **no** cambia de estado. Caso típico: CUIT mal cargado, cliente equivocado.
-- **Anular la venta**: además de la NC, la venta se **cancela** con todo el circuito que ya existe (`VentaService.CancelarAsync`): revierte el stock, da de baja los pagos que quedaron en acreditación Pendiente, reversa en Cuenta Corriente del local **solo lo efectivamente acreditado** (CR-64/CR-65) y deja el `MotivoCancelacion` con la referencia a la NC.
-
-**Arquitectura**: la orquestación vive en `ComprobantesAfipController.GenerarNotaCredito`, **no** en `ComprobanteAfipService`. Motivo: `VentaService` ya inyecta `IComprobanteAfipService`, así que la dependencia inversa cerraría un ciclo de DI que revienta en runtime; el controller puede inyectar los dos sin problema. El flag viaja del form al controller y no entra al `GenerarNotaCreditoInput` (el service no lo usa: sería un campo muerto). El `VentaId` a cancelar se lee del comprobante server-side, nunca del form (sería manipulable).
-
-**Dos transacciones separadas, deliberadamente**: la NC ya emitida en AFIP es irreversible, así que un fallo al cancelar la venta **nunca** hace rollback de la NC. En ese caso el mensaje al usuario dice explícitamente que la NC sí se emitió y que la venta hay que cancelarla a mano — para que no crea que tiene que volver a generar la NC (lo que además está bloqueado por la regla de a lo sumo 1 NC por factura).
-
-**Guards de `CancelarAsync` sin cambios**: el de Entrega asociada se mantiene tal cual (una venta con entrega sigue sin poder cancelarse, y si falla se muestra el mensaje del `ServiceResult`). El de `TieneComprobanteAsociadoAsync` ya excluye desde CR-55/MH-013 las facturas anuladas por una NC Emitida, así que la venta cuya factura se acaba de anular pasa el guard sin tocarlo. Caso residual conocido: una venta facturada en **varias** facturas y anulada solo en una sigue bloqueada por la(s) otra(s) vigente(s) — es el comportamiento correcto y el mensaje del guard lo explica.
-
-**Impacto en capas**: Web únicamente (`ComprobantesAfipController.cs`, `ComprobantesAfip/Details.cshtml`). Sin cambios en Application/Infrastructure/Domain. Sin migración EF.
 
 ## CR-76 — Quitar el filtro "Vendedor" del listado de Ventas
 
@@ -806,6 +831,13 @@ Pedido explícito del cliente, en paralelo al deploy de CR-44 (19/08/2026): "se 
 **Impacto en capas**: Application (`OrdenCompraInput.Fecha` nuevo, `IOrdenCompraService.RecibirAsync` con parámetro opcional nuevo), Infrastructure (`OrdenCompraService.CreateAsync`/`UpdateAsync`/`RecibirAsync`, helper privado `CalcularFecha` compartido), Web (`OrdenCompraFormViewModel.Fecha`, `OrdenesCompraController.MapInput`/`Edit` GET/`Recibir`, `OrdenesCompra/Create.cshtml` — input de fecha junto al selector de Proveedor, `OrdenesCompra/Details.cshtml` — SweetAlert de fecha en "Marcar recibida"). **Sin migración EF** (ambas columnas ya existían en el esquema desde el sprint original, solo se dejó de hardcodear `DateTime.UtcNow`).
 
 ## Historial de ajustes
+
+### Bloques archivados (2026-09-25)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **historico** — 3 bloques → [`1-analista-funcional-historico-2.md`](historial/1-analista-funcional-historico-2.md)
+
 
 ### Bloques archivados (2026-09-25)
 
