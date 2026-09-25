@@ -1114,3 +1114,45 @@ Piso duro: **no vender Starter por debajo de USD 40/mes**. Sigue promo hasta el 
 - **Tres cosas quedan para Joaquín, y no se tocaron porque son decisiones de producto:** (1) las **reglas de alcance Organización entran al contexto de la consulta del cliente** — DI-M18-F lo decidió así para no mover los goldens, pero RF-M18-27 y el diseño §3.3 dicen «reglas de alcance Cliente»: una regla interna del estudio queda delante del agente con el que habla el cliente; (2) con el fix 3, el agente lee **toda la carpeta**, incluidos documentos del estudio sin «lo ve el cliente», y podría citarlos (es lo que pide §3.3, pero conviene decidirlo a sabiendas); (3) el **simulador no tiene guion para `pedido_documentacion_proponer`**, así que la mitad «el agente propone» de CA-M18-08 no se puede ejercitar a costo cero.
 - **Entorno devuelto como estaba**, verificado por checksum: 156 tareas, 594 eventos de uso (máximo Id 687), 56 documentos, y en cero todo lo de M18 (usuarios cliente, códigos, pedidos, ítems, propuestas, agentes habilitados y portales encendidos).
 - Sin push y sin deploy: los hace Joaquín.
+
+### 2026-09-24 — documentador
+
+- Etapa: Documentación (M18 — Portal del cliente del estudio).
+- Salida: `resumen-sprint-m18-portal-cliente.md` — media página en lenguaje de negocio, con el paso a paso de cómo se le da acceso a un cliente, la tabla de roles y lo que todavía no está. Sin una palabra técnica.
+- Se dice explícito lo que importa para el negocio: las consultas las paga el estudio (por eso los agentes arrancan apagados y cada cliente tiene tope), un cliente no puede autorizar nada, y no ve costos ni cómo trabaja el agente.
+- Próximo paso sugerido al cliente: una vuelta completa con un cliente real de confianza antes de abrirlo a toda la cartera, para ajustar los textos con alguien que no conoce el sistema.
+
+### 2026-09-24 — Joaquín (decisiones post-QA)
+
+- Las dos preguntas que QA dejó abiertas, resueltas: **(1)** la consulta del cliente **no recibe reglas de alcance Organización** — solo las de alcance Cliente, como decía RF-M18-27; el argumento de no mover los goldens no aplica porque `ConsultaCliente` es un tipo nuevo. **(2)** el agente de una consulta de cliente **lee solo lo que el cliente puede ver** (lo que subió él más lo marcado «Lo ve el cliente»): coherencia total a costa de respuestas peores cuando el estudio se olvida de marcar algo. Cambia el §3.3 del diseño, que decía «la carpeta del cliente».
+- Ambos ajustes delegados al implementador con commit local por ajuste y tests que los prueben.
+
+### 2026-09-24 — implementador-dotnet (ajustes post-QA de M18)
+
+- Etapa: Implementación (M18, dos ajustes decididos por Joaquín sobre lo que QA dejó abierto). Base: los 4 fixes de QA (`974edb5`, `aacfe0a`, `6df04a9`, `1915a54`).
+- **Ajuste 1 (`3bb0596`) — la consulta del cliente no ve la cocina del estudio.** QA verificó con datos reales que **una regla interna sobre honorarios quedó delante del agente al que le pregunta el propio cliente**. En una `ConsultaCliente` el contexto se arma ahora solo con las reglas de alcance **Cliente** de ese cliente; quedan afuera las de la empresa, del área, del usuario y del agente.
+- **Hallazgo propio, la misma fuga un renglón más abajo:** la **nota de memoria** viaja en los mensajes con el título y el «cuándo sirve» de cada recuerdo, así que un hecho de la empresa («se cobra el 3 % del facturado») llegaba igual a la consulta. Se cerró con la misma condición; RF-M18-27 ya decía «recuerdos suyos».
+- **Ajuste 2 (`170a016`) — el agente lee exactamente lo que el cliente ve.** Las herramientas de documentos de una `ConsultaCliente` devuelven el mismo conjunto que «Mis documentos»: lo del cliente (siempre) más lo marcado con «Lo ve el cliente». **Esto cambia lo que decía el §3.3 del diseño** («la carpeta del cliente» entera), a sabiendas: se eligió coherencia total y cero sorpresas a costa de respuestas peores cuando el estudio se olvide de marcar un documento.
+- **Documentación alineada con el código, con fecha y motivo:** `docs/diseno-portal-cliente.md` §3.3 (tabla de tres filas: reglas, recuerdos, documentos) y RF-M18-27 de `1-analista-funcional.md`.
+- **Evidencia:** build `0 Errores`; `dotnet test` medido sin pipe de **891/891** a **`Con error: 0, Superado: 896, Omitido: 0, Total: 896`**. Los 5 goldens de hash, **sin un cambio**: la condición nueva solo se activa con `TipoTarea.ConsultaCliente`. Los 5 tests nuevos se verificaron **en rojo** neutralizando los arreglos antes de darlos por buenos.
+- **Choque de trabajo concurrente, sin resolver a propósito:** un `git add` de otro proceso levantó los **7 archivos de código del Ajuste 1** dentro del commit `437c41f` («Lo que encontró la evaluación real de los tres agentes»), que por su mensaje solo debería traer los 5 de `nucleo/`. No se reescribió ese commit porque no es del implementador; el detalle de qué archivos sacar está en el mensaje de `3bb0596`. Decisión de Joaquín si lo divide.
+- **Nada de lo de QA se pisó:** los 4 fixes siguen en pie. El Ajuste 2 se apoya en `6df04a9` (sin él el bloque de consultas era inerte) y lo acota, sin tocar la guarda de aislamiento que QA escribió.
+- Sin push y sin deploy: los hace Joaquín.
+
+### 2026-09-24 — cierre de calibracion (M18)
+
+- Etapa: Cierre. **Sin presupuesto previo** (proyecto personal): no hay ratio PERT/real posible. Se registra en `docs/calibracion/dataset.yml` → `cierres_agentic` como dato duro.
+- Medido: **288,2 minutos de agente** (implementación E1–E5 78,9 · QA 57,4 · ajustes post-QA 151,9), ~1,2 h de orquestación humana no cronometrada, **1.834.465 tokens de subagente**, tests **747 → 896 (+149)**, 11 commits locales.
+- Segunda fila con dato duro de la familia «entrega 100 % agéntica»: con la de crm-olvidata son 2, falta 1 para el umbral de 3 que dejó pedido marihogar antes de usarla para calibrar.
+- **Aprendizaje (a):** la corrida de ajustes post-QA **costó más que implementar el módulo entero** (151,9 min contra 78,9). Las dos decisiones que la motivaron eran de contexto del modelo —qué reglas y qué documentos ve el agente del cliente— y una de ellas ya estaba escrita en el análisis. Para el próximo: esas preguntas se cierran **antes** de implementar, no después de QA.
+- **Aprendizaje (b):** QA encontró 4 defectos que 891 tests verdes no veían, tres solo visibles en el navegador con una sesión real, incluido uno crítico (el agente del cliente no podía leer un solo documento y lo disimulaba en castellano). En un módulo de frontera, el QA con navegador no es opcional.
+- Estado final: **aprobado con reparos**, los reparos arreglados. 896/896, build limpio, los 5 goldens sin un byte de cambio. **Sin push y sin deploy.**
+- Pendiente de decisión de Joaquín: el commit `437c41f` («Lo que encontró la evaluación real de los tres agentes») se llevó 7 archivos de código de M18 que otra sesión barrió con un `git add`; el mensaje solo describe los 5 de `nucleo/`. No se reescribió porque el commit es de otra sesión. Es higiene de historial local, no correctitud.
+
+### 2026-09-24 — despliegue a produccion (M18)
+
+- Autorizado por Joaquín. `git push origin main`: **17 commits** a GitLab (`44053ff..170a016`) — los 11 de M18 más los de la sesión paralela sobre `nucleo/plataforma`.
+- `./scripts/deploy-prod.ps1 -Force`: migraciones aplicadas contra la base de producción (incluye `PortalCliente`), publicación Release, 10 archivos sincronizados por Web Deploy (12,1 MB), **`/health/vivo` 200**.
+- Verificación posterior en producción: `/Account/Login` 200 · **`/acceso` 404** — el portal de clientes arranca **apagado en todas las organizaciones**, que es exactamente RF-M18-06: hasta que un Director lo prenda, estas pantallas no existen para nadie.
+- **No se reimportó `nucleo/plataforma`**: los cambios de la sesión paralela sobre los prompts de los tres agentes de configuración viajaron en el push pero **no están publicados** en producción (requieren `publicar-rubro` con evaluación aprobada, `IVersionadoService`). Es trabajo de esa sesión, no de M18.
+- Pendiente de decisión: el commit `437c41f` mezcla 5 archivos de `nucleo/` con 7 de código de M18 que otra sesión barrió con un `git add`. Ya está pusheado; reescribirlo ahora sería reescribir historia publicada. **Se deja como está.**

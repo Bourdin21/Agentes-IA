@@ -15,7 +15,7 @@
 # dataset estructurado quede desactualizado respecto de la prosa.
 
 version: 1
-ultima_actualizacion: 2026-09-16
+ultima_actualizacion: 2026-09-24
 tasa_vigente_usd_hora: 35
 # FORK de factores desde 2026-09-08 (ver "Modelo de facturacion" en 27-presupuesto-parametros):
 #   Build (sistema nuevo / rewrite para cliente nuevo)    -> M / 4.0 x 1.20 x tasa = M x 10.50
@@ -218,6 +218,31 @@ cierres_agentic:
     notas: >
       Unico de esta familia con tiempo de agente desglosado por corrida. Ver el
       cierre equivalente en cierres_reales (misma fecha) para los ratios contra PERT.
+
+  - proyecto: "olvidata-agentes-multirubro — M18 portal del cliente del estudio"
+    fecha_cierre: 2026-09-24
+    minutos_agente: 288.2         # Implementador E1-E5 78.9 + QA 57.4 + ajustes post-QA 151.9
+    horas_humanas_orquestacion: 1.2   # estimado, no cronometrado (Discovery a Documentacion en el hilo)
+    horas_reales_totales: 6.0
+    tokens_subagente: 1834465
+    tests_delta: "747 -> 896 (+149)"
+    commits_locales: 11
+    notas: >
+      Modulo de frontera de seguridad (un tercero autenticado adentro del tenant del cliente),
+      no un ABM: el costo esta en probar lo que NO se puede hacer, no en construir pantallas.
+      Segunda fila con dato duro de esta familia -- con la de crm-olvidata ya son 2, falta 1
+      para el umbral de 3 que pidio marihogar antes de usarla para calibrar.
+      Sin presupuesto previo (proyecto personal): NO hay ratio PERT/real posible.
+      Dos observaciones para futuras estimaciones del mismo tipo:
+      (a) la corrida de ajustes post-QA costo MAS que la implementacion original de las 5 etapas
+      (151.9 min contra 78.9) -- dos decisiones de producto tomadas despues de QA salieron mas
+      caras que construir el modulo entero, y una de ellas (que reglas entran al contexto) estaba
+      escrita en el analisis desde el principio. Vale para el proximo: cerrar las preguntas de
+      contexto del modelo ANTES de implementar, no despues de QA;
+      (b) QA encontro 4 defectos que los 891 tests verdes no veian, tres de ellos solo visibles
+      en el navegador con una sesion real -- incluido uno critico (el agente no podia leer un solo
+      documento y lo disimulaba en castellano). El tiempo de QA con navegador no es opcional en
+      un modulo de frontera.
 
   # Pendientes de extraer (ya medidos en sus propios docs, falta pasarlos aca):
   #   marihogar                  -> 6 sprints agenticos, tiempo por sprint en su trazabilidad.md

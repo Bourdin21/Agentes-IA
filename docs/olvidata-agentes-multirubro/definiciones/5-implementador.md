@@ -1,9 +1,193 @@
-# Memoria - Implementador
+﻿# Memoria - Implementador
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-09-22 (Entrega progresiva por etapas del menú)
+## Ultima actualizacion: 2026-09-24 (M18 + los dos ajustes post-QA)
 
 ## Definiciones vigentes
+
+# M18 — Portal del cliente del estudio (rol Cliente)
+
+Estado: **implementado 2026-09-24; pendiente de QA; 5 commits locales, sin push y sin deploy (los hace Joaquín)**.
+Repo `C:\Sistemas\Olvidata Agentes Multi-rubro`, commit base `4e15029`. Entrada: análisis M18 (13 CU, RF-M18-01..36,
+12 criterios, 6 riesgos), `docs/diseno-portal-cliente.md` (11 pantallas, 20 ViewModels, 4 máquinas de estado, 15 HU,
+D-M18-1..12) y el bloque M18 de `3-arquitecto-mvc.md` (AR-M18-1..5 y las 5 etapas). Gate: definiciones 2, 3 y 4
+aprobadas por Joaquín el 2026-09-24 («de corrido hasta QA»); presupuesto omitido (proyecto personal).
+
+### Escaneo de reutilización
+- **Otros proyectos:** `cma-centro-medico` (HU-07, `PAT-017`) dejó planteado un portal de autogestión del paciente con un
+  service dedicado que resuelve el id **desde el usuario autenticado, nunca desde la URL**; nunca se implementó, así que
+  **se tomó el criterio y no el código**. `audifonos-bariloche` lo listó como exclusión y `century-21` confirmó que el
+  autoregistro es nuevo en el estudio. Ningún otro proyecto del historial tiene un tercero autenticado adentro del tenant.
+- **Del propio repo, sin escribir un camino nuevo:** el pipeline de documentos de M5 (`IDocumentoCarteraService`), el
+  patrón de propuesta de M4b/M7b, el límite de gasto y las aprobaciones de M6, `IPreparadorTareaTrabajo` de M7a, el
+  rate limiting del portal y el design system de la instrucción 38. Patrón nuevo catalogado: **`PAT-042`**.
+
+### Plan por etapas (el orden en que se hizo, un commit local por etapa)
+1. Línea base: `dotnet test` **747/747**.
+2. **E1 — La frontera** (`8e1eef4`): rol, `ClienteCarteraId`, `EsCliente`/`EsMiembro`, policies, `FiltroCliente`,
+   `AplicarReglasCliente`, arreglo de las fugas de AR-M18-1 y migración `PortalCliente`. Sin una sola pantalla. **815 tests.**
+3. **E2 — Entrar** (`32fece8`): configuración de la organización, código de acceso, registro anónimo, `_LayoutCliente`,
+   Inicio y Mi ficha. **841 tests.**
+4. **E3 — Documentos** (`67c773e`): `Origen` y `VisibleParaCliente`, subida del cliente por el pipeline de M5, interruptor
+   y badge del lado del estudio. **856 tests.**
+5. **E4 — Pedidos** (`6e2e465`): pedidos e ítems, revisión con motivo obligatorio, herramienta de propuesta y la tarjeta
+   para aplicarla. **878 tests.**
+6. **E5 — Consultas** (`0000506`): `TipoTarea.ConsultaCliente`, herramientas por inclusión, escalado de aprobación a
+   Director y consumo por cliente. **891 tests.**
+
+### Archivos y capas modificadas
+- **Domain:** `Enums/EnumsOrganizacion.cs` (`RolOrganizacion.Cliente = 3`), `Enums/EnumsAgentes.cs`
+  (`TipoTarea.ConsultaCliente = 5`), `Enums/EnumsPortalCliente.cs` (nuevo), `Entities/IClienteOwned.cs` (nuevo),
+  `Entities/MiembrosDeOrganizacion.cs` (nuevo), `Entities/PortalCliente.cs` (nuevo: `CodigoAccesoCliente`,
+  `PedidoDocumentacion`, `ItemPedidoDocumentacion`, `PropuestaPedidoDocumentacion`, `AgenteHabilitadoCliente`),
+  `ApplicationUser` (+`ClienteCarteraId`), `DocumentoCartera` (+`Origen`, +`VisibleParaCliente`), `Tenant` (+3 columnas),
+  `Tareas.cs` (`TareaAgente : IClienteOwnedOpcional`).
+- **Application:** `Interfaces/IPortalClienteService.cs`, `ICodigosAccesoService.cs`, `IPedidosDocumentacionService.cs`
+  (nuevos), `Helpers/MensajesPortalCliente.cs` (nuevo, los textos exactos del §9), `Settings/PortalClienteOptions.cs`
+  (nuevo), `DTOs/PortalClienteDtos.cs` (nuevo), `IContextoUsuario` (+`ClienteCarteraId`), `IPermisosOrganizacion`
+  (+`EsCliente`, comentario de `EsMiembro`), `IDocumentoCarteraService` (+`SubirComoClienteAsync`,
+  +`CambiarVisibilidadParaClienteAsync`), `Motor/NotaSubtarea.cs` (`ClasesDeTarea`), `Motor/IMotorAgentes.cs`
+  (+`IniciarConsultaClienteAsync`), `Motor/IResolvedorHerramientas.cs`, `Motor/DescripcionesHerramientas.cs`,
+  `DTOs/DocumentosDtos.cs`, `DTOs/GastoDtos.cs`.
+- **Infrastructure:** `Services/PortalCliente/` (nuevo: `PortalClienteService`, `CodigosAccesoService`,
+  `ConfiguracionPortalClientesService`, `PedidosDocumentacionService`, `HerramientasPedidoDocumentacion`),
+  `Data/AppDbContext.cs` (`FiltroCliente` + `AplicarReglasCliente`), `Data/Configurations/PortalClienteConfigurations.cs`
+  (nuevo) y `ApplicationUserConfiguration.cs` (FK + `CK_Usuario_Cliente`), `Services/Organizacion/ResolvedorSesion.cs`,
+  `PermisosOrganizacion.cs`, `ContextoUsuario.cs`, `MiembroService.cs`, `Services/Documentos/DocumentoCarteraService.cs`,
+  `Services/Motor/{ProcesadorTareas,ResolvedorHerramientas,ServicioTareas}.cs`, `Services/Gasto/ConsumoService.cs`,
+  `Services/Asistente/HerramientasAsistente.cs`, `Services/Asignaciones/TareaAsignadaService.cs`,
+  `Services/Programaciones/ProgramacionTareaService.cs`, `Services/Agentes/AnatomiaAgenteService.cs`,
+  `Services/Analista/HerramientasAnalista.cs`, `Services/Asistente/PropuestaTrabajoService.cs`, `DependencyInjection.cs`.
+- **Web:** policies `RequirePortalCliente` y `NoEsCliente` (esta última en la **policy por defecto**),
+  `Controllers/{Acceso,Portal,PortalDocumentos,PortalPedidos,PortalConsultas,PortalClientes,Pedidos}Controller.cs` y
+  `PortalClienteControllerBase.cs` (nuevos), `CarteraController`, `DocumentosController`, `HomeController`, `Program.cs`,
+  `Views/Shared/_LayoutCliente.cshtml` + `_Layout.cshtml`, `Views/{Portal,PortalDocumentos,PortalPedidos,PortalConsultas,PortalClientes,Pedidos,Acceso}/`
+  (nuevas), `Views/Cartera/{Detalle,_CardPortalCliente,_ScriptPortalCliente}.cshtml`, `Views/Documentos/Index.cshtml`,
+  `Views/Consumo/_TablasConsumo.cshtml`, `wwwroot/css/portal-cliente.css` (nuevo), `Models/PortalClienteViewModels.cs` (nuevo).
+- **Datos:** migración **`PortalCliente`** (20260924221250). `Mcp` y `Cli` **sin tocar** (congelados).
+  **`distribuible/` sin tocar: ni una línea** (regla permanente del plan §9).
+
+### Decisiones de implementación
+- **DI-M18-A — La frontera se cierra tres veces, no una.** (1) `EsMiembro` deja de alcanzar a un cliente, y con eso los 29
+  controllers existentes lo rechazan sin tocar ninguno. (2) `NoEsCliente` entra en la **policy por defecto**: los
+  `[Authorize]` a secas —Agentes, Tareas, Notificaciones y el hub de SignalR— tampoco le abren nada, ni un endpoint que se
+  escriba mañana. (3) `FiltroCliente` + `AplicarReglasCliente` en la base: una consulta que se escape de las dos anteriores
+  igual devuelve cero filas ajenas, y una escritura cruzada tira excepción.
+- **DI-M18-B — AR-M18-1 tenía más fugas que las dos medidas.** El grep completo de `RolOrganizacion` encontró que
+  **`u.RolOrganizacion != null` era el modismo de «es del equipo» en siete services**. Se centralizó en
+  `MiembrosDeOrganizacion.SoloMiembros()`, un solo lugar, para que el día que se agregue otro rol de afuera no haya que
+  salir a buscar los `!= null` uno por uno. La fuga cara era la del asistente del Director, que los listaba como
+  «Empleado» y los hacía **asignables de trabajo**.
+- **DI-M18-C — `/acceso` responde 404 si NINGUNA organización tiene el portal encendido.** La URL del registro no está
+  scopeada por organización (el código es lo que identifica al estudio), así que el criterio de HU-M18-01 se cumple con la
+  condición global. Con el portal apagado en una organización, su código no sirve igual.
+- **DI-M18-D — El cliente entra al pipeline de M5 por una puerta propia, no por un pipeline propio.**
+  `DocumentoCarteraService` pasó de `Miembro()` a `MiembroOCliente()` en las cuatro operaciones que el cliente necesita;
+  para un miembro **no cambió nada**, y para un cliente cada método agrega su propia condición. Un documento del estudio
+  sin el interruptor da **404, no 403**: no confirma que exista.
+- **DI-M18-E — La lista blanca de herramientas se arma por inclusión y descarta el encabezado del agente.** Un agente de
+  la empresa puede nombrar un conector en su encabezado; en una `ConsultaCliente` se descarta igual y queda solo leer su
+  carpeta más `pedido_documentacion_proponer`. Si mañana se agrega una familia de herramientas, un cliente **no la recibe
+  por olvido**.
+- **DI-M18-F — `ClasesDeTarea`: por primera vez «no es Trabajo» dejó de ser sinónimo de «es plataforma».** La consulta de
+  un cliente arma el MISMO contexto que una tarea de trabajo sobre ese cliente (formato 1/2, reglas del cliente), así que
+  el tipo nuevo **no mueve el prompt de sistema ni el hash de las tareas del estudio**: los 5 goldens quedaron idénticos.
+- **DI-M18-G — Un cliente nunca aprueba nada, con dos cierres.** En el procesador, una `ConsultaCliente` fuerza el nivel a
+  `Director` cualquiera sea el que declare la herramienta; y `AprobacionService` ya acotaba `NivelAprobacion.Autor` a las
+  tareas de `Trabajo`. Se probó con el caso peligroso: un pedido guardado a mano con nivel `Autor`.
+- **DI-M18-H — La conversación del cliente se arma aparte y no reusa la del estudio.** Reusar la vista recortada era lo
+  que pedía el diseño, pero la forma segura de que no se filtre nada del núcleo es **no tener de dónde filtrarlo**: de
+  cada paso del modelo se toma solo el texto. Sin «Ver pasos», sin costo, sin nombres de herramienta.
+- **DI-M18-I — El menú del cliente creció etapa por etapa.** Cada opción se sumó junto con la pantalla que la cumple, para
+  que ningún commit intermedio ofreciera algo que todavía no estaba.
+
+### Migración EF
+`PortalCliente` (20260924221250), **el esquema completo de M18 en una sola migración**, como pide la arquitectura:
+- `AspNetUsers`: `+ClienteCarteraId int NULL`, FK a `ClientesCartera` `ON DELETE RESTRICT`, índices
+  `(ClienteCarteraId)` y `(TenantId, ClienteCarteraId)`, y **check constraint `CK_Usuario_Cliente`**:
+  rol 3 ⟺ `ClienteCarteraId IS NOT NULL`.
+- `DocumentosCartera`: `+Origen int NOT NULL DEFAULT 1` (Estudio), `+VisibleParaCliente bit NOT NULL DEFAULT 0`.
+- `Tenants`: `+PortalClientesHabilitado bit NOT NULL DEFAULT 0`, `+TopeUsuariosPorCliente int NOT NULL DEFAULT 3`,
+  `+LimiteGastoClientePorDefecto decimal(18,2) NULL`.
+- Tablas nuevas: `CodigosAccesoCliente` (hash único), `PedidosDocumentacion`, `ItemsPedidoDocumentacion`,
+  `PropuestasPedidoDocumentacion`, `AgentesHabilitadosCliente`.
+- **Backfill explícito** (el default ya lo hace; se escribe para que se lea): todo documento existente queda **del estudio
+  y no visible**, y toda organización queda con el portal **apagado**.
+- **Impacto:** aditiva. Ninguna columna se borra ni cambia de tipo; ningún índice existente se toca. `Down` revierte todo.
+  El check constraint obliga a que el alta de un usuario cliente fije rol y cliente de cartera en el **mismo** `SaveChanges`.
+
+### Ajustes post-QA (2026-09-24, decisión de Joaquín)
+
+Dos temas que QA dejó abiertos, sobre sus 4 fixes (`974edb5`, `aacfe0a`, `6df04a9`, `1915a54`).
+
+- **Ajuste 1 (`3bb0596`) — fuera las reglas que no son del cliente.** QA verificó con datos reales que una regla interna
+  sobre honorarios quedó delante del agente al que le pregunta el propio cliente. `SolicitudContexto` suma
+  `SoloReglasDelCliente`, que activa solo `IniciarConsultaClienteAsync`: entran las de alcance **Cliente** de ese cliente
+  —las generales y las de ese cliente para ese agente— y nada más. El tipo de la tarea pasó a viajar en `CrearTareaDto` y
+  se fija **antes** de calcular el contexto, en vez de pisarse después de crear la tarea.
+- **DI-M18-J — la misma fuga un renglón más abajo, encontrada haciendo esto.** El índice de memoria (`NotaMemoria`) viaja
+  en los **mensajes** con el título y el «cuándo sirve» de cada recuerdo, así que un recuerdo de alcance Organización
+  llegaba igual a la consulta del cliente aunque las herramientas de memoria no estuvieran en la lista blanca.
+  `RenderizarNotaAsync` suma `soloDelCliente`. RF-M18-27 ya pedía «recuerdos suyos»: se arregló el código, no el criterio.
+- **Ajuste 2 (`170a016`) — el agente lee exactamente lo que el cliente ve.** La condición vive en `DelCliente`, por donde
+  pasan las tres herramientas de documentos (listar, leer y buscar), y es la **misma** que
+  `IPortalClienteService.DocumentosVisibles`. **Cambia lo que decía el §3.3 del diseño** («la carpeta del cliente»
+  entera) a sabiendas: coherencia total y cero sorpresas, a costa de respuestas peores cuando el estudio se olvide de
+  marcar un documento. Diseño y RF-M18-27 actualizados con la fecha y el motivo.
+- **Los 5 tests nuevos se verificaron en rojo** neutralizando los tres arreglos antes de darlos por buenos, para que
+  prueben algo y no solo pasen. Suite: **891 → 896**. Los 5 goldens, sin un cambio.
+- **Choque de trabajo concurrente:** un `git add` de otro proceso levantó los 7 archivos de código del Ajuste 1 dentro de
+  `437c41f`, que por su mensaje solo debería traer los 5 de `nucleo/`. No se reescribió ese commit porque no es del
+  implementador; qué archivos sacar está escrito en el mensaje de `3bb0596`.
+
+### Evidencia
+- `dotnet build OlvidataAgentes.slnx` → **0 errores** en cada etapa.
+- `dotnet test tests/OlvidataAgentes.Tests` (medido sin pipe, con el código de salida): línea base **747/747**;
+  final **`Con error: 0, Superado: 891, Omitido: 0, Total: 891`**. **144 tests nuevos.**
+- `LectorDocumentosTests.Extraccion_que_supera_el_tiempo_queda_como_no_se_pudo_leer` falló dos veces en corridas completas
+  y pasó sola cada vez que se corrió aislada: es el flaky conocido bajo carga, no una regresión.
+
+### Riesgos y supuestos
+- **Verificado en verde:** la batería de aislamiento cliente↔estudio y cliente↔cliente, controller por controller contra
+  el portal real (`PortalClienteFronteraHttpTests`), más el aislamiento a nivel service y base
+  (`PortalClienteFronteraTests`). `ClienteCarteraIdActual` es null para Director, Empleado, staff y procesos de sistema.
+- **Supuesto asumido (R-M18-03):** el flujo del código no valida que quien lo recibió sea quien dice ser. Lo entrega un
+  humano del estudio a alguien que ya conoce. Es riesgo residual aceptado por Joaquín.
+- **Supuesto (R-M18-02):** la lista blanca de herramientas y el hilo recortado acotan la superficie, pero **no son garantía
+  total** contra que el agente diga de más en su texto. Mismo reparo que R-M14-02.
+- **Pendiente de producto (DA-M18-1):** un usuario cliente no cuenta como miembro en el plan ni en la licencia. Decisión
+  comercial de Joaquín antes de publicar; mientras tanto, no cuenta.
+- **Pendiente para QA:** los dos temas a 390 px, el estado vacío del portal y la prueba manual de que un cliente logueado
+  que pega una URL del estudio en la barra no ve ni el menú. Falta además el smoke contra el portal local con MySQL y
+  `Anthropic__Simulado=true`: la migración se generó pero **no se aplicó a ninguna base**.
+
+### Pruebas mínimas para QA
+1. Un cliente logueado pide `/Miembros`, `/Cartera`, `/Consumo`, `/Conexiones`, `/Reglas`, `/Tareas` → siempre acceso
+   denegado, y en `/` va a su propia portada.
+2. Dos clientes del mismo estudio: ninguno ve el documento, el pedido, el ítem ni la consulta del otro, **ni pidiendo su
+   id en la barra** (404, no 403).
+3. Código usado, vencido, regenerado e inexistente → **el mismo mensaje**, palabra por palabra.
+4. Un documento del estudio sin el interruptor no aparece ni se descarga; encenderlo lo muestra y apagarlo lo oculta en
+   el acto.
+5. Rechazar un ítem sin motivo no pasa; con motivo, el cliente ve el motivo y el ítem vuelve a «Te falta».
+6. El agente propone un pedido → **no le llega nada al cliente** hasta apretar «Pedírselo al cliente»; aplicar dos veces
+   la misma propuesta falla.
+7. Con el portal apagado: `/acceso` 404, sin card en la ficha del cliente, y los usuarios cliente existentes quedan
+   afuera en el siguiente request.
+8. Dar de baja el cliente de cartera deja afuera a sus usuarios en el siguiente request.
+9. Mobile 390 sin scroll horizontal y contraste en los dos temas, en las 5 pantallas del cliente.
+
+### Checklist de merge
+- [x] Build y suite completa en verde (891/891, medido sin pipe).
+- [x] Migración EF aditiva, con `Down`, backfill explícito y sin tocar índices existentes.
+- [x] Sin cambios en `distribuible/`, `Mcp` ni `Cli`.
+- [x] Castellano rioplatense en UI, mensajes, logs y comentarios; los textos del §9 del diseño, tal cual.
+- [x] Ningún secreto en el código ni en el audit trail (el código de acceso va hasheado y fuera del audit trail).
+- [x] Los 5 goldens de hash de contexto, idénticos.
+- [ ] QA funcional (etapa 6).
+- [ ] Aplicar la migración a la base de desarrollo y smoke manual con el modelo simulado.
+- [ ] Push y deploy: los hace Joaquín.
+
 
 # PA-05 — Backoffice del SuperUsuario: administrar organizaciones desde `Organizaciones y licencias`
 

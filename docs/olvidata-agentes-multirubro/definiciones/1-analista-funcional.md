@@ -1,11 +1,101 @@
-# Memoria - Analista funcional
+﻿# Memoria - Analista funcional
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-09-16
+## Ultima actualizacion: 2026-09-24
 
 ## Definiciones vigentes
 
 ### Modulos/features analizados
+
+**M18 — Portal del cliente del estudio (rol Cliente)** (Discovery + Análisis, 2026-09-24). Estado: **Análisis cerrado, esperando gate de Joaquín**; presupuesto omitido (proyecto personal).
+
+Pedido de Joaquín: *«crear un rol cliente en los estudios, que sean los clientes del estudio, que puedan entrar a la plataforma y nutrir su perfil con documentación, para que luego los agentes puedan trabajar con la misma»*.
+
+**Lo que ya existe y no se vuelve a construir** (esto acota el alcance a un tercio): `ClienteCartera` (M2) **ya es** el cliente del estudio, con identificación, email y baja lógica; `DocumentoCartera` + `DocumentoCarteraParte` (M5) ya guardan su documentación, la leen a texto y se la sirven al agente por herramienta; las reglas de alcance `Cliente` y `ClienteCarteraAgente` (M3/M4) ya personalizan el agente por cliente; M6 ya tiene límite de gasto **por miembro** y aprobaciones por nivel; M14 ya juntó todo eso en el *espacio del cliente*. **Lo único nuevo es la persona del otro lado con login propio, y todo lo que hay que cerrar para que esa persona no vea de más.**
+
+**El reparo que ordena el análisis.** Hoy el aislamiento es por `TenantId`, y el usuario cliente vive **adentro del tenant del estudio**: para el `AppDbContext`, un cliente de Contadores BMA *es* Contadores BMA. `FiltroTenant` no lo protege en absoluto. Entonces el módulo entero se apoya en una **segunda frontera**, y esa frontera no puede ser una lista de lo prohibido: **es una lista blanca de lo permitido**. Un controller que nadie marcó como apto para clientes le responde «acceso denegado» a un cliente, aunque el programador se haya olvidado de pensarlo. Es el mismo criterio fail-closed de M11 con los destinos y de M12 con las herramientas que piden aprobación.
+
+### Decisiones de Discovery (Joaquín, 2026-09-24)
+
+- **D-M18-a — El cliente sube documentación *y además* le puede pedir cosas a un agente**, acotado a su propia carpeta. Es la decisión que cuesta plata (los tokens los paga el estudio) y la que abre superficie de aprobaciones; se toma con las salvaguardas de RF-M18-26..33.
+- **D-M18-b — Ve lo que subió él más lo que el estudio marque visible**, con un interruptor por documento apagado por defecto. Se descartó «toda su carpeta» (expone cualquier papel interno que el estudio guarde ahí) y «solo lo suyo» (deja la vía de una sola mano).
+- **D-M18-c — Entra por autoregistro con un código** que le da el estudio. Se descartó la invitación por email (depende del correo) y la contraseña generada por el Director.
+- **D-M18-d — El estudio le arma un checklist de documentación faltante** y el cliente sube contra cada ítem. Se descartó la subida libre: sin checklist esto es un buzón, no una herramienta de trabajo.
+
+### Casos de uso
+
+CU-M18-01 El Director habilita el portal de clientes en su organización · CU-M18-02 Un miembro genera el código de acceso de un cliente de cartera y se lo pasa · CU-M18-03 El cliente se registra con el código y entra por primera vez · CU-M18-04 El cliente ve su ficha y la completa · CU-M18-05 El cliente sube un documento y ve cómo queda su estado de lectura · CU-M18-06 Un miembro marca un documento del estudio como visible para el cliente · CU-M18-07 Un miembro arma un pedido de documentación con varios ítems · CU-M18-08 Un agente **propone** un pedido de documentación y un miembro lo aplica · CU-M18-09 El cliente ve qué le falta y sube contra cada ítem · CU-M18-10 Un miembro acepta o rechaza lo subido, con motivo · CU-M18-11 El cliente le pide algo a un agente sobre su propia carpeta · CU-M18-12 El Director corta el acceso de un cliente · CU-M18-13 El Director ve cuánto gastaron sus clientes y le pone tope a cada uno.
+
+### Requisitos funcionales
+
+**Identidad y frontera (RF-M18-01..08).**
+- **RF-M18-01.** Rol nuevo `RolOrganizacion.Cliente`. Un usuario cliente pertenece al tenant del estudio **y** a un `ClienteCartera`: la regla es de hierro y va al modelo de datos — rol Cliente ⟺ `ClienteCarteraId` con valor.
+- **RF-M18-02.** `IContextoUsuario` expone `ClienteCarteraId`, resuelto desde la base en cada request como el resto (un corte de acceso impacta sin esperar la cookie).
+- **RF-M18-03. Lista blanca, no lista negra.** Toda acción del portal le responde «acceso denegado» a un usuario cliente **salvo** las marcadas explícitamente como aptas. Agregar un controller nuevo no le abre nada a nadie por olvido.
+- **RF-M18-04. Segunda frontera en la base.** Para un usuario cliente, el `AppDbContext` aplica un filtro adicional por `ClienteCarteraId` sobre las entidades que lo tienen, y sobre `ClienteCartera` por su propio Id. Es defensa en profundidad: aunque una consulta se escape de la lista blanca, no trae filas de otro cliente.
+- **RF-M18-05.** Un cliente **no es miembro**: no aparece en el listado de miembros, no se le asignan áreas ni tareas, no cuenta para «último Director», no ve el menú del estudio. Tiene su propio menú y su propia portada.
+- **RF-M18-06.** El portal de clientes se habilita **por organización**, apagado por defecto. Sin eso, ningún código sirve y ninguna pantalla existe.
+- **RF-M18-07.** Un Director corta el acceso de un cliente en un clic; la sesión viva se cae en el siguiente request. La baja lógica del `ClienteCartera` corta el acceso de sus usuarios automáticamente.
+- **RF-M18-08.** Todo lo que hace un usuario cliente queda auditado con su identidad y su cliente de cartera.
+
+**Alta por código (RF-M18-09..13).**
+- **RF-M18-09.** Un miembro genera el código desde la ficha del cliente de cartera. Se muestra **una sola vez**, se guarda hasheado y se puede regenerar (lo anterior deja de servir).
+- **RF-M18-10.** El código es **de un solo uso** y **vence** (por defecto 7 días, configurable). Vencido o usado, no entra nadie.
+- **RF-M18-11.** El registro pide nombre, email y contraseña. Si el email no coincide con el de la ficha, igual entra pero el alta queda **rotulada** y el Director recibe el aviso.
+- **RF-M18-12.** Límite de intentos por IP y por código: un código no se adivina a fuerza de probar.
+- **RF-M18-13.** Tope de usuarios cliente por `ClienteCartera` (por defecto 3) y por organización.
+
+**Documentación (RF-M18-14..19).**
+- **RF-M18-14.** `DocumentoCartera` suma **quién lo cargó** (Estudio / Cliente) y **si lo ve el cliente**, apagado por defecto. Lo que sube el cliente lo ve el cliente, siempre.
+- **RF-M18-15.** El cliente sube, renombra y da de baja **sus propios** documentos, con los mismos límites de tamaño, extensión y MIME determinado por el servidor que ya rigen en M5. Nunca toca los del estudio.
+- **RF-M18-16.** El cliente ve el estado de lectura en palabras («se leyó entero», «se leyó una parte», «no se pudo leer: es un escaneo sin texto») para que sepa si sirve lo que subió.
+- **RF-M18-17.** Marcar y desmarcar «lo ve el cliente» es de cualquier miembro y queda auditado. Desmarcar oculta de inmediato.
+- **RF-M18-18.** El estudio ve en su propia pantalla qué subió el cliente y cuándo, distinguido de lo suyo.
+- **RF-M18-19.** El archivo del cliente entra por el mismo camino de M5: fuera de `wwwroot`, nombre interno sin relación con el que puso el usuario, hash y baja con borrado físico diferido.
+
+**Pedidos de documentación (RF-M18-20..25).**
+- **RF-M18-20.** Un pedido tiene título, nota y varios ítems; cada ítem tiene qué se pide, si es obligatorio, vencimiento opcional y estado (Pendiente / Subido / Aceptado / Rechazado).
+- **RF-M18-21.** El cliente ve «te faltan 3 cosas» y sube contra un ítem; el documento queda enganchado a ese ítem.
+- **RF-M18-22.** Un miembro acepta o rechaza, con motivo obligatorio al rechazar; rechazado vuelve a Pendiente y el cliente ve por qué.
+- **RF-M18-23.** Un agente **propone** un pedido y **nunca lo crea**: queda Pendiente hasta que una persona lo aplica con un botón — el mismo patrón, palabra por palabra, de `PropuestaRegla` (M4b) y `PropuestaAsignacion` (M7b).
+- **RF-M18-24.** El estudio ve el avance de cada pedido sin abrirlo ítem por ítem.
+- **RF-M18-25.** Cerrar un pedido lo saca de la vista del cliente sin borrar nada.
+
+**El cliente y el agente (RF-M18-26..33). Es el bloque que más se defiende.**
+- **RF-M18-26.** El Director elige **qué agentes** puede usar un cliente; por defecto, **ninguno**.
+- **RF-M18-27.** La tarea de un cliente es de un tipo propio y nace **atada a su `ClienteCarteraId`**, que no se puede cambiar. El agente ve la carpeta de ese cliente y nada más: documentos suyos, reglas de alcance Cliente suyas, recuerdos suyos.
+  - **Precisado el 2026-09-24, después de QA (decisión de Joaquín).** «La carpeta de ese cliente» quedó ambiguo y el código lo resolvió de más: QA verificó con datos reales que **una regla interna sobre honorarios quedó delante del agente al que le pregunta el propio cliente**. Ahora dice exactamente esto:
+    - **Reglas:** solo las de alcance **Cliente** de ese cliente — las generales y las de ese cliente para ese agente. Nunca las de la empresa, del área, del usuario ni del agente.
+    - **Recuerdos:** solo los de ese cliente. Nunca los de alcance Organización. (Tenían la misma fuga: el índice de memoria viaja en los mensajes con el título y el «cuándo sirve» de cada recuerdo.)
+    - **Documentos:** lo que subió el cliente, siempre, **más** lo que el estudio marcó con «Lo ve el cliente». Un papel que el estudio cargó y no marcó visible **no existe** para ese agente: ni listado, ni por id, ni en una búsqueda. Es más restrictivo que «la carpeta» y es a propósito: **el agente lee exactamente lo mismo que el cliente ve en «Mis documentos»**. Si no, el agente nombra un papel que el cliente no puede abrir, o el cliente se entera de algo que el estudio no le compartió. El costo aceptado es que la respuesta va a ser peor cuando el estudio se olvide de marcar algo.
+- **RF-M18-28. Un cliente nunca aprueba nada.** Hoy `NivelAprobacion.Autor` alcanza a «quien pidió la tarea»; con un cliente como autor eso sería un agujero. Toda aprobación de una tarea de cliente escala a un Director del estudio. **Es un cambio de comportamiento sobre M6 y hay que escribirlo en el código, no confiarlo a la pantalla.**
+- **RF-M18-29. Ningún conector.** Una tarea de cliente no recibe herramientas de M11: nada sale hacia afuera por pedido de un cliente, ni siquiera a un destino aprobado.
+- **RF-M18-30. Sin escritura en la configuración del estudio.** La tarea de un cliente no crea reglas, ni instructivos, ni asignaciones, ni programaciones, ni recuerdos de empresa. Puede proponer un pedido de documentación (RF-M18-23) y nada más.
+- **RF-M18-31. Gasto.** Cada usuario cliente tiene límite mensual propio (reusa M6), con un valor por defecto para toda la organización. Alcanzado el límite, el cliente no dispara nada y lo ve dicho en palabras. El gasto del cliente **suma al de la organización**: el estudio paga.
+- **RF-M18-32.** El Director ve el consumo abierto por cliente de cartera y por usuario cliente.
+- **RF-M18-33.** El cliente ve su conversación y sus respuestas; **no** ve «Ver pasos», ni el contexto armado, ni qué instructivo o regla se aplicó, ni nada del núcleo.
+
+**Presentación (RF-M18-34..36).**
+- **RF-M18-34.** Portada propia del cliente: qué le falta, qué subió, qué le respondieron. Nunca el tablero del estudio (M16).
+- **RF-M18-35.** Se rotula en pantalla que lo que sube lo ve su estudio.
+- **RF-M18-36.** Mobile 390 sin scroll horizontal y contraste en los dos temas, como el resto del portal.
+
+### Criterios de aceptación
+
+Un usuario cliente que pide cualquier URL del estudio (miembros, reglas, conexiones, consumo, tareas de otros, backoffice) recibe acceso denegado **sin excepción**, probado controller por controller · un cliente no ve ni un documento de otro cliente por ninguna vía: pantalla, descarga por Id, ni herramienta del agente · un documento sin «lo ve el cliente» no aparece ni en la lista ni al pedir su Id directo · un código usado, vencido o regenerado no deja entrar · la tarea de un cliente **no recibe** ninguna herramienta de conector, verificable en la solicitud al modelo · una aprobación de una tarea de cliente **no la puede resolver el cliente**, aunque sea el autor · con el límite de gasto alcanzado, el cliente no dispara ninguna llamada al modelo · el agente propone un pedido y **nada se crea** hasta que una persona lo aplica · los goldens de hash de contexto de las tareas del estudio quedan **idénticos** · dar de baja el cliente de cartera deja afuera a sus usuarios en el siguiente request · con el portal de clientes apagado, ninguna de estas pantallas existe · mobile 390 y ambos temas.
+
+### Riesgos
+
+- **R-M18-01 (alto) — la frontera de adentro.** Es el módulo que más cerca pone a un extraño de los datos del estudio: comparte tenant, base y sesión. Se ataca con lista blanca + filtro en la base + tests por controller, y aun así es donde hay que mirar dos veces en QA.
+- **R-M18-02 (alto) — el agente del cliente como vía de fuga.** Un cliente podría pedirle al agente que le cuente reglas internas, honorarios o datos de otro cliente. Mitigación: la tarea no tiene herramientas que lean fuera de su carpeta, el cliente no ve «Ver pasos» y la regla de plataforma de no revelar instrucciones ya existe. **No es garantía total** — mismo reparo que R-M14-02.
+- **R-M18-03 (medio) — el autoregistro.** Es la única vía que deja entrar a alguien sin que un humano del estudio lo apruebe. Mitigado con código de un solo uso, vencimiento, tope de intentos y aviso al Director; el riesgo residual es un código reenviado a quien no era.
+- **R-M18-04 (medio) — el gasto lo paga el estudio.** Un cliente entusiasta puede quemar el límite de la organización. Mitigado con tope por usuario cliente, apagado por defecto y agentes habilitados de a uno.
+- **R-M18-05 (medio) — expectativa.** El cliente entra a algo que parece un canal de atención y espera respuesta humana. Se resuelve en Diseño con qué se le promete en pantalla.
+- **R-M18-06 (bajo) — licencia y precio.** Un usuario cliente no es un miembro y no debería contar como tal en el plan; queda como decisión comercial de Joaquín antes de publicar.
+
+### Fuera de alcance
+
+Que el cliente vea las tareas que el estudio hace sobre él (solo ve las suyas) · firma o aprobación de documentos · pagos o cuenta corriente · notificaciones por email al cliente (el portal avisa adentro; el email es otro módulo) · clientes que pertenezcan a más de una organización · app móvil.
 
 **M16 — Tablero de actividad al iniciar sesión** (Discovery + Análisis express, 2026-09-19). Estado: **Análisis cerrado**; presupuesto omitido.
 

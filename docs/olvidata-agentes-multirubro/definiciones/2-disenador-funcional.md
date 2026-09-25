@@ -1,9 +1,78 @@
 # Memoria - Disenador funcional
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-09-16
+## Ultima actualizacion: 2026-09-24
 
 ## Definiciones vigentes
+
+# M18 — Portal del cliente del estudio (rol Cliente)
+
+Estado: **Diseño cerrado**. Entrada: `1-analista-funcional.md` M18 (RF-M18-01..36, D-M18-a..d).
+**Diseño completo: `Olvidata Agentes Multi-rubro/docs/diseno-portal-cliente.md`** (11 pantallas, 20 ViewModels,
+4 máquinas de estado, 15 historias, 5 riesgos de implementación). Acá quedan solo las decisiones.
+
+**Escaneo de reutilización.** El precedente más cercano del historial es **cma-centro-medico HU-07** (portal de
+autogestión del paciente, `PAT-017`): un tercero entra al sistema del cliente y ve solo lo suyo, con un service
+dedicado que resuelve el id **desde el usuario autenticado y nunca desde la URL**. Quedó en propuesta, nunca se
+implementó: **se toma el criterio, no hay código**. `audifonos-bariloche` lo listó como exclusión; `century-21` dejó
+escrito que no hay autoregistro en el estudio — confirma que este flujo es nuevo y por eso se diseña con cuidado.
+De este mismo repo se reutiliza entero: el pipeline de documentos de M5, el patrón «el agente propone y nunca crea»
+de M4b/M7b, el gasto por miembro de M6 y las reglas de pantalla de la instrucción 38. Patrón nuevo propuesto:
+**`PAT-042` — portal de un tercero adentro del tenant del cliente**.
+
+**D-M18-1 — El cliente no es un miembro degradado; es alguien de afuera que entra a un cuarto chico de la casa.**
+De ahí sale todo: menú propio, portada propia, service propio y frontera como **lista blanca**.
+
+**D-M18-2 — La frontera sale casi gratis, y el riesgo es arruinarla.** Hoy `EsMiembro` es «tiene tenant y tiene rol»:
+agregar `RolOrganizacion.Cliente` sin tocar nada le abriría **los 29 controllers del portal de un saque**. La primera
+línea del módulo es que **un cliente no es miembro** (`EsMiembro` excluye el rol Cliente); con eso los controllers
+existentes lo rechazan sin tocarlos, y uno nuevo también, aunque nadie se acuerde de M18. Lo que se abre es explícito:
+policy `RequirePortalCliente` en los 5 controllers del portal.
+
+**D-M18-3 — Tres capas, no una.** (1) autorización por policy; (2) `IPortalClienteService` como **único** punto de
+entrada, que resuelve el `ClienteCarteraId` del contexto y jamás de la URL (anti-IDOR, criterio de cma); (3)
+`AppDbContext.FiltroCliente` global sobre `IClienteOwned`, con nombre propio para poder ignorarlo con justificación.
+`ClienteCarteraIdActual` es null para todo el mundo salvo un usuario cliente: el estudio y el staff no cambian en nada.
+
+**D-M18-4 — Las garantías del motor no se cumplen en la pantalla.** Una tarea `ConsultaCliente` recibe solo lectura de
+su carpeta más `pedido_documentacion_proponer`; **ninguna** herramienta de conector (M11), ninguna de escritura de
+configuración, sin búsqueda web; y toda aprobación **escala a Director aunque el autor sea el cliente**. Va en
+`ProcesadorTareas` y `IResolvedorHerramientas`, no en una vista.
+
+**D-M18-5 — El código de acceso se dicta por teléfono.** 12 caracteres en 3 grupos, alfabeto sin `0/O` ni `1/I/L`,
+`RandomNumberGenerator`, hasheado, un solo uso, vence a los 7 días. Inválido, vencido y usado dan **el mismo** mensaje:
+no se confirma qué existe. 5 intentos por IP cada 15 minutos.
+
+**D-M18-6 — Inicio del cliente es una pantalla de arranque, no un tablero.** Tres bloques en orden fijo: lo que te
+piden · lo último que subiste · tus consultas. Estado vacío con **una** sola acción (instrucción 38, §4).
+
+**D-M18-7 — «Lo que me piden» es un checklist, no una tabla.** Cinco estados con su acción propia; el motivo de
+rechazo escrito por el estudio es lo único que el cliente va a leer para entender qué corregir, así que es obligatorio.
+
+**D-M18-8 — La conversación del cliente es la del portal, recortada.** Columna única y medida de lectura de la
+instrucción 38; se sacan «Ver pasos», la barra de costo, el selector de cliente y las tarjetas de propuesta. Con el
+límite de gasto alcanzado, el cuadro se deshabilita **sin mostrar un número**.
+
+**D-M18-9 — La propuesta del agente va al estudio, no al cliente.** El agente crea una propuesta Pendiente; al cliente
+no le llega nada hasta que una persona toca «Pedírselo al cliente». Mismo patrón, palabra por palabra, de M4b y M7b.
+
+**D-M18-10 — «Lo ve el cliente» pide confirmación al encender y no al apagar.** Encender expone; apagar protege. Y lo
+que subió el cliente lo ve siempre, sin interruptor.
+
+**D-M18-11 — Mi ficha edita contacto, no identidad.** Nombre y CUIT/DNI son del estudio: se muestran en gris con
+«si esto está mal, avisale a tu estudio».
+
+**D-M18-12 — El portal se habilita por organización y los agentes de a uno, todo apagado por defecto.** Sin eso,
+`/acceso` responde 404 y no existe ninguna de estas pantallas.
+
+Riesgos de implementación: **DI-M18-1 (alto)** el cambio de `EsMiembro` toca todo el portal — grepear `RolOrganizacion ==`
+antes de empezar · **DI-M18-2 (alto)** hace falta una batería de aislamiento **cliente contra estudio** y **cliente
+contra cliente**, controller por controller · **DI-M18-3 (medio)** `FiltroCliente` sobre `Tarea` rompe consultas del
+estudio si `ClienteCarteraIdActual` se resuelve mal para un miembro · **DI-M18-4 (medio)** los goldens de hash de
+contexto tienen que quedar idénticos · **DI-M18-5 (bajo)** `_LayoutCliente` duplica maqueta.
+
+Decisiones abiertas: **DA-M18-1** un usuario cliente no cuenta como miembro en el plan (decisión comercial antes de
+publicar) · **DA-M18-2** aviso por email al cliente, cuando exista el módulo de email.
 
 # M16 — Tablero de actividad al iniciar sesión
 
