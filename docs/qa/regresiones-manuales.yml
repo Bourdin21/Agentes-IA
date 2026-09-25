@@ -3326,6 +3326,99 @@ regresiones:
       - "Clic en el boton: la propuesta queda Aplicada una sola vez; el segundo intento lo rechaza el service."
     nota_generalizacion: "Chequeo de QA de 30 segundos para cualquier modulo con el patron propuesta/tarjeta: listar las acciones del controller y verificar que TODAS las que resuelven una propuesta llevan [HttpPost, ValidateAntiForgeryToken]. Cuando el producto ya tiene el patron resuelto en otro modulo, comparar contra ese: el modulo nuevo suele ser el unico que se desvia, porque quiso reusar el alta para precargar el formulario."
 
+  - id: OLV-025
+    modulo: "Rotulos por enum en pantalla (ficha del agente: cuando recibe cada herramienta)"
+    titulo: "Un switch de enum a texto con rama default 'util' le pone a cada valor nuevo el texto de OTRO valor: la pantalla afirma con confianza algo que no es cierto, y no falla nada"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - QA M20/M21 2026-09-25, commit 0335340. La ficha del agente mostraba 'En tareas principales (no en las partes que pide un coordinador)' para la herramienta de M18, cuya condicion real es PortalDeClientesEncendido. Venia mintiendo desde M17 con otra condicion (TodaTareaDeTrabajo), que M20 arreglo agregando su brazo y dejando la gemela anotada."
+    pasos:
+      - "Listar los valores del enum de condicion/estado/tipo que la pantalla traduce a texto."
+      - "Comparar contra las ramas explicitas del switch del helper de textos."
+      - "Todo valor sin rama explicita cae al default y se muestra con el texto de ese default."
+    sintoma: "La columna muestra un texto plausible y equivocado. No hay excepcion, ni 500, ni celda vacia: el unico sintoma es que lo que dice la pantalla no coincide con lo que hace el resolvedor."
+    expectativa: "Cada valor del enum tiene su propio texto, y un valor sin texto se ve como una raya en vez de heredar el de otro."
+    causa_raiz: "El switch se escribio con el ultimo valor conocido como rama default (_ => texto de TareaPrincipal) en vez de una rama explicita. Cada modulo que agrega un valor al enum hereda en silencio el texto del default: el compilador no avisa porque el switch sigue siendo exhaustivo, y el test de la pantalla (si existe) suele mirar solo los valores que ese modulo agrego."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Helpers/<Entidad>Textos.cs
+        motivo: "Una rama explicita por cada valor del enum, incluida la que estaba de default; el default pasa a ser un marcador neutro (una raya) que no afirma nada."
+    migracion_ef: null
+    fix_aplicado: "olvidata-agentes-multirubro commit 019b850 (QA M20/M21 fix 2)"
+    deteccion_qa:
+      tipo: consulta
+      selector_o_endpoint: "Contar los valores del enum y las ramas explicitas del switch que lo traduce: si hay menos ramas que valores, los que faltan estan mintiendo."
+      condicion_falla: "Existe un valor del enum sin rama explicita y la rama default devuelve un texto afirmativo (no un marcador neutro)."
+    criterio_aceptacion:
+      - "Cada valor del enum devuelve un texto distinto de los demas."
+      - "Ningun valor devuelve el texto de otro valor."
+    pruebas_minimas:
+      - "Recorrer Enum.GetValues<T>() y verificar que ningun texto se repite y que ninguno queda vacio."
+      - "Por navegador: la fila de la herramienta/estado nuevo muestra su condicion real, no la del default."
+    nota_generalizacion: "Aplica a TODO helper que traduzca un enum a texto de pantalla (condicion, estado, tipo, motivo, rol). La regla barata: la rama default de un switch de enum a texto nunca devuelve un texto que afirme algo; devuelve un marcador neutro. Asi, el modulo que agrega un valor al enum ve una raya en la pantalla en la primera corrida y se acuerda de escribir el texto, en vez de leer una frase razonable y darla por buena. El test que lo fija es de tres lineas: recorrer el enum entero y exigir textos distintos y no vacios."
+
+  - id: OLV-026
+    modulo: "Motivo/detalle que se concatena en el medio de una frase de la UI"
+    titulo: "El mismo motivo se muestra con la inicial en minuscula en una pantalla y en mayuscula en otra: las dos ramas de una MISMA frase no se leen igual"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - QA M20/M21 2026-09-25, commit 0335340. La ficha del documento decia 'El agente no puede leer este documento: Es un escaneado de 25 paginas y el maximo para mirar es 20.' mientras el mensaje de subida, que arma la misma frase, decia 'no puede leerlo: es un escaneado de 25 paginas...'. La rama de respaldo de la PROPIA ficha tambien estaba en minuscula."
+    pasos:
+      - "Provocar el estado que deja un motivo persistido (rechazo, no legible, error de validacion)."
+      - "Leer el motivo en TODAS las pantallas que lo muestran: el mensaje inmediato de la accion, la grilla, el tooltip y la ficha."
+      - "Comparar la puntuacion y la inicial de cada una."
+    sintoma: "Una mayuscula despues de dos puntos en el medio de una oracion. No rompe nada; se lee como si lo hubieran escrito dos personas distintas."
+    expectativa: "El motivo va con la inicial en minuscula cuando se concatena en el medio de una frase, y tal cual cuando es una frase entera (tooltip, columna propia). La decision es por lugar de uso, no por pantalla."
+    causa_raiz: "El motivo se guarda redactado como frase entera ('Es un escaneado de N paginas.') porque tambien se muestra solo. El helper que baja la inicial existia y lo usaba el mensaje de subida, pero era privado, asi que la vista Razor no podia llamarlo y concateno el motivo crudo. El sintoma aparece recien cuando el mismo dato se muestra en un lugar nuevo."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Application/DTOs/<Entidad>Dtos.cs
+        motivo: "El helper que baja la inicial (respetando siglas) pasa a publico: es la unica forma de que la vista arme la frase igual que el service."
+      - path: src/<Proyecto>.Web/Helpers/<Entidad>Textos.cs
+        motivo: "La frase completa se arma en el helper de textos, no en la vista: asi la vista no decide nada y el test cubre la frase entera."
+      - path: src/<Proyecto>.Web/Views/<Entidad>/Ver.cshtml
+        motivo: "La vista pasa a imprimir el helper, sin ternario ni concatenacion propia."
+    migracion_ef: null
+    fix_aplicado: "olvidata-agentes-multirubro commit 4f9809f (QA M20/M21 fix 3)"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Leer el innerText de las pantallas que muestran el motivo y buscar el patron de dos puntos seguidos de mayuscula en el medio de una oracion."
+      condicion_falla: "El mismo motivo aparece con inicial distinta en dos pantallas, o una rama del mismo ternario esta en minuscula y la otra en mayuscula."
+    criterio_aceptacion:
+      - "El motivo se lee igual, con la misma inicial, en las pantallas que lo concatenan."
+      - "Una sigla al inicio (PDF, CUIT, IVA) no se baja a minuscula."
+    pruebas_minimas:
+      - "Assert sobre la frase COMPLETA que arma el helper, no solo sobre el motivo suelto."
+      - "El caso de la sigla y el caso sin motivo (rama de respaldo)."
+    nota_generalizacion: "Cuando un texto persistido se muestra en mas de un lugar, la puntuacion es parte del contrato. Regla: el motivo se guarda como frase entera (con mayuscula y punto) y todo lugar que lo meta en el medio de otra frase lo pasa por el mismo helper de des-capitalizacion, que tiene que ser publico. Y si una vista tiene un ternario que elige entre el motivo y un texto de respaldo, las dos ramas se escriben con la misma forma: es el lugar donde se ve el defecto sin comparar pantallas. Emparenta con CRM-015 (bajar la inicial a ciegas rompe las siglas): el mismo helper resuelve los dos."
+
+  - id: OLV-027
+    modulo: "Tope de tiempo con CancellationTokenSource.CancelAfter"
+    titulo: "Un tope de cero segundos implementado con CancelAfter(TimeSpan.Zero) es una carrera, no un tope: con el pool saturado el trabajo se hace igual 298 de 300 veces"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - QA M20/M21 2026-09-25, commit 0335340. El test del tope de extraccion de documentos fallaba de a ratos en la bateria completa y pasaba siempre aislado; el implementador lo anoto como flaky conocido bajo carga."
+    pasos:
+      - "Configurar el tope de tiempo en 0 (o dejar que una configuracion lo deje en 0)."
+      - "Saturar el ThreadPool (Environment.ProcessorCount * 4 tareas girando) y llamar al metodo 300 veces."
+      - "Contar cuantas veces el trabajo se hizo igual en vez de cortarse por tiempo."
+    sintoma: "El mismo archivo queda legible o no-se-pudo-leer segun la carga de la maquina. En los tests se ve como un rojo que no se reproduce aislado; en produccion, como un tope de configuracion que no hace nada."
+    expectativa: "Un tope de cero significa siempre lo mismo y el trabajo no llega a empezar."
+    causa_raiz: "CancelAfter(TimeSpan.Zero) no cancela en el momento: programa un temporizador con vencimiento 0, cuyo callback se encola en el ThreadPool. El trabajo (Task.Run) ya esta encolado tambien, asi que los dos compiten. Con el pool libre suele ganar la cancelacion; con el pool saturado, que es exactamente lo que pasa en una bateria de tests en paralelo o en un servidor con carga, gana el trabajo. Y aunque gane la cancelacion, el delegado igual puede haberse ejecutado: el token se observa al esperar, no antes de encolar."
+    capa: Infrastructure
+    archivos_fix:
+      - path: src/<Proyecto>.Infrastructure/Services/<Area>/<Servicio>.cs
+        motivo: "Decidir el tope de cero (o negativo) ANTES de encolar: si el tope es cero, Cancel() sincronico; si no, CancelAfter(tope)."
+    migracion_ef: null
+    fix_aplicado: "olvidata-agentes-multirubro commit 84b54fd (QA M20/M21 fix 1)"
+    deteccion_qa:
+      tipo: consulta
+      selector_o_endpoint: "grep de CancelAfter y verificar que el valor no pueda ser cero, o que el cero se resuelva antes de encolar el trabajo."
+      condicion_falla: "CancelAfter recibe un TimeSpan que puede valer cero y el trabajo se encola despues sin chequear el token."
+    criterio_aceptacion:
+      - "Con el tope en cero, 300 llamadas seguidas con el pool saturado dan siempre el mismo resultado."
+      - "El trabajo no llega a leer su entrada (observable: el stream queda en Position 0)."
+    pruebas_minimas:
+      - "Assert sobre un efecto colateral que solo existe si el trabajo corrio (la posicion del stream, un contador), no solo sobre el estado devuelto: el estado puede salir bien por carrera aunque el trabajo se haya hecho."
+    nota_generalizacion: "Vale para todo tope de tiempo en el borde: CancelAfter con un valor que puede ser 0 es una carrera con el trabajo que se encola inmediatamente despues. La regla es decidir el caso degenerado de forma sincronica antes de encolar nada. Y para QA hay una leccion aparte: un test que falla de a ratos es un defecto del codigo hasta que se demuestre lo contrario, no ruido del test. El reproductor barato de una carrera de ThreadPool es saturarlo a proposito (ProcessorCount * 4 tareas girando) y repetir la llamada unos cientos de veces; lo que aislado pasa 12 de 12 veces, ahi falla 298 de 300."
+
   - id: KOI-015
     modulo: Consultas EF / proyeccion a record reutilizable (ConceptosGastoQuery)
     titulo: "Un .Where() aplicado DESPUES de una proyeccion a record no lo traduce EF Core: la consulta compila, pasa el build y revienta en runtime con 500"

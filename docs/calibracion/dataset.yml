@@ -244,6 +244,49 @@ cierres_agentic:
       documento y lo disimulaba en castellano). El tiempo de QA con navegador no es opcional en
       un modulo de frontera.
 
+  - proyecto: "olvidata-agentes-multirubro — M19 impresora + M20 coprocesador + M21 PDF escaneado"
+    fecha_cierre: 2026-09-25
+    minutos_agente: 135.4         # implementador M20 45.2 + implementador M21 41.3 + QA 48.9 (M19 lo hizo el hilo, sin subagente)
+    horas_humanas_orquestacion: 1.5   # estimado, no cronometrado (Discovery a Cierre + push + deploy en el hilo)
+    horas_reales_totales: 4.0
+    tokens_subagente: 1102205
+    tests_delta: "896 -> 996 (+100; +89 de M20/M21, +11 de M19)"
+    commits_locales: 9
+    notas: >
+      TERCERA fila con dato duro de la familia "entrega 100 % agentica": con crm-olvidata y M18
+      se alcanza el UMBRAL DE 3 que habia pedido marihogar antes de usar esta familia para calibrar.
+      Sin presupuesto previo (proyecto personal): no hay ratio PERT/real posible.
+      Tres modulos derivados del concepto rector del producto (el sistema como una computadora):
+      la impresora (el trabajo sale como planilla o informe), el coprocesador (el agente calcula
+      en vez de predecir el numero) y la segunda mitad de los ojos (mira un PDF escaneado).
+      (a) EL APRENDIZAJE DE M18 FUNCIONO, Y SE PUEDE MEDIR. En M18 la corrida de ajustes post-QA
+      costo 151,9 min -- mas que implementar el modulo entero -- porque dos decisiones de producto
+      se cerraron DESPUES de QA. Esta vez las decisiones se cerraron en Discovery (D-M20-a..e,
+      D-M21-a..e, 9 decisiones escritas antes de tocar codigo) y el resultado fue
+      CERO minutos de ajustes post-QA: QA encontro 3 defectos, los tres menores y ninguno de
+      producto. El costo de escribir 9 decisiones antes fue una fraccion de esos 151,9 minutos.
+      (b) LAS DEFINICIONES ESCRITAS RAPIDO TIENEN ERRORES DE DETALLE, Y HAY QUE PODER CORREGIRLAS.
+      Los tres subagentes reportaron 8 desvios entre las definiciones y la realidad, ninguno en
+      silencio: un criterio de aceptacion con un numero FALSO (el parentesis de CA-M20-01 afirmaba
+      un error de punto flotante que no ocurre), dos topes que se contradecian entre si (1.000
+      numeros no entran en 500 caracteres), un "antes" que nunca existio en el codigo, y un tope
+      de bytes elegido a ojo que un archivo real desmintio. Un flujo que no deja al implementador
+      corregir la definicion produce codigo que cumple una especificacion equivocada.
+      (c) EL DATO DURO QUE SOLO APARECE CON ARCHIVOS REALES. El implementador corrio el extractor
+      sobre 18 PDF reales de clientes (leidos en el lugar, sin copiar ninguno) y encontro que un
+      escaneado de 10 paginas pesa 11,76 MB: el tope de 10 MB que parecia razonable en el diseño
+      dejaba "no se puede leer" a un archivo que entra holgado en la API. Para estimar topes de
+      tamaño: medir un archivo real, no razonar sobre el tamaño que parece razonable.
+      (d) QA CON NAVEGADOR, OTRA VEZ, ENCONTRO LO QUE LOS TESTS NO VEN: la ficha del agente mentia
+      sobre cuando recibe una herramienta (una rama por defecto le ponia a toda condicion nueva el
+      texto de otra, defecto que venia de M17 y que ya habia pasado por dos QA anteriores), y un
+      test intermitente resulto ser un defecto del codigo, no del test: un tope de 0 segundos para
+      leer un documento era una carrera que la extraccion ganaba 298 de 300 veces.
+      EN PRODUCCION el 2026-09-25: 9 commits pusheados, migracion Entregables (de M19, que nunca
+      se habia desplegado) aplicada contra la base de produccion, sitio sincronizado, /health/vivo,
+      /Account/Login y / en 200. Costo del ciclo en tokens de modelo real: CERO (todo con el modelo
+      simulado; las corridas del navegador usaron pasos fabricados en la base).
+
   # Pendientes de extraer (ya medidos en sus propios docs, falta pasarlos aca):
   #   marihogar                  -> 6 sprints agenticos, tiempo por sprint en su trazabilidad.md
   #   olvidata-agentes-multirubro -> M3b / M4 / M4b, cierre sin presupuesto previo (no hay ratio posible)

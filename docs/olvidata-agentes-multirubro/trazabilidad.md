@@ -1156,3 +1156,116 @@ Piso duro: **no vender Starter por debajo de USD 40/mes**. Sigue promo hasta el 
 - Verificación posterior en producción: `/Account/Login` 200 · **`/acceso` 404** — el portal de clientes arranca **apagado en todas las organizaciones**, que es exactamente RF-M18-06: hasta que un Director lo prenda, estas pantallas no existen para nadie.
 - **No se reimportó `nucleo/plataforma`**: los cambios de la sesión paralela sobre los prompts de los tres agentes de configuración viajaron en el push pero **no están publicados** en producción (requieren `publicar-rubro` con evaluación aprobada, `IVersionadoService`). Es trabajo de esa sesión, no de M18.
 - Pendiente de decisión: el commit `437c41f` mezcla 5 archivos de `nucleo/` con 7 de código de M18 que otra sesión barrió con un `git add`. Ya está pusheado; reescribirlo ahora sería reescribir historia publicada. **Se deja como está.**
+
+### 2026-09-25 — implementador (M20)
+
+- Etapa: Implementación. Commit local único `b551010` sobre `5e69afe`. **Sin push y sin deploy**: los hace el orquestador
+  después de QA.
+- Cambio: **el agente hace la cuenta en vez de escribir el número.** Herramienta `calcular` con lista de cuentas, nombre
+  opcional y encadenado por nombre dentro de la misma llamada; evaluador propio por descenso recursivo en `decimal`
+  (`+ - * / ( )`, unario, `%` sufijo, `SUMA PROMEDIO MIN MAX CONTAR ABS REDONDEAR`, `;` entre argumentos); el paso en
+  palabras «Calculó: neto = 1.234,50 · iva = 259,25 · total = 1.493,75» con la cuenta entera en el detalle plegado; se
+  ofrece en toda tarea de trabajo, con cliente o sin él, y no pide aprobación. La heurística de «número escrito por una
+  persona» de M19 se mudó a `Application/Helpers/NumeroEscrito.cs` y quedó **compartida**.
+- Motivo: el modelo no calcula, predice. Es el agujero más caro del producto en un rubro contable, porque un número mal
+  no se ve mal (análisis M20, D-M20-a..e).
+- Impacto en capas: Application (evaluador, helper compartido, opciones, mensajes, nombres y rótulo llano),
+  Infrastructure (herramienta, resumidor de pasos, resolvedor, DI, el generador de M19 que ahora llama al helper), Web
+  (un texto de condición en la ficha del agente y la sección `Calculo` de `appsettings.json`). **Datos: sin entidades y
+  sin migración.**
+- Riesgos/supuestos: **los 5 goldens de contexto quedaron sin un byte de cambio** (R-T-06: las herramientas viajan en la
+  lista de la solicitud, no en el prompt de sistema) y **los tests de M19 quedaron verdes sin tocarlos** (R-T-03). Cada
+  test nuevo se verificó **en rojo** con tres tandas de mutaciones antes de darlo por bueno. Evidencia medida sin pipe:
+  **907 → 985 tests**, build `0 Errores`.
+- **Tres cosas que el criterio decía mal, corregidas en la documentación y no en silencio:** (1) CA-M20-01 afirma que en
+  `double` esa cuenta daría 259,24499999999997 — da 259,2450000000000045 y redondea igual; el caso que sí rompe es
+  acumular (diez veces 0,10 da 0,9999999999999999) y ése quedó en el test; (2) el tope de 1.000 números por función de
+  RF-M20-07 es inalcanzable con 500 caracteres por expresión; (3) compartir la heurística de M19 (RF-M20-03) implica que
+  un número con exactamente tres cifras detrás de la coma se lee como **miles** (`1234,567` no es 1234 con tres
+  decimales), lo que quedó documentado en la descripción que lee el modelo y fijado en la tabla de casos.
+- **Defecto viejo arreglado de paso (DI-M20-G):** la ficha del agente mostraba «en tareas principales» para la condición
+  `TodaTareaDeTrabajo`, que venía sin brazo en `AgentesTextos.Condicion` desde M17 (memoria). Queda igual
+  `PortalDeClientesEncendido` (M18), que cae al mismo texto por defecto: anotado para quien tome ese módulo.
+
+### 2026-09-25 — implementador (M21)
+
+- Etapa: Implementación. Commit local único `2acfa4f` sobre `b551010`. **Sin push y sin deploy**: los hace el orquestador
+  después de QA.
+- Cambio: **el agente mira un PDF escaneado.** Un PDF del que no se extrajo ni una letra queda
+  `EstadoLecturaDocumento.SeMira` si entra en los topes (20 páginas, 10 MB) y sale hacia la API como **bloque de
+  documento** (`BetaRequestDocumentBlock` + `BetaBase64PdfSource`) en vez de bloque de imagen; si no entra, sigue
+  `NoLegible` pero **con el motivo exacto** («es un escaneado de 60 páginas y el máximo para mirar es 20»). El tope por
+  conversación pasó a contarse **por tipo** (8 imágenes y 2 escaneados, en dos cuentas separadas). Los cinco textos que
+  decían «imagen» hablan del archivo, y el paso se lee «Miró «Extracto marzo.pdf» (4 páginas)».
+- Motivo: era el formato más común de lo que manda un cliente —el extracto, la factura fotocopiada— y hasta acá no
+  existía para la tarea (análisis M21, D-M21-a..d; diseño D-M21-e).
+- Impacto en capas: Application (topes en `DocumentosOptions`, mensajes de subida y de motivo, `MensajesOjos` con
+  variante de archivo, `EsPdf` en `ImagenParaMirar` y `BloqueImagenDocumento`, `Paginas` en `BloqueImagenDatos`,
+  `TextoLectura`), Infrastructure (`ExtractorPdf`, `ImagenesParaModelo`, `ProveedorModeloAnthropic`,
+  `ProcesadorTareas.RehidratarImagenesAsync`, `HerramientasDocumentos`, `DocumentoCarteraService`), Web (tooltip y la
+  pantalla del documento, tres claves en `appsettings.json`). **Datos: sin entidades y sin migración.**
+- Riesgos/supuestos: **los 5 goldens quedaron sin un byte de cambio** y **los tests de M16 quedaron verdes sin tocarlos**
+  (R-T-06, R-T-05 resuelto por el compilador y no adivinando el tipo del SDK). El tope por tipo (R-T-04) tiene test
+  dedicado con escaneados y fotos mezclados. Evidencia medida sin pipe: **985 → 994 tests**, build `0 Errores`. Cada
+  test nuevo verificado **en rojo** (apagar la rama del extractor deja 7 rojos; contar el tope junto y mandar el PDF como
+  imagen, 2).
+- **Dos cosas que el criterio decía distinto, resueltas a la vista:** (1) RF-M21-06 pide que el estado se lea «El agente
+  lo mira (escaneado, N páginas)», pero la tabla del diseñador pide «El agente lo mira» + tooltip que nombre el
+  escaneado: se implementó **«El agente lo mira (escaneado)»** en el rótulo y **las páginas en el tooltip y en la
+  ficha**, porque el número no se puede persistir como número sin migración; (2) el diseñador dice que el paso «antes»
+  decía «Miró «Frente.png»» y en realidad M16 nunca lo dijo —una imagen caía en el brazo de lectura y salía «Leyó
+  «Frente.png», parte 1»—, así que el paso «Miró …» se escribió en M21 para los dos tipos de archivo.
+- **Verificado contra PDF reales** (18 archivos de clientes que ya estaban en la máquina, leídos en el lugar y sin copiar
+  ninguno al repo): los extractos reales del Credicoop **siguen `LegibleEnParte`** (el camino barato no se movió), un PDF
+  real de una página sin texto **pasó a `SeMira`**, y **un PDF real solo de imágenes de 10 páginas mide 11,76 MB**, o sea
+  que el tope de 10 MB de RF-M21-01 lo rechaza aunque entre holgado en el de la API (32 MB). Se implementó el 10 que pide
+  el criterio; **subirlo a 20 MB es una clave de `appsettings.json`, sin código ni tests**, y queda para decidir en el gate.
+
+### 2026-09-25 - qa
+- Etapa: QA (M20 coprocesador aritmético + M21 ojos, segunda mitad: PDF escaneado)
+- Cambio: **Aprobado con reparos.** 11 criterios de aceptación (CA-M20-01..06, CA-M21-01..05) y 6 historias de usuario en
+  PASS, verificados por navegador real (el MCP de Playwright **sí respondió** esta vez, a diferencia del 21 y del 24) con
+  modelo simulado y costo cero confirmado en los dos arranques (`grep -c anthropic.com` = 0). **Tres defectos menores
+  reproducidos y corregidos**, cada uno con su test verificado en rojo antes del parche y un commit propio:
+  `84b54fd` **OLV-027** (el tope de `SegundosMaxExtraccion = 0` se implementaba con `CancelAfter(TimeSpan.Zero)`, que es
+  una carrera: con el ThreadPool saturado la extracción gana **298 de 300 veces**, así que el tope no hacía nada bajo
+  carga y el test del tope fallaba de a ratos; el cero se decide ahora antes de encolar);
+  `019b850` **OLV-025** (la ficha del agente decía «En tareas principales» de la herramienta de M18, cuya condición real
+  es `PortalDeClientesEncendido` — la **gemela** del bug que M20 arregló para `TodaTareaDeTrabajo` y que el implementador
+  dejó anotada; la rama `_ =>` del switch le ponía a todo valor nuevo el texto de otro);
+  `4f9809f` **OLV-026** (de los cinco textos del escaneado, la ficha del documento era el único que se leía con la
+  inicial en mayúscula en el medio de la frase, contra el mensaje de subida y contra la otra rama del mismo ternario).
+- Motivo: gate de QA de M20 y M21 antes del push y el deploy, que hace el orquestador.
+- Impacto en capas: Infrastructure (`LectorDocumentos`, el tope de tiempo), Web (`AgentesTextos.Condicion`,
+  `DocumentosTextos.AvisoNoLegible`, `Views/Documentos/Ver.cshtml`), Application (`MensajesDocumentos.MinusculaInicial`
+  pasó a público). **Sin entidades y sin migración**, verificado sobre los archivos de `b551010` y `2acfa4f`. Build 0
+  errores; `dotnet test` **996/996 exit 0** medido sin pipe (línea base 994, +2 por los tests de los fix). **Los 5
+  goldens de contexto sin un byte de cambio** (CA-M21-05).
+- Riesgos/supuestos: **RT-01 costo** — un escaneado de 20 páginas se paga como veinte imágenes en cada vuelta del bucle;
+  el tope de 2 PDF por conversación se verificó **sobre el pedido real que se le manda al modelo** y con los topes de
+  producción (2 PDF / 8 imágenes), pero el techo verdadero sigue siendo el límite de gasto de M6. **RT-05 despliegue** —
+  la migración de M19 (`GeneradoEnTareaId`) **no estaba aplicada en la base de desarrollo** y rompía la subida de
+  documentos; conviene confirmar que se aplique en producción. Fuera de alcance a propósito: el PDF mixto
+  (`LegibleEnParte`) y el PDF con texto basura de un sello OCR. Los cuatro desvíos del implementador se verificaron uno
+  por uno: los tres primeros correctos, y el cuarto (`MaxMbPdfParaMirar`) ya resuelto en `0335340` (20 MB en código y en
+  `appsettings.json`). Aislamiento: IDOR cross-organización sobre el PDF → **404 en 5 URLs**, y **cero base64** en
+  `PasosTarea` y `EjecucionesHerramienta`. Catálogo cross-proyecto: **OLV-025, OLV-026 y OLV-027 creados**; regla nueva
+  **MH-026** validada dándole de baja al documento que la tarea había mirado (el paso conserva el nombre). Cinco
+  observaciones abiertas, tres de ellas como preguntas de producto para Joaquín: el desborde de 3 px del topbar en tema
+  oscuro a 390 px (**preexistente y de todo el portal**, reproducido en `/Reglas`), que **M20 no tiene guion del
+  simulador** (así que la calculadora no se puede mostrar en el navegador sin gastar tokens), y que la búsqueda de la
+  grilla de documentos no encuentra «escaneado». La base de desarrollo quedó devuelta a su estado
+  (checksum 156 tareas / 594 eventos / 56 documentos, y 44 blobs sin ninguno del día).
+
+### 2026-09-24/25 — orquestador (M19, M20 y M21, ciclo completo hasta produccion)
+
+- **M19 (la impresora) se hizo fuera del flujo formal**, en el hilo y a pedido directo de Joaquín, antes de invocar al orquestador: `planilla_armar` e `informe_armar` dejan el trabajo como documento del cliente por el camino de subida de M5 (commits `61bc996` y `5e69afe`, diseño en el repo: `docs/diseno-entregables.md`). Queda anotado acá porque es el precedente del que sale M20: la fila de totales como `=SUM(...)` fue la primera cuenta confiable del sistema.
+- **M20 y M21 sí pasaron por el flujo**, con las 9 etapas menos la 4: Discovery + Análisis, Diseño y Arquitectura en el hilo (secciones nuevas en `1-analista-funcional.md`, `2-disenador-funcional.md` y `3-arquitecto-mvc.md`), **presupuesto omitido** (proyecto personal) e implementación y QA delegadas a los subagents. Sin frenar en cada gate, por decisión de Joaquín al arranque.
+- **Escaneo de reutilización (etapas 2 y 3):** ningún proyecto del historial tiene evaluador de expresiones ni visión sobre documentos; los cuatro hits del grep eran falsos positivos. El precedente conceptual de M21 es `luciano-inmobiliaria/1-analista-funcional.md` §viabilidad —misma vía técnica, PDF nativo a Claude sin pipeline de OCR—, sin código. **La reutilización real fue interna:** M16 (ojos) aportó el camino completo de M21 y M19 la heurística de número de M20, que se mudó a `Application/Helpers/NumeroEscrito.cs` y quedó **compartida**, no duplicada.
+- **Decisión del orquestador sobre lo que el implementador dejó abierto (`0335340`):** el tope de peso para mirar un escaneado sube de 10 a **20 MB**, el mismo máximo con que se sube un archivo. Motivo: el implementador midió 18 PDF reales de clientes y encontró un escaneado de 10 páginas de 11,76 MB; que el portal acepte subir 20 MB y después diga «no se puede leer» por peso es una contradicción que la persona no puede resolver. Lo que acota el costo es el tope de **páginas** (20), que no se tocó.
+- **QA: aprobado con reparos**, los tres reparos arreglados por QA con test verificado en rojo (`84b54fd`, `019b850`, `4f9809f`). Lo caro pasó sin corrección: aislamiento del PDF entre clientes y organizaciones, tope por conversación medido sobre el pedido real al modelo, y cero base64 en la base.
+- **Documentación (etapa 7):** `resumen-sprint-m19-m21-archivos-cuentas-escaneados.md` — media página en lenguaje de negocio para el equipo del cliente, con lo que cambia en el día, lo que cuesta más (mirar un escaneado), los cuatro límites que conviene conocer y lo que todavía no está.
+- **Cierre (etapa 8):** `docs/calibracion/dataset.yml` → `cierres_agentic`, tercera fila con dato duro de la familia agéntica — **con esta se alcanza el umbral de 3** que había pedido marihogar para usar la familia en calibración. 135,4 minutos de agente, 1.102.205 tokens de subagente, tests **896 → 996**, 9 commits.
+- **El aprendizaje de M18 se aplicó y se puede medir:** allá los ajustes post-QA costaron 151,9 minutos porque dos decisiones de producto se cerraron después de QA; acá las 9 decisiones (D-M20-a..e, D-M21-a..e) se cerraron en Discovery y los ajustes post-QA fueron **cero**.
+- **En producción el 2026-09-25**, autorizado por Joaquín: `git push origin main` (`170a016..35057f3`, 9 commits) y `./scripts/deploy-prod.ps1 -Force` — migraciones aplicadas contra la base de producción (incluida **`Entregables`, de M19, que nunca se había desplegado** y que QA encontró faltante en dev), 11 archivos sincronizados (12,4 MB), y `/health/vivo`, `/Account/Login` y `/` en **200**.
+- **Pendientes que quedan abiertos, ninguno bloqueante:** (1) guion del modelo simulado para M19/M20, para poder mostrar la calculadora en el navegador sin gastar tokens (QA tuvo que fabricar el paso en la base); (2) desborde horizontal de 3 px a 390 px en tema oscuro por `.ov-topbar-user`, **preexistente y de todo el portal**, no de estos módulos; (3) que la búsqueda de la grilla de documentos encuentre «escaneado» (decisión de producto, no defecto).

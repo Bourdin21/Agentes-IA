@@ -5,6 +5,91 @@
 
 ## Definiciones vigentes
 
+# M20 — Coprocesador aritmético · M21 — Ojos, segunda mitad (PDF escaneado)
+
+Estado: **Diseño cerrado**. Entrada: `1-analista-funcional.md` M20 (RF-M20-01..09, D-M20-a..e) y M21 (RF-M21-01..07, D-M21-a..d).
+Instrucción de pantallas aplicada: `38-diseno-pantallas-portal.instructions.md`.
+
+**Escaneo de reutilización.** Ningún proyecto del historial tiene un evaluador de expresiones ni visión sobre documentos
+(los cuatro hits del grep eran falsos positivos: la palabra «calculadora» dentro de un caso de prueba manual de
+`marihogar`). El precedente conceptual de M21 es `luciano-inmobiliaria/1-analista-funcional.md` §viabilidad —misma vía
+técnica, PDF nativo a Claude sin pipeline de OCR—, sin código. **La reutilización real es interna:** M16 (ojos) aporta el
+camino completo de M21, y M19 (la impresora) aporta la heurística de «número escrito por una persona» de M20.
+
+## Lo que NO tiene pantalla
+
+**Los dos módulos no agregan una sola pantalla nueva**, y eso es una decisión, no una omisión: lo que agregan es
+*capacidad del agente*. Meterle una pantalla de calculadora al portal sería construir la peor calculadora del mercado
+para competir con la del sistema operativo. Lo que sí tiene diseño es **cómo se cuenta lo que hizo el agente** y **cómo
+se le avisa a la persona lo que va a pasar antes de que pase**. Los dos son los lugares donde este producto se gana o
+pierde la confianza.
+
+## M20 — Dónde se ve
+
+| Lugar | Qué muestra | Por qué |
+|---|---|---|
+| «Ver pasos» de la tarea | `Calculó: neto = 1.234,50 · iva = 259,25 · total = 1.493,75` | La cuenta auditable es la mitad del valor del módulo (D-M20-e). Los números con formato de acá, no con punto decimal |
+| Una cuenta que falló | `No pudo hacer una cuenta: no se puede dividir por cero` y las demás igual | Un paso que dice «la herramienta falló» sin decir qué no sirve para nada |
+| Ficha del agente (anatomía) | Rótulo llano **«Hacer una cuenta»** — *Resuelve una cuenta con la calculadora del sistema, en vez de escribir el número de memoria* | Es lo único que la persona necesita saber; el nombre técnico no se muestra nunca (PA-12) |
+| Manual | Sale del «Qué no hace» y pasa a ser función | Hoy el manual promete lo contrario |
+
+**Regla de redacción del paso:** hasta 5 cuentas se listan; de 6 en adelante, `Calculó 8 cuentas · total = 1.493,75`
+(la última con nombre, que es la que suele importar). Una lista de veinte cuentas en el hilo tapa la conversación.
+
+## M21 — Dónde se ve
+
+| Lugar | Antes | Ahora |
+|---|---|---|
+| Al subir (mensaje de resultado) | «Documento subido, pero el agente no puede leer su contenido» | **«Documento subido. El agente lo puede mirar (escaneado, 12 páginas). Mirarlo cuesta más que leer un PDF con texto.»** |
+| Al subir, si pasa el tope | lo mismo, sin motivo | «…no puede leerlo: es un escaneado de 60 páginas y el máximo para mirar es 20.» |
+| Estado en el listado y en la ficha | «El agente la mira» (hablaba de imágenes) | «El agente lo mira» + tooltip que nombra el escaneado |
+| Pantalla del documento | «Es una imagen: el agente la mira…» | Para un PDF: «Es un PDF escaneado: el agente lo mira cuando se lo pedís en una tarea. No tiene texto para leer.» y el botón **Descargar** que ya está |
+| Paso de la tarea | «Miró «Frente.png»» | «Miró «Extracto marzo.pdf» (4 páginas)» |
+
+**Decisión de alcance con motivo (D-M21-e, nueva en diseño):** **no se embebe una vista previa del PDF** en la pantalla
+del documento. Embeber pide una acción nueva que sirva el archivo con `Content-Disposition: inline` —o sea, una segunda
+puerta al binario—, y el navegador ya abre el PDF descargado. No agrega nada al trabajo del agente, que es de lo que se
+trata el módulo.
+
+**El aviso de costo va en el mensaje de la subida, no en un cartel aparte** (§0 de la instrucción 38: lo que la persona
+vino a hacer entra en la primera pantalla). Es una oración al final del mensaje que ya existe.
+
+## ViewModels y contratos
+
+**Ninguno nuevo en Web.** Lo que cambia:
+
+- `SubidaDocumentoResultadoDto.Mensaje` — el texto, no la forma.
+- `DocumentoListItemDto` / `DocumentoDetalleDto` — sin cambios de forma; cambian los textos que salen de
+  `TiposArchivoDocumento.TextoLectura` y `DocumentosTextos.TooltipLectura`, que hoy dicen «imagen» a secas.
+- `ResumenHerramientaDto` (ya existe) lleva el paso de M20 y el de M21, como cualquier otra familia.
+- Nuevo DTO de Application, no de Web: `CuentaCalculada(string? Nombre, string Expresion, decimal Exacto, decimal Redondeado, int Decimales, string? Error)`.
+
+## Impacto por capa
+
+| Capa | M20 | M21 |
+|---|---|---|
+| Domain | — | — (el estado `SeMira` ya existe) |
+| Application | evaluador puro, helper de número compartido, opciones, mensajes, nombres de herramienta | mensajes de ojos con páginas, textos de lectura |
+| Infrastructure | herramienta + resumidor de pasos, registro en DI y en el resolvedor | extractor de PDF, archivos para mirar, proveedor Anthropic (bloque de documento), rehidratado con tope propio |
+| Web | rótulo llano en la ficha del agente (tabla de descripciones) | textos de estado y la pantalla del documento |
+| Datos | sin cambios, sin migración | sin cambios, sin migración |
+
+## Historias de usuario
+
+- **HU-M20-01.** Como contadora, quiero que el agente resuelva las cuentas con una calculadora y no de memoria, para poder usar el número sin recalcularlo a mano. **CA:** con la herramienta ofrecida, una cuenta de IVA sobre 40 importes da el total exacto al centavo (CA-M20-01, CA-M20-02).
+- **HU-M20-02.** Como Directora, quiero ver en «Ver pasos» qué cuenta hizo y con qué números, para auditar de dónde salió el resultado sin abrir nada. **CA:** el paso muestra nombre, expresión y resultado formateado en castellano, y no muestra el nombre de la función ni JSON (CA-M20-05).
+- **HU-M20-03.** Como empleado, quiero que una cuenta imposible no me tire la tarea, para no perder el trabajo hecho por un paréntesis mal puesto. **CA:** la cuenta devuelve el motivo en palabras, las demás de la misma llamada se resuelven y la tarea termina bien (CA-M20-04).
+- **HU-M21-01.** Como empleada de un estudio, quiero que el agente pueda mirar el extracto escaneado que me mandó el cliente, para no tener que transcribirlo. **CA:** el PDF sube como «lo puede mirar» y en la tarea el agente cita datos que solo están en la imagen del papel (CA-M21-01, CA-M21-02).
+- **HU-M21-02.** Como empleada, quiero saber **al subir** si el agente va a poder mirarlo y que me avise que cuesta más, para decidir antes de gastar. **CA:** el mensaje de subida dice el estado, la cantidad de páginas y el aviso de costo; si no entra en los topes, dice por qué (CA-M21-03).
+- **HU-M21-03.** Como Directora, quiero que un escaneado enorme no se le mande al agente una y otra vez, para que una tarea no se coma el tope del mes. **CA:** solo los últimos 2 PDF viajan en una conversación; el resto va como una línea de texto (RF-M21-03).
+
+## Riesgos de implementación
+
+- **Los textos de `SeMira` están escritos para imágenes en cuatro lugares** (mensaje de subida, texto de estado, tooltip, pantalla del documento) más el mensaje al modelo. Si se cambia solo uno, el portal se contradice a sí mismo. Se tocan los cinco en el mismo commit.
+- **El tope por conversación cuenta bloques, no tipos.** Hoy `RehidratarImagenesAsync` cuenta todas las referencias juntas; con PDFs hace falta distinguirlas o un PDF de 20 páginas desplaza siete fotos (o peor, viaja siete veces). Es el punto más fácil de hacer mal y el más caro.
+- **El paso de M20 se arma desde la entrada del modelo**, igual que en M19: si se lee del texto que devolvió la herramienta, cualquier cambio de redacción rompe la pantalla.
+- **La heurística de número se comparte con M19.** Al moverla a Application hay que dejar los tests de M19 en verde sin tocarlos: si hay que tocarlos, el movimiento cambió el comportamiento y está mal.
+
 # M18 — Portal del cliente del estudio (rol Cliente)
 
 Estado: **Diseño cerrado**. Entrada: `1-analista-funcional.md` M18 (RF-M18-01..36, D-M18-a..d).

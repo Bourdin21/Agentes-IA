@@ -5,6 +5,91 @@
 
 ## Definiciones vigentes
 
+# M20 — Coprocesador aritmético · M21 — Ojos, segunda mitad (PDF escaneado)
+
+Estado: **Arquitectura cerrada**. Entrada: análisis M20/M21 y el diseño de `2-disenador-funcional.md`.
+**Sin entidades nuevas y sin migración** en ninguno de los dos.
+
+**Escaneo de reutilización.** No hay componente equivalente en el historial del estudio (ni evaluador de expresiones ni
+visión sobre documentos). Se reutiliza **código propio de este repo**: el camino entero de M16 (ojos) para M21 y la
+heurística de número de M19 para M20 — que **se muda a Application y queda compartida**, no duplicada.
+
+## Mapa de componentes — M20
+
+| Componente | Capa | Responsabilidad |
+|---|---|---|
+| `Helpers/NumeroEscrito.cs` (nuevo) | Application | «1.234,50», «1234.50», «$ 1.234,50», «(500)» → `decimal`. **Mudado desde `GeneradorEntregables.TryNumero` (M19)**, que pasa a llamarlo y borra su copia |
+| `Helpers/EvaluadorExpresiones.cs` (nuevo) | Application | Tokeniza y evalúa con descenso recursivo: `+ - * / ( )`, unario, `%` sufijo, funciones `SUMA PROMEDIO MIN MAX CONTAR ABS REDONDEAR`, separador de argumentos `;`. Todo en `decimal`. Puro: sin base, sin sesión, sin `eval` |
+| `Settings/CalculoOptions.cs` (nuevo) | Application | Topes (RF-M20-07) |
+| `DTOs/CalculoDtos.cs` (nuevo) | Application | `CuentaCalculada` + `MensajesCalculo` (al modelo y a la persona, separados) |
+| `Motor/NombresHerramientasCalculo.cs` (nuevo) | Application | `calcular` |
+| `Services/Calculo/HerramientaCalcular.cs` (nuevo) | Infrastructure | Parsea la entrada del modelo, resuelve cuenta por cuenta, encadena por nombre, devuelve el resultado. **No toca la base ni llama a `SaveChanges`** |
+| `Services/Calculo/ResumenHerramientasCalculo.cs` (nuevo) | Infrastructure | El paso en palabras, armado **desde la entrada** (como M19) |
+| `ResolvedorHerramientas` | Infrastructure | `FamiliaHerramienta.Calculo` con `CondicionHerramienta.TodaTareaDeTrabajo` |
+| `DescripcionesHerramientas` | Application | Rótulo llano (el test de cobertura CP-AA-10 lo exige) |
+
+**Contrato del evaluador** (es el corazón, y tiene que poder probarse solo):
+
+```
+EvaluadorExpresiones.Evaluar(string expresion, IReadOnlyDictionary<string, decimal> nombres, CalculoOptions topes)
+    → ResultadoExpresion(bool Ok, decimal Valor, string? Error)
+```
+
+Nunca lanza por la entrada: todo error es `Ok = false` con el motivo en castellano. Las tres excepciones que sí se
+capturan adentro son `DivideByZeroException`, `OverflowException` y la profundidad de paréntesis (guarda propia, no
+`StackOverflow`: eso no se captura y tiraría el proceso del worker).
+
+**Por qué en Application y no en Infrastructure:** no depende de nada (ni base, ni HTTP, ni disco). Ahí se puede probar
+con una tabla de casos y ahí lo puede usar cualquier otro módulo más adelante.
+
+## Mapa de componentes — M21
+
+| Componente | Capa | Cambio |
+|---|---|---|
+| `Extractores/ExtractorPdf.cs` | Infrastructure | Si no se extrajo **ningún** texto: `SeMira` cuando las páginas entran en `MaxPaginasPdfParaMirar`; si no, `NoLegible` con el motivo exacto. El conteo de páginas ya lo hace hoy |
+| `Documentos/ImagenesParaModelo.cs` | Infrastructure | Acepta `TipoDocumento.Pdf` en estado `SeMira` con su propio tope de bytes (`MaxBytesPdfParaMirar`). Las guardas de tenant/cliente/vigencia **no se tocan** |
+| `Motor/ProveedorModeloAnthropic.cs` | Infrastructure | Rama nueva: `TipoContenido == "application/pdf"` → bloque de **documento** (base64) en vez de bloque de imagen. El tipo exacto del SDK lo confirma el compilador (la familia `Beta*` que ya usa para imágenes) |
+| `Motor/ProcesadorTareas.RehidratarImagenesAsync` | Infrastructure | El tope se calcula **por tipo**: últimas N imágenes y últimos M PDF, contados por separado |
+| `Motor/MensajesOjos.cs` | Application | `Rotulo` con páginas para PDF; `YaMirado`/`NoSePudoMirar` en masculino para archivo |
+| `Motor/IMotorAgentes.cs` | Application | `ImagenParaMirar` y `BloqueImagenDocumento` ganan **`bool EsPdf = false`** |
+| Textos de estado | Application/Web | `TiposArchivoDocumento.TextoLectura`, `DocumentosTextos.TooltipLectura`, `MensajesDocumentos.SubidoSeMira`, `HerramientasDocumentos.LecturaParaAgente`, `Views/Documentos/Ver.cshtml` |
+| `Settings/DocumentosOptions.cs` | Application | `MaxPaginasPdfParaMirar` (20), `MaxMbPdfParaMirar` (10), `MaxPdfsEnConversacion` (2) |
+
+**La decisión técnica que hay que entender antes de tocar el código:** el bloque persistido **no se renombra ni cambia
+de discriminador**. `BloqueImagenDocumento` y `ImagenParaMirar` se extienden con un campo opcional `EsPdf` con valor por
+defecto `false`, así las filas que ya están en producción desde M16 se siguen deserializando igual (el JSON viejo no
+tiene el campo y toma el default). Es lo que permite distinguir tipos en el rehidratado sin una consulta más a la base y
+sin una migración de datos. El nombre queda «histórico»: el concepto documentado es *archivos que el agente mira*.
+
+## Flujo de datos (M21, punta a punta)
+
+1. **Subida:** `DocumentoCarteraService.SubirInternoAsync` → `LectorDocumentos.ExtraerAsync` → `ExtractorPdf` decide `SeMira` / `NoLegible` y el motivo → estado y motivo guardados (columnas que ya existen).
+2. **La tarea:** el modelo pide `documento_leer` → `HerramientaDocumentoLeer` devuelve `ResultadoHerramienta.ConImagenes([...])` con `EsPdf = true`.
+3. **Persistencia del paso:** en `PasosTarea` queda `BloqueImagenDocumento(id, nombre, esPdf)`; en `EjecucionHerramienta.ImagenesJson`, lo mismo. **Cero bytes.**
+4. **Próxima llamada:** `RehidratarImagenesAsync` toma los últimos 2 PDF y las últimas 8 imágenes, lee cada archivo del disco por `ImagenesParaModelo` y arma el bloque; lo que queda afuera va como texto.
+5. **Proveedor:** bloque de documento para `application/pdf`, bloque de imagen para el resto.
+
+## Cambios de datos y migraciones
+
+**Ninguno, en los dos módulos.** Se agregan claves de configuración (`Calculo`, y tres topes en `Documentos`), que no
+son esquema. El snapshot de EF no se toca — si el implementador genera una migración, algo está mal.
+
+## Riesgos técnicos
+
+- **R-T-01 (M20).** Un parser hecho a mano es el lugar clásico de los bugs silenciosos: precedencia, unario, paréntesis anidados. Se cubre con una **tabla de casos** y con los casos que en `double` dan distinto. Sin tabla, este módulo no se aprueba.
+- **R-T-02 (M20).** `decimal` desborda con multiplicaciones grandes (28-29 dígitos). `OverflowException` capturada y contada como error de esa cuenta.
+- **R-T-03 (M20).** La mudanza de `TryNumero` a Application toca código de M19 **que está en producción**: los tests de M19 tienen que quedar en verde **sin tocarlos**.
+- **R-T-04 (M21).** El tope por tipo en el rehidratado es la parte más fácil de romper y la más cara: un PDF de 20 páginas que viaja en las seis vueltas de una conversación son seis veces el costo. Test dedicado.
+- **R-T-05 (M21).** El tipo del SDK para el bloque de documento no está verificado en este repo (el proveedor solo armó imágenes hasta hoy). Se resuelve con el compilador, no adivinando el nombre; si el SDK no lo expone en la familia beta que usa el motor, **frenar y avisar**: no inventar un `HttpClient` propio.
+- **R-T-06 (los dos).** Los **5 goldens de contexto** tienen que quedar **byte por byte iguales**: ninguna de las dos features toca el prompt de sistema. Si un golden cambia, hay una fuga de diseño.
+
+## Estrategia de pruebas funcionales
+
+- **M20, unitarias del evaluador** (sin base): tabla de expresión → resultado, incluyendo `1234,50 * 21%`, precedencia, unario, `SUMA` de 40 importes, `REDONDEAR(x; 0)`, división por cero, función inventada, paréntesis sin cerrar, 21 niveles de paréntesis, desborde.
+- **M20, de herramienta** (con entorno): encadenado por nombre, una cuenta falla y las otras siguen, tope de cuentas, se ofrece sin cliente, **no** se ofrece en `ConsultaCliente`, el paso se lee en palabras sin el nombre de la función.
+- **M21:** PDF sin texto → `SeMira` con páginas; PDF con texto → `Legible` (no se cambió el camino barato); escaneado por encima del tope → `NoLegible` con motivo; el agente lo pide y al modelo llega el bloque de documento con el base64 y en la base solo la referencia; PDF de otro cliente/organización → no se puede mirar; tope por conversación con PDFs e imágenes mezclados.
+- **Regresión:** los 5 goldens, los tests de M16 y los de M19, todos sin tocar.
+
 # M18 — Portal del cliente del estudio (rol Cliente)
 
 Estado: **Arquitectura cerrada**. Entrada: análisis M18 (RF-M18-01..36) y `docs/diseno-portal-cliente.md` (D-M18-1..12).

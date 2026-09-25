@@ -1,9 +1,207 @@
 # Memoria - QA
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-09-24 (QA M18 Portal del cliente del estudio)
+## Ultima actualizacion: 2026-09-25 (QA M20 coprocesador aritmetico + M21 ojos, segunda mitad)
 
 ## Definiciones vigentes
+
+# QA M20 (coprocesador aritmetico) + M21 (ojos, segunda mitad: PDF escaneado) (2026-09-25) - CERRADA
+
+**VEREDICTO: aprobado con reparos.** Los dos modulos hacen **exactamente lo que prometen** y lo caro esta bien
+resuelto: el aislamiento del PDF, el tope por conversacion y la ausencia de base64 en la base dan **PASS sin una sola
+correccion**. Los 3 defectos corregidos son **todos de texto y de borde**, ninguno de datos ni de permisos: dos
+pantallas que afirmaban algo que no era cierto y un tope de tiempo que era una carrera. **Sin entidades y sin
+migracion**, como pedia la arquitectura (verificado sobre los dos commits).
+
+Entrada: `1-analista-funcional.md` M20 (RF-M20-01..09, CA-M20-01..06) y M21 (RF-M21-01..07, CA-M21-01..05),
+`2-disenador-funcional.md` (tabla de "donde se ve", 6 HU, 4 riesgos), `5-implementador.md` (DI-M20-A..G, DI-M21-A..F y
+los **cuatro desvios que el implementador reporto**, verificados uno por uno). Commits `b551010`, `2acfa4f`, `0335340`.
+
+**Linea base:** build **0 errores / 2 advertencias** (preexistentes, analizadores xUnit de M18). `dotnet test` **medido
+sin pipe** (`> archivo 2>&1` + codigo de salida): **994/994, exit 0**. **Los 5 goldens de contexto sin un byte de
+cambio** (`git status` de `Goldens/` vacio y ningun `.actual.txt`): CA-M21-05 PASS. Cierre: **996/996, exit 0** (+2 por
+los tests de los fix).
+
+**La base de desarrollo llego atrasada:** la migracion de M19 (`GeneradoEnTareaId`) **no estaba aplicada**, asi que la
+primera subida de un documento fallaba con `Unknown column` y la pantalla decia "No se pudo guardar el documento".
+Se corrio `dotnet run --project src/OlvidataAgentes.Admin -- migrar` y quedo resuelto. **No es un defecto de M20/M21**
+(ninguno de los dos trae migracion), pero conviene que el orquestador migre produccion al desplegar M19+M20+M21.
+
+**Costo cero:** `Anthropic__Simulado=true` + `Anthropic__ApiKey` invalida de resguardo, confirmado en los **2**
+arranques por la linea *"Motor de agentes con MODELO SIMULADO ... el costo es cero"*; `grep -c anthropic.com` sobre los
+logs = **0**. Ningun `appsettings` editado (todo por variables de entorno).
+
+**Camino de verificacion:** el servidor MCP `playwright` **si respondio en esta sesion** (a diferencia de las corridas
+del 21 y del 24 de septiembre). Verificacion automatizada por navegador real (Chromium del MCP) sobre
+`https://localhost:7200`, mas `mysqlsh` contra `olvidata_agentes_dev` para lo que no se ve en pantalla.
+
+## Los 3 defectos (todos reproducidos, todos corregidos, un commit cada uno)
+
+| Id | Sev | Que pasaba | Commit |
+|---|---|---|---|
+| **OLV-027** | minor | **El test intermitente era un defecto del codigo, no ruido del test.** `SegundosMaxExtraccion = 0` se implementaba con `CancelAfter(TimeSpan.Zero)`, que avisa desde el hilo del temporizador y **corre una carrera** contra la extraccion ya encolada. Medido: con el ThreadPool saturado la extraccion gana **298 de 300 veces** (el archivo vuelve legible en vez de "no se pudo leer"); aislado pasa 12 de 12. O sea: un tope de configuracion en 0 **no hace nada** bajo carga. El cero se decide ahora **antes de encolar**. | `84b54fd` |
+| **OLV-025** | minor | La ficha del agente decia **"En tareas principales (no en las partes que pide un coordinador)"** para "Proponer pedirle documentacion al cliente", cuya condicion real es `PortalDeClientesEncendido`. Es la **gemela** del bug que M20 arreglo para `TodaTareaDeTrabajo` (DI-M20-G) y que el implementador dejo anotada. Causa: la rama `_ =>` del switch devolvia el texto de `TareaPrincipal`, asi que **todo valor nuevo del enum hereda una mentira**. Ahora cada condicion tiene su brazo y el default es una raya. | `019b850` |
+| **OLV-026** | minor | De los **cinco textos** del escaneado, la **ficha del documento** era el unico que no se leia igual: *"El agente no puede leer este documento: **Es** un escaneado de 25 paginas..."*, con mayuscula en el medio de la frase, mientras el mensaje de subida y **la otra rama del mismo ternario** iban en minuscula. Era exactamente el riesgo declarado por el disenador ("que uno quede viejo"). La frase se arma ahora en `DocumentosTextos.AvisoNoLegible`. | `4f9809f` |
+
+Los tres se **verificaron en rojo antes** del parche: OLV-027 con una sonda que satura el pool (298/300 rojas) y con la
+asercion nueva (`Actual: 4`, el archivo consumido, incluso aislado); OLV-025 y OLV-026 revirtiendo el fix y viendo el
+test fallar con el texto viejo.
+
+## Cobertura de criterios de aceptacion
+
+| CA | Resultado | Evidencia |
+|---|---|---|
+| CA-M20-01 | PASS | `1234,50 * 21%` = **259,25** en pantalla, con `(exacto 259,245)` en el detalle plegado. |
+| CA-M20-02 | PASS | `SUMA(10;20;30,55)` = 60,55 exacto; la tabla de 39 casos del implementador cubre los 40 importes. |
+| CA-M20-03 | PASS | `neto` / `iva = neto * 21%` / `total = neto + iva` encadenados dan 1.234,50 / 259,25 / **1.493,75**. |
+| CA-M20-04 | PASS | `1/0` + 4 cuentas imposibles mas: la pantalla responde **200**, la tarea sigue **Completada** y el rotulo dice *"Calculo: bueno = 60,55 - no pudo hacer 4 cuentas: no se puede dividir por cero"* con cada motivo en el detalle. |
+| CA-M20-05 | PASS | En "Ver pasos": *"Calculo: neto = 1.234,50 - iva = 259,25 - total = 1.493,75"*. **No aparece `calcular` ni JSON** en ningun lado de la pantalla. |
+| CA-M20-06 | PASS | Ficha del agente: "Hacer una cuenta - De la plataforma - **En cualquier tarea de trabajo** - No - La recibe". La lista blanca de `ConsultaCliente` es por inclusion y la herramienta tiene ademas su guarda propia en `EjecutarAsync` (DI-M20-F). |
+| CA-M21-01 | PASS | Escaneado de 4 paginas: *"Documento subido. El agente lo puede mirar (escaneado, 4 paginas). **Mirarlo cuesta mas que leer un PDF con texto.**"* El mismo contenido **con** capa de texto: *"El agente lo puede leer"*, 4 partes. |
+| CA-M21-02 | PASS | Al modelo llega el archivo (`{"documento_id":77,...,"mirala":"Es un PDF escaneado y te lo paso para que lo MIRES..."}`). En la base, **cero base64**: `PasosTarea` y `EjecucionesHerramienta` sin `JVBERi`, `base64`, `iVBORw0KGgo` ni `/9j/4AA`; `ImagenesJson` = `[{"documentoId":77,"nombre":"extracto-marzo-escaneado.pdf","esPdf":true}]`. |
+| CA-M21-03 | PASS | Escaneado de 25 paginas (5,6 MB): *"Documento subido, pero el agente no puede leerlo: es un escaneado de **25 paginas y el maximo para mirar es 20**."* Estado "El agente no puede leerlo". |
+| CA-M21-04 | PASS | Tests del implementador (otro cliente, otra organizacion, PDF con texto, id inexistente, tarea ajena) **mas** IDOR por navegador: Director de la org B contra `/Documentos/Ver/77`, `/Ver/79`, `/Ver/80`, `/Descargar/77` y `/Documentos?clienteId=36` -> **404 en los 5, sin una letra de fuga**. |
+| CA-M21-05 | PASS | Los 5 goldens sin cambios en la linea base y al cierre. |
+
+## Cobertura de historias de usuario
+
+| HU | Resultado | Evidencia |
+|---|---|---|
+| HU-M20-01 | PASS | La cuenta de IVA da el centavo exacto y el nombre encadena el redondeado (DI-M20-A verificado en pantalla). |
+| HU-M20-02 | PASS | El paso muestra nombre, expresion y resultado formateados en castellano; el detalle trae `iva = neto * 21% = 259,25 (exacto 259,245)`. |
+| HU-M20-03 | PASS | Cuenta imposible: la tarea termina bien y el rotulo **no miente por omision** (dice lo que salio bien y lo que no). |
+| HU-M21-01 | PASS | Paso *"**Miró** «extracto-marzo-escaneado.pdf» (4 paginas)"* (RF-M21-06), contra un PDF **real** rasterizado sin capa de texto. |
+| HU-M21-02 | PASS | El mensaje de subida dice estado, paginas y aviso de costo; fuera de tope dice el motivo exacto. |
+| HU-M21-03 | PASS | Verificado **sobre lo que se le manda al modelo** con los topes REALES (2 PDF / 8 imagenes), no con los del test: con 3 escaneados y 1 foto en la misma conversacion viajan **Febrero.pdf, Marzo.pdf y Frente.png**, y **Enero.pdf va como la linea de texto** "lo miraste antes...". La foto **no se desplaza**. |
+
+## Los cuatro desvios del implementador, verificados
+
+| Desvio | Veredicto |
+|---|---|
+| DI-M21-B: las paginas viajan en `MotivoNoLegible` (sin migracion) | **Correcto.** Ida y vuelta verificado en pantalla: la grilla dice "(escaneado)" y el tooltip/la ficha dicen "de 4 paginas". |
+| RF-M21-06 vs. la tabla del disenador (rotulo con paginas vs. tooltip) | **Resuelto bien.** El rotulo de la grilla es "El agente lo mira (escaneado)" y las paginas estan en el tooltip y en la ficha. Meterlas en el rotulo pedia persistir un numero, o sea migracion. Coherente entre los 5 textos **despues** de OLV-026. |
+| DI-M20-G: `AgentesTextos.Condicion` sin brazo para `TodaTareaDeTrabajo` | **Arreglado y confirmado**: la ficha dice "En cualquier tarea de trabajo". **Y la gemela que dejaron anotada (`PortalDeClientesEncendido`) seguia mintiendo** -> OLV-025. |
+| `MaxMbPdfParaMirar` 10 MB corto para un escaneado real | **Ya resuelto en `0335340`**: codigo y `appsettings.json` dicen **20** los dos. Un escaneado de 25 paginas y 5,6 MB se rechaza por **paginas**, que es el tope que refleja el costo. |
+
+## Cobertura del catalogo cross-proyecto
+
+| id | aplica | resultado | accion |
+|---|---|---|---|
+| OLV-025, OLV-026, OLV-027 | si (nuevos) | FAIL -> PASS post-fix | items creados + 3 auto-fixes |
+| OLV-023 (resolvedor ofrece / ejecutor rechaza) | si | PASS | `calcular` se ofrece y ejecuta en tarea de trabajo; en `ConsultaCliente` no se ofrece **y** `EjecutarAsync` la rechaza (dos cierres). |
+| OLV-001..004 (tema oscuro) | si | PASS | Estado y aviso del escaneado en oscuro: contraste **10,42** y **7,79** (AA >= 4,5), midiendo con el alfa compuesto. |
+| OLV-021, OLV-022, OLV-024 | no | N/A | M20/M21 no agregan rol, policy ni patron propuesta/tarjeta. |
+| MH-026 / MH-023 (historico que navega a un catalogo con soft-delete) | si (regla nueva) | PASS | Ver "reglas nuevas". |
+| REG-010, KOI-003/005/006, ELV-001 | si (autorizacion vs. menu) | PASS | Sin links ni pantallas nuevas; IDOR cross-org 404 en 5 URLs. |
+| CRM-015 (bajar la inicial rompe siglas) | si | PASS post-fix | El helper de OLV-026 respeta las siglas (test con "PDF con contrasena."). |
+| KOI-014 (estados vacios) | si | PASS | Consola sin errores en las 16 combinaciones de pantalla/ancho/tema. |
+| DN-001/002, MH-001, LP-004, CRM-003 | si (grilla de documentos) | PASS | La grilla de documentos no cambio de consulta; sin 500 ni scroll horizontal por tabla. |
+| REG-001..009, GAN-*, VSF-*, CRM-001/002/004..006/016..018, MH-002..025, SG-*, LP-*, ELV-002, DN-003/004, KOI-001/002/004/007..013/015/016 | no | N/A | Ventas, compras, stock, pagos, AFIP, bot, catalogos, decimales en inputs, proyecciones financieras, Pareto: M20/M21 no tienen esos modulos. |
+
+## Cobertura de reglas nuevas/modificadas desde la ultima corrida
+
+Ultima validacion registrada: **2026-09-24** (QA M18). Diferencias desde entonces:
+
+| Regla | Origen | Resultado | Accion |
+|---|---|---|---|
+| **MH-022** — proyeccion que estima por promedio **un solo lado** | `regresiones-manuales.yml` + bloque nuevo de la instruccion **32** (2026-09-24 23:36) | **N/A** | M20/M21 no proyectan nada hacia adelante. La calculadora resuelve lo que le piden; no estima. |
+| **MH-023** — cruce en memoria de dos consultas cuando una navega a una entidad con query filter | catalogo (2026-09-25) | **PASS** | Ver MH-026. |
+| **MH-024** — ledger con reversion: `MAX`/"ultimo" sobre hecho y contra-hecho | catalogo (2026-09-25) | **N/A** | No hay ledger con reversion en estos modulos. |
+| **MH-025** — "el ultimo registro anterior a una fecha" resuelto en memoria sin desempate | catalogo (2026-09-25) | **N/A** | El evaluador encadena por **orden declarado** en la entrada, explicito y sin base de datos de por medio. |
+| **MH-026** — reporte historico que navega a un catalogo con soft-delete y **pierde historia en silencio** | catalogo (2026-09-25) | **PASS** | Probado a proposito: se le dio **de baja** al PDF que la tarea habia mirado y el paso sigue diciendo *"Miró «extracto-marzo-escaneado.pdf» (4 paginas)"*. El nombre vive en el JSON del paso, no se busca en `DocumentosCartera`. Ademas se continuo esa conversacion: la tarea termino **Completada** sin un error en el log (RF-M21-04 con un documento dado de baja de verdad, mas exigente que el test del implementador, que borraba el archivo del disco). |
+| OLV-021..024 | catalogo, mismo commit que fijo la fecha | ya validadas | Se validaron en la corrida de M18. |
+
+## Compatibilidad con produccion (filas escritas por M16)
+
+- El literal del test del implementador **coincide byte a byte con el JSON real** que escribe el producto
+  (`{"tipo":"imagen_documento","documentoId":77,"nombre":"...","esPdf":true}`), asi que quitarle `esPdf` reproduce
+  fielmente una fila de M16. Verificado leyendo una fila real de `PasosTarea`.
+- Ademas se **fabrico una fila al estilo M16 en la base** (bloque `imagen_documento` **sin** `esPdf`, apuntando a una
+  imagen) y se **continuo la conversacion**: se rehidrato sin excepciones, la tarea quedo **Completada** y el log no
+  registro un solo `ERR]`. En `olvidata_agentes_dev` no quedaba ninguna fila de M16 de verdad (0 filas sin `esPdf`).
+
+## Pantallas (instruccion 38)
+
+16 combinaciones: 4 pantallas (grilla de documentos, ficha del documento, ficha del agente, detalle de tarea con la
+cuenta) x **1440 y 390 px** x **claro y oscuro**. Sin errores de consola, sin estados casi vacios, sin el patron
+`letra@Expresion`. Contraste de los textos nuevos en oscuro: **10,42** (estado) y **7,79** (aviso), los dos sobre AA.
+
+**Hallazgo de layout, PREEXISTENTE y fuera de M20/M21 (OBS-1):** a **390 px en tema oscuro** la pagina desborda **3 px**
+(`scrollWidth` 388 vs. `clientWidth` 385) y aparece scroll horizontal. En claro no pasa. La cadena es
+`html > body > header.ov-topbar`, y el elemento que llega al borde es **`.ov-topbar-user`**, que termina en **387,8 px**
+en oscuro contra **383,6 px** en claro — con el mismo padding, borde, margen y gap en los dos temas. **Se reproduce en
+`/Reglas`**, una pantalla que M20/M21 no tocaron, asi que es del **layout compartido** y afecta a todo el portal. No se
+autoparcheo: tocar el CSS del topbar impacta todas las pantallas y excede el alcance de esta corrida.
+
+## Observaciones (no bloquean)
+
+- **OBS-1** — el desborde de 3 px del topbar en oscuro a 390 px (arriba). Preexistente, de todo el portal.
+- **OBS-2** — **M20 no tiene guion del simulador.** M10, M11, M14 y M4b lo tienen, asi que se puede ver su circuito
+  entero sin costo; `calcular` no, y M19 tampoco. Para verificar el paso hubo que **fabricarlo en `PasosTarea`**.
+  No es un defecto (la herramienta funciona), pero sin guion **nadie va a ver la calculadora funcionando en el
+  navegador sin pagar tokens**, ni en una demo.
+- **OBS-3** — el rotulo de varias cuentas fallidas dice *"no pudo hacer 4 cuentas: no se puede dividir por cero"*:
+  cuenta **todas** las fallas pero muestra el motivo de **la primera**. Se puede leer como que las 4 fallaron por
+  division por cero. El detalle plegado lo aclara. Es la redaccion elegida (`MensajesCalculo.NoPudoVarias`).
+- **OBS-4** — la busqueda global de la grilla de documentos mapea texto a estados con `TextoLectura(estado)` **sin el
+  tipo**, asi que buscar *"escaneado"* no encuentra los PDF escaneados aunque la grilla muestre "(escaneado)".
+  Buscar "El agente lo mira" si los encuentra.
+- **OBS-5** — el catalogo cross-proyecto tiene el id **`KOI-016` duplicado** (dos items distintos con el mismo id).
+  Es **previo a esta corrida** (ya estaba en `HEAD`); conviene renumerar el segundo.
+
+## Riesgos de liberacion
+
+- **RT-01 (costo, el unico que importa).** Un escaneado de 20 paginas cuesta como veinte imagenes **en cada vuelta del
+  bucle**. El tope de 2 PDF por conversacion esta verificado sobre el pedido real, pero **el techo verdadero sigue
+  siendo el limite de gasto de M6**. Con el modelo real y una tarea larga, esto se paga. Mitigacion: el aviso de costo
+  al subir ya esta; conviene mirar `Consumo` la primera semana que alguien suba escaneados de verdad.
+- **RT-02.** `MaxMbPdfParaMirar` = 20 MB entra holgado en los 32 MB de la API, pero un escaneado de 20 paginas a 300 dpi
+  puede pasarse: ahi queda "no puede leerlo" por peso, con el motivo. Es el comportamiento pedido.
+- **RT-03.** El PDF **mixto** (algunas paginas con texto) sigue `LegibleEnParte` y sus paginas escaneadas **no se miran**
+  (D-M21-a). Es el caso mas probable de un extracto real largo; esta fuera de alcance a proposito.
+- **RT-04.** Un PDF con **texto basura** (sello OCR de dos palabras) queda `Legible` y el agente lee dos palabras
+  (R-M21-02, fuera de alcance). El implementador lo verifico contra 18 PDF reales y el camino barato no se movio.
+- **RT-05 (despliegue).** La migracion de **M19** no estaba en la base de desarrollo. Si produccion tampoco la tiene,
+  **subir sin migrar deja la subida de documentos rota** (`Unknown column 'GeneradoEnTareaId'`). `deploy-prod.ps1` migra,
+  pero conviene confirmarlo en el log.
+
+## Preguntas para Joaquin (decisiones de producto, no defectos)
+
+1. **¿M20 y M19 merecen guion del simulador?** (OBS-2) Sin el, la calculadora y la impresora no se pueden mostrar en el
+   navegador sin gastar tokens. Son ~20 lineas en `ProveedorModeloSimulado` cada uno, pero es codigo nuevo y lo decide
+   el producto, no QA.
+2. **¿El desborde de 3 px del topbar en oscuro a 390 px se arregla ahora?** (OBS-1) Es de todo el portal, no de M20/M21,
+   y tocar el CSS del topbar toca todas las pantallas.
+3. **¿La busqueda de la grilla de documentos deberia encontrar "escaneado"?** (OBS-4) Hoy busca por el texto del estado
+   sin el tipo.
+
+## Checklist de salida para merge
+
+- [x] Build **0 errores** (2 advertencias preexistentes de xUnit en tests de M18).
+- [x] `dotnet test` **996/996, exit 0**, medido sin pipe. Linea base 994; +2 por los tests de los fix.
+- [x] **Los 5 goldens de contexto sin un byte de cambio**, antes y despues.
+- [x] **Sin entidades y sin migracion** en `b551010` y `2acfa4f` (verificado sobre los archivos de los commits).
+- [x] Cada auto-fix con su test, **verificado en rojo antes** del parche.
+- [x] Items nuevos del catalogo creados (**OLV-025, OLV-026, OLV-027**), YAML valido.
+- [x] IDOR cross-organizacion sobre el PDF: **404 en las 5 URLs**, sin fuga.
+- [x] **Cero base64** en `PasosTarea` y `EjecucionesHerramienta`.
+- [x] Costo cero confirmado en los 2 arranques; `grep -c anthropic.com` = 0.
+- [x] Base de desarrollo **devuelta a su estado**: checksum **156 tareas / 594 eventos / 56 documentos**, max evento 687,
+      `visibles`/`del_cliente`/`portales_on` en 0, y la carpeta de blobs de vuelta en **44 archivos, ninguno del dia**.
+- [x] `git status` del repo sin nada mio (solo lo que ya estaba sucio al empezar).
+- [ ] **Push y deploy: los hace el orquestador.** Confirmar que la migracion de M19 se aplique en produccion (RT-05).
+
+### Casos de prueba de esta corrida
+- PDF generados con QuestPDF + SkiaSharp (texto **rasterizado**, sin capa de texto, resumen bancario de mentira):
+  `extracto-marzo-escaneado.pdf` (4 pag, 0,89 MB), `extracto-anual-escaneado-25p.pdf` (25 pag, 5,6 MB) y
+  `extracto-marzo-con-texto.pdf` (4 pag, 28 KB, mismo contenido **con** capa de texto). No se copiaron al repo.
+- Usuarios: `dira@qa.test` (Directora, org 1) y `dirb@qa.test` (org 4, para el IDOR), los dos con la contrasena comun
+  de QA. Clientes 36 (Martinez SRL), 41 (Panaderia Norte) y uno creado y borrado para la corrida.
+- Capturas en el scratchpad de la sesion: grilla clara 1440, ficha del escaneado oscura 1440, pasos de la cuenta
+  claros 1440, grilla oscura 390.
+
+### Reglas cross-proyecto validadas
+- Ultima validacion de reglas cross-proyecto: 2026-09-25
 
 # QA M18 - Portal del cliente del estudio (2026-09-24) - CERRADA
 
@@ -2469,6 +2667,7 @@ Observaciones (no bloquean, sin cambio de comportamiento):
 **Apto con observaciones.** Todos los CA y CA-T.1 en PASS; dos defectos menores corregidos por auto-fix y re-verificados; build 0 errores y tests 48/48.
 
 ## Historial de ajustes
+- 2026-09-25: QA M20 (coprocesador aritmetico) + M21 (ojos, segunda mitad, PDF escaneado): 11 CA y 6 HU en PASS por navegador real (MCP de Playwright, que esta vez si respondio) con modelo simulado (costo cero); 3 defectos menores corregidos con auto-fix y test verificado en rojo -- OLV-027 el tope de 0 s que era una carrera (298/300 con el pool saturado), OLV-025 la condicion del portal de clientes que mentia en la ficha del agente (gemela de la que arreglo M20), OLV-026 el motivo del escaneado con mayuscula en el medio de la frase en la ficha del documento; aislamiento del PDF, tope por tipo (verificado sobre el pedido real con los topes de produccion) y cero base64 en la base sin una correccion; los 5 goldens intactos; sin entidades ni migracion; regla nueva MH-026 validada dando de baja el documento que la tarea habia mirado; 5 observaciones (desborde de 3 px del topbar en oscuro a 390 px --preexistente y de todo el portal--, M20 sin guion del simulador, el rotulo de varias cuentas fallidas, la busqueda por "escaneado", KOI-016 duplicado en el catalogo); base devuelta a 156/594/56; build 0/0 y tests 996/996; veredicto aprobado con reparos.
 - 2026-09-14: QA M4 Agentes de la organización (sin revisión del Director): 14 CA aplicables y 12 HU en PASS por navegador real (Playwright librería, MCP no disponible) con modelo simulado (costo cero); CA-M4-03 y HU-M4-03/04 pospuestos por el gate; IDOR A↔B → 404; regresión del hash M2/M3b OK; rubro de prueba `qa-m4` (agente base + sugerencias, `incluido_siempre` desmarcado al cerrar); defecto QA-M4-01 contraste del menú rojo en oscuro y del motivo "No disponible" en claro → ítem OLV-003 + auto-fix `site.css`; 7 observaciones (Archivados clara, badge de marca 2,98, text-muted 4,24, POST sin base sin mensaje, autora sin aviso de ediciones del Director, bases por slug, intersección de herramientas solo por test); build 0/0 y tests 100/100; veredicto apto con observaciones.
 - 2026-09-14: QA M3b Seguir conversando: 14 CA y 10 HU en PASS por navegador real (Playwright librería, MCP no disponible) con modelo simulado en Development (costo cero); reinicio a mitad de turno sin duplicar; IDOR 20 casos → 404; defecto QA-M3b-01 tema oscuro de `.ov-alert` y badge → ítem OLV-002 + auto-fix `site.css`; 4 observaciones (reanudación tras reinicio espera el lease, nota gris 4,31 en claro, `ReglasCambiaronAsync` sin protección, aviso que desaparece al reactivar); build 0/0 y tests 83/83; veredicto apto con observaciones.
 - 2026-09-14: QA M3 Reglas por alcance: 15 CA y 15 HU en PASS por navegador real (Playwright librería, MCP no disponible; motor apagado, sin costo); IDOR contra Org B sin fugas; 0 defectos y sin cambios de código; 5 observaciones (preferencias visibles al Director en detalle de tarea, agente por slug, mensaje de UsoLimite, "(con esta regla)" vacío, filtros keyup); tareas de QA canceladas; reglas de plataforma sin publicar; veredicto apto con observaciones.

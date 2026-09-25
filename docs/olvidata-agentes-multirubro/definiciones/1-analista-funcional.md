@@ -7,6 +7,96 @@
 
 ### Modulos/features analizados
 
+**M20 — Coprocesador aritmético (el agente calcula en vez de adivinar)** y **M21 — Ojos, segunda mitad (el agente mira un PDF escaneado)** (Discovery + Análisis, 2026-09-24). Estado: **Análisis cerrado**; presupuesto omitido (proyecto personal). Los dos salen del concepto rector `docs/el-sistema-como-computadora.md` y los eligió Joaquín de una lista de tres, después de M19 (la impresora).
+
+#### M20 — Coprocesador aritmético
+
+**El problema, en una línea:** el modelo no calcula, **predice**. Cuando devuelve «total 4.382.917,45» ese número lo escribió como escribe una palabra; en una columna de 40 facturas con IVA y retenciones se equivoca en los decimales y en los arrastres, y se equivoca *convencido*. Hoy el manual lo admite en «Qué no hace»: *no calcula por código*. En un rubro contable o inmobiliario es el agujero más caro del producto, porque un número mal no se ve mal.
+
+**Lo que ya existe y acota el alcance.** M19 dejó la primera cuenta confiable del sistema: la fila de totales de una planilla se escribe como `=SUM(...)` y la calcula Excel. Eso cubre el total de una columna **cuando el resultado va a un archivo**, y nada más: el número que el agente escribe en la respuesta, el que usa para decidir («¿se pasó del tope?») y el que pone en una celda intermedia siguen siendo predicciones.
+
+**Dónde entra en el concepto rector:** es la **ALU del procesador**, la única pieza de la computadora que faltaba nombrar. No es un periférico (no entra ni sale nada), no es disco (no persiste) y no es RAM (no orienta: resuelve). Es una herramienta que la CPU usa para no tener que adivinar.
+
+##### Decisiones de Discovery (Joaquín, 2026-09-24)
+
+- **D-M20-a — Una herramienta que evalúa expresiones, no un catálogo de operaciones.** Se descartó `sumar/restar/multiplicar/prorratear` como herramientas separadas: obliga al modelo a encadenar cinco llamadas para una cuenta de tres pasos, y cada llamada es una vuelta del bucle que se paga en tokens. Una expresión resuelve lo mismo en un paso.
+- **D-M20-b — Varias cuentas por llamada, con nombre, y una puede usar el resultado de la anterior.** Es lo que hace útil la herramienta en un papel de trabajo real: `neto`, `iva = neto * 21%`, `total = neto + iva` en una sola llamada. Sin esto el modelo tiene que copiar el resultado intermedio a mano, que es exactamente el error que queremos sacar del medio.
+- **D-M20-c — El servidor nunca ejecuta código del modelo.** Se evaluó y se descartó la herramienta de ejecución de código de la API de Anthropic (server-side): resuelve mucho más que esto, pero manda los datos del cliente a un contenedor de terceros y agrega una superficie que el guardia de destinos de M11 no cubre. Acá se escribe un **evaluador propio** que entiende números, cuatro operaciones, paréntesis, porcentaje y un puñado de funciones. Nada más: sin variables libres, sin acceso a la base, sin `eval`.
+- **D-M20-d — Se ofrece en toda tarea de trabajo, con cliente o sin él, y no pide aprobación.** No toca la base, no escribe nada y no sale a ningún lado: es aritmética. Mismo criterio que la memoria (M17).
+- **D-M20-e — La cuenta queda escrita en el paso, en palabras.** Es la mitad del valor del módulo: el número se puede auditar porque la persona ve `iva = 1.234,50 × 21% = 259,25` sin abrir nada. Un número exacto que nadie puede rastrear no resuelve el problema de confianza.
+
+##### Casos de uso
+
+CU-M20-01 El agente calcula el IVA de un neto y lo usa en la respuesta · CU-M20-02 El agente suma una columna de 40 importes que leyó de un documento · CU-M20-03 El agente encadena tres cuentas con nombre en una sola llamada · CU-M20-04 El agente compara un facturado contra un tope y decide con el resultado · CU-M20-05 Una persona revisa en «Ver pasos» qué cuenta hizo y con qué números · CU-M20-06 El agente manda una cuenta imposible (dividir por cero) y la tarea sigue.
+
+##### Requisitos funcionales
+
+- **RF-M20-01.** Herramienta `calcular`: recibe una lista de cuentas; cada una tiene `expresion`, `nombre` opcional y `decimales` opcional (default 2). Devuelve, por cada cuenta, la expresión, el resultado exacto y el resultado redondeado.
+- **RF-M20-02.** Operadores: `+ - * / ( )`, signo unario y `%` como sufijo (`21%` = 0,21). Funciones: `SUMA`, `PROMEDIO`, `MIN`, `MAX`, `CONTAR`, `ABS`, `REDONDEAR(x; n)`. Separador de argumentos `;` — la coma queda libre para los decimales, que es como los escribe cualquiera en castellano.
+- **RF-M20-03.** Los números se aceptan **como los escribe una persona**: `1234.50`, `1.234,50`, `1234,50`, `$ 1.234,50`, `(500)` como negativo. Es la misma heurística que M19 usa para las celdas de una planilla y **se comparte**, no se duplica.
+- **RF-M20-04.** Toda la aritmética en `decimal` (28-29 dígitos), nunca `double`: es plata. El redondeo es **al alza en el 0,5** (`MidpointRounding.AwayFromZero`), que es el criterio con el que se factura en Argentina, y se dice cuál se usó.
+- **RF-M20-05.** Una cuenta puede nombrar el resultado de una cuenta **anterior de la misma llamada**. Nombres de hasta 40 caracteres, sin choque con los nombres de función, y una cuenta nunca se puede referir a sí misma ni a una posterior.
+- **RF-M20-06.** Una cuenta que falla (división por cero, función desconocida, expresión mal escrita, desborde) devuelve **el motivo en palabras para esa cuenta**; las demás se resuelven igual. La tarea nunca se cae por una cuenta.
+- **RF-M20-07.** Topes: 20 cuentas por llamada, 500 caracteres por expresión, 1.000 números por función, 20 niveles de paréntesis. Pasado el tope, mensaje en palabras.
+- **RF-M20-08.** El paso se lee en palabras y con los números formateados en castellano: `Calculó: neto = 1.234,50 · iva = 259,25 · total = 1.493,75`. Nunca el nombre de la función ni el JSON (PA-12).
+- **RF-M20-09.** Se ofrece en **toda tarea de trabajo**; no en configuraciones ni en la consulta de un cliente del estudio (la lista blanca de M18 sigue siendo por inclusión). No requiere aprobación.
+
+##### Criterios de aceptación
+
+- **CA-M20-01.** `1234,50 * 21%` da exactamente `259,245` y redondeado `259,25`; la misma cuenta en `double` daría `259,24499999999997` — el test lo fija.
+- **CA-M20-02.** `SUMA(...)` de 40 importes con dos decimales da el total exacto, verificado contra la suma en `decimal` del test.
+- **CA-M20-03.** Tres cuentas encadenadas por nombre dan el mismo resultado que hacerlas por separado pasando el número a mano.
+- **CA-M20-04.** `1/0` devuelve el motivo en palabras, la cuenta siguiente de la misma llamada se resuelve, y la tarea termina bien.
+- **CA-M20-05.** En «Ver pasos» aparecen las cuentas con sus números y **no** aparece la palabra `calcular` ni el JSON.
+- **CA-M20-06.** La herramienta se ofrece en una tarea de trabajo sin cliente (a diferencia de las de M19) y **no** se ofrece en una `ConsultaCliente`.
+
+#### M21 — Ojos, segunda mitad: el PDF escaneado
+
+**El problema:** hoy un PDF escaneado queda `NoLegible` y el manual avisa que *«si dice que no puede leerlo, ese documento no existe para la tarea»*. Es el formato más común de lo que un cliente manda (el extracto, la factura fotocopiada, el comprobante del banco), y el más caro de perder.
+
+**Lo que ya existe y acota el alcance a un tercio.** M16 (ojos) ya tiene el camino entero armado: `EstadoLecturaDocumento.SeMira`, la referencia al documento en la base (nunca los bytes), la lectura del archivo del disco **al armar la llamada**, el tope de archivos que viajan en una conversación y la guarda de que el documento sea del cliente de esa tarea. **Lo único nuevo es que el archivo puede ser un PDF y que la API lo recibe como bloque de documento en vez de bloque de imagen.**
+
+**Escaneo de reutilización (cross-proyecto).** `luciano-inmobiliaria/1-analista-funcional.md` §viabilidad documentó **esta misma vía técnica** —PDF nativo a Claude, sin pipeline de OCR— como respuesta a un cliente que preguntó por extracción de contratos; nunca se implementó, así que no hay código para traer, pero la decisión técnica queda alineada entre los dos proyectos. Ningún otro proyecto del historial tiene visión sobre documentos. La reutilización real es **interna: M16**.
+
+##### Decisiones de Discovery (Joaquín, 2026-09-24)
+
+- **D-M21-a — Solo el PDF sin texto.** Un PDF con texto se sigue leyendo por texto, que es diez veces más barato. El caso mixto (algunas páginas con texto) **queda como está** (`LegibleEnParte`): meterlo ahora duplica los caminos sin cubrir un caso frecuente.
+- **D-M21-b — La decisión se toma una vez, al subir, y la persona la ve.** Si el escaneo entra en los topes, queda «El agente lo puede mirar (escaneado, 12 páginas)»; si los pasa, queda «no puede leerlo» **con el motivo exacto** («son 60 páginas y el máximo para mirar es 20»). Lo que no puede pasar es que el portal diga que lo mira y la tarea después falle.
+- **D-M21-c — Se avisa que mirar cuesta más.** Una página escaneada se paga como imagen más texto; un PDF de 12 páginas es plata de verdad al lado de un PDF con texto. El portal lo dice al subir, en una línea. El producto no esconde costos.
+- **D-M21-d — No se renombra nada de lo que ya está persistido.** El bloque que guarda la referencia en `PasosTarea` y en `EjecucionHerramienta` se conserva tal cual: hay filas en producción escritas con ese nombre desde M16, y un renombre las dejaría sin deserializar. Lo que cambia es el concepto documentado —«archivos que el agente mira», no solo imágenes—, no el nombre serializado.
+
+##### Requisitos funcionales
+
+- **RF-M21-01.** Un PDF del que no se pudo extraer **ningún** texto queda `SeMira` si tiene hasta `MaxPaginasPdfParaMirar` páginas (20) y pesa hasta `MaxMbPdfParaMirar` (10 MB); si no, `NoLegible` con el motivo en palabras.
+- **RF-M21-02.** `documento_leer` sobre ese documento devuelve la **referencia**; el motor lee el archivo del disco al armar la llamada y lo manda como bloque de documento. En MySQL no entra un byte del PDF, igual que con las fotos.
+- **RF-M21-03.** Solo los últimos `MaxPdfsEnConversacion` (2) viajan en una conversación; los anteriores van como una línea de texto que lo dice. Es más restrictivo que con las imágenes (8) porque un PDF de 20 páginas cuesta como veinte imágenes, y en cada vuelta del bucle se vuelve a pagar.
+- **RF-M21-04.** Nada de esto puede tirar una tarea: un PDF que no se puede mandar se cuenta en palabras y el agente sigue.
+- **RF-M21-05.** El tenant y el cliente los pone el servidor: se reusa la misma guarda de M16 (el documento tiene que ser del cliente de esa tarea, estar vigente y no pasar el tope de tamaño).
+- **RF-M21-06.** En el listado y en la ficha, el estado se lee «El agente lo mira (escaneado, N páginas)»; en la tarea, el paso dice «Miró «Extracto marzo.pdf» (4 páginas)».
+- **RF-M21-07.** Los topes viven en `DocumentosOptions` y se verifican contra la documentación oficial de la API (verificado 2026-09-24: 32 MB y 600 páginas por request, ~1.500–3.000 tokens de texto por página más los tokens de imagen).
+
+##### Criterios de aceptación
+
+- **CA-M21-01.** Un PDF de una página sin texto sube y queda `SeMira` con el motivo «escaneado, 1 página»; el mismo PDF con texto sigue quedando `Legible`.
+- **CA-M21-02.** El agente lo pide con `documento_leer` y al modelo llega el **archivo** (base64, `application/pdf`); en `PasosTarea` queda solo la referencia y el base64 **no** aparece.
+- **CA-M21-03.** Un PDF escaneado de más páginas que el tope queda `NoLegible` con el motivo exacto y el agente no puede mirarlo.
+- **CA-M21-04.** Un PDF de otro cliente o de otra organización no se puede mirar (misma prueba que M16, con PDF).
+- **CA-M21-05.** Los 5 goldens de contexto no cambian: nada de esto toca el prompt de sistema.
+
+##### Riesgos y supuestos (M20 + M21)
+
+- **R-M20-01.** Un evaluador propio es código nuevo con aritmética: se cubre con tests de tabla (expresión → resultado esperado), incluidos los casos que en `double` darían distinto.
+- **R-M20-02.** El modelo puede escribir la expresión con separador de miles ambiguo (`1.234`). Se resuelve con la heurística compartida con M19 y se documenta en la descripción de la herramienta que conviene mandar los números sin separador de miles.
+- **R-M21-01.** Costo: un PDF escaneado de 20 páginas en una conversación de 6 vueltas se paga 6 veces si el tope no lo corta. RF-M21-03 lo acota a 2 archivos, y el tope de gasto de M6 sigue siendo el techo real.
+- **R-M21-02.** Un PDF con texto basura (unas pocas letras de un sello OCR mal hecho) no se detecta como escaneado y queda `Legible` con dos palabras. Queda **fuera de alcance**, anotado: si aparece en uso real, el umbral pasa a ser «menos de N caracteres por página».
+- **S-M20-01.** El modelo va a usar la herramienta si la tiene y la descripción se lo pide; si igual escribe números a mano, es un problema del prompt de ese agente, no del módulo.
+- **S-M21-01.** PdfPig ya cuenta las páginas al subir (hoy lo hace para el tope de páginas), así que no hace falta columna nueva ni migración.
+
+##### Condición de paso a Diseño
+
+Cerrada. No hay preguntas bloqueantes: las cinco decisiones de M20 y las cuatro de M21 las tomó Joaquín en el arranque, y ninguna depende de datos que no tengamos.
+
+
 **M18 — Portal del cliente del estudio (rol Cliente)** (Discovery + Análisis, 2026-09-24). Estado: **Análisis cerrado, esperando gate de Joaquín**; presupuesto omitido (proyecto personal).
 
 Pedido de Joaquín: *«crear un rol cliente en los estudios, que sean los clientes del estudio, que puedan entrar a la plataforma y nutrir su perfil con documentación, para que luego los agentes puedan trabajar con la misma»*.
