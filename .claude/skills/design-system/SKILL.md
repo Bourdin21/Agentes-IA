@@ -20,3 +20,7 @@ Fuente completa: `.github/instructions/25-frontend-design-system.instructions.md
 - **Formularios**: encabezado con titulo y descripcion, ancho acotado, campos agrupados en cards, obligatorios marcados, barra de acciones sticky, `autofocus` en el primer campo.
 - **Texto**: tildes correctas en TODO lo visible (labels, botones, mensajes, validaciones).
 - **Tema oscuro**: tokens `--ov-*` redefinidos por `[data-theme="dark"]`, nunca duplicar reglas de componente.
+
+## Indice de la fuente
+
+`python scripts/contexto.py indice 25` lista sus secciones con el numero de linea: leer solo la que aplica (`sed -n '<desde>,<hasta>p'`), nunca el archivo completo (`39-presupuesto-contexto.instructions.md`).

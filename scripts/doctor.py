@@ -246,7 +246,7 @@ def chequear_cierres():
 # ─────────────────────────────────────────────────────────────────────────────
 def chequear_archivos():
     grandes = sorted(((os.path.getsize(p) / 1024.0, p) for p in MD_YML
-                      if os.path.getsize(p) > 300 * 1024), reverse=True)
+                      if os.path.getsize(p) > 300 * 1024 and "historial" not in p), reverse=True)
     if grandes:
         top = ", ".join("%s (%.0f KB)" % (p, kb) for kb, p in grandes[:4])
         avi("%d archivo(s) de mas de 300 KB - archivar lo viejo o partir por tema. Los mayores: %s"
@@ -258,6 +258,47 @@ def chequear_archivos():
     if sueltos:
         avi("%d archivo(s) sueltos en docs/ sin referencias cruzadas: %s"
             % (len(sueltos), ", ".join(sueltos)))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Presupuesto de contexto (instruccion 39). Un agente que arranca con media
+#    ventana gastada en historia razona peor: el techo de los archivos de memoria
+#    es lo que mantiene ese arranque acotado sprint tras sprint.
+# ─────────────────────────────────────────────────────────────────────────────
+TECHO_MEMORIA = 150 * 1024      # techo objetivo por archivo de memoria
+TECHO_MEMORIA_ERR = 250 * 1024  # a partir de aca ya degrada el arranque de los agentes
+
+def chequear_techo_memoria():
+    memorias = [p for p in sorted(glob.glob("docs/*/definiciones/*.md") + glob.glob("docs/*/trazabilidad.md"))
+                if "historial" not in p]
+    pasados = sorted(((os.path.getsize(p), p) for p in memorias
+                      if os.path.getsize(p) > TECHO_MEMORIA), reverse=True)
+    graves = [(t, p) for t, p in pasados if t > TECHO_MEMORIA_ERR]
+    if graves:
+        err("%d archivo(s) de memoria muy por encima del techo de %d KB (instruccion 39): %s. "
+            "Correr: python scripts/archivar_memoria.py --todos --aplicar"
+            % (len(graves), TECHO_MEMORIA / 1024,
+               ", ".join("%s (%.0f KB)" % (p, t / 1024.0) for t, p in graves[:4])))
+    leves = [(t, p) for t, p in pasados if t <= TECHO_MEMORIA_ERR]
+    if leves:
+        avi("%d archivo(s) de memoria apenas sobre el techo de %d KB: %s. Archivar al cerrar la etapa "
+            "(python scripts/archivar_memoria.py <archivo> --aplicar)"
+            % (len(leves), TECHO_MEMORIA / 1024,
+               ", ".join("%s (%.0f KB)" % (p, t / 1024.0) for t, p in leves[:4])))
+
+def chequear_resumenes_al_dia():
+    """Los cat_resumen.txt son el indice por el que entran los agentes: si quedan viejos,
+    el agente decide sobre un catalogo desactualizado (o vuelve a cargar el YAML entero)."""
+    for fuente, resumen, marca in (("docs/qa/regresiones-manuales.yml", "docs/qa/cat_resumen.txt", "- id:"),
+                                   ("docs/patrones/catalogo.yml", "docs/patrones/cat_resumen.txt", "- id:")):
+        if not os.path.exists(resumen):
+            err("falta %s (indice plano de %s, instruccion 39). Correr: python scripts/contexto.py resumenes"
+                % (resumen, fuente))
+            continue
+        en_fuente = leer(fuente).count(marca)
+        en_resumen = len([l for l in lineas(resumen) if l.strip() and not l.startswith("#")])
+        if en_fuente != en_resumen:
+            err("%s tiene %d items y %s %d: el indice quedo viejo. Correr: python scripts/contexto.py resumenes"
+                % (fuente, en_fuente, resumen, en_resumen))
 
 def chequear_instrucciones_listadas():
     claude = leer("CLAUDE.md")
@@ -284,10 +325,12 @@ def main():
     chequear_tokens_ia()
     chequear_estado_proyectos()
     chequear_ids_reglas()
+    chequear_techo_memoria()
     if not FAST:
         chequear_catalogo_patrones()
         chequear_cierres()
         chequear_archivos()
+        chequear_resumenes_al_dia()
         chequear_instrucciones_listadas()
         chequear_trazabilidad()
 

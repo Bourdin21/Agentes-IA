@@ -93,6 +93,19 @@ done
 `CLAUDE.md` (raiz del repo) se carga en cada sesion — cumple el rol de la operativa global.
 Cada agente ademas lee al activarse las instrucciones modulares que le corresponden de `.github/instructions/` (Claude Code no tiene auto-inject por glob como los `.mdc` de Cursor; el scoping por capa lo hace cada agente al leer su instruccion).
 
+## Presupuesto de contexto (`39-presupuesto-contexto`)
+
+Cada `.agent.md` tiene una seccion **"Carga de contexto"** que declara su techo de arranque y, archivo por archivo, si se carga **completo** o **por indice**. No es una sugerencia: un agente que arranca con media ventana gastada en historia razona peor, y eso se midio (el QA sobre marihogar arrancaba con ~510k tokens; hoy arranca con ~21k).
+
+```bash
+python scripts/contexto.py presupuesto <proyecto>   # arranque de cada agente vs. su techo
+python scripts/contexto.py indice 32                # 1 linea por seccion de un archivo grande
+python scripts/contexto.py resumenes                # regenera los cat_resumen.txt (indices planos)
+python scripts/archivar_memoria.py --todos          # que memorias pasan el techo de 150 KB (dry-run)
+```
+
+Los sprints/CR/modulos cerrados viven en `docs/<proyecto>/definiciones/historial/`: el archivo vigente es el estado actual, no el diario completo. El orquestador mide antes de delegar y pasa a los subagents un **brief de <= 2 paginas**, no "lee las definiciones".
+
 ## Workspace
 
 Abrir Claude Code apuntado a `C:/Sistemas/` (o abrir el repo del sistema con `C:/Sistemas/Agentes-IA` como carpeta adicional) para que los agentes lean definiciones aca y editen codigo en el repo del sistema.

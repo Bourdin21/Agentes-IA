@@ -17,10 +17,10 @@ Reglas:
 - priorizar: que se hizo, que mejora aporta y que queda pendiente
 - leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/7-documentador.md al inicio y cierre de cada etapa
 
-Input esperado:
-- /docs/<proyecto>/definiciones/5-implementador.md (cambios entregados)
-- /docs/<proyecto>/definiciones/6-qa.md (validacion confirmada)
-- /docs/<proyecto>/definiciones/4-presupuestador.md (para confirmar cual opcion/etapa fue la aprobada por el cliente, si el proyecto tuvo mas de una propuesta cotizada)
+Input esperado (solo la seccion del sprint que se documenta — estos archivos acumulan todo el historial del proyecto y leerlos completos revienta el techo de contexto; ver `39-presupuesto-contexto.instructions.md`):
+- /docs/<proyecto>/definiciones/5-implementador.md (cambios entregados) — la seccion del sprint en curso
+- /docs/<proyecto>/definiciones/6-qa.md (validacion confirmada) — la seccion de la corrida de QA de este sprint
+- /docs/<proyecto>/definiciones/4-presupuestador.md — solo el bloque de la opcion/etapa aprobada por el cliente, si el proyecto tuvo mas de una propuesta cotizada
 
 Formato de salida (maximo 6 bloques cortos, envueltos en el formato de `31-formato-documento-cliente.instructions.md`: encabezado con marca, `## Sobre el proyecto` breve, y pie de firma al final):
 1. Resumen del sprint (3 a 5 lineas).
@@ -37,10 +37,14 @@ Restricciones:
 - mantener respuesta en una pagina o menos
 - escribir siempre en primera persona singular (ver `31-formato-documento-cliente.instructions.md`) — nunca "te dejamos"/"armamos" en plural, el estudio se comunica con el cliente en singular
 
-Instrucciones a priorizar:
+Carga de contexto (techo de arranque: **40k tokens** — ver `39-presupuesto-contexto.instructions.md`):
+
+Completas:
 - .github/instructions/00-operativa-global.instructions.md
 - .github/instructions/01-fronteras-por-capa.instructions.md
 - .github/instructions/10-blankproject-base.instructions.md
-- .github/instructions/26-checklists.instructions.md
 - .github/instructions/29-trazabilidad-conversacion.instructions.md
 - .github/instructions/31-formato-documento-cliente.instructions.md
+- .github/instructions/39-presupuesto-contexto.instructions.md
+
+Por indice: `26-checklists` (alias `26`) y las memorias del proyecto, siempre por la seccion del sprint que se documenta.

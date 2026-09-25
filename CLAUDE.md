@@ -93,6 +93,20 @@ Leer según el agente activo:
 - `35-pantalla-control-stock` — patron de pantalla de control de stock/inventario (listado editable inline vs. formulario de ajuste)
 - `36-metodologia-pacs` — growth B2B para agentes comerciales de Olvidata (nicho → autoridad → mensaje conversacional → sistematizacion); objetivo: reuniones agendadas
 - `33-verificacion-automatizada-qa` — QA ejecuta verificacion automatizada por navegador para casos objetivamente chequeables (catalogo de regresiones + estandares 32 + criterios de aceptacion criticos); el resto sigue siendo manual
+- `37-servicios-externos-fiscales` — consumo de servicios fiscales externos (padrones, constancias, validaciones)
+- `38-diseno-pantallas-portal` — decisiones de diseño de las pantallas del portal del usuario final
+- `39-presupuesto-contexto` — **techo de contexto por agente, carga por indice, techo de 150 KB por archivo de memoria, hand-off comprimido y QA por lotes (siempre)**
+
+## Presupuesto de contexto (obligatorio, `39-presupuesto-contexto`)
+
+Un agente que arranca con media ventana de contexto gastada en historia ajena a la tarea razona peor. Medicion del 2026-09-25: el QA sobre marihogar cargaba **2,05 MB (~510k tokens)** antes de abrir el sistema, y el implementador 621 KB. Reglas vigentes desde entonces:
+
+- **Techo de arranque** (sale de cuantos documentos de etapa previa necesita cada rol, no de una fraccion de la ventana): 40k tokens (analista, diseñador, documentador), 50k (arquitecto), 60k (presupuestador, implementadores y QA). Medirlo con `python scripts/contexto.py presupuesto <proyecto>`.
+- **Carga por indice, no por cuerpo:** las instructions grandes (`27`, `32`, `25`, `34`, `35`, `37`) se leen por seccion — `python scripts/contexto.py indice <alias>`. El catalogo de regresiones entra por `docs/qa/cat_resumen.txt` (24 KB) y el de patrones por `docs/patrones/cat_resumen.txt`, no por los YAML de 424 y 184 KB (`python scripts/contexto.py resumenes` los regenera).
+- **El escaneo de reutilizacion cross-proyecto sigue siendo obligatorio, pero barato:** `cat_resumen.txt` → entrada del catalogo si hay match → `grep -ril` dirigido sobre `docs/*/definiciones/` → recien entonces "sin antecedente". Nunca leer las definiciones del historial por cuerpo completo (son 7,5 MB).
+- **Techo de 150 KB por archivo de memoria** (`definiciones/*.md` y `trazabilidad.md`): al cerrar una etapa, los sprints/CR/modulos cerrados se archivan con `python scripts/archivar_memoria.py <archivo> --aplicar`, que los mueve agrupados a `historial/` y deja un puntero de una linea por grupo. `doctor.py` lo vigila.
+- **Hand-off comprimido:** el orquestador delega con un brief de <= 2 paginas (alcance, criterios, decisiones cerradas, punteros con numero de linea), no con "lee las definiciones".
+- **QA por lotes:** a lo sumo 3 modulos por corrida (1 si es financiero o integracion), un subagente por lote, reporte de <= 40 lineas, y el orquestador consolida.
 
 ## Skills (carga bajo demanda)
 
@@ -108,7 +122,9 @@ Las instrucciones modulares de arriba son la **fuente completa**; las skills de 
 
 ## Chequeo de consistencia (`scripts/doctor.py`)
 
-`python scripts/doctor.py` verifica en segundos que la memoria no se haya desincronizado: numeros de precio contradictorios entre archivos, estado de proyecto declarado fuera de `docs/indice.md`, IDs de regla duplicados, cierres reales que quedaron sin cargar en `docs/calibracion/dataset.yml`, archivos de mas de 300 KB y huerfanos. `--fast` corre solo los chequeos baratos.
+`python scripts/doctor.py` verifica en segundos que la memoria no se haya desincronizado: numeros de precio contradictorios entre archivos, estado de proyecto declarado fuera de `docs/indice.md`, IDs de regla duplicados, cierres reales que quedaron sin cargar en `docs/calibracion/dataset.yml`, **archivos de memoria sobre el techo de 150 KB**, **indices planos (`cat_resumen.txt`) desactualizados respecto de su catalogo**, archivos de mas de 300 KB y huerfanos. `--fast` corre solo los chequeos baratos (incluye el techo de memoria).
+
+Los otros dos scripts: `python scripts/contexto.py` (presupuesto de arranque por agente, indices de los archivos grandes, regeneracion de los `cat_resumen.txt`) y `python scripts/archivar_memoria.py` (mueve los sprints/CR/modulos cerrados a `historial/` para mantener el techo; dry-run por defecto, `--aplicar` para hacerlo).
 
 Esta enganchado a 3 hooks (`.claude/settings.json` -> `.claude/hooks/hook_doctor.py`): avisa al editar `docs/` o `.github/`, al abrir sesion y al terminar si quedaron muchos cambios sin commitear. **Errores** (rojo) son contradicciones que hay que arreglar; **avisos** son deuda documental. Corre tambien antes de dar por cerrada cualquier etapa.
 
@@ -117,12 +133,13 @@ Esta enganchado a 3 hooks (`.claude/settings.json` -> `.claude/hooks/hook_doctor
 - Toda referencia a `/docs` apunta a `C:/Sistemas/Agentes-IA/docs/`
 - Cada proyecto tiene carpeta propia en `docs/<proyecto>/definiciones/`
 - Cada agente tiene un único archivo de memoria por proyecto — siempre editar el existente, nunca crear uno nuevo
+- Ese archivo no pasa de **150 KB**: los sprints/CR/módulos cerrados se archivan en `docs/<proyecto>/definiciones/historial/` (y `docs/<proyecto>/historial/` para trazabilidad) con `scripts/archivar_memoria.py`, dejando un puntero de una línea por grupo. El archivo vigente es el estado actual, no el diario completo
 - Registrar ajustes relevantes en `docs/<proyecto>/trazabilidad.md`
 - Índice consolidado: `docs/indice.md`
 
 ## Reglas base (siempre aplican)
 
-- Reutilización cross-proyecto: en Diseño, Arquitectura e Implementación, consultar primero `docs/patrones/catalogo.yml` (lookup rápido); si no hay match, escanear `docs/*/definiciones/` de todos los proyectos del historial antes de proponer algo nuevo — si la funcionalidad ya fue diseñada/implementada en otro proyecto, reutilizar y adaptar ese diseño/código (ver `ruta_repositorio` en el `metadata.md` de origen, o completar la ruta en `catalogo.yml` si estaba pendiente) en vez de construir desde cero. Todo patrón reutilizable nuevo se agrega al catálogo antes de cerrar la etapa.
+- Reutilización cross-proyecto: en Diseño, Arquitectura e Implementación, consultar primero `docs/patrones/cat_resumen.txt` (índice plano, una línea por patrón) y leer del `catalogo.yml` solo la entrada que matchea; si no hay match, `grep -ril "<entidad o flujo>" docs/*/definiciones/` y leer solo la sección que matchea, antes de proponer algo nuevo — si la funcionalidad ya fue diseñada/implementada en otro proyecto, reutilizar y adaptar ese diseño/código (ver `ruta_repositorio` en el `metadata.md` de origen, o completar la ruta en `catalogo.yml` si estaba pendiente) en vez de construir desde cero. Nunca leer las definiciones del historial por cuerpo completo (ver `39-presupuesto-contexto`). Todo patrón reutilizable nuevo se agrega al catálogo antes de cerrar la etapa.
 - Lógica de negocio: en Services, nunca en Controllers
 - Controllers: solo coordinan request/response
 - Acceso a datos: en DbContext, repositorios o infraestructura

@@ -6,6 +6,11 @@ applyTo: "**/*.{md,prompt.md,agent.md,instructions.md}"
 # Secuencia operativa obligatoria
 Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> Implementacion -> Pruebas funcionales -> Documentacion de alcance (cliente) -> Cierre de calibracion estimado vs real
 
+# Presupuesto de contexto (leer antes de cargar cualquier otra cosa)
+- Todo agente respeta el techo de arranque y la carga por indice de `39-presupuesto-contexto.instructions.md`. Medido el 2026-09-25: el arranque literal del QA sobre un proyecto maduro eran ~510k tokens de historia antes de abrir el sistema, y eso degrada el razonamiento de la etapa entera.
+- Los archivos grandes (`25`, `27`, `32`, `34`, `35`, `37`, los catalogos y las memorias de proyecto) se leen **por indice y por seccion**: `python scripts/contexto.py indice <alias>`. Las reglas no se relajan; lo que baja es cuanto se carga para llegar a ellas.
+- La memoria de proyecto se lee por su bloque `## Definiciones vigentes` + el ultimo sprint. Lo cerrado vive en `definiciones/historial/` y se abre solo si el trabajo lo toca.
+
 # Reglas obligatorias
 - No colocar logica de negocio compleja en Controllers.
 - Los Controllers solo coordinan request/response y delegan en Services.
@@ -23,7 +28,7 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - El cierre de calibracion estimado vs real es obligatorio para mejorar la asertividad del presupuesto.
 
 # Memoria acumulativa de errores cross-proyecto (obligatoria, cualquier modo de trabajo)
-- Antes de implementar cualquier cambio de codigo — sin importar si el trabajo entra por el flujo formal de subagentes (orquestador -> implementador -> QA) o por una sesion de chat directa sobre un proyecto ya en produccion — consultar `.github/instructions/32-estandares-qa-implementador.instructions.md`. Ese archivo es la memoria incremental acumulativa de errores ya encontrados y corregidos en cualquier proyecto del estudio: evita repetir el mismo bug en un proyecto distinto.
+- Antes de implementar cualquier cambio de codigo — sin importar si el trabajo entra por el flujo formal de subagentes (orquestador -> implementador -> QA) o por una sesion de chat directa sobre un proyecto ya en produccion — consultar `.github/instructions/32-estandares-qa-implementador.instructions.md`. Ese archivo es la memoria incremental acumulativa de errores ya encontrados y corregidos en cualquier proyecto del estudio: evita repetir el mismo bug en un proyecto distinto. **Se consulta por indice** (`python scripts/contexto.py indice 32` o `grep -n '^## '`) leyendo solo las reglas de la familia de lo que se toca: son 45 reglas y 67 KB, y cargarlas todas en cada cambio es lo que hace que el agente despues no razone bien sobre el cambio en si.
 - Despues de encontrar y corregir un bug funcional (propio o reportado por el cliente), evaluar si la causa raiz es generalizable a otros proyectos del baseline (no especifica de una sola entidad/pantalla de un solo proyecto):
   - Si es reproducible por pasos concretos (UI/API/datos) y generalizable: agregar un item nuevo a `docs/qa/regresiones-manuales.yml` (ver `30-qa-regresiones.instructions.md` para el formato) y una seccion nueva en `32-estandares-qa-implementador.instructions.md` resumiendo la regla preventiva.
   - Si es una regla preventiva generalizable pero sin una reproduccion UI/API formal (ej. un patron de diseño de datos, una desincronizacion de configuracion): agregar igual la seccion a `32-estandares-qa-implementador.instructions.md`, marcando explicitamente en "Origen" que no tiene item YAML asociado (mismo criterio ya usado en la regla PAT-003 de ese archivo).
@@ -37,8 +42,9 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - Este repositorio (Agentes-IA) centraliza la memoria de trabajo de todos los proyectos.
 - Cada proyecto tiene su carpeta propia en C:/Sistemas/Agentes-IA/docs/<proyecto>/.
 - Cada agente tiene un unico archivo de memoria por proyecto en C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/.
-- Al trabajar sobre un proyecto, leer primero la version vigente del agente y luego editar ese mismo archivo.
+- Al trabajar sobre un proyecto, leer primero la version vigente del agente (el bloque `## Definiciones vigentes` + el ultimo sprint/CR, no el archivo entero) y luego editar ese mismo archivo.
 - No crear archivos nuevos para el mismo agente y proyecto: siempre editar el existente.
+- Ese archivo no pasa de 150 KB: al cerrar la etapa, los sprints/CR/modulos ya cerrados se archivan con `python scripts/archivar_memoria.py <archivo> --aplicar`, que los mueve a `definiciones/historial/` y deja un puntero de una linea por grupo.
 - Editar significa actualizar la seccion de definiciones vigentes IN-PLACE (reemplazar el dato viejo, no dejarlo al lado con una nota de correccion) — nunca agregar una seccion nueva fechada por cada ronda de trabajo sobre el mismo tema. El unico lugar que crece por append es `## Historial de ajustes`, y ahi solo una linea corta por cambio. Ver `29-trazabilidad-conversacion.instructions.md` para el detalle completo de esta regla.
 - Cada ajuste relevante debe registrarse en C:/Sistemas/Agentes-IA/docs/<proyecto>/trazabilidad.md.
 - El indice consolidado de proyectos vive en C:/Sistemas/Agentes-IA/docs/indice.md.

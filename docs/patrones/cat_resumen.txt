@@ -1,0 +1,47 @@
+# Indice plano de docs/patrones/catalogo.yml - generado por scripts/contexto.py resumenes
+# id | categoria | origen | nombre   (primer lookup del escaneo de reutilizacion, instruccion 39)
+PAT-001   | financiero       | vinosefue (Cliente)        | Ledger / Cuenta corriente (CuentaCorriente + MovimientoCC)
+PAT-002   | infraestructura  | vinosefue                  | AdjuntoService (adjuntos genericos)
+PAT-003   | financiero       | ShowroomGriffin (Ventas)   | MetodoPago (venta con pago dividido en multiples medios + IVA)
+PAT-004   | infraestructura  | ShowroomGriffin            | RowVersion manual para concurrencia optimista en MySQL
+PAT-005   | dominio          | ShowroomGriffin (Compras)  | Maquina de estados (workflow generico)
+PAT-006   | integracion      | >                          | Integracion ARCA/AFIP WSFEv1 (WSAA + facturacion electronica)
+PAT-007   | ui               | labipac-front              | Sitio institucional Astro + Tailwind + formulario de contacto PHP
+PAT-008   | ui               | transversal — regla de 25- | DataTables server-side + filtro por columna visible
+PAT-009   | ui               | la-platense (Ferreteria La | Tema oscuro (dark/light toggle) persistido por usuario
+PAT-010   | infraestructura  | crm-olvidata (bug real enc | ArgentinaTime (hora correcta en hosting compartido)
+PAT-012   | integracion      | la-platense (Etapa 3, migr | Importacion de archivo con preview -> confirmar (staging + reporte de excepciones)
+PAT-013   | dominio          | la-platense (Etapa 3, migr | Stock arranca en cero + verificacion por conteo, priorizada por rotacion ABC
+PAT-014   | infraestructura  | la-platense                | Restablecer contraseña por email (olvide mi contraseña)
+PAT-015   | ui               | la-platense (bug real repo | Baja (individual o en lote) en listado DataTables sin perder la pagina
+PAT-016   | ui               | delicias-naturales (busque | Busqueda global multi-formato (texto/importe/fecha) + filtros persistidos en sesion
+PAT-017   | dominio          | cma-centro-medico (a confi | Portal de autogestion para usuario final (no-staff) con scoping forzado por identidad
+PAT-018   | dominio          | labipac (M25, extension de | Reconstruir un dato faltante despejandolo de los totales historicos ya calculados
+PAT-019   | ui               | marihogar (Ventas/Create.c | Autocompletar el monto de un pago nuevo con el saldo pendiente
+PAT-020   | financiero       | marihogar (Ventas, CR-64/C | Cancelacion de comprobante con pagos: ledger inmutable + reversion acotada a lo posteado
+PAT-021   | negocio          | labipac (sesion 7, 2026-09 | Modo de precio por item: formula vs. valor manual, con exclusion explicita del recalculo batch
+PAT-022   | financiero       | virtualwallet (Proyeccion  | Plan de reserva mensual estimado por mediana historica dolarizada
+PAT-023   | financiero       | delicias-naturales (Editar | Editar un pago ya posteado: reversion + alta enlazada (variante de PAT-020)
+PAT-024   | integracion      | >                          | Cache de token de API externa con vigencia informada por el servidor
+PAT-025   | infraestructura  | koi                        | Cola de trabajo en segundo plano con scope propio (mails que no bloquean la respuesta)
+PAT-026   | ui               | kite-punta-lara            | Scroll horizontal que se nota: desvanecido por mascara + foco fuera del borde
+PAT-027   | dominio          | olvidata-agentes-multirubr | Jerarquia de roles dentro del tenant con invariante de responsable activo y refresco inmediato de sesion
+PAT-028   | dominio          | olvidata-agentes-multirubr | Reglas de texto por alcance con precedencia, vista previa e instantanea auditable del contexto de un agente
+PAT-029   | dominio          | olvidata-agentes-multirubr | Conversacion multi-turno reanudable sobre una tarea de agente con contexto congelado
+PAT-030   | dominio          | olvidata-agentes-multirubr | Prompts derivados configurables por el cliente sobre un prompt base protegido, con propuesta y aprobacion
+PAT-031   | dominio          | crm-olvidata (diseño 2026- | Asignacion deterministica de oferta por perfil de prospecto (presencia web + rubro) con plantilla de primer contacto por oferta
+PAT-032   | dominio          | olvidata-agentes-multirubr | Agente que propone cambios de configuracion como tarjetas confirmables, ejecutados por el servicio de negocio
+PAT-033   | infraestructura  | olvidata-agentes-multirubr | Workspace de documentos por entidad, legible por agentes IA (almacen fuera de wwwroot, validacion de contenido, texto por partes, herramientas de solo lectura y adjuntos por mensaje)
+PAT-034   | dominio          | olvidata-agentes-multirubr | Aprobacion humana de acciones de un agente IA dentro de un bucle reanudable (pedido por tool_use_id, espera sin worker, resolucion con token, vencimiento)
+PAT-035   | dominio          | olvidata-agentes-multirubr | Limites de gasto mensual de IA por organizacion y miembro, verificados antes de cada llamada al modelo
+PAT-036   | integracion      | libreria-horizonte (diseña | Sincronizacion de stock sistema de gestion -> marketplace con cruce en cascada y lote de cambios aprobable
+PAT-038   | dominio          | olvidata-agentes-multirubr | Subagentes en un bucle de agente IA reanudable (tarea hija por tool_use_id, espera sin worker, resultado como tool_result, cancelacion en cascada)
+PAT-039   | dominio          | olvidata-agentes-multirubr | Tareas asignadas a personas con puente a agentes IA, propuestas por un agente asistente y confirmadas por un responsable
+PAT-040   | dominio          | olvidata-agentes-multirubr | Bateria de casos de prueba de prompts versionada en el repositorio, con corrida acotada por tope y calificacion determinista mas modelo juez
+PAT-041   | seguridad        | olvidata-agentes-multirubr | Gate de publicacion por huella de los casos con excepcion auditada del rol maximo
+PAT-042   | agentes-ia       | olvidata-agentes-multirubr | Base de conocimiento del proveedor por rubro, consultable por herramientas de solo lectura
+PAT-043   | agentes-ia       | olvidata-agentes-multirubr | Conectores a sistemas externos con credenciales por organizacion (multi-tenant), con lista blanca y proteccion SSRF
+PAT-044   | agentes-ia       | olvidata-agentes-multirubr | Aprobacion humana decidida POR LLAMADA, no por herramienta (fail-closed en el motor)
+PAT-045   | agentes-ia       | olvidata-agentes-multirubr | Tarea repetitiva reanudable: programacion + ocurrencia reservada con indice unico
+PAT-046   | integracion      | ninguno todavia (incorpora | Automatizacion con n8n (orquestador externo de workflows por webhooks/API)
+PAT-047   | agentes-ia       | olvidata-agentes-multirubr | Ficha de agente en dos vistas: funcional para el cliente y literal para el staff, con DTOs distintos por tipo

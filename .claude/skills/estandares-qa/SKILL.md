@@ -8,12 +8,12 @@ paths:
 
 # Estandares QA / implementador (catalogo cross-proyecto)
 
-La fuente completa es `.github/instructions/32-estandares-qa-implementador.instructions.md` (~58 KB). **No la leas entera**: buscá la seccion que aplica al cambio que estas haciendo.
+La fuente completa es `.github/instructions/32-estandares-qa-implementador.instructions.md` (67 KB, 45 reglas). **No la leas entera**: buscá la seccion que aplica al cambio que estas haciendo. Es regla, no sugerencia — ver `39-presupuesto-contexto.instructions.md`.
 
 ## Como usarla
 
 1. Listar las reglas vigentes (una linea por regla):
-   `grep -n "^## " .github/instructions/32-estandares-qa-implementador.instructions.md`
+   `python scripts/contexto.py indice 32`  (o `grep -n "^## " .github/instructions/32-estandares-qa-implementador.instructions.md`)
 2. Leer SOLO las secciones relacionadas con lo que tocas (ej. una query EF nueva, un checkbox, un combo en Editar, un decimal en un input, un tope de gasto).
 3. Al terminar, si encontraste un bug generalizable, agregar la regla nueva ahi **y** el item reproducible en `docs/qa/regresiones-manuales.yml`.
 

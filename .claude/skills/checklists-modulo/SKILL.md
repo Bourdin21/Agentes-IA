@@ -20,3 +20,7 @@ Elegi el checklist que corresponde:
 - **Modificacion sobre modulo existente** — el paso 6 es el que mas se olvida: si cambias el modelo de datos, greppear TODOS los sitios que ya leen ese campo (LP-002).
 
 Cada checklist cierra con su **smoke-check automatizado** para QA (ver `33-verificacion-automatizada-qa.instructions.md`).
+
+## Indice de la fuente
+
+`python scripts/contexto.py indice 26` lista sus secciones con el numero de linea: leer solo la que aplica (`sed -n '<desde>,<hasta>p'`), nunca el archivo completo (`39-presupuesto-contexto.instructions.md`).

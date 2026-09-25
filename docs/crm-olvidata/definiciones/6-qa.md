@@ -216,161 +216,6 @@ Condiciones para pasar a GO completo:
 3. Nueva pasada de QA ejecuta las pruebas E2E hoy BLOCKED (HU-03 a HU-08) contra credenciales reales, en la ventana de desarrollo aparte (sin tráfico de producción), antes del runbook de corte de BotPublicitario.
 4. CRM-002, CRM-003, CRM-005 (los 3 `minor`) pueden resolverse en la misma pasada o en un ciclo posterior sin bloquear el go-live — no afectan la operación comercial del bot, solo UX/consistencia.
 
-## QA — campañas de contacto frío configurables (2026-07-21)
-
-### 0. Alcance funcional validado
-
-CU-13 (crear campaña), CU-14 (editar/pausar/reanudar), CU-15 (gestionar queries por industria), HU-12 a HU-16, sobre la implementación documentada en `5-implementador.md` (sección "Implementación de campañas de contacto frío configurables"). Sin máquina de estados que recorrer (confirmado en Análisis y Diseño: `Activa` es un flag simple).
-
-**Método:** revisión de código completa por capa contra los 3 documentos de definición (1-analista, 2-diseñador, 3-arquitecto) + recompilación independiente de la solución + verificación de la migración aplicada + corrida real de la app (20 seg) para confirmar seed y arranque sin excepciones. **No se ejecutaron pruebas contra la app corriendo con navegador** (regla del estudio: QA no automatiza UI) ni contra WhatsApp/Google Maps reales (scheduler en `Standby=true`, no se activó a propósito para no arriesgar envíos). Los casos de UI se describen como procedimiento manual para que Joaquín los ejecute a mano.
-
-**Build:** `dotnet build OlvidataCRM.slnx` → **Compilación correcta, 0 errores**, 4 warnings preexistentes (`NU1902` MailKit/MimeKit). Confirmado por este QA en corrida independiente, no solo por el reporte del implementador.
-
-**Migración:** `dotnet ef migrations list` confirma `20260721155711_AddCampanasOutbound` aplicada, sin `(Pending)`.
-
-**Seed:** corrida real de 20 segundos (`dotnet run --no-build`) — log confirma `"Campañas de contacto frío sembradas: 13"` sin excepciones en la primera corrida tras la migración; scheduler arrancó en `Standby=True` (default legacy preservado); no hubo errores de resolución de dependencias (confirma que `CampanasController`, `GoogleMapsService`, `OutboundCampaignService` con sus nuevas firmas resuelven correctamente en el contenedor DI).
-
-### 1. Cobertura por caso de uso / historia
-
-| # | Criterio | Resultado | Nota |
-|---|---|---|---|
-| CU-13 (crear) | No permite guardar sin al menos un día de envío | **PASS (código)** | `CampanasController.Create` valida `ArmarDias(model) == 0` antes de `ModelState.IsValid`. |
-| CU-13 (crear) | `Activa` forzada a `false` al crear | **PASS** | Coherente con la guarda "no se puede activar sin industrias/queries" — evita el estado inconsistente de una campaña "activa" vacía incluso por un instante. |
-| CU-13 (industrias) | Rechaza `ClaveRubro` ya asignada a otra campaña **activa** | **PASS (código)** | `AgregarIndustria` y `ValidarPuedeActivarAsync` comparan contra `CampanaOutbound.Activa` de otras campañas, no contra todas — coincide con la resolución de Arquitectura §1.a (el conflicto es solo entre campañas activas). |
-| CU-13 (activar) | No permite `Activa=true` sin industrias, o con alguna industria sin queries | **PASS (código)** | `ValidarPuedeActivarAsync`, invocado desde `Edit` (POST) y `TogglePausa`. Mensaje señala explícitamente qué falta. |
-| CU-14 (pausar/reanudar) | Pausar no afecta industrias/queries ni contactos en curso | **PASS (código)** | `TogglePausa` solo togglea `Activa`; no toca `Contacto` ni las relaciones. |
-| CU-14 (eliminar) | Soft-delete en cascada (campaña + industrias + queries) | **PASS (código)** | `Delete` setea `DeletedAt` explícitamente en las 3 entidades relacionadas — necesario porque el query filter global de EF no cascadea entre entidades `SoftDestroyable` independientes (a diferencia de un `OnDelete(Cascade)` de FK real, que solo aplica a hard-delete). |
-| CU-15 (agregar query) | Alta inline sin perder el resto del formulario | **PASS (código)** | `AgregarQuery` es un endpoint AJAX independiente del POST principal de `Edit`; la vista actualiza el DOM sin recargar. |
-| CU-15 (eliminar última query) | Avisa si la industria queda sin poder buscar prospectos | **PASS (código)** | `EliminarQuery` calcula `esLaUltima` antes de borrar y devuelve `advertencia` solo si la campaña está activa — coherente con Diseño §1 Pantalla 8 ("no bloqueante, es una campaña ya creada"). |
-| HU-12 | `Bot/Index` muestra resumen de campañas (activas/pausadas + nombres) con link a `Campanas/Index` | **PASS (código)** | `BotController.Index` arma `CampanasActivas`/`CampanasPausadas`/`CampanasResumen`; la vista los renderiza. |
-| HU-13 (regresión) | `OutboundSchedulerService`/`OutboundCampaignService`/`GoogleMapsService` operan contra campañas, no diccionarios fijos | **PASS (código)** | Verificado que `RunDayByType`/`RubrosByDay`/`QueriesByRubro`/`RubrosRetirados`/`BotSettings.DailyLimit` (como límite único) ya no existen en el código — `grep` confirma cero referencias residuales. |
-| HU-14/CU-13 | Crear campaña con industrias — flujo completo | **BLOCKED (E2E navegador)** | Lógica revisada por código; el flujo visual (Create → redirect a Edit → agregar industria por AJAX) no se probó en navegador real (regla del estudio). Ver procedimiento manual §7. |
-| HU-15/CU-15 | Gestión de queries — flujo completo | **BLOCKED (E2E navegador)** | Idem — lógica revisada, no probado en navegador. |
-| HU-16 | Pausar/reanudar puntual sin afectar standby global | **PASS (código)** | `TogglePausa` de `CampanasController` es independiente del `TogglePausa` de `BotController` (standby global) — no comparten estado ni lógica. |
-
-### 2. Cobertura del catálogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
-
-Se reevaluaron solo los items potencialmente relevantes a la superficie nueva (el resto ya fue evaluado N/A para este proyecto en la pasada de QA de 2026-07-17 y no cambia con esta feature):
-
-| id | aplica | resultado | acción |
-|---|---|---|---|
-| KOI-001 (SweetAlert2 fuera del `<form>`) | Sí | **PASS** | `Campanas/Index.cshtml` arma un `<form>` dinámico vía JS con el token antiforgery para pausar/eliminar (mismo patrón ya validado en `Industrias/Index.cshtml`). Los botones de industria/query dentro de `Edit.cshtml` no usan `.btn-swal-confirm` (usan `$.post` directo + SweetAlert2 manual para confirmaciones destructivas) — revisado, sin el bug de KOI-001 porque no dependen de `closest('form')`. |
-| REG-010 / KOI-003/005/006 (link de sidebar sin controller, o rol sin acceso) | Parcial | **N/A** | `Campanas` no tiene entrada de sidebar propia (por diseño, se accede desde `Bot/Index`) — no aplica el patrón de "link roto". Policy `RequireSuperUsuario` verificada en el controller, coherente con el resto del sistema post-ajuste de roles del 2026-07-21. |
-| 32-estándares (combo de Editar debe pre-cargarse con valores ya asignados) | Parcial | **N/A justificado** | `Campanas/Edit` no usa un combo multi-select tradicional para industrias (a diferencia de, por ejemplo, un Select2 multi de tags) — usa gestión por filas AJAX (acordeón), donde cada industria ya asignada se renderiza server-side directamente en el `@foreach` inicial (equivalente funcional a "pre-cargado", no hay combo que arranque vacío pese a tener datos). El único `<select>` de la pantalla (`#nuevaIndustriaCatalogoId`) es exclusivamente para **agregar** una industria nueva, nunca representa una selección ya existente que deba precargarse. |
-| GAN-003 (`<script type="text/x-template">` con Tag Helpers adentro) | Sí (patrón revisado) | **PASS** | El JS de `Edit.cshtml` arma los nodos nuevos con jQuery (`$('<li>...</li>')`), no usa `<script type="text/x-template">` — no aplica el bug. |
-| REG-001 (RowVersion MySQL) | No | **N/A** | Ninguna entidad nueva usa control de concurrencia optimista. |
-| Resto del catálogo (REG-002/003/005/006/007/008/009, DN-001/002, GAN-001/002/004, VSF-001/002, CRM-001 a 006) | No | **N/A** | Sin cambios en las superficies que esos items cubren (Compras/Ventas/Devoluciones, pagos en cuotas, backfills, `<datalist>`, FK a estado terminal, y los 6 defectos ya resueltos de la migración de BotPublicitario) — se mantiene la evaluación de la pasada anterior. |
-
-### 3. Observaciones (no bloqueantes, calidad de UX)
-
-- **`AgregarIndustria` recarga la página completa** (`location.reload()`) tras agregar una industria, mientras que `EliminarIndustria`/`AgregarQuery`/`EliminarQuery` actualizan el DOM sin recargar. Inconsistencia menor de UX (no de funcionalidad): si el usuario tenía cambios sin guardar en la card "Datos de la campaña" al agregar una industria, esos cambios se pierden con el reload. No es un defecto funcional de CU-13/14/15 (ninguna historia de usuario pide "no perder cambios no guardados al agregar industria"), pero vale la pena unificar el patrón en una pasada de pulido si el cliente lo nota.
-- **`ClaveRubro` se normaliza a minúsculas** (`ToLowerInvariant`) en `AgregarIndustria`, consistente con cómo se seedearon los 13 rubros y con `Contacto.Rubro` — pero la comparación `HashSet<string>.Contains`/`List<string>.Contains` usada en `OutboundCampaignService`/`ValidarPuedeActivarAsync` se traduce a SQL como comparación literal (la collation de MySQL, no `OrdinalIgnoreCase` de C#, decide sensibilidad a mayúsculas). No es un defecto observado — todas las claves ya se generan en minúsculas de forma consistente — pero es un punto a tener en cuenta si en el futuro se permite cargar `ClaveRubro` con mayúsculas desde algún otro punto de entrada.
-
-### 4. Defectos detectados
-
-**Ninguno.** No se encontraron defectos funcionales nuevos en esta pasada — las 2 observaciones de la sección anterior son de UX/robustez, no incumplimientos de un criterio de aceptación aprobado.
-
-### 5. Riesgos de liberación y mitigaciones
-
-- **Sin prueba E2E real de envío/búsqueda:** el pipeline outbound completo (campañas → `SendDailyBatchAsync`/`SearchDailyAsync` reales) no se ejecutó contra WhatsApp/Google Maps reales. Mitigación: el scheduler sigue en `Standby=true` (no cambia nada en producción hasta que Joaquín lo active manualmente); la lógica de selección de candidatos por campaña fue revisada línea a línea contra el comportamiento anterior.
-- **Sin tope global de límite diario** (decisión explícita del cliente, heredada de Análisis/Arquitectura) — riesgo de negocio, no de código: si se activan muchas campañas con límites altos el mismo día, no hay freno automático.
-- **Recomendación antes de activar `Standby=false` por primera vez con este cambio:** verificar en `Campanas/Index` que las 13 campañas migradas automáticamente tienen el día/límite/template esperado, y hacer una corrida manual de `IOutboundCampaignService`/`IGoogleMapsService` fuera de horario (mismo procedimiento que ya usaba el estudio en el ciclo de QA anterior) antes de la primera corrida real con esta nueva fuente de datos.
-
-### 6. Procedimiento de prueba manual (para Joaquín)
-
-**A. CU-13 — Crear campaña y agregar industria**
-1. Login SuperUsuario. Ir a Bot / Outbound → "Ver campañas".
-2. "Nueva campaña": nombre "Prueba QA", sin marcar ningún día, Guardar. **Esperado:** rechaza con mensaje "Elegí al menos un día".
-3. Marcar "Martes", límite 10, template el único disponible, Guardar. **Esperado:** redirige a Edit de la campaña recién creada.
-4. En "Industrias y queries de búsqueda", clave de rubro "pruebaqa", sin industria de catálogo, click "+". **Esperado:** aparece un panel de acordeón nuevo, expandido, con aviso "sin queries".
-5. Intentar activar el switch "Activa" y Guardar. **Esperado:** rechaza, mensaje señala que la industria "pruebaqa" no tiene queries.
-6. Agregar una query ("test La Plata" / "La Plata") dentro del panel. **Esperado:** aparece en la lista sin recargar la página, el contador de queries del acordeón se actualiza.
-7. Activar el switch y Guardar. **Esperado:** ahora sí permite activar.
-8. Eliminar la campaña de prueba desde `Campanas/Index` (confirmación SweetAlert2). **Esperado:** desaparece del listado.
-
-**B. CU-13 — Conflicto de rubro entre campañas activas**
-1. En una campaña activa existente (una de las 13 migradas, ej. "Comercio"), anotar una de sus claves de rubro (ej. "comercio").
-2. Crear una campaña nueva y en Edit intentar agregar la industria con clave "comercio". **Esperado:** rechaza, mensaje indica que ya está en la campaña "Comercio".
-
-**C. HU-12 — Resumen en Bot/Index**
-1. Ir a Bot / Outbound. **Esperado:** la card "Campañas de contacto frío" muestra el conteo de activas/pausadas y los nombres con su día corto (ej. "Comercio (Mar)").
-
-### Estado go/no-go
-
-**GO** para uso interno (gestión de campañas/industrias/queries vía UI) — no depende de credenciales externas ni de defectos pendientes. El pipeline outbound real con estas campañas sigue sujeto al mismo criterio ya vigente en el proyecto: no activar `Standby=false` sin que Joaquín haya verificado manualmente el cronograma migrado y confirmado las credenciales de Meta/Google Maps.
-
-## QA — ajuste UI de Notificaciones: ícono X + SweetAlert2 (2026-07-25)
-
-### 0. Alcance funcional validado
-
-Ajuste de UI puntual sobre `Views/Notifications/Index.cshtml`, feature ya en producción ("eliminar notificaciones"): (1) reemplazo de ícono `fas fa-trash` → `fas fa-xmark` en el botón de eliminar individual y en "Eliminar leídas"; (2) reemplazo del `confirm()` nativo del navegador por un modal `Swal.fire`, sobre el patrón de confirmación ya validado en `Campanas/Index.cshtml`. Base leída: `1-analista-funcional.md` (Discovery+Análisis exprés 2026-07-24), `2-disenador-funcional.md` (Diseño exprés 2026-07-24), `5-implementador.md` (implementación 2026-07-25). Cliente pidió pasar este ajuste cosmético por el flujo completo del orquestador (Presupuesto salteado, mismo precedente ya usado 2 veces en el proyecto).
-
-**Método:** revisión de código completa del único archivo tocado + diff contra `HEAD` de los 4 archivos con cambios pendientes de commit (`INotificationService.cs`, `NotificationService.cs`, `NotificationsController.cs`, `Views/Notifications/Index.cshtml`) para aislar qué pertenece a esta tarea vs. a la feature previa de "eliminar notificaciones" (2026-07-24) + recompilación independiente de la solución. **No se probó en navegador** (regla del estudio) — verificación 100% por código, con procedimiento manual entregado para que el cliente la ejecute a mano.
-
-**Build:** `dotnet build OlvidataCRM.slnx --no-incremental` desde `C:\Sistemas\olvidatasoft-crm` → **Compilación correcta, 0 errores**, 9 warnings — todos preexistentes y confirmados idénticos a los ya documentados (`NU1902` MailKit/MimeKit ×4, `CS0114` `HomeController.StatusCode` ×2 por doble referencia de proyecto). Confirmado por este QA en corrida independiente (no solo por el reporte del implementador).
-
-### 1. Cobertura por criterio de aceptación
-
-| Criterio (pedido del cliente / Diseño 2026-07-24) | Resultado | Evidencia |
-|---|---|---|
-| Ícono del botón de eliminar individual = X, no papelera | **PASS** | `Views/Notifications/Index.cshtml` línea 61: `<i class="fas fa-xmark"></i>` dentro del form `Delete`. `grep "fas fa-trash"` sobre el archivo → 0 coincidencias. |
-| Ícono del botón "Eliminar leídas" = X, no papelera | **PASS** | Línea 18: `<i class="fas fa-xmark me-1"></i>`. |
-| `confirm()` nativo reemplazado 100% por SweetAlert2 en ambos flujos de borrado | **PASS** | `grep "confirm("` sobre el archivo → 0 coincidencias; `grep "onsubmit"` → 0 coincidencias. Los 2 `<form>` (`form-delete-notif`, `form-delete-all-read`) perdieron el atributo `onsubmit` y la confirmación pasa 100% por los 2 handlers `$(document).on('submit', ...)` en `@section Scripts`. |
-| Patrón `Swal.fire` + `.then(isConfirmed → submit)` bien formado y consistente con el resto del proyecto | **PASS** | Comparado línea a línea contra `Views/Campanas/Index.cshtml` (`icon:'warning'`, `showCancelButton:true`, `confirmButtonText:'Sí, eliminar'`, `cancelButtonText:'Cancelar'`, `confirmButtonColor:'#ef4444'`, `.then(result => if(result.isConfirmed) ...)`). Mismos textos y color, mismo criterio funcional; única diferencia justificada: acá se intercepta el evento `submit` de un `<form>` real (no hay DataTable/botón suelto de por medio), en vez de armar un `<form>` dinámico como hace `Campanas/Index.cshtml` — patrón más simple y igual de robusto para este caso (2 forms server-rendered, no filas dinámicas). |
-| `NotificationsController.cs`/`NotificationService.cs`/`INotificationService.cs` sin tocar por esta tarea | **PASS** | `git diff HEAD` sobre los 3 archivos: el único contenido son `DeleteAsync`/`DeleteAllReadAsync` (interfaz + implementación) y las acciones `Delete(id)`/`DeleteAllRead()` del controller — exactamente lo que documenta la entrada previa "eliminar notificaciones" (2026-07-24), sin ninguna línea adicional atribuible a la tarea de ícono/SweetAlert2 de hoy. |
-| Comportamiento funcional de fondo (qué se elimina, cuándo, antiforgery) idéntico a antes del cambio | **PASS** | Los `<form>` conservan `asp-controller`/`asp-action`/`asp-route-id`/`method="post"` sin modificar (tag helper sigue inyectando el token antiforgery automáticamente); único cambio en cada `<form>` es agregar una `class` para poder targetearlos por selector CSS. `Delete(id)`/`DeleteAllRead()` conservan `[ValidateAntiForgeryToken]` sin cambios. |
-
-### 2. Máquina de estados
-
-No aplica — confirmado en Análisis y Diseño de este ajuste ("Activa"/flags no forman parte de este cambio; no hay máquina de estados involucrada, es un ajuste cosmético sobre una acción de borrado ya existente).
-
-### 3. Cobertura del catálogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
-
-Se reevaluaron solo los items potencialmente relevantes a la superficie tocada (el resto ya fue evaluado N/A para este proyecto en pasadas anteriores y no cambia con este ajuste puntual de un solo archivo de Vista):
-
-| id | aplica (sí/no/N/A) | resultado | acción |
-|---|---|---|---|
-| KOI-001 (botón SweetAlert2 fuera del `<form>`, `closest('form')` falla) | Sí (patrón revisado) | **PASS** | No aplica el bug: acá no hay un botón *fuera* de su form apoyándose en `closest('form')` — el botón `type="submit"` vive *dentro* del propio `<form>` y el JS escucha el evento `submit` del form mismo (`$(document).on('submit', '.form-delete-notif', ...)`), captura `var form = this` y llama `form.submit()` tras confirmar. Patrón distinto y más simple que el de KOI-001, sin su causa raíz. |
-| REG-010 / KOI-003/005/006 (sidebar / rutas rotas) | No | **N/A** | Sin cambios de sidebar ni de rutas — mismo controller/acciones ya existentes. |
-| CRM-002 (control visible para rol sin permiso) | No | **N/A** | Sistema opera con único rol (`SuperUsuario`) desde 2026-07-21; no hay gating por rol en esta pantalla. |
-| Resto del catálogo (REG-001/002/003/005/006/007/008/009, KOI-002, DN-001/002, GAN-001/002/003/004, VSF-001/002, CRM-001/003/004/005/006) | No | **N/A** | Sin cambios en las superficies que esos items cubren (Compras/Ventas/Devoluciones/pagos/backfills/máquinas de estado del bot/outbound/Google Maps) — evaluación sin cambios respecto a las pasadas anteriores de este proyecto. |
-
-### 4. Defectos detectados
-
-**Ninguno.** El ajuste es cosmético, acotado a un solo archivo de Vista, y coincide exactamente con lo definido en Diseño (2026-07-24) e implementado (2026-07-25). No se encontró ningún caso donde el ícono siga siendo papelera, quede algún `confirm()` residual, o donde el patrón `Swal.fire` esté mal formado.
-
-### 5. Auto-fixes aplicados
-
-Ninguno — no se detectó ningún defecto a corregir en esta pasada.
-
-### 6. Riesgos de liberación y mitigaciones
-
-- **Riesgo técnico mínimo:** cambio 100% de presentación sobre una acción de borrado ya probada y en producción; no hay lógica de negocio nueva ni cambio de contrato de datos.
-- **Sin prueba de navegador propia (regla del estudio):** la verificación en caliente (ver el ícono real, abrir el modal, cancelar/confirmar) queda a cargo del cliente — ver procedimiento manual abajo.
-- **Working tree con 4 archivos sin commitear** (`INotificationService.cs`, `NotificationService.cs`, `NotificationsController.cs`, `Views/Notifications/Index.cshtml`, todos correspondientes a la feature "eliminar notificaciones" + este ajuste, ninguno de otra tarea) — no bloquea el GO funcional, pero se deja registrado para que el cliente decida cuándo commitear/deployar.
-
-### 7. Pruebas mínimas ejecutadas por este QA
-
-- `git diff HEAD` de los 4 archivos modificados, para aislar exactamente qué pertenece a esta tarea vs. a la feature previa de borrado de notificaciones.
-- `grep` sobre `Views/Notifications/Index.cshtml`: 0 coincidencias de `fas fa-trash`, `confirm(`, `onsubmit`; 2 coincidencias de `fas fa-xmark` (una por cada botón de eliminar).
-- Comparación línea a línea del bloque `Swal.fire(...).then(...)` contra `Views/Campanas/Index.cshtml`.
-- `dotnet build OlvidataCRM.slnx --no-incremental` (rebuild completo, no incremental) → 0 errores, 9 warnings preexistentes confirmados idénticos a los ya documentados, ninguno nuevo.
-
-**No ejecutado (fuera de alcance de este agente):** prueba en navegador real (ver el modal, clickear, confirmar/cancelar) — regla del estudio, queda como hand-off al cliente.
-
-### 8. Procedimiento de prueba manual (para Joaquín)
-
-1. Ir a Notificaciones con al menos 1 notificación leída y 1 no leída. **Esperado:** el ícono de "Eliminar" (individual, a la derecha de cada notificación) y de "Eliminar leídas" (header) se ven como una X, no como una papelera.
-2. Click en "Eliminar" de una notificación individual. **Esperado:** aparece un modal (no el diálogo gris nativo del navegador) con título "¿Eliminar esta notificación?", botones "Sí, eliminar" (rojo) / "Cancelar".
-3. Click en "Cancelar". **Esperado:** no pasa nada, la notificación sigue en la lista al recargar.
-4. Repetir el borrado y click en "Sí, eliminar". **Esperado:** la notificación desaparece de la lista.
-5. Con al menos 1 notificación leída, click en "Eliminar leídas". **Esperado:** modal con título "¿Eliminar todas las notificaciones leídas?" y texto "Esta acción no se puede deshacer.". Cancelar no borra nada; confirmar borra solo las leídas (las no leídas quedan intactas).
-6. Regresión: "Marcar todas leídas" y "Marcar leída" (individual) siguen funcionando igual que antes (no se tocaron en este ajuste).
-
-### Estado go/no-go
-
-**GO** para que Joaquín pruebe manualmente y, si el resultado visual coincide con lo esperado en los 6 pasos de arriba, dé por cerrado el ajuste. Sin defectos encontrados, build limpio, sin cambios fuera del alcance de presentación autorizado.
-
 ## QA — corrección de bugs/gaps de auditoría completa + 3 mejoras (2026-08-27)
 
 ### 0. Alcance funcional validado
@@ -1026,6 +871,13 @@ Harness (rollback): S1 tabla de gancho (26), S2A lote sin combos con A/B, S2B lo
 **GO condicional** para merge y deploy de E1-E7 con el outbound pausado, sujeto al procedimiento manual F8. **NO GO para reactivar el envío de combos** hasta tener las plantillas corregidas y aprobadas en Meta.
 
 ## Historial de ajustes
+
+### Bloques archivados (2026-09-25)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-07** — 2 bloques (2026-07-21 a 2026-07-25) → [`6-qa-2026-07.md`](historial/6-qa-2026-07.md)
+
 - 2026-09-14 (feature "4 frentes — combo con gancho", E1-E7): QA con la app ejecutada contra `olvidatacrm_dev`, sin navegador (Playwright MCP aislado del host) → HTTP autenticado + SQL + **harness de consola con WhatsApp falso y rollback** (dev tenía credenciales reales de Meta/Places y outbound despausado: se pausó y se usaron credenciales inválidas; 0 mensajes, 0 Places). Baseline HEAD en worktree para "idéntico a antes". IA real 7 mensajes, USD 0,149. **8/8 puntos obligatorios OK**; CU-30 a CU-35 PASS (CU-33 CA3 parcial, CU-35 CA2 sin datos). **1 defecto major, CRM-023** (selector "Frentes" nunca bindeaba en el GET del checklist → Build en silencio), auto-fix `traditional: true` en 2 vistas, re-verificado, catalogado en yml y en 32. R3 medido: 234/234 Pendiente → Presencia web. Primera corrida con el campo "Última validación de reglas cross-proyecto" (2026-09-14). **GO condicional**; manual pendiente: consola, tema oscuro y XHR real.
 - 2026-08-28 (expansión nacional de outbound): QA de un **cambio de datos** en producción — 176 campañas + 176 industrias + 528 queries insertadas por 2 agentes en paralelo sobre 22 ciudades nuevas. Sólo lectura contra la base real, 0 escrituras. **GO, 7/7 PASS, 0 defectos.** Conteos exactos y rangos de `Id` perfectamente contiguos (142-317 / 142-317 / 881-1408), `ClaveRubro` única en 304/304 filas incluyendo las soft-deleteadas, `IndustriaCatalogoId` verificado en **las 22 ciudades** con firma idéntica y coincidente con el mapeo de las 108 preexistentes, las 6 campañas protegidas intactas (`UpdatedAt` ≤ 08-26; las únicas escrituras de hoy sobre filas viejas son del scheduler de 03:02-03:09), integridad referencial sin un solo huérfano, y las **528** queries con anclaje geográfico correcto (510 con la ciudad en el texto, 18 con localidad vecina + provincia), 0 duplicados y 0 colisiones con `GoogleMapsQueryUsadas`. Cupo real **465-469 msj/día** (49,4-49,9% de `CupoDiario`=940, lejos del techo y con tope global duro que lo hace inviolable). El incidente de MySqlConnector de la tanda A no dejó rastro — probado por contigüidad de `AUTO_INCREMENT`. **3 observaciones no bloqueantes**: el próximo barrido nocturno pasa de 91 a ~255 queries de Google Maps (el restock global recorre todas las campañas activas todos los días, sin filtrar por `Dias`) → salto de coste de API a vigilar; la demanda diaria quedó ~17% arriba de `MetaDiaria`=400 (preexistente, palanca `RebalancearMatrizAsync`); slug vs. `Nombre` cosmético. **Efecto colateral positivo no reportado por las tandas**: 266 contactos huérfanos adoptados (127 `Pendiente`), huérfanos totales de 460 a 333. Hallazgo preexistente cuantificado: **140 de 721 queries viejas** sin anclaje geográfico a su `Region`, con ~20 genuinamente ambiguas — no se tocó, queda como deuda.
 - 2026-08-28: QA de la feature **matriz de módulos valorizados + borrador de propuesta MVP/FULL**, previa al primer deploy (código sin commitear, migración sólo en dev). Método: build propio en Release **2 veces** (0 errores / 13 advertencias preexistentes, antes y después del auto-fix), app levantada contra `olvidatacrm_dev`, **26 pantallas, 8 endpoints POST/AJAX y 29 generaciones de mensaje** por HTTP autenticado, con assertions SQL independientes. MCP `playwright` no disponible (declarado; residuo manual acotado al texto real de la pregunta 1 por WhatsApp). **Los 11 escenarios del Implementador: 11 PASS** (el #4 con 1 defecto, auto-fixeado). Seed verificado contra la base —**84/88/9/62** y los 9 rangos por rubro coincidiendo uno por uno—; la lectura inicial de 89/10 resultó ser 2 filas soft-deleteadas de datos de prueba, eliminadas al cerrar. Los 5 rubros sin matriz (incluido **Alquiler de inmuebles**, el hallazgo del Implementador) muestran el aviso, no un checklist vacío. Las **9 reglas de redacción**: PASS, con el truncado a 4 ítems verificado en el caso pedido (**Ganadería con 7 imprescindibles → "y 3 más"**) y **el bug del doble "y" confirmado como corregido leyendo la salida, no el código**. Wiring de "Sugerir" probado con **12 contactos reales** cubriendo los 3 vocabularios de `Contacto.Rubro`: 7 con matriz (incluido `estudio`, o sea el fix del mapeo funcionando, y `indumentaria-once` con sufijo de región), 5 con el comportamiento viejo intacto. Cuestionario del bot: `Questions["build"]` en **2 preguntas** con la numeración de emoji correcta, `Contacto.CantidadUsuarios` **sin un solo escritor ni lector** (por grep), y la tabla de decisión computada contra la base da **7 rubros al mecanismo nuevo + "Vinos y bebidas" al menú fijo**; los 2 hallazgos del Implementador (`MecanismoPregunta1Async` como fuente única en los 2 call sites, `ArmarPitchPostDolorAsync` reconociendo las 2 fuentes) verificados, con la prueba social real confirmada para los rubros nuevos. **El fix Farmacia/Contabilidad no reintroduce cotización automática**: rastreados todos los consumidores hasta el último (`industria?.Plan` sólo dentro de `if (PresupuestoCotizadoUsd.HasValue)`, campo que el bot ya nunca setea; `CotizaAutomatico` sigue en `false`). `.gitignore` efectivo y **ningún archivo de clave commiteado nunca** (`git log --all` sin resultados) — cierra la duda que el Implementador dejó abierta. Regresión del sprint ya deployado: 24 rutas sin 500, 0 `[ERR]`/`[FTL]`. **1 defecto: CRM-015 (major) — auto-fixeado.** Los módulos cuyo nombre empieza con sigla salían deformados en el texto que se copia al WhatsApp del cliente (`ABM Cuadrilla` → `aBM Cuadrilla`, `SEO básico y deploy` → `sEO…`, `CRM de WhatsApp` → `cRM…`): 9 de 84 módulos, los 9 imprescindibles, en 4 de los 9 rubros. Catalogado en `docs/qa/regresiones-manuales.yml` **antes** del fix, corregido con un guard de sigla inicial en `PropuestaMvpFullService.Minuscula()` (sin lógica de negocio nueva: restaura la intención ya declarada en el comentario del propio método), y re-verificado sobre **18 mensajes con 0 fallas** y sin regresión en los nombres que sí deben bajar la inicial. 4 observaciones no bloqueantes (interpretación de la regla 5, "y" duplicada que viene del nombre del módulo, inconsistencia matriz-con-0-MVP entre los 2 consumidores, comentario desactualizado en `RubroHelpers`). Estado dev restaurado (84/88/9/62). Estado: **GO para deploy de producción** (deploy no ejecutado, queda para el cliente; pendiente commitear y aplicar la migración en producción).

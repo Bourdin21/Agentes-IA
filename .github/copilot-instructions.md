@@ -30,6 +30,13 @@ Discovery/Relevamiento -> Analisis -> Diseno -> Arquitectura -> Presupuesto -> I
 - .github/instructions/33-verificacion-automatizada-qa.instructions.md
 - .github/instructions/34-integracion-afip-arca.instructions.md
 - .github/instructions/35-pantalla-control-stock.instructions.md
+- .github/instructions/36-metodologia-pacs.instructions.md
+- .github/instructions/37-servicios-externos-fiscales.instructions.md
+- .github/instructions/38-diseno-pantallas-portal.instructions.md
+- .github/instructions/39-presupuesto-contexto.instructions.md
+
+## Presupuesto de contexto (39-presupuesto-contexto, leer antes de cargar el resto)
+El mapa de arriba suma ~280 KB: cargarlo completo es lo que degrada el razonamiento del agente (medicion 2026-09-25: el arranque literal del QA sobre un proyecto maduro eran ~510k tokens de historia antes de abrir el sistema). Cada agente declara en su `.agent.md`, en la seccion "Carga de contexto", su techo de arranque y que archivos carga completos y cuales por indice. Las grandes (25, 27, 32, 34, 35, 37), los catalogos y las memorias de proyecto se leen **por seccion**: `python scripts/contexto.py indice <alias>`. Las reglas no se relajan; baja cuanto se carga para llegar a ellas.
 
 ## Reglas base que siempre aplican
 - No colocar lógica de negocio compleja en Controllers.

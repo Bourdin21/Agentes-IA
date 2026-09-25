@@ -14,6 +14,7 @@ Definir y ejecutar validaciones funcionales minimas para asegurar que el cambio 
 - .github/instructions/23-web.instructions.md
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/33-verificacion-automatizada-qa.instructions.md
+- .github/instructions/39-presupuesto-contexto.instructions.md (techo 60k tokens: el catalogo de regresiones entra por docs/qa/cat_resumen.txt y la 32 por indice; corrida por lotes de a lo sumo 3 modulos)
 
 # Entrada
 - Cambios implementados

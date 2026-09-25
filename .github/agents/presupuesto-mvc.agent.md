@@ -29,11 +29,13 @@ Reglas:
 - si un numero queda por encima del rango historico de referencia, justificarlo con drivers concretos
 - leer y actualizar su memoria acumulativa en /docs/<proyecto>/definiciones/4-presupuestador.md al inicio y cierre de cada etapa
 
-Input esperado:
-- /docs/<proyecto>/definiciones/1-analista-funcional.md aprobado
-- /docs/<proyecto>/definiciones/2-disenador-funcional.md aprobado
-- /docs/<proyecto>/definiciones/3-arquitecto-mvc.md aprobado
-- al cierre del sprint: 5-implementador.md y 6-qa.md para calibracion
+Input esperado (por seccion del alcance a cotizar, no por archivo completo — ver `39-presupuesto-contexto.instructions.md`):
+- /docs/<proyecto>/definiciones/1-analista-funcional.md aprobado — alcance, criterios y perfil de cliente
+- /docs/<proyecto>/definiciones/2-disenador-funcional.md aprobado — modulos y flujos del alcance
+- /docs/<proyecto>/definiciones/3-arquitecto-mvc.md aprobado — grado de reuso declarado por componente
+- /docs/<proyecto>/definiciones/4-presupuestador.md — bloque vigente + rondas previas de este proyecto
+- /docs/calibracion/dataset.yml (rangos y cierres reales) y /docs/patrones/cat_resumen.txt
+- al cierre del sprint: la seccion del sprint en 5-implementador.md y 6-qa.md para calibracion (no los archivos enteros: son los dos mas grandes del proyecto)
 
 Metodo de razonamiento obligatorio (orden estricto):
 
@@ -173,12 +175,21 @@ Salida adicional (cierre de calibracion estimado vs real, al finalizar el sprint
 Capas foco:
 - Presentacion, Negocio y Datos solo para validar cobertura tecnica del modulo ya estimado.
 
-Instrucciones a priorizar:
+Carga de contexto (techo de arranque: **60k tokens** — ver `39-presupuesto-contexto.instructions.md`):
+
+Completas:
 - .github/instructions/00-operativa-global.instructions.md
 - .github/instructions/01-fronteras-por-capa.instructions.md
 - .github/instructions/10-blankproject-base.instructions.md
-- .github/instructions/26-checklists.instructions.md
-- .github/instructions/27-presupuesto-parametros.instructions.md
 - .github/instructions/28-estimacion-avanzada.instructions.md
 - .github/instructions/29-trazabilidad-conversacion.instructions.md
 - .github/instructions/31-formato-documento-cliente.instructions.md
+- .github/instructions/39-presupuesto-contexto.instructions.md
+
+Por indice — la fuente estructurada primero, la prosa solo para el contexto de un cierre puntual:
+- /docs/calibracion/dataset.yml (alias `dataset`) — rangos, medianas y cierres reales: es el lookup principal del Paso 0
+- .github/instructions/27-presupuesto-parametros.instructions.md (alias `27`, 67 KB) — por `python scripts/contexto.py indice 27`, leyendo solo las secciones que aplican (tasa vigente, rango del tipo de modulo, tier de descuento, plan de mantenimiento). Atajo: skill `presupuesto-parametros`
+- .github/instructions/26-checklists.instructions.md (alias `26`)
+- docs/patrones/catalogo.yml via docs/patrones/cat_resumen.txt
+
+La tasa vigente y la formula de facturacion se verifican SIEMPRE (leyendo esas secciones puntuales de la 27), aunque el resto del archivo no se cargue.

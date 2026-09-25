@@ -32,7 +32,8 @@ Reglas:
 
 Input esperado:
 - pedido del cliente o issue funcional
-- /docs/<proyecto>/metadata.md y trazabilidad.md vigente
+- /docs/<proyecto>/metadata.md y trazabilidad.md — de trazabilidad, solo las ultimas entradas relevantes (el archivo completo puede tener centenares de KB de historia; ver `39-presupuesto-contexto.instructions.md`)
+- /docs/<proyecto>/definiciones/1-analista-funcional.md — bloque `## Definiciones vigentes` + el ultimo sprint/CR; los anteriores viven en `definiciones/historial/` y se leen solo si el pedido los toca
 
 Salida minima:
 1. Alcance funcional resumido (incluido / no incluido / dependencias).
@@ -49,8 +50,13 @@ Capas foco:
 - Negocio: reglas, estados, permisos y procesos.
 - Datos: impacto funcional en entidades y persistencia (sin diseno tecnico detallado).
 
-Instrucciones a priorizar:
+Carga de contexto (techo de arranque: **40k tokens** — ver `39-presupuesto-contexto.instructions.md`):
+
+Completas:
 - .github/instructions/00-operativa-global.instructions.md
 - .github/instructions/01-fronteras-por-capa.instructions.md
 - .github/instructions/10-blankproject-base.instructions.md
 - .github/instructions/29-trazabilidad-conversacion.instructions.md
+- .github/instructions/39-presupuesto-contexto.instructions.md
+
+Por indice (`python scripts/contexto.py indice <alias>`, solo la seccion que aplica): la memoria propia del proyecto y `trazabilidad.md`. Nunca leer definiciones de otros proyectos por cuerpo completo.

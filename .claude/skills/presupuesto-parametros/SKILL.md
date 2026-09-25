@@ -27,3 +27,7 @@ Dos archivos, con roles distintos. **Leer el YAML primero** — la prosa solo cu
 ## Obligacion al cerrar
 
 Todo cierre real con horas medidas se carga en `cierres_reales` de `dataset.yml` **antes o al mismo tiempo** que en la prosa. El dataset no puede quedar atras (ya paso: quedo con el factor viejo casi 6 semanas).
+
+## Indice de la fuente
+
+`python scripts/contexto.py indice 27` lista sus secciones con el numero de linea: leer solo la que aplica (`sed -n '<desde>,<hasta>p'`), nunca el archivo completo (`39-presupuesto-contexto.instructions.md`).

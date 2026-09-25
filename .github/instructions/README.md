@@ -2,6 +2,12 @@
 
 Esta carpeta divide las reglas en modulos reutilizables por etapa y por capa.
 
+## Antes que todo: cuanto de esto cargar
+**39-presupuesto-contexto.instructions.md** define el techo de contexto de arranque por agente y como leer los
+archivos grandes (por indice, no por cuerpo). Se lee completa y primero: los archivos de abajo suman 280 KB, y
+cargarlos todos es exactamente lo que degrada el razonamiento del agente. `python scripts/contexto.py indice <alias>`
+da el indice de cualquiera de ellos.
+
 ## Orden sugerido de lectura
 1. 00-operativa-global.instructions.md
 2. 01-fronteras-por-capa.instructions.md
@@ -30,7 +36,9 @@ Esta carpeta divide las reglas en modulos reutilizables por etapa y por capa.
 ## Como usar
 - Las reglas globales definen marco comun de trabajo y formato de salida.
 - Las reglas de capa definen limites tecnicos y responsabilidades.
-- Los agentes y prompts deben referenciar explicitamente los modulos que priorizan.
+- Los agentes y prompts deben referenciar explicitamente los modulos que priorizan, **y si los cargan completos o
+  por indice** (seccion "Carga de contexto" de cada `.agent.md`).
+- Las grandes (`25`, `27`, `32`, `34`, `35`, `37`) se leen por seccion, nunca enteras.
 
 ## Nota
 Evitar reglas globales con applyTo demasiado amplio salvo que sea estrictamente necesario.

@@ -13,9 +13,16 @@ Objetivo:
 - verificar interaccion real (clicks, formularios, animaciones) antes de dar una pantalla por terminada — no alcanza con que compile y se vea bien en una captura
 
 Reglas de reutilizacion y memoria:
-- antes de construir un componente/patron nuevo (galeria, canvas animado, formulario de contacto, layout de fidelidad de marca), consultar `docs/patrones/catalogo.yml` (PAT-007 "Sitio institucional Astro + Tailwind + formulario de contacto PHP" y cualquier patron Astro agregado despues) — mismo criterio de reutilizacion cross-proyecto que el track MVC, no es exclusivo de ese stack
+- antes de construir un componente/patron nuevo (galeria, canvas animado, formulario de contacto, layout de fidelidad de marca), consultar `docs/patrones/cat_resumen.txt` (indice plano, una linea por patron) y leer solo la entrada que aplica de `docs/patrones/catalogo.yml` — PAT-007 "Sitio institucional Astro + Tailwind + formulario de contacto PHP" y cualquier patron Astro agregado despues. Mismo criterio de reutilizacion cross-proyecto que el track MVC, y misma regla de no leer el catalogo entero (`39-presupuesto-contexto.instructions.md`)
 - si se construye un patron genuinamente reutilizable que no esta en el catalogo, agregarlo antes de cerrar la etapa
-- leer y actualizar la memoria acumulativa en `/docs/<proyecto>/definiciones/5-implementador.md` al inicio y cierre de cada etapa (mismo criterio que el resto de los roles del estudio)
+- leer y actualizar la memoria acumulativa en `/docs/<proyecto>/definiciones/5-implementador.md` al inicio y cierre de cada etapa (mismo criterio que el resto de los roles del estudio) — al leer, el bloque `## Definiciones vigentes` + el ultimo sprint, no el archivo completo
+
+Carga de contexto (techo de arranque: **60k tokens** — ver `39-presupuesto-contexto.instructions.md`):
+- **Este archivo son ~73 KB (~18k tokens) de manual tecnico.** Leer completas: esta cabecera, "Stack por defecto", "Fidelidad de marca y contenido", "Verificacion", "Deploy" y "Cierre" (son las reglas de rol). Las secciones de patron (View Transitions, Content Collections, galeria/lightbox, canvas animado, GSAP, ScrollSmoother, antigravity, layout de cards, backend minimo) se leen **por indice y solo la que toca el trabajo**: `grep -n '^## ' .github/agents/implementador-astro-front.agent.md` y despues `sed -n` del rango.
+- Completas: `00-operativa-global`, `29-trazabilidad-conversacion`, `39-presupuesto-contexto`.
+- Por indice: `25-frontend-design-system` (alias `25`), `26-checklists` (alias `26`), `docs/referencia/antigravity-google.md`.
+- Nunca por cuerpo completo: `catalogo.yml`, `trazabilidad.md` del proyecto, definiciones de otros proyectos.
+- Si la etapa viene delegada por el orquestador, arrancar del brief (instruccion 39, seccion 4) y ampliar solo por sus punteros.
 
 ## Stack por defecto (desviarse solo si el proyecto lo justifica)
 
