@@ -251,7 +251,82 @@ Etapa 1 ya en producción. El cliente usó el sistema y trajo 7 pedidos de cambi
 - `Ganaderia.Domain/Entities/Ganaderia/FacturaVenta.cs` — patrón exacto de impuestos editables (Subtotal, `PorcentajeIva`/`MontoIva`, `PorcentajeIIBB`/`MontoIIBB`, `PorcentajeOtrasPercepciones`/`MontoOtrasPercepciones`, Total) a reutilizar para CR-1. No modela tipo de comprobante A/B/C ni "facturado/en negro" — eso es concepto nuevo de este proyecto (no tiene precedente en ganadería, se documenta como tal).
 - `Ganaderia.Domain/Entities/Ganaderia/FacturaVentaIngreso.cs` + `Enums/Ganaderia/PlazoCuotas.cs` — patrón de cuota calculada a 30/60/90 días desde una fecha base. Marihogar ya lo reutilizó parcialmente en Sprint 4 (`Cheque.Cuota`), pero sin un campo de fecha base explícito (`FechaEmision`) separado de `FechaVencimiento` — ver CR-2.
 
-### CR-1 — Orden de compra: tipo de comprobante + impuestos discriminados
+### CR-80 — Tres métricas de gestión nuevas (inventario, rentabilidad real, IVA) + reestructuración del Dashboard
+
+Pedido explícito del cliente (24/09/2026), sobre una propuesta de 6 métricas candidatas derivadas de la estructura de datos existente. Confirmó 3 y descartó 3:
+
+| # | Candidata | Decisión del cliente |
+|---|---|---|
+| 1 | Rotación de stock y capital inmovilizado | **Sí** — "implementar explicando al cliente para qué sirve esta métrica" |
+| 2 | Margen real con costo histórico (sin migración) | **Sí** |
+| 3 | Aging de cobros y pagos (0-30/31-60/61-90/+90) | No |
+| 4 | Costo de los medios de pago (recargo de tarjeta) | No |
+| 5 | Posición de IVA estimada | **Sí, con prioridad — "muy útil, incluirlo en el dashboard principal"** |
+| 6 | Reposición sugerida con demora real por proveedor | No |
+
+Más un cuarto pedido en el mismo mensaje: **"reestructurar información del dashboard con mejoras de UX/UI y reacomodar las cards en base a la info que muestra, en el rol de un diseñador gráfico"**.
+
+### Parte 1 — Inventario: capital inmovilizado, rotación y clasificación ABC
+
+Hoy el activo más grande del negocio (el stock) solo tiene la alerta de "stock crítico" (productos por debajo del mínimo). No existe ninguna métrica que responda cuánta plata está quieta ni qué productos la tienen quieta.
+
+- **Capital inmovilizado** = Σ (`Producto.StockActual` × `Producto.PrecioCompra`) de los productos con stock > 0. Total, y desglosado por Categoría y por Marca.
+- **Plata quieta** = el mismo cálculo restringido a los productos **sin ninguna venta en los últimos 90 días** (ventana configurable desde la pantalla: 60/90/180). Es el número que el cliente pidió poder explicar: capital comprado que todavía no volvió a caja.
+- **Días de cobertura** por producto = `StockActual ÷ (unidades vendidas por día en los últimos 90 días)`. Responde "con lo que tengo, cuántos días me dura" — se eligió sobre el índice de rotación clásico (ventas ÷ stock promedio) porque es la forma en que el cliente ya razona su reposición, y porque no requiere reconstruir el stock promedio histórico (el sistema no lo versiona). Sin ventas en la ventana → cobertura "sin movimiento", nunca ∞ ni división por cero.
+- **Clasificación ABC** (Pareto) sobre la facturación de los últimos 6 meses: A = los productos que acumulan hasta el 80% de las ventas, B = hasta el 95%, C = el resto. **Calculada, no cargada a mano**: es una decisión distinta a la de `la-platense`, donde `Producto.ClasificacionABC` es una columna que el usuario carga o sugiere el importador. Acá no se persiste nada — el dato sale de `MovimientoStock` cada vez que se abre la pantalla, así que nunca queda viejo.
+- **Alerta cruzada A + stock crítico**: un producto clase A (explica ventas) por debajo del stock mínimo es la urgencia real de reposición, y hoy se pierde entre los demás productos críticos.
+
+### Parte 2 — Margen real con costo histórico
+
+CR-58 dejó documentada una limitación **aceptada explícitamente por el cliente**: el margen bruto valúa el costo al `Producto.PrecioCompra` **actual**, así que con inflación una venta de hace seis meses muestra un margen inflado (costo de hoy contra precio de entonces). Este CR la corrige sin agregar ninguna columna:
+
+- El costo de cada `VentaItem` se reconstruye con el `PrecioCompra` de la **última `OrdenCompraItem` de ese producto en una OC Recibida con `FechaRecepcion` anterior o igual a la fecha de la venta**. Es el mismo criterio de "costo de la línea de recepción" que `ShowroomGriffin` persiste como `CostoUnitario`, reconstruido desde los datos que marihogar ya tiene en lugar de migrar.
+- Si un producto no tiene ninguna recepción anterior a la venta, cae al `PrecioCompra` actual (comportamiento de hoy) y esa venta se cuenta como **no cubierta**. La pantalla informa siempre el **% de ventas valuadas con costo histórico**: sin ese porcentaje el número nuevo sería tan opaco como el viejo.
+- Se agrega desglose por **Categoría** y por **Marca**, y el detalle de los productos que más margen aportan y los que lo destruyen (margen negativo o menor al 10%).
+- El KPI "Margen bruto" del Dashboard pasa a usar el costo histórico. Se acepta explícitamente que el número del Dashboard **cambie** respecto de lo que mostraba antes: el anterior estaba sesgado, y la card lo aclara.
+
+### Parte 3 — Posición de IVA estimada (prioridad, en el Dashboard)
+
+- **Débito fiscal (IVA ventas)**: `ComprobanteAfip` con `Estado = Emitido` y tipo FacturaA/FacturaB del período, menos las Notas de Crédito (NotaCreditoA/B) Emitidas del período. El IVA de cada comprobante se obtiene con **exactamente la misma fórmula que se declaró a AFIP** (`AfipService.CalcularNetoIva`: neto = total ÷ (1 + tasa), IVA = total − neto, con la tasa de `Afip:PorcentajeIva`). No se inventa un segundo criterio: si la pantalla y lo declarado difirieran, el número no serviría para nada.
+- **Crédito fiscal (IVA compras)**: `OrdenCompra.MontoIva` de las OC con `Facturada = true` no canceladas del período. Ese importe ya lo carga el Administrador al confirmar la OC con la factura del proveedor a la vista (CR-1/CR-10), así que es dato transcripto, no estimado.
+- **Saldo de IVA** = débito − crédito. Positivo = a pagar; negativo = saldo técnico a favor.
+- **Base devengado, por fecha del comprobante** — no por fecha de cobro. Criterio reutilizado de `ganaderia` (v13, PF74): una factura emitida en marzo y cobrada en mayo suma su IVA en **marzo**, que es lo que permite cruzar el número contra el Libro IVA.
+- **Rótulo obligatorio en la card, no en un tooltip**: "estimación sobre base devengada, no reemplaza el Libro IVA ni la liquidación del contador" (regla R30 de ganaderia: la pantalla mezcla dos bases contables — caja para ingresos/egresos, devengado para el IVA — y sin rótulo explícito el usuario compara barras que no hablan del mismo período).
+- Serie de los últimos 12 meses en gráfico (IVA ventas y compras + línea de saldo), en el Dashboard.
+
+### Parte 4 — Reestructuración del Dashboard
+
+Problema actual medido sobre la pantalla real: 10 cards visualmente **idénticas** en dos filas indistintas (6 + 4), todas del mismo tamaño y peso, mezclando operación del día (ventas de hoy, stock crítico) con finanzas (balance de caja, deuda a proveedores) y con compromisos (cheques, tarjetas). No hay jerarquía: el número más importante y el más accesorio se leen igual, y la única forma de encontrar algo es leer las 10.
+
+Se reagrupa por **la pregunta que responde cada número**, no por el orden en que se fueron agregando. Detalle de layout, jerarquía y estados en `2-disenador-funcional.md`.
+
+### Criterios de aceptación
+
+- **CA-CR80.1** — El capital inmovilizado de la pantalla coincide con Σ (StockActual × PrecioCompra) de los productos con stock positivo, y su desglose por categoría suma exactamente el total.
+- **CA-CR80.2** — "Plata quieta" solo incluye productos sin ventas en la ventana elegida; cambiar la ventana de 90 a 180 días nunca aumenta el monto.
+- **CA-CR80.3** — Los días de cobertura de un producto sin ventas en la ventana se muestran como "sin movimiento", nunca como 0, ∞ ni error.
+- **CA-CR80.4** — Las unidades vendidas de un producto excluyen las ventas canceladas (la reversión de stock las compensa) y los ajustes manuales (`TipoMovimientoStock.Ajuste` nunca cuenta como venta).
+- **CA-CR80.5** — La suma de las ventas de las clases A + B + C es igual al total de ventas de la ventana; ningún producto queda sin clase.
+- **CA-CR80.6** — El margen con costo histórico usa, para cada línea, el costo de la última recepción **anterior a la fecha de esa venta**; una recepción posterior no cambia el margen de una venta ya ocurrida (invariante verificable: recalcular dos veces con una OC nueva en el medio da el mismo margen histórico).
+- **CA-CR80.7** — La pantalla informa el % de ventas valuadas con costo histórico; si es 0% lo dice explícitamente en vez de mostrar el margen como si fuera exacto.
+- **CA-CR80.8** — El IVA de un comprobante calculado por la pantalla coincide, peso por peso, con el que se declaró a AFIP para ese comprobante (misma fórmula, misma tasa de configuración).
+- **CA-CR80.9** — Una Nota de Crédito Emitida resta del débito fiscal de su mes de emisión.
+- **CA-CR80.10** — El IVA se imputa al mes del comprobante (devengado), no al mes del cobro: una factura de un mes cobrada al siguiente no mueve el saldo del segundo.
+- **CA-CR80.11** — La card de IVA y el gráfico llevan visible el rótulo de base devengada y la aclaración de que no reemplazan el Libro IVA.
+- **CA-CR80.12** — Cada card del Dashboard indica la ventana temporal de su número (período filtrado, últimos 30 días, saldo a hoy, histórico completo). Ninguna cifra queda sin base declarada (KOI-017).
+- **CA-CR80.13** — El Vendedor no ve ninguna de las métricas nuevas, y los endpoints nuevos devuelven 403 aunque se los invoque directo (regla REG-010, mismo criterio que los KPI financieros de CR-58).
+- **CA-CR80.14** — Ninguna pantalla nueva rompe con base vacía o sin movimientos en la ventana (estado vacío explícito, sin error de consola — KOI-B02).
+
+### Riesgos y supuestos
+
+- **R-CR80.1** — El margen del Dashboard va a **cambiar de valor** el día del deploy (pasa de costo actual a costo histórico). Es una corrección, no un bug, pero el cliente tiene que saberlo de antemano para no leerlo como un error: va en el resumen de entrega y en el texto de la card.
+- **R-CR80.2** — La cobertura de costo histórico depende de que las compras estén cargadas como OC recibidas. Productos comprados antes de que el sistema existiera (o cargados por el importador sin OC) caen al costo actual; el % de cobertura hace visible ese límite en vez de esconderlo.
+- **R-CR80.3** — La posición de IVA es una **estimación de gestión**: no contempla percepciones, retenciones, notas de débito, ni compras sin factura. Riesgo de que se lea como liquidación fiscal → mitigado con el rótulo obligatorio de CA-CR80.11 (misma mitigación que ganaderia).
+- **R-CR80.4** — El IVA de ventas se deriva del total del comprobante porque `ComprobanteAfip` no persiste neto ni IVA desglosados (solo `Total`). Si el día de mañana cambia la tasa configurada en `Afip:PorcentajeIva`, los comprobantes viejos se recalcularían con la tasa nueva. Aceptado por ahora (una sola tasa vigente en todo el historial); si el negocio pasa a manejar varias alícuotas, el desglose hay que persistirlo al emitir.
+- **S-CR80.1** — Todas las métricas son de **solo lectura** sobre datos existentes: ninguna columna nueva, ninguna migración EF.
+- **S-CR80.2** — El `PrecioCompra` de `OrdenCompraItem` está cargado sin IVA (Subtotal de la OC es "suma de líneas sin impuestos"), igual que `Producto.PrecioCompra`, así que costo y precio de venta se comparan sobre la misma base.
+
+## CR-1 — Orden de compra: tipo de comprobante + impuestos discriminados
 - **Contexto real**: el informe de Compras exportado (`Importacion/Informe de Compras...xlsx`, 239 compras / 464 líneas) confirma que cada compra tiene Tipo (A/B, a veces vacío = sin factura) y Nº de comprobante — el pedido del cliente de A/B/C + "facturado o en negro" es exactamente ese dato histórico.
 - **CA-CR1.1**: Al confirmar/cargar una Orden de Compra, el Administrador elige: Facturada (Tipo A/B/C) o No facturada ("en negro"). Si es Facturada, Tipo es obligatorio; si es No facturada, no aplica.
 - **CA-CR1.2**: La OC suma un bloque de impuestos editable: % IVA (+ monto calculado, editable), % Ingresos Brutos (+ monto), % Otros impuestos (+ monto) — mismo patrón que `FacturaVenta` de ganadería. Base de cálculo sugerida: Subtotal para IVA; Subtotal + IVA para IIBB y Otros (igual que ganadería).

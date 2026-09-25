@@ -1,7 +1,9 @@
 # Memoria - QA
 
 ## Proyecto: marihogar
-## Ultima actualizacion: 2026-09-02 (Auditoria de infraestructura post CR-59..CR-66: 7 de 10 puntos PASS — migraciones/snapshot, DI, semantica de saldo, MH-016, indices, consistencia doc-vs-codigo y build limpio; **3 gaps reales preexistentes en Compras** — GAP-1/GAP-2 criticos, GAP-3 importante — que invalidan la premisa de que "una OC con pagos reales nunca es cancelable". Ver seccion "Auditoria de infraestructura (2026-09-02)" al final. Entrada previa: CR-62, GO CONDICIONADO con 1 defecto trivial MH-018)
+## Ultima actualizacion: 2026-09-25 (CR-80 — inventario/ABC + rentabilidad con costo historico + posicion de IVA + Dashboard reestructurado. **GO CONDICIONADO**: CA-CR80.8 verificado peso por peso contra los 138 comprobantes Emitidos y los 12 meses del grafico (cero diferencias), invariante del costo historico de CA-CR80.6 **probado** con 173/285/14 recepciones posteriores reales, capital inmovilizado identico al SQL. 3 defectos menores encontrados contra la base real de produccion y **corregidos** con auto-fix catalogado (MH-023 A+B+C no cerraba por 592.023,96; MH-024 "Ultima venta" mostraba la fecha de una anulacion; MH-025 costo historico no determinista con recepciones empatadas). **1 defecto `major` abierto y escalado: MH-026** — dar de baja un producto borra sus ventas pasadas del margen, asi que la card "Margen real del periodo" calcula sobre hasta 3,3% menos ventas que la card "Ventas del periodo" que tiene al lado (12 de los ultimos 17 meses afectados). Ver seccion "CR-80 (2026-09-25)" al final. **Ultima validacion de reglas cross-proyecto: 2026-09-25**. Entrada previa: Auditoria de infraestructura post CR-59..CR-66)
+
+## Ultima actualizacion previa: 2026-09-02 (Auditoria de infraestructura post CR-59..CR-66: 7 de 10 puntos PASS — migraciones/snapshot, DI, semantica de saldo, MH-016, indices, consistencia doc-vs-codigo y build limpio; **3 gaps reales preexistentes en Compras** — GAP-1/GAP-2 criticos, GAP-3 importante — que invalidan la premisa de que "una OC con pagos reales nunca es cancelable". Ver seccion "Auditoria de infraestructura (2026-09-02)" al final. Entrada previa: CR-62, GO CONDICIONADO con 1 defecto trivial MH-018)
 
 ## Definiciones vigentes
 
@@ -3155,3 +3157,215 @@ Requiere datos que **no existen en `marihogar_dev`**: la base de dev tiene **0 O
 ### Estado go/no-go
 
 **GO CONDICIONAL.** El CR es solido: la Parte A esta bien construida (transaccion correcta, cobertura exhaustiva de estados, signos del ledger correctos, sin transaccion anidada) y la Parte B no altera ningun total, lo cual se verifico y no solo se asumio. No se encontro ningun defecto en lo que el pedido marcaba como mas riesgoso. Bloquean el deploy dos cosas, ninguna de ellas un error del codigo escrito: (1) ejecutar en dev los 3 casos de cancelacion, que hoy no tienen ninguna cobertura empirica; (2) decidir que hacer con **MH-019**, que es un hueco de alcance heredado de la auditoria, no un bug de lo que se implemento.
+
+
+## CR-80 (2026-09-25) — Inventario (capital inmovilizado/ABC) + rentabilidad con costo historico + posicion de IVA + Dashboard reestructurado
+
+**Ultima validacion de reglas cross-proyecto: 2026-09-25** (antes de esta corrida el campo no existia en este archivo, asi que se trato todo el catalogo vigente de `docs/qa/regresiones-manuales.yml` y de `32-estandares-qa-implementador.instructions.md` como "a validar por primera vez" para la superficie de este CR).
+
+### Como se probo (metodo, y por que asi)
+
+- **Runner de consola de solo lectura contra la base REAL de produccion** (`scratchpad/qacr80`, `scratchpad/qacr80b`): instancia `AppDbContext` con la connection string de `appsettings.Production.json` y llama a `InventarioService`, `RentabilidadService` y `DashboardService` directamente. No levanta la app web, asi que **ningun hosted service corre y no se escribe una sola fila** (los 3 hosted services recuperan la corrida diaria ~30 s despues de arrancar y escriben notificaciones). Es el unico camino para probar estas 3 metricas: dependen de un historial real de ventas, compras y comprobantes que la base de desarrollo no tiene.
+- **SQL directo de verificacion cruzada** (`mysql.exe`, solo `SELECT`): cada numero importante se calculo **por segunda vez y por otro camino**, no se dio por bueno el del service.
+- **Pantallas por HTTP con `curl` + cookie jar** contra `marihogar_dev` (nunca produccion): codigos de respuesta, HTML renderizado, estados vacios, panel de filtros, sesion y matriz de roles.
+- **Verificacion automatizada por navegador: NO ejecutada.** El servidor MCP `playwright` **no esta disponible en esta sesion** (se verifico: no hay herramientas `mcp__playwright__*` ni por busqueda de herramientas diferidas). Se cayo al procedimiento de `33-verificacion-automatizada-qa.instructions.md`: todo lo verificable por HTTP se verifico por HTTP, y lo que exige un navegador real (consola de JS limpia, 390 px, interaccion del grafico) queda como procedimiento manual para el usuario, listado abajo. **Ninguna verificacion se da por hecha sin decir por que camino se cubrio.**
+
+### Cobertura por criterio de aceptacion
+
+| CA | Resultado | Evidencia concreta (consulta + valor) |
+|---|---|---|
+| CA-CR80.1 — capital inmovilizado y su desglose | **PASS** | Service: `CapitalInmovilizado = 15.563.957,61` con 106 productos. SQL independiente: `SELECT COUNT(*), ROUND(SUM(StockActual*PrecioCompra),2) FROM productos WHERE StockActual>0 AND DeletedAt IS NULL` -> `106 / 15563957.61`. Identico al peso. Desglose: `sumaCategorias = 15.563.957,61`, `dif = 0,00` en las 3 ventanas (60/90/180) |
+| CA-CR80.2 — plata quieta nunca crece al ampliar la ventana | **PASS** | `PlataQuieta`: 60d `10.567.283,60` (75 prod) -> 90d `8.897.232,93` (64) -> 180d `7.032.071,39` (49). Monotona en monto y en cantidad. Ademas, prueba fuerte: **0 productos** pasan a "quieto" al ampliar 60->90 ni 90->180. Riesgo latente identificado y descartado con datos: el clamp de unidades negativas a 0 (decision 4 del implementador) **podria** hacer crecer la plata quieta si en la franja 180d..90d hubiera una reversion de cancelacion mayor que las ventas de la ventana corta; SQL: `SELECT ProductoId, SUM(Cantidad) FROM movimientosstock WHERE Tipo=2 AND Fecha>='2026-03-29' AND Fecha<'2026-06-27' GROUP BY ProductoId HAVING SUM(Cantidad)>0` -> **0 filas** |
+| CA-CR80.3 — cobertura "sin movimiento", nunca 0/infinito/error | **PASS** | Ventana 90: `null (sin movimiento) = 153`, `== 0 (agotado) = 27`, `negativa = 0`, `unidades < 0 = 0`. Las dos situaciones se distinguen (decision 3 del implementador verificada en datos reales). La vista renderiza `<span class="ov-vacio">sin movimiento</span>` y `nunca se vendio` |
+| CA-CR80.4 — excluye canceladas y ajustes | **PASS** | El filtro `Tipo == Venta` deja afuera los 25 movimientos de `Ajuste` (SQL: `SELECT Tipo, COUNT(*) FROM movimientosstock GROUP BY Tipo` -> `1:494, 2:1200, 3:25`). Las canceladas se netean por signo: de los 1200 movimientos de Tipo=Venta, 46 son positivos (reversiones) y 1154 negativos; en los ultimos 180 dias hay 46 reversiones sobre 28 productos y **ningun** producto queda con unidades netas negativas |
+| CA-CR80.5 — A+B+C = 100% de las ventas de la ventana | **FAIL -> corregido (MH-023)** | Antes: ventana 180 `VentasVentana = 83.702.745,28` contra `suma de las filas = 83.110.721,32`, **dif 592.023,96**; A+B+C tampoco cerraba. SQL que aisla la causa: las ventas de 180d de productos con `DeletedAt IS NOT NULL` son exactamente `592023.96`, de 2 productos (#88 "BASE tela 100" y #52 "Base pana 80", dados de baja el 19/08/2026). Ventanas de 60 y 90 daban dif 0, asi que el defecto era intermitente segun los datos. Despues del fix: `VentasVentana = 83.110.721,32 = suma de filas`, `dif 0,00`, y A+B+C = `66.696.066,23 + 12.314.210,37 + 4.100.444,72 = 83.110.721,32` exacto. Efecto colateral esperado y correcto: la clase A pasa de 42 a 41 productos porque el denominador del Pareto dejo de estar inflado |
+| CA-CR80.6 — costo historico; una recepcion posterior no cambia el margen de una venta anterior | **PASS (invariante probado, no asumido)** | Recalculo **independiente** (busqueda lineal, implementacion distinta de la binaria del service) escenario A (todas las recepciones cargadas) contra escenario B (excluyendo toda recepcion posterior al fin del periodo): 1T2026 `service 18.461.260,95 = A 18.461.260,95 = B 18.461.260,95`, con **173 recepciones posteriores realmente existentes**; 4T2025 `16.116.306,69` en los tres, con **285 posteriores**; ago-2026 `5.814.857,64` en los tres, con **14 posteriores**. Ventas tambien coinciden (`36.019.792,44` service vs recalculo). El invariante se prueba de verdad porque las recepciones posteriores existen y no mueven el numero |
+| CA-CR80.7 — % de ventas valuadas con costo historico | **PASS (con la salvedad de MH-026)** | Cobertura medida en pesos: mes en curso `100%` (50/50 lineas), ago-2026 `99,0%` (64/66), 1T2026 `94,7%` (193/203), historico `89,9%` (912/1077). Visible en la cabecera de `/Rentabilidad`, en las tablas por categoria/marca (`costo de hoy, sin recepcion anterior` en la celda) y en el JSON de la card: `porcentajeCoberturaCostoHistorico: 100`. La salvedad: el porcentaje se calcula sobre una base de ventas incompleta mientras MH-026 siga abierto |
+| CA-CR80.8 — el IVA de la pantalla coincide peso por peso con lo declarado a AFIP | **PASS (la prioridad del pedido)** | Tres evidencias independientes. (1) **Identidad de codigo**: el `git diff` de `AfipService` y `ComprobanteAfipService` muestra que los dos metodos privados tenian cuerpos identicos y que `CalculoIva.CalcularNetoIva` los replica linea por linea (neto = round(total/(1+tasa),2,AwayFromZero), IVA = round(total-neto,2,AwayFromZero)) — no hay cambio de comportamiento posible. (2) **Identidad de entrada**: lo que se declara a AFIP es `ImporteTotal = comprobante.Total` (`ComprobanteAfipService.IntentarEmitirYPersistirAsync`), el mismo campo del que la pantalla deriva el IVA. Los 3 consumidores (FECAESolicitar, PDF de Factura A, pantalla) llaman al mismo helper con la misma tasa de `Afip:PorcentajeIva` (= 21 en produccion, leida del appsettings, nunca hardcodeada). (3) **Recalculo por SQL de los 138 comprobantes Emitidos, mes a mes**: `ROUND(SUM(CASE WHEN TipoComprobante IN (1,6) THEN ROUND(Total-ROUND(Total/1.21,2),2) WHEN TipoComprobante IN (3,8) THEN -ROUND(...) END),2) GROUP BY mes` da **exactamente** los 12 valores de la serie del grafico: oct25 `869.042,19` / nov25 `1.158.698,68` / dic25 `924.060,74` / ene26 `1.640.822,33` / feb26 `1.114.021,16` / mar26 `1.402.504,32` / abr26 `1.259.783,70` / may26 `1.552.360,52` / jun26 `2.081.144,22` / jul26 `1.884.569,46` / ago26 `1.257.570,25` / sep26 `1.636.195,40`. Cero diferencias de redondeo. El redondeo coincide porque el service calcula **comprobante por comprobante** y no sobre la suma de los totales |
+| CA-CR80.9 — la NC resta del debito de su mes de emision | **PASS** | Hay 2 Notas de Credito Emitidas en produccion: #306 `NotaCreditoB PV00007-00000001` del 21/08/2026 (Total `239.000,00`, IVA `41.479,34`, CAE 86349308680400) y #337 del 23/09/2026 (Total `190.000,00`, IVA `32.975,21`, CAE 86384353542463). El conteo del service coincide con el SQL para ambos meses (`ago26: 22 facturas + 1 NC`, `sep26: 21 + 1`) y el debito del mes es el SQL con la NC **restada**, no sumada |
+| CA-CR80.10 — devengado por fecha del comprobante, no de cobro | **PASS en el codigo y en los datos, con un riesgo latente de zona horaria** | Las dos consultas de debito filtran y agrupan **solo** por `ComprobanteAfip.Fecha`; no hay ningun join a `PagoVenta` ni a la fecha de acreditacion en ningun punto del calculo. El credito usa `OrdenCompra.Fecha`. Verificado por lectura y por la coincidencia exacta con el SQL por mes. **Riesgo latente (ver DEF-4)**: `ComprobanteAfip.Fecha` se guarda como `DateTime.UtcNow` mientras a AFIP se le declara `CbteFch` ya convertido a hora de Argentina, asi que un comprobante emitido desde las 21:00 ART del ultimo dia del mes se imputaria al mes siguiente. Hoy no hay ninguno: el comprobante real emitido mas tarde es el #310 a las 19:16 ART |
+| CA-CR80.11 — rotulo de base devengada visible en la card y en el grafico | **PASS** | En el HTML servido, dentro de la card (no en un tooltip): "Estimacion sobre base devengada (por fecha del comprobante, no de cobro)" + `<strong>No reemplaza el Libro IVA ni la liquidacion del contador</strong>`; y en el panel del grafico: "Es una estimacion de gestion, no reemplaza el Libro IVA ni la liquidacion del contador" |
+| CA-CR80.12 — cada card declara su ventana temporal | **PASS** | 14 `ov-chip-ventana` en el HTML servido: 12 para las 12 cards con numero (`periodo` x4, `a hoy` x3, `periodo · devengado`, `historico`, `30 dias`, `90 dias`) + 1 del grafico (`12 meses · devengado`) + 1 de productos mas vendidos. La unica card sin chip es la del enlace a Proyeccion financiera, que no muestra ninguna cifra. Encabezado: "**El rango de fecha afecta solo a las tarjetas marcadas con «periodo»**; las demas declaran su propia ventana" |
+| CA-CR80.13 / REG-010 — el Vendedor no ve nada y los endpoints dan 403 | **PASS** | Sesion real de Vendedor (`vendedor.prueba@marihogar.test`) por `curl`: `/Inventario`, `/Rentabilidad`, `/Dashboard/GetPosicionIva`, `/Dashboard/GetSeriePosicionIva`, `/Dashboard/GetCapitalInmovilizado` y `/Dashboard/GetMargenBruto` devuelven los 6 **302 -> /Account/AccessDenied con 0 bytes de payload** (el proyecto resuelve la denegacion por redirect, no por status 403 crudo: mismo comportamiento que el resto del sistema, sin fuga de datos). El sidebar del Vendedor tiene **0** referencias a `/Inventario` y `/Rentabilidad` (el del Administrador tiene 3 y 2). El Dashboard del Vendedor no contiene ninguna de las cards nuevas (`cardPosicionIva`, `cardCapitalInmovilizado`, `cardPlataQuieta`, `cardMargenBruto`: 0 ocurrencias; en el del Administrador 5/3/4/6) |
+| CA-CR80.14 — ninguna pantalla rompe con base vacia o ventana sin movimientos | **PASS por HTTP / PARCIAL en consola** | `/Inventario?categoriaId=999&filtrar=1` -> 200, 26 KB, estado vacio explicito "No hay productos cargados en la categoria elegida"; `/Rentabilidad?desde=2030-01-01&hasta=2030-01-31` -> 200, estado vacio "No hay ventas confirmadas entre el 01/01/2030 y el 31/01/2030" + "Sin ventas en el periodo seleccionado" + "Sin ventas para valuar". Rango invertido (`desde=2026-09-30&hasta=2026-09-01`) -> 200 sin excepcion. En el Dashboard de dev la card de IVA devuelve todo en 0 y no rompe. Log de la app: **0** excepciones en toda la corrida. **Lo que falta**: la consola del navegador limpia (KOI-B02) no se pudo verificar sin Playwright — los guards estan en el codigo y verificados por lectura, pero la comprobacion empirica queda en el procedimiento manual |
+
+### Historias de usuario
+
+| HU | Resultado | Nota |
+|---|---|---|
+| HU-80.1 — plata inmovilizada y quieta con desglose | **CUMPLE** | CA-CR80.1 + CA-CR80.2 con datos reales |
+| HU-80.2 — que productos explican las ventas (clase A) | **CUMPLE tras el fix MH-023** | Antes el Pareto se calculaba sobre un denominador inflado |
+| HU-80.3 — margen al costo del momento de la venta | **CUMPLE con reserva** | El invariante del costo historico esta probado (CA-CR80.6), pero **MH-026** deja afuera del margen las ventas de productos dados de baja |
+| HU-80.4 — IVA a pagar en el Dashboard | **CUMPLE** | 12 meses verificados peso por peso contra SQL |
+| HU-80.5 — Dashboard sin diez tarjetas iguales | **CUMPLE** | 4 bloques con titulo y subtitulo, 3 cards heroe, 12/12 chips de ventana, clases del design system existentes en el CSS (OLV-018 verificado: las 17 clases nuevas estan definidas), media query de 575,98 px presente |
+| HU-80.6 — el Vendedor no ve ninguna metrica | **CUMPLE** | CA-CR80.13 verificado con sesion real |
+
+### Maquina de estados
+
+**No aplica.** CR-80 es enteramente de solo lectura: no crea ni modifica ninguna entidad, no hay migracion EF, no hay transiciones nuevas. Lo que si se verifico es el **consumo correcto de las maquinas de estados existentes** en las 4 agregaciones nuevas (LP-001): Venta `Pendiente/PagadaParcial/Pagada` (inventario y rentabilidad), OC `Recibida` para el costo historico, OC `Confirmada/Recibida` para el credito fiscal, `ComprobanteAfip.Emitido` para el debito. Ningun `!= Cancelada` en codigo nuevo salvo el caso documentado de la variacion vs periodo anterior. Comprobado con datos: los estados realmente presentes en produccion son Venta `2:1, 3:719, 4:4` y el conjunto explicito los cubre.
+
+### Cobertura del catalogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
+
+| id | aplica | resultado | accion |
+|---|---|---|---|
+| LP-001 | **si (misma superficie exacta: el bug original es un ABC que no filtra el estado de la Venta)** | **PASS** — `InventarioService` y `RentabilidadService` usan el conjunto explicito `[Pendiente, PagadaParcial, Pagada]`; verificado contra los estados realmente presentes | ninguna |
+| MH-001 | si | **PASS** — los 3 `Contains` nuevos van sobre `List<int>`; las 3 consultas de `/Inventario` y las 2 de `/Rentabilidad` ejecutaron contra produccion sin 500 | ninguna |
+| MH-002 | si | **PASS** — los 3 endpoints nuevos no serializan ningun enum (`clase` viaja como string, el resto son decimales/enteros) | ninguna |
+| MH-004 | **si (mismo patron: desglose que no parte el mismo conjunto que el total)** | **FAIL -> corregido** — reaparecio en superficie nueva como **MH-023** | auto-fix aplicado |
+| MH-009 | si | **RIESGO LATENTE** — la familia "fecha guardada en UTC leida como fecha calendaria ART" vuelve a aparecer: `ComprobanteAfip.Fecha = DateTime.UtcNow` contra `CbteFch` en hora ART. Ver DEF-4 | reportado, no corregido (pre-existente y sistemico) |
+| MH-014 | si | **PASS** — las fechas de las pantallas nuevas se renderizan server-side con Razor; el unico dato de fecha que arma el JS son las etiquetas de mes del grafico, que vienen ya formateadas del server (`NombresMes`, sin depender de la cultura del hosting) | ninguna |
+| MH-015 / MH-018 | si | **PASS** — las tablas nuevas son DataTables **client-side** (no hay `GetData` server-side ni `SortColumn`), asi que toda columna ordenable ordena de verdad. Los importes y los dias ordenan por `data-order` numerico, no por el texto formateado | ninguna |
+| MH-016 | si | **PASS** — `InventarioService` proyecta columnas sueltas (`Select` a tipo anonimo) y nunca materializa `Producto`, asi que no toca `RowVersion` | ninguna |
+| REG-010 / KOI-003 | si | **PASS** — policy a nivel de clase en los 2 controllers nuevos + explicita en los 3 endpoints nuevos, verificado empiricamente con sesion de Vendedor | ninguna |
+| KOI-005 / KOI-006 | si | **PASS** — los 2 links nuevos del sidebar apuntan a controllers que existen y responden 200 para Administrador (no 404) | ninguna |
+| KOI-015 | si | **PASS** — `ObtenerCapitalInmovilizadoAsync` reutiliza `ObtenerAsync(ventana, categoria)` pasando el filtro **como parametro**; no hay ningun `Where` aplicado despues de una proyeccion | ninguna |
+| KOI-016 (guarda de privilegio) | si | **PASS** — la autorizacion es por policy, no por comparacion de string de rol | ninguna |
+| KOI-016 (complemento aritmetico visible en otra pantalla) | si | **PASS para lo nuevo** — el Vendedor no accede a ninguna de las metricas nuevas ni a sus endpoints; el margen no es derivable desde ninguna pantalla nueva que el vea | ninguna |
+| KOI-B02 | si | **PASS por lectura, PARCIAL por navegador** — los 3 bloques de JS nuevos resuelven el elemento primero y salen si no esta (tabla de Inventario, daterangepicker de Rentabilidad, panel de filtros); no se pudo confirmar la consola limpia sin Playwright | queda en el procedimiento manual |
+| KOI-017 | si | **PASS** — 12/12 cards con chip de ventana + aclaracion del alcance del rango en el encabezado + ventana propia declarada en el grafico y en las 3 cabeceras de Inventario | ninguna |
+| CRM-024 | si | **PASS** — el `Take(10)` de mejores/peores productos va **despues** del filtro y del orden | ninguna |
+| OLV-012 | si | **PASS** — el filtro vuelve de la sesion y la vista lo repone: tras "Limpiar filtros" la vista renderiza `<option value="90" selected>` | ninguna |
+| OLV-018 | si | **PASS** — las 17 clases `ov-*` que usan las vistas nuevas estan definidas en `olvidata-theme.css` (verificado una por una) | ninguna |
+| REG-001, REG-002, REG-003, REG-004, REG-005, REG-006, REG-007, REG-008, REG-009 | no | N/A — CR-80 no tiene ABM, ni combos de alta, ni autocomplete, ni maquina de estados, ni inputs de importe: son 2 pantallas de reporte de solo lectura y 3 endpoints de lectura | ninguna |
+| KOI-001, KOI-002, KOI-004, KOI-009, KOI-010, KOI-011, KOI-012, KOI-013, KOI-014 | no / parcial | N/A — sin acciones destructivas ni SweetAlert2, sin export, sin topes, sin escrituras de auditoria, sin checkbox+hidden. KOI-014 es el antecedente de KOI-B02, ya cubierto arriba. **KOI-009 (AJAX con URL absoluta desde la raiz)**: los 3 fetch nuevos usan rutas absolutas `/Dashboard/...`, igual que los 9 pre-existentes de la misma vista — consistente con el proyecto, que se deploya en la raiz del sitio, no anidado | ninguna |
+| DN-001, DN-002 | no | N/A — ninguna consulta nueva combina `Include` de coleccion + OrderBy dinamico + Skip/Take (no hay paginacion server-side) | ninguna |
+| GAN-001, GAN-002, GAN-003, GAN-004, GAN-005, GAN-006 | no | N/A — sin grillas dinamicas de filas, sin backfill (no hay migracion), sin `<script type="text/x-template">`, sin `<datalist>`, sin inputs numericos posteados | ninguna |
+| VSF-001, VSF-002, MH-003, MH-005..MH-008, MH-010..MH-013, MH-017, MH-019..MH-022, SG-001, LP-003, LP-004, LP-005, ELV-001, ELV-002, LIP-001, DN-003, DN-004 | no | N/A — modulos y caminos de escritura que CR-80 no toca (cancelaciones, remitos, links publicos, facturacion, edicion inline de stock, cheques, proyeccion, POST de formularios con decimales) | ninguna |
+| CRM-*, OLV-*, KOI-015 (parcial), GAN-*, LIP-001 | no | N/A — otros proyectos / superficies que marihogar no tiene (bot, portal de tenant, frentes, cupos) | ninguna |
+| **MH-023, MH-024, MH-025** | **nuevos, creados en esta corrida** | **FAIL -> auto-fix aplicado y re-verificado contra produccion** | ver "Auto-fixes" |
+| **MH-026** | **nuevo, creado en esta corrida** | **FAIL -> escalado al implementador, sin corregir** | ver DEF-1 |
+
+### Cobertura de reglas nuevas/modificadas desde la ultima corrida de QA de este proyecto
+
+Este archivo **no tenia** el campo "Ultima validacion de reglas cross-proyecto" (la entrada previa es del 2026-09-02, anterior a que la regla existiera), asi que por la mecanica de `33-verificacion-automatizada-qa.instructions.md` se trato **todo** el catalogo vigente como "a validar por primera vez" para la superficie de este CR. Lo aplicable esta en la tabla de arriba. De lo agregado al catalogo despues del 2026-09-02, lo que efectivamente aplica a CR-80:
+
+| Regla | Origen | Resultado | Accion |
+|---|---|---|---|
+| KOI-017 — dos numeros dibujados juntos: la ventana de cada uno es un DATO | `32-estandares-qa-implementador.instructions.md` | **PASS** — es la regla que estructura el rediseno del Dashboard; 12/12 chips verificados en el HTML servido | ninguna |
+| KOI-015 — helper compartido recibe el filtro como parametro y proyecta al final | `32-...` | **PASS** | ninguna |
+| KOI-016 — guarda de privilegio fail-closed sobre la lista completa de roles | `32-...` | **PASS** | ninguna |
+| MH-022 — asimetria de bases entre los dos lados de una comparacion (CR-79, 2026-09-24) | `regresiones-manuales.yml` | **PASS para CR-80, pero su familia produjo MH-026**: la leccion de MH-022 es que dos cifras dibujadas juntas tienen que estar medidas sobre la misma base. MH-026 es exactamente esa falla entre "Ventas del periodo" y "Margen real del periodo" | reportado como MH-026 |
+| CRM-023 / CRM-024 | `regresiones-manuales.yml` | **N/A / PASS** — sin arrays por AJAX GET; el `Take` va despues del filtro | ninguna |
+| Verificacion automatizada por navegador (politica del 2026-08-14) | rol `qa-mvc.agent.md` + `33-...` | **NO EJECUTABLE en esta sesion** — el MCP de Playwright no esta disponible; se declaro y se cayo al procedimiento por HTTP + manual | procedimiento manual abajo |
+
+**Hallazgo de higiene del catalogo**: el id `KOI-016` esta **duplicado** en `regresiones-manuales.yml` (lineas 3367 y 3401) con dos bugs distintos ("guarda de privilegio fail-closed" y "complemento aritmetico visible en otra pantalla"). El formato dice que los ids son estables y no se renombran, asi que la correccion no la hace QA por su cuenta: queda anotado para que el proximo que toque el catalogo renombre el segundo (candidato: KOI-018).
+
+### Defectos detectados
+
+**DEF-1 / MH-026 — `major`, NO corregido, escalado al implementador.** Dar de baja un producto borra sus ventas pasadas del margen. La consulta de lineas de `RentabilidadService` proyecta `i.Producto!.Nombre` / `i.Producto.Categoria!.Nombre` / `i.Producto.PrecioCompra`, y al navegar a `Producto` EF aplica su query filter global de soft-delete: las lineas de productos dados de baja se caen **enteras**. Evidencia: el service informa `Ventas = 204.545.349,70` sobre 1077 lineas para todo el historico, mientras el SQL da `207.904.904,02` sobre 1108 (`SELECT SUM(vi.Subtotal), COUNT(*) FROM ventaitems vi JOIN ventas v ... JOIN productos p ...` con y sin `p.DeletedAt IS NULL`); la diferencia, `3.359.554,32` en 31 lineas, es exactamente lo de los productos borrados. Y `SUM(Venta.Total) = SUM(VentaItem.Subtotal) = 207.904.904,02`, asi que la card "Ventas del periodo" del Dashboard **si** las cuenta. Resultado: dos cifras rotuladas como ventas del mismo periodo, en el mismo bloque de la misma pantalla, difieren en **12 de los ultimos 17 meses**, entre 0,7% y 3,3% (peor caso abril 2026: `11.437.741,92` en la card de ventas contra `10.945.724,46` de base del margen, `492.017,46` de diferencia). Ademas viola el espiritu de CA-CR80.6: una accion posterior a la venta (dar de baja el producto) cambia el margen de un periodo cerrado. **Por que no lo toque**: el fix cambia el universo de ventas del margen y exige partir la consulta en dos e introducir `IgnoreQueryFilters()` en un Service — hoy solo se usa en `tools/` —, o sea una decision de diseno, no la replica de una solucion ya validada. Propuesta completa en `archivos_fix` de MH-026.
+
+**DEF-2 / MH-023 — `minor`, corregido.** Ver CA-CR80.5.
+
+**DEF-3 / MH-024 — `minor`, corregido.** La columna "Ultima venta" mostraba la fecha en que se **anulo** una venta como si fuera la ultima vez que el producto se vendio, porque tomaba `MAX(Fecha)` sobre todos los `MovimientoStock` de `Tipo=Venta` sin mirar el signo (la reversion de una cancelacion se guarda con `Tipo=Venta` y `Cantidad > 0`). 5 productos afectados en produccion, el peor con 15 dias de error: producto #55 mostraba 19/08/2026 cuando su ultima venta real fue el 04/08/2026. El mismo metodo ya usaba el signo correctamente una linea mas arriba para netear las unidades.
+
+**DEF-4 — `minor`, latente, NO corregido (pre-existente y sistemico).** `ComprobanteAfip.Fecha` y `Venta.Fecha` se guardan como `DateTime.UtcNow`, mientras a AFIP se le declara `CbteFch` ya convertido a hora de Argentina (`AfipService`, linea 292) y las ventanas de las pantallas se calculan con `HorarioArgentino.Ahora.Date`. Entre las 21:00 y las 24:00 ART la fecha UTC ya es la del dia siguiente, asi que **un comprobante emitido despues de las 21:00 ART del ultimo dia de un mes se imputaria al mes siguiente**, difiriendo de lo declarado. Hoy no ocurre: de los 138 comprobantes Emitidos, los 2 que tienen mes ART distinto del mes UTC (#57 y #28) son del historico importado con hora 00:00 y sin CAE, no emitidos por el sistema; el comprobante real emitido mas tarde es el #310 a las 19:16 ART. Mismo efecto sobre el limite de dia en todas las ventanas de fecha. **No lo toque** porque cambiar la semantica de `Fecha` es un pase sistemico sobre todo el proyecto (familia MH-009), muy por fuera del alcance de CR-80.
+
+**DEF-5 / MH-025 — `minor`, corregido.** Ver "Auto-fixes".
+
+**OBS-1 — decision de negocio, no la toco.** El credito fiscal excluye las OC `Facturada = true` que quedaron **Canceladas**. En produccion hay una: OC #257 del 01/09/2026, `MontoIva = 80.001,60`. La implementacion sigue la letra del analisis funcional ("OC con `Facturada = true` **no canceladas**"), pero es IVA de una factura real de proveedor: sin ella, el saldo de septiembre es `1.026.032,55`; con ella seria `946.030,95` (8% menos a pagar). **Decision del cliente/contador**, no un defecto.
+
+**OBS-2 — dato para el cliente, no un defecto.** Los 222 productos vigentes de produccion estan **todos** en la unica categoria que existe ("Sin categorizar") y **todos** sin marca. El desglose por categoria y por marca —que el analisis pide en las dos pantallas nuevas— rinde hoy **una sola fila** en cada caso. Las metricas de capital, plata quieta, cobertura y ABC funcionan igual; lo que no aporta nada hasta que se categorice el catalogo es el desglose. Vale decirselo al cliente junto con la entrega.
+
+**OBS-3 — menor, no lo toco.** En `/Rentabilidad`, un producto cuyas lineas suman `Subtotal = 0` (hay 29 lineas de venta con subtotal 0 en el historico: regalos/bonificaciones) informa `MargenPorcentaje = 0` aunque su margen en pesos sea negativo, porque el porcentaje se protege con `Ventas > 0`. Hoy no se ve: ningun producto queda por debajo del umbral del 10% y la lista "peores productos" viene **vacia** en produccion. Es una eleccion de presentacion razonable; queda anotado por si el umbral cambia.
+
+### Auto-fixes aplicados
+
+| id | archivo | que cambio | verificacion post-parche |
+|---|---|---|---|
+| **MH-023** | `MariHogar.Infrastructure/Services/InventarioService.cs` | La consulta de ventas valorizadas se acota con `productoIds.Contains(i.ProductoId)` sobre los ids del catalogo vigente; para que ese universo no dependa del filtro de categoria, el catalogo se trae completo en el SQL y la categoria se filtra en memoria (siguen siendo 3 consultas) | Ventana 180 pasa de `dif 592.023,96` a `dif 0,00`; A+B+C = `83.110.721,32` exacto; capital, plata quieta y la monotonia de CA-CR80.2 sin cambios en las 3 ventanas |
+| **MH-024** | `MariHogar.Infrastructure/Services/InventarioService.cs` | `UltimaVenta` pasa a maximo condicional `g.Max(m => m.Cantidad < 0 ? (DateTime?)m.Fecha : null)` — `MAX(CASE WHEN...)`, no `g.Where(...)` adentro del `GroupBy` (MH-001/MH-002) | Los 5 productos afectados pasan a la fecha del ultimo movimiento con `Cantidad < 0`, cada uno contra una consulta independiente: #31 `23/09 12:36` (antes 16:55), #55 `04/08` (antes 19/08), #65 `02/09 15:04` (antes 15:05), #154 `08/08` (antes 19/08), #167 `05/08` (antes 19/08) |
+| **MH-025** | `MariHogar.Infrastructure/Services/RentabilidadService.cs` | Se agrega `oci.Id` a la proyeccion y el orden pasa a `.OrderBy(r => r.FechaRecepcion).ThenBy(r => r.Id)`: el desempate de dos recepciones de la misma fecha deja de depender del orden de filas de MySQL | Costo historico total: `104.005.283,10` con el orden de la base y `104.005.283,10` con `(Fecha, Id)` — **diferencia 0,00**, el fix no mueve ningun numero hoy y cierra la puerta a que se muevan solos. El invariante de CA-CR80.6 sigue dando A == B == service en los 3 periodos |
+
+Ninguno de los 3 agrega logica de negocio: MH-023 y MH-026 son la misma leccion en espejo (el query filter global se aplica **por consulta**, no por metodo), MH-024 usa el signo que el mismo metodo ya usaba, y MH-025 hace explicito un desempate que estaba delegado al motor. Build tras los 3: `dotnet build MariHogar.slnx` -> **0 errores, 8 warnings preexistentes, ninguno nuevo**. Regresion por HTTP tras los fixes: `/Inventario` (y con ventana 180, con categoria 1 y con categoria inexistente), `/Rentabilidad`, `/Dashboard`, los 3 endpoints nuevos y las 4 pantallas vecinas (`/Stock`, `/Productos`, `/Caja`, `/ProyeccionFinanciera`) -> **todos 200, 0 excepciones en el log**.
+
+### R-CR80.1 cuantificado (para el aviso al cliente)
+
+El margen del Dashboard **cambia de valor** el dia del deploy, y ahora se sabe cuanto, medido contra produccion:
+
+| Periodo | Margen viejo (costo de hoy) | Margen nuevo (costo historico) | Delta |
+|---|---|---|---|
+| Mes en curso (sep-2026) | `6.629.721,04` (50,8%) | `6.541.607,80` (50,1%) | **−88.113,24** (−0,7 pp) |
+| Mes anterior (ago-2026) | `6.152.757,45` (51,3%) | `6.170.256,62` (51,5%) | +17.499,17 |
+| 1T2026 | `14.602.676,26` (40,5%) | `17.558.531,49` (48,7%) | **+2.955.855,23** (+8,2 pp) |
+
+La correccion se hace mas grande cuanto mas viejo el periodo, que es exactamente el sesgo que CR-80 venia a corregir: valuar una venta de hace seis meses al costo de hoy, con inflacion, hundia el margen historico 8 puntos. El numero que el cliente va a ver distinto el dia del deploy es el del mes en curso, y baja poco (menos de 1 punto).
+
+### Costo de las pantallas contra produccion (RT-CR80.2)
+
+Medido desde fuera del hosting (cada round-trip paga ~200 ms de enlace que la app no paga):
+
+| Pantalla / endpoint | Tiempo total | Comandos SQL | Tiempo en la base |
+|---|---|---|---|
+| `/Inventario` (ventana 90) | 2.080 ms | 3 | 660 ms |
+| `/Rentabilidad` (mes en curso) | 1.261 ms | 2 | 416 ms |
+| `Dashboard/GetCapitalInmovilizado` | 1.888 ms | 3 | 628 ms |
+| `Dashboard/GetPosicionIva` | 1.318 ms | 2 | 429 ms |
+| `Dashboard/GetSeriePosicionIva` (12 m) | 1.646 ms | 2 | 423 ms |
+| `Dashboard/GetMargenBruto` | 1.291 ms | 2 | 436 ms |
+
+Sin N+1 en ningun caso, y la cantidad de consultas no depende del volumen de datos. Nota de arquitectura: el Dashboard dispara ahora **3 endpoints nuevos** y `GetCapitalInmovilizado` paga el catalogo completo por decision explicita del implementador (decision 5, para que la card y la pantalla no puedan diferir) — es el precio correcto por esa garantia, y se verifico que en efecto dan el mismo numero al peso (`15.563.957,61` en los dos).
+
+### Pruebas minimas ejecutadas (las 16 que dejo el implementador)
+
+| # | Prueba | Estado |
+|---|---|---|
+| 1 | CA-CR80.8, IVA de la pantalla contra lo declarado a AFIP | **EJECUTADA** — 138 comprobantes, 12 meses, cero diferencias. Lo que **no** se ejecuto: cambiar `Afip:PorcentajeIva` y ver moverse los tres numeros juntos (implica tocar la configuracion de produccion); queda cubierto por lectura — los 3 consumidores reciben la tasa del mismo `AfipSettings` |
+| 2 | CA-CR80.1 contra SQL | **EJECUTADA** — identico al peso |
+| 3 | CA-CR80.2, ventana 90 -> 180 | **EJECUTADA** — monotona, y el riesgo latente del clamp descartado con SQL |
+| 4 | CA-CR80.3 / CA-CR80.14 | **EJECUTADA por HTTP** — "sin movimiento" (153), "agotado" (27), estados vacios de las 2 pantallas; consola del navegador pendiente |
+| 5 | CA-CR80.4, cancelar una venta y ver bajar las unidades | **PARCIAL** — el neteo por signo se verifico sobre las 46 reversiones que ya existen en produccion; cancelar una venta nueva es un camino de escritura y va en el procedimiento manual |
+| 6 | CA-CR80.5, A+B+C | **EJECUTADA — FALLABA, corregida (MH-023)** |
+| 7 | CA-CR80.6, invariante fuerte | **EJECUTADA** — probada con 3 periodos y 173/285/14 recepciones posteriores reales |
+| 8 | CA-CR80.7, % de cobertura | **EJECUTADA** — 100% / 99,0% / 94,7% / 89,9% |
+| 9 | CA-CR80.9 / CA-CR80.10 | **EJECUTADA** — las 2 NC reales restan en su mes; el calculo no toca ninguna fecha de cobro |
+| 10 | CA-CR80.11, rotulo visible | **EJECUTADA** — en la card y en el grafico, en el HTML servido |
+| 11 | CA-CR80.12, chips de ventana | **EJECUTADA** — 12/12 + encabezado. Lo que falta: mover el rango y ver que solo cambian las de «periodo» (requiere navegador) |
+| 12 | CA-CR80.13, 403 al Vendedor | **EJECUTADA** — 6 endpoints, sesion real |
+| 13 | Panel de filtros | **EJECUTADA** — `data-filtros-puestos`: entrada limpia `0`, ventana 180 `1`, vuelta sin parametros `1` (sesion), ventana 90 (default) `0`, categoria+default `1`, tras `LimpiarFiltros` `0` y el combo vuelve a `90` |
+| 14 | Carga independiente por card | **PARCIAL** — el patron esta intacto (un fetch y un `catch` por card, verificado en la vista); simular la caida de un endpoint requiere navegador |
+| 15 | El margen cambio a proposito | **EJECUTADA y cuantificada** — tabla de R-CR80.1 |
+| 16 | Mobile 390 px | **NO EJECUTADA** — sin navegador. La media query de 575,98 px existe y reduce el numero heroe; el resto es grilla de Bootstrap. Va al procedimiento manual |
+
+### Procedimiento manual para el usuario (lo que no se pudo automatizar sin Playwright)
+
+1. **Consola del navegador limpia (KOI-B02)**: abrir `/Inventario`, `/Rentabilidad` y `/Dashboard` con la consola abierta (F12). Despues repetir en `/Inventario?categoriaId=<una categoria sin productos>` y en `/Rentabilidad` con un rango sin ventas. Esperado: ningun error rojo en ninguno de los 5 casos.
+2. **Chips de «periodo» (CA-CR80.12)**: en el Dashboard, mover el rango de fecha y confirmar que **solo** cambian las 4 tarjetas marcadas con «periodo» y las demas quedan igual.
+3. **Carga independiente (prueba 14)**: con la consola abierta, cortar la red un instante mientras carga el Dashboard. Esperado: la tarjeta afectada dice "Error al cargar" y las otras 11 siguen mostrando su numero.
+4. **Cancelar una venta (CA-CR80.4)**: en dev, cancelar una venta reciente y recargar `/Inventario`. Esperado: las unidades vendidas de ese producto bajan exactamente en la cantidad cancelada y **"Ultima venta" no se mueve** (esto ultimo verifica el fix MH-024). Un ajuste manual de stock hacia abajo no debe aparecer como unidades vendidas.
+5. **Mobile 390 px (prueba 16)**: emulador de 390 px en las 3 pantallas. Esperado: una tarjeta por fila, el orden de bloques operacion -> plata -> vencimientos -> inventario, las tablas scrollean horizontal sin romper la pagina y el numero heroe sigue siendo el mas grande.
+6. **Grafico de IVA**: confirmar que el ultimo mes (el mes en curso) se ve con la franja sombreada y que el tooltip muestra los 3 valores (IVA ventas, IVA compras, saldo).
+
+### Riesgos de liberacion y mitigaciones
+
+| Riesgo | Mitigacion |
+|---|---|
+| **MH-026 sin resolver**: la card de margen y la de ventas del Dashboard muestran bases distintas en 12 de los ultimos 17 meses | Decidir antes del deploy. Si se deploya asi, avisar que el margen de un periodo puede calcularse sobre menos ventas que las que informa la card de al lado cuando hubo productos dados de baja. Es lo unico `major` abierto |
+| **El margen del Dashboard cambia de valor el dia del deploy** (R-CR80.1) | Ya cuantificado: el mes en curso baja `88.113,24` (0,7 pp). Va en el resumen de entrega, con la explicacion de que es la correccion pedida |
+| La posicion de IVA se lea como liquidacion fiscal (R-CR80.3) | Rotulo verificado dentro de la card y del grafico (CA-CR80.11). Reforzar en el mensaje de entrega: no contempla percepciones, retenciones, notas de debito ni compras sin factura |
+| **OBS-1**: el saldo de IVA de septiembre excluye `80.001,60` de una OC facturada que quedo Cancelada | Confirmar el criterio con el cliente/contador antes de que use el numero para pagar |
+| **DEF-4**: un comprobante emitido despues de las 21:00 ART del ultimo dia del mes caeria en el mes siguiente | Hoy no pasa (el mas tardio es 19:16 ART). Si el negocio empieza a facturar de noche, hay que arreglar la semantica de `Fecha` — es un pase sistemico, no de CR-80 |
+| El cliente espere valor del desglose por categoria/marca (**OBS-2**) | Avisar que con el catalogo sin categorizar ni marcar el desglose da una sola fila; el valor esta en capital, plata quieta, cobertura y ABC |
+| Sin verificacion por navegador | 6 pasos manuales listados arriba, ninguno de mas de 2 minutos |
+| `/Inventario` sirve ~370 KB de HTML con 222 productos | Aceptable hoy; si el catalogo crece mucho habra que paginar server-side. No bloquea |
+
+### Checklist de salida para merge
+
+- [x] Build `MariHogar.slnx` limpio tras los auto-fixes: 0 errores, 8 warnings preexistentes, ninguno nuevo.
+- [x] Sin migracion EF, sin columnas nuevas (confirmado: el CR es de solo lectura).
+- [x] **No se escribio nada en produccion**: todo el acceso fue por un runner de consola de solo lectura y `SELECT` directo; la app solo se levanto contra `marihogar_dev`.
+- [x] CA-CR80.8 (la prioridad): IVA de la pantalla verificado peso por peso contra la formula declarada a AFIP, 138 comprobantes y 12 meses, cero diferencias.
+- [x] CA-CR80.6: invariante del costo historico probado con recepciones posteriores realmente existentes.
+- [x] Aritmetica que tenia que cerrar: CA-CR80.1 y CA-CR80.2 cierran; CA-CR80.5 fallaba y quedo corregida.
+- [x] CA-CR80.13 / REG-010 verificado con sesion real de Vendedor sobre los 6 endpoints.
+- [x] Estados vacios de las 2 pantallas nuevas verificados por HTTP, sin excepciones en el log.
+- [x] 3 auto-fixes aplicados, catalogados (MH-023/024/025) y re-verificados contra produccion.
+- [x] Regresion de las pantallas vecinas (`/Stock`, `/Productos`, `/Caja`, `/ProyeccionFinanciera`): 200 y sin cambios.
+- [ ] **Decision sobre MH-026** (corregir antes del deploy, o aceptar y avisar). Es lo unico que bloquea.
+- [ ] Decision del cliente/contador sobre OBS-1 (OC facturada y cancelada: su IVA cuenta o no).
+- [ ] 6 pasos del procedimiento manual del navegador (consola limpia, chips de periodo, carga independiente, cancelar una venta, 390 px, grafico).
+- [ ] Aviso al cliente de R-CR80.1 con el numero concreto (−88.113,24 en el mes en curso) y de OBS-2 (desglose sin categorias).
+- [ ] Commit y deploy — los hace el usuario.
+
+### Estado go/no-go
+
+**GO CONDICIONADO a decidir MH-026.** Lo que el pedido marcaba como mas riesgoso salio bien y con evidencia dura: el IVA coincide peso por peso con lo declarado en los 138 comprobantes y los 12 meses del grafico, el invariante del costo historico esta **probado** y no asumido (con 173 y 285 recepciones posteriores reales que no lo mueven), y el capital inmovilizado da identico al SQL. La aritmetica que tenia que cerrar cierra, con una excepcion que aparecio solo en la ventana de 180 dias y ya quedo corregida. Los permisos estan bien puestos y verificados con una sesion real, no por lectura de codigo. Lo unico `major` es MH-026, que no es un error de lo que se implemento sino un filtro global de EF que se cuela en una consulta y no en la de al lado — pero deja dos numeros de la misma pantalla contando distinto, y eso es justo lo que este CR venia a eliminar.

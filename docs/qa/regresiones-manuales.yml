@@ -26,7 +26,7 @@
 
 version: 1
 proyecto: ShowroomGriffin
-ultima_actualizacion: 2026-09-24
+ultima_actualizacion: 2026-09-25
 
 regresiones:
 
@@ -3467,3 +3467,143 @@ regresiones:
       - "Cargar un cobro comprometido grande en un mes futuro y verificar que el ingreso total de ese mes NO crece en todo su monto (el estimado se corre hacia abajo lo mismo): eso prueba que no hay doble conteo."
       - "Verificar que la suma de los KPIs del horizonte coincida con la suma mes a mes de la serie correspondiente."
     nota_generalizacion: "Aplica a TODA proyeccion o forecast de cualquier proyecto (caja, stock, capacidad, cobranzas) donde una parte del futuro se conozca con fecha y otra haya que estimarla. El sesgo se cuela por donde la asimetria es invisible: lo que se cobra en el acto no deja compromiso agendado, asi que el lado del ingreso parece vacio mientras el del egreso (cheques, pagos programados, gastos recurrentes) parece completo. La prueba decisiva no es revisar las consultas una por una — cada una da bien — sino enfrentar el veredicto de la proyeccion con el historial que la misma pantalla muestra al lado. Corolario: en una pantalla que compara, la simetria de las bases es un requisito funcional, no una cuestion de prolijidad."
+
+  - id: MH-023
+    modulo: "Analisis de inventario (CR-80) - InventarioService.ObtenerAsync, clasificacion ABC"
+    titulo: "El denominador del Pareto ABC incluye las ventas de productos dados de baja, que no tienen fila en la tabla: A+B+C sumaba $592.023,96 menos que el total de la ventana y el corte del 80% quedaba corrido"
+    severidad: minor
+    reproducido_en: "marihogar - base REAL de produccion (QA de CR-80, 2026-09-25), ventana de 180 dias. Con ventanas de 60 y 90 dias la diferencia era 0, asi que el defecto aparece y desaparece segun los datos: es de los que pasan cualquier prueba con una ventana y fallan con otra."
+    pasos:
+      - "Dar de baja (soft-delete) un producto que tenga ventas dentro de la ventana de analisis."
+      - "Abrir /Inventario y elegir una ventana que contenga esas ventas (ej. 180 dias)."
+      - "Sumar la columna de ventas de la ventana de todas las filas de la tabla y compararla con el total de ventas de la ventana que usa el Pareto (InventarioResumenDto.VentasVentana)."
+    sintoma: "Sum(filas.VentasVentana) distinto de InventarioResumenDto.VentasVentana. En produccion: 83.110.721,32 contra 83.702.745,28, una diferencia de 592.023,96 aportada por 2 productos dados de baja el 19/08/2026. Como esos productos igual recibian clase ABC pero no fila, el acumulado de Pareto se corria y un producto vivo podia quedar clase B cuando le correspondia A (en produccion, A paso de 42 a 41 productos al corregirlo)."
+    expectativa: "CA-CR80.5: la suma de las ventas de las clases A + B + C es igual al total de ventas de la ventana y ningun producto queda sin clase. El denominador del Pareto tiene que ser exactamente el mismo conjunto de productos que la tabla muestra."
+    causa_raiz: "La consulta de ventas valorizadas (VentaItems agrupados por ProductoId) NO navega a Producto - proyecta solo ProductoId y Subtotal -, asi que el query filter global de soft-delete de Producto no la alcanza. La consulta del catalogo si lo aplica. Dos consultas del mismo metodo con universos distintos de producto, y el metodo las cruza como si fueran el mismo. Misma clase de defecto que MH-004 (un desglose que no parte exactamente el mismo conjunto que ya suma el total); el agravante aqui es que el filtro ausente no se ve en el codigo, porque lo aplica EF por detras solo en una de las dos consultas segun si la consulta toca o no la navegacion."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/InventarioService.cs
+        motivo: "La consulta de ventas valorizadas se acota con productoIds.Contains(i.ProductoId) sobre los ids del catalogo vigente. Para que ese universo sea el mismo con y sin filtro de categoria (la clase ABC se calcula contra todo el negocio, decision del implementador), el catalogo se trae completo en el SQL y el filtro de categoria pasa a aplicarse en memoria: siguen siendo 3 consultas."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: calculo
+      selector_o_endpoint: "InventarioService.ObtenerAsync(ventanaDias, null) con al menos 1 producto soft-deleted con ventas en la ventana"
+      condicion_falla: "Resumen.Productos.Sum(p => p.VentasVentana) distinto de Resumen.VentasVentana, o la suma de ventas por clase A+B+C distinta de Resumen.VentasVentana"
+    criterio_aceptacion:
+      - "Para cualquier ventana, la suma de las ventas de las filas es exactamente igual al total de ventas de la ventana."
+      - "Ningun producto de la tabla queda sin clase y el corte del 80%/95% se calcula sobre ese mismo total."
+    pruebas_minimas:
+      - "Recorrer las 3 ventanas (60/90/180) y verificar diferencia 0 en las tres, no solo en la que trae el default."
+      - "Con un producto dado de baja con ventas en la ventana, verificar que la clase de los productos vivos no cambia por un motivo que no sean sus propias ventas."
+    fix_aplicado:
+      fecha: "2026-09-25"
+      por: "QA (auto-fix, CR-80 etapa 6)"
+      resultado: "aplicado"
+      build: "dotnet build MariHogar.slnx -> 0 Errores, 8 warnings preexistentes, ninguno nuevo."
+      verificacion: "Re-ejecutado el runner de solo lectura contra la base de produccion: ventana 180 pasa de dif=592.023,96 a dif=0,00 y A+B+C (66.696.066,23 + 12.314.210,37 + 4.100.444,72) = 83.110.721,32 exacto. Capital inmovilizado, plata quieta y la monotonia de CA-CR80.2 sin cambios. /Inventario, /Inventario?ventanaDias=180, ?categoriaId=1 y ?categoriaId=999 responden 200 sin excepcion en el log."
+    nota_generalizacion: "Aplica a cualquier pantalla que cruce en memoria dos consultas del mismo periodo cuando una toca la navegacion a una entidad con query filter global y la otra no. El query filter de soft-delete se aplica por consulta, no por metodo: si una consulta proyecta solo la FK (i.ProductoId) y la otra navega (i.Producto.Nombre), las dos ven universos distintos y el codigo no lo muestra. Regla: cuando dos consultas de un mismo calculo tienen que cubrir el mismo conjunto, el conjunto se pasa explicito (una lista de ids) en vez de confiar en que el filtro global las alcance a las dos."
+
+  - id: MH-024
+    modulo: "Analisis de inventario (CR-80) - InventarioService.ObtenerAsync, columna 'Ultima venta'"
+    titulo: "La columna 'Ultima venta' mostraba la fecha en que se ANULO una venta como si fuera la ultima vez que el producto se vendio"
+    severidad: minor
+    reproducido_en: "marihogar - base REAL de produccion (QA de CR-80, 2026-09-25): 5 productos afectados, el peor con 15 dias de error (producto #55, mostraba 19/08 cuando la ultima venta real fue el 04/08)."
+    pasos:
+      - "Vender un producto y despues cancelar esa venta (la cancelacion revierte el stock con un contramovimiento)."
+      - "Abrir /Inventario y mirar la columna 'Ultima venta' de ese producto."
+    sintoma: "La fecha mostrada es la de la cancelacion, no la de la ultima venta efectiva. El dato es tanto mas enganoso cuanto mas tiempo pase entre la venta y su anulacion, y sugiere movimiento reciente donde no hubo ninguno - exactamente al reves de lo que la pantalla existe para decir."
+    expectativa: "'Ultima venta' es la fecha del ultimo movimiento que efectivamente saco mercaderia por una venta. La reversion de una cancelacion no es una venta."
+    causa_raiz: "MAX(Fecha) sobre todos los MovimientoStock de Tipo=Venta del producto. En este modelo la venta guarda Cantidad NEGATIVA y la reversion por cancelacion guarda Cantidad POSITIVA con el MISMO Tipo=Venta: el Tipo no alcanza para distinguirlas, el signo si. El mismo metodo ya usaba el signo correctamente para netear las unidades vendidas (CA-CR80.4) y lo dejaba de usar una linea mas abajo."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/InventarioService.cs
+        motivo: "UltimaVenta pasa a ser un maximo condicional g.Max(m => m.Cantidad < 0 ? (DateTime?)m.Fecha : null) - MAX(CASE WHEN ...), mismo criterio de traduccion que la suma condicional de las unidades (se evita g.Where(...) adentro del GroupBy por MH-001/MH-002)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "InventarioService.ObtenerAsync - InventarioProductoDto.UltimaVenta de un producto con una venta cancelada posterior a su ultima venta vigente"
+      condicion_falla: "UltimaVenta coincide con la fecha de un MovimientoStock de Tipo=Venta con Cantidad > 0"
+    criterio_aceptacion:
+      - "UltimaVenta nunca puede caer en la fecha de un movimiento de reversion."
+      - "Un producto cuyo unico movimiento de venta fue cancelado muestra 'nunca se vendio', no la fecha de la cancelacion."
+    pruebas_minimas:
+      - "Cancelar una venta vieja de un producto que tuvo ventas posteriores: la columna no se mueve."
+      - "Cancelar la unica venta de un producto: la columna pasa a 'nunca se vendio'."
+    fix_aplicado:
+      fecha: "2026-09-25"
+      por: "QA (auto-fix, CR-80 etapa 6)"
+      resultado: "aplicado"
+      build: "dotnet build MariHogar.slnx -> 0 Errores, ningun warning nuevo."
+      verificacion: "Contra produccion, los 5 productos afectados pasan a mostrar la fecha del ultimo movimiento con Cantidad < 0, verificada por consulta independiente para cada uno (#31 23/09 12:36 en vez de 23/09 16:55, #55 04/08 en vez de 19/08, #65 02/09 15:04 en vez de 15:05, #154 08/08 en vez de 19/08, #167 05/08 en vez de 19/08)."
+    nota_generalizacion: "Aplica a cualquier ledger inmutable que registre el hecho y su reversion con el MISMO tipo y signos opuestos (stock, cuenta corriente, caja). Toda agregacion sobre ese ledger tiene que decidir explicitamente si el signo importa: para SUMAR casi siempre da igual (el neteo es el objetivo), para un MAX/MIN/COUNT o un 'ultimo' NUNCA da igual. Es un caso donde el mismo metodo puede estar bien en una linea y mal en la siguiente."
+
+  - id: MH-025
+    modulo: "Rentabilidad con costo historico (CR-80) - RentabilidadService.CostoHistorico"
+    titulo: "El costo historico de una venta dependia del orden en que la base devolviera las filas cuando un producto tiene dos recepciones de la MISMA fecha con precios distintos"
+    severidad: minor
+    reproducido_en: "marihogar - base REAL de produccion (QA de CR-80, 2026-09-25): 11 grupos (producto, FechaRecepcion) con mas de un PrecioCompra distinto; el peor es el producto #7 al 31/07/2026, con 256.995,00 y 267.274,80 como candidatos (4% de diferencia). Con el orden que la base devuelve hoy el resultado coincide con el criterio determinista, asi que el numero de HOY es correcto: el defecto es que nada lo garantiza manana."
+    pasos:
+      - "Cargar dos ordenes de compra del mismo producto con precios distintos y recibirlas con la MISMA FechaRecepcion (o dos lineas del mismo producto en una sola OC con precios distintos)."
+      - "Vender ese producto despues de esa fecha y mirar el costo con el que /Rentabilidad valua la linea."
+    sintoma: "El costo elegido es el de una de las dos recepciones empatadas, sin criterio definido: la busqueda binaria se queda con la ULTIMA de las empatadas y el orden de las empatadas es el orden en que la base devolvio las filas, que la consulta no pide. Un plan distinto, un indice nuevo o mas volumen lo pueden cambiar sin que nadie toque una linea de codigo, y el margen de un periodo cerrado se mueve solo."
+    expectativa: "El costo historico de una venta es una funcion de los datos, no del plan de ejecucion: dos corridas sobre los mismos datos dan el mismo numero siempre."
+    causa_raiz: "recepciones.GroupBy(...).ToDictionary(g => g.Key, g => g.OrderBy(r => r.FechaRecepcion)...) sobre una lista traida con ToListAsync() sin OrderBy en el SQL. OrderBy de LINQ-to-Objects es estable, asi que preserva el orden de llegada: la desambiguacion de los empates quedaba delegada al orden de filas de MySQL."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/RentabilidadService.cs
+        motivo: "Se agrega el Id de OrdenCompraItem a la proyeccion y el orden pasa a ser .OrderBy(r => r.FechaRecepcion).ThenBy(r => r.Id): la 'ultima recepcion de esa fecha' queda definida como la cargada mas tarde."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: calculo
+      selector_o_endpoint: "RentabilidadService.ObtenerAsync - costo de un producto con recepciones empatadas en FechaRecepcion y precios distintos"
+      condicion_falla: "La lista de recepciones por producto se ordena solo por fecha, sin un segundo criterio, y existe al menos un (producto, fecha) con mas de un PrecioCompra distinto"
+    criterio_aceptacion:
+      - "El costo historico total del historico completo es identico calculando con el orden de la base y con el orden explicito (Fecha, Id)."
+      - "El criterio de desempate esta escrito en el codigo, no heredado del orden de filas."
+    pruebas_minimas:
+      - "Buscar por SQL los (producto, FechaRecepcion) con COUNT(DISTINCT PrecioCompra) > 1: si hay alguno, el desempate es obligatorio."
+      - "Recalcular el costo historico total con los dos ordenes y verificar diferencia 0 (prueba de no regresion del fix)."
+    fix_aplicado:
+      fecha: "2026-09-25"
+      por: "QA (auto-fix, CR-80 etapa 6)"
+      resultado: "aplicado"
+      build: "dotnet build MariHogar.slnx -> 0 Errores, ningun warning nuevo."
+      verificacion: "Costo historico total contra produccion: 104.005.283,10 con el orden de la base y 104.005.283,10 ordenando por (Fecha, Id) - diferencia 0,00, es decir el fix no cambia ningun numero hoy y cierra la puerta a que cambien solos. El invariante de CA-CR80.6 sigue dando A == B == service en los 3 periodos probados."
+    nota_generalizacion: "Aplica a toda busqueda de 'el ultimo registro anterior a una fecha' (costo historico, cotizacion vigente, precio de lista, ultima configuracion) resuelta en memoria sobre una lista traida sin ORDER BY. Si la clave de orden puede empatar, el desempate es parte de la regla de negocio y va escrito: sin el, el resultado es correcto hasta que la base cambie de opinion, y el sintoma aparece como 'un numero cerrado que se movio solo'."
+
+  - id: MH-026
+    modulo: "Rentabilidad con costo historico (CR-80) - RentabilidadService.ObtenerAsync / card 'Margen real del periodo' del Dashboard"
+    titulo: "Dar de baja un producto borra sus ventas pasadas del margen: la card 'Margen real del periodo' calcula sobre hasta 3,3% menos ventas que la card 'Ventas del periodo' que tiene al lado"
+    severidad: major
+    reproducido_en: "marihogar - base REAL de produccion (QA de CR-80, 2026-09-25). Detectado por QA y escalado; corregido el mismo dia por el orquestador con la propuesta del item (ver fix_aplicado)."
+    pasos:
+      - "Dar de baja (soft-delete) un producto que tenga ventas en meses ya cerrados."
+      - "Abrir el Dashboard con el rango de uno de esos meses y comparar la card 'Ventas del periodo' con la base de ventas que informa 'Margen real del periodo' (y con el total de /Rentabilidad para el mismo rango)."
+    sintoma: "Dos numeros rotulados como ventas del mismo periodo, en el mismo bloque de la misma pantalla, difieren. En produccion la diferencia aparece en 12 de los ultimos 17 meses, entre 0,7% y 3,3%: abril 2026 muestra 11.437.741,92 de ventas y calcula el margen sobre 10.945.724,46 (492.017,46 menos). Sobre el historico completo, 3.359.554,32 de ventas reales (31 lineas) quedan afuera del margen. El % de cobertura de costo historico tambien se informa sobre esa base incompleta (CA-CR80.7)."
+    expectativa: "Una venta ocurrida cuenta en el margen de su periodo. Es el mismo invariante que CA-CR80.6 pide para las recepciones -una accion posterior a la venta no puede cambiar el margen de esa venta- aplicado a la baja de un producto: dar de baja un producto hoy no puede mover el margen del abril pasado. Y dos cifras dibujadas juntas para compararse tienen que cubrir el mismo conjunto (KOI-017)."
+    causa_raiz: "La consulta de lineas de venta proyecta i.Producto!.Nombre, i.Producto.Categoria!.Nombre y i.Producto.PrecioCompra: al navegar a Producto, EF aplica su query filter global de soft-delete y las lineas de productos dados de baja se caen enteras de la consulta (navegacion requerida + filtro = INNER JOIN). No hay ningun filtro visible en el codigo que lo explique. La card 'Ventas del periodo' suma Venta.Total, que no navega a Producto, y por eso si las incluye. Es la contracara exacta de MH-023: ahi el filtro faltaba en una de las dos consultas, aca sobra."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/RentabilidadService.cs
+        motivo: "APLICADO. Separar la consulta en dos: (1) las lineas de venta del periodo proyectando solo ProductoId/Cantidad/Subtotal/FechaVenta, sin navegar a Producto - asi el query filter no las alcanza y entran todas; (2) los datos de producto (nombre, categoria, marca, PrecioCompra) de esos ids con IgnoreQueryFilters(), para que un producto dado de baja siga resolviendo su nombre y su costo actual en vez de caer a costo 0. Pasa de 2 a 3 consultas e introduce IgnoreQueryFilters en un Service (hoy solo se usa en tools/), por eso la decision es del implementador."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-25"
+      por: "Claude Opus 5 (orquestador del flujo), con la propuesta que dejo escrita el QA en este mismo item"
+      resultado: "aplicado"
+      archivos:
+        - path: MariHogar.Infrastructure/Services/RentabilidadService.cs
+          motivo: "La consulta de lineas de venta ya no navega a Producto (proyecta ProductoId/Cantidad/Subtotal/FechaVenta), y una segunda consulta resuelve nombre, categoria, marca y PrecioCompra de esos ids con IgnoreQueryFilters(). Un producto dado de baja se rotula '<nombre> (dado de baja)' en las listas de productos: aparece porque vendio en el periodo, y sin el rotulo parece un producto del catalogo que no esta."
+      build: "dotnet build MariHogar.slnx -> 0 Errores, 9 warnings preexistentes."
+      verificacion: "Contra la base REAL de produccion, rango 2025-01-01 a 2026-09-25: RentabilidadPeriodoDto.Ventas = 207.904.904,02, identico al SQL de control (SUM(VentaItem.Subtotal) de ventas Estado IN (1,2,3) sin join a Productos) - diferencia 0,00. Antes del fix el mismo rango daba 204.545.349,70 (el SQL con join a productos vivos da exactamente ese numero, 1.077 lineas contra 1.108 reales: 2 productos dados de baja con ventas). La suma de los grupos por categoria vuelve a cerrar contra el total. Cobertura de costo historico 90,0%."
+    deteccion_qa:
+      tipo: calculo
+      selector_o_endpoint: "RentabilidadService.ObtenerAsync(desde,hasta) contra DashboardService.ObtenerVentasPeriodoAsync(desde,hasta) para el MISMO rango, con al menos 1 producto soft-deleted con ventas en ese rango"
+      condicion_falla: "RentabilidadPeriodoDto.Ventas distinto de VentasPeriodoDto.TotalPeriodo"
+    criterio_aceptacion:
+      - "Para cualquier rango, la base de ventas del margen es igual al total de ventas que informa el Dashboard para ese rango."
+      - "Dar de baja un producto no cambia el margen de ningun periodo ya cerrado."
+    pruebas_minimas:
+      - "Anotar el margen de un mes cerrado, dar de baja un producto que vendio en ese mes, recalcular: el margen no cambia."
+      - "Comparar por SQL SUM(Venta.Total) contra SUM(VentaItem.Subtotal) con join a Productos vivos para cada mes del ultimo anio: toda diferencia distinta de 0 es un mes afectado."
+    nota_generalizacion: "Aplica a todo reporte historico construido sobre las lineas hijas de un documento cuando la proyeccion navega a una entidad de CATALOGO con soft-delete. El catalogo describe lo que se puede vender hoy; el historico describe lo que ya se vendio. Si el reporte navega al catalogo para traer un nombre, hereda su filtro de vigencia y empieza a perder historia en silencio, sin error y sin que se vea en el codigo. Regla: en un reporte historico, los datos de catalogo se resuelven en una consulta aparte que ignora los filtros de vigencia; la consulta del hecho nunca navega al catalogo."

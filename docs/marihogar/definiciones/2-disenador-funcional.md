@@ -5,7 +5,105 @@
 
 ## Definiciones vigentes
 
-> Nota de consolidación (2026-08-16): las 8 secciones "Diseño v2" a "v9" (antes de nivel 2, apiladas por fecha de Change Request) pasaron a subsecciones de este único bloque — contenido sin resumir, ver `## Historial de ajustes` para el resumen de una línea por versión.
+> Nota de consolidación (2026-08-16): las 8 secciones "Diseño v2" a "v9" (antes de nivel 2, apiladas por fecha de Change Request) pasaron a subsecciones de este único bloque — contenido sin resumir, ver `### CR-80 — Dashboard reestructurado + pantallas de Inventario y Rentabilidad
+
+#### Diagnóstico del Dashboard actual (medido sobre la pantalla real, no sobre el código)
+
+9 cards de KPI **visualmente idénticas** (`col-md-3`, `fs-3 fw-bold`, mismo peso, mismo tamaño) repartidas en dos filas
+indistintas de 6 + 3, más dos paneles al pie. Tres problemas concretos:
+
+1. **Sin jerarquía.** El número que decide el día (cuánta plata hay) se lee exactamente igual que el más accesorio. Con
+   9 cards iguales la única forma de encontrar algo es leer las 9, todas las veces.
+2. **Sin agrupación semántica.** El orden es el histórico de cuándo se fue agregando cada métrica (CR-58 sumó 3 al
+   final), así que operación del día, finanzas y vencimientos quedan entremezclados: "Stock crítico" entre "Ventas del
+   período" y "Cheques por vencer".
+3. **Cuatro ventanas temporales distintas sin rotular** en la misma grilla: período filtrado (ventas, compras, margen,
+   gastos), 30 días fijos (cheques), saldo a hoy (balance de caja) e histórico completo (deuda a proveedores). Es KOI-017
+   esperando a que alguien reste dos cards que no hablan del mismo período.
+
+#### Criterio de rediseño
+
+Regla 0 de `38-diseno-pantallas-portal.instructions.md`: **lo que la persona vino a hacer entra en la primera pantalla; todo
+lo demás se pliega.** Las cards se reagrupan por **la pregunta que responde cada número**, no por el orden en que se
+agregaron, y cada bloque tiene **una sola card héroe** que es la que el ojo encuentra primero.
+
+| Bloque | Pregunta que responde | Cards |
+|---|---|---|
+| 1. Operación | ¿Cómo venimos vendiendo? | **Ventas del período** (héroe, con desglose facturado/no + ticket promedio + variación vs. período anterior) · Margen real del período · Compras del período |
+| 2. Plata | ¿Con qué plata cuento y qué debo? | **Balance de caja** (héroe, saldo a hoy) · **Posición de IVA estimada** (destacada) · Gastos operativos del período · Deuda total a proveedores |
+| 3. Vencimientos | ¿Qué se vence y qué está por entrar? | Cheques por vencer (30 días) · Pagos con tarjeta por acreditar · enlace a Proyección financiera (no se duplica el dato: esa pantalla ya es la vista completa de compromisos) |
+| 4. Inventario | ¿Cuánta plata está quieta en mercadería? | **Capital inmovilizado** (héroe) · Plata quieta (sin ventas en 90 días) · Stock crítico (con cuántos de esos son clase A) |
+
+Debajo: gráfico de **posición de IVA de los últimos 12 meses** (barras IVA ventas / IVA compras + línea de saldo) y la
+tabla de **productos más vendidos** ya existente, ahora con enlace a la pantalla de Inventario.
+
+#### Reglas visuales (las que se verifican en QA)
+
+- **Secciones con título en versalitas y una línea de subtítulo.** La agrupación es la jerarquía que hoy no existe; sin
+  el título, cuatro bloques de cards siguen siendo una grilla plana.
+- **Una card héroe por bloque** (`col-lg-6`, número en `fs-1`), el resto `col-lg-3` con `fs-3`. La jerarquía se lee de
+  un vistazo, sin leer los rótulos.
+- **Lo normal se susurra, lo excepcional se ve** (regla 38): los importes van en tinta neutra y el color aparece
+  **solo** cuando hay que actuar — stock crítico > 0, saldo de caja negativo, IVA a pagar, margen por debajo del 10%,
+  cheques venciendo esta semana. Hoy hay verde, amarillo y rojo repartidos sin criterio, y por eso ninguno significa nada.
+- **Cada card declara su ventana temporal** con un chip tenue: `período`, `a hoy`, `30 días`, `histórico`. Es la
+  mitigación directa de KOI-017 y el CA-CR80.12.
+- **El filtro de fecha aclara a qué afecta**: "el rango afecta solo a las tarjetas marcadas con «período»".
+- **Carga independiente por card** (patrón AJAX ya existente, HU-9.1): un KPI lento no bloquea al resto. Se mantiene tal
+  cual, incluidos los `spinner-border` como estado de carga y el texto de error por card.
+- **Estado vacío explícito por card** ("sin ventas en el período", "sin stock cargado"), nunca `$ 0,00` a secas, que se
+  confunde con un dato real.
+- **Se elimina el placeholder "Conversión de leads"** (CRM M1 en espera): ocupa lugar de primera pantalla sin dar
+  ninguna información. Vuelve cuando el módulo exista.
+- **A 390 px**: una card por fila, el orden de bloques se mantiene (operación → plata → vencimientos → inventario), y las
+  cards héroe dejan de ser más anchas pero conservan el número más grande.
+
+#### Pantalla nueva 1 — Stock ▸ Análisis de inventario (`/Inventario`)
+
+Para qué sirve, en los términos en que se le explica al cliente (pedido explícito: "implementar explicando al cliente
+para qué sirve esta métrica"): **decirle cuánta de su plata está quieta en mercadería y en qué productos**, para decidir
+qué liquidar, qué dejar de comprar y qué reponer primero.
+
+- Cabecera con 3 números: **capital inmovilizado**, **plata quieta** (sin ventas en la ventana) y **cuántos productos**
+  la tienen quieta.
+- Filtro: ventana de análisis (60 / 90 / 180 días, default 90) y categoría. Panel plegado por defecto (`ov-filtros`),
+  abierto si hay algo elegido, con el contador de filtros puestos.
+- Tabla (`ov-tabla-datos`): producto (con su categoría y marca como dato secundario debajo, no en otra columna),
+  clase ABC, stock actual, valor de ese stock, unidades vendidas en la ventana, **días de cobertura**, última venta.
+  Ordenable por valor de stock y por días de cobertura — que son las dos preguntas reales.
+- **Clase A** con insignia plena; B y C en tono tenue (regla 38: lo habitual se susurra). Un producto **clase A por
+  debajo del stock mínimo** lleva la insignia de atención: es la reposición urgente de verdad.
+- Sin movimiento en la ventana → "sin movimiento" en cobertura, nunca 0 ni ∞ (CA-CR80.3).
+- Desglose del capital inmovilizado por categoría, para que el total sea explicable (CA-CR80.1).
+
+#### Pantalla nueva 2 — Rentabilidad (`/Rentabilidad`)
+
+- Cabecera: ventas, costo histórico, margen y % de margen del período, más el **% de ventas valuadas con costo
+  histórico** (si es bajo, el número de arriba vale menos y la pantalla lo dice en lugar de disimularlo — CA-CR80.7).
+- Tabla por **categoría** y por **marca** (dos pestañas, mismo formato): ventas, costo, margen, % margen.
+- Dos listas cortas: los 10 productos que más margen aportan y los 10 con margen más bajo o negativo. La segunda es la
+  accionable: precio mal cargado o costo que subió y no se trasladó.
+- Filtro de rango de fecha, mismo componente que el resto del portal.
+
+#### Historias de usuario
+
+- **HU-80.1** — Como Administrador quiero ver cuánta plata tengo inmovilizada en stock y qué parte no se movió en los
+  últimos meses, para decidir qué liquidar. *CA: capital inmovilizado y plata quieta con su desglose por categoría; la
+  ventana se puede cambiar y el monto de plata quieta nunca crece al ampliarla.*
+- **HU-80.2** — Como Administrador quiero saber qué productos explican mis ventas (clase A) y cuáles están quietos, para
+  comprar mejor. *CA: A+B+C cubre el 100% de las ventas de la ventana; un producto clase A bajo el mínimo aparece
+  destacado.*
+- **HU-80.3** — Como Administrador quiero que el margen use el costo que la mercadería tenía cuando se vendió. *CA: una
+  recepción posterior no cambia el margen de una venta anterior; la pantalla informa el % de cobertura.*
+- **HU-80.4** — Como Administrador quiero ver en el Dashboard cuánto IVA me va a quedar a pagar. *CA: débito − crédito
+  con base devengada, con el rótulo de que no reemplaza el Libro IVA, y la serie de 12 meses.*
+- **HU-80.5** — Como Administrador quiero entrar al Dashboard y encontrar lo importante sin leer diez tarjetas iguales.
+  *CA: cuatro bloques con título, una card héroe por bloque, cada card con su ventana temporal declarada y color solo
+  donde hay que actuar.*
+- **HU-80.6** — Como Vendedor no debo ver ninguna de estas métricas. *CA: el Dashboard del Vendedor no cambia y los
+  endpoints nuevos devuelven 403.*
+
+## Historial de ajustes` para el resumen de una línea por versión.
 
 ### Alcance funcional resumido
 

@@ -5,7 +5,101 @@
 
 ## Definiciones vigentes
 
-> Nota de consolidación (2026-08-16): las 8 secciones "Arquitectura v2" a "v9" (antes de nivel 2, apiladas por fecha de Change Request) pasaron a subsecciones de este único bloque — contenido sin resumir, ver `## Historial de ajustes` para el resumen de una línea por versión.
+> Nota de consolidación (2026-08-16): las 8 secciones "Arquitectura v2" a "v9" (antes de nivel 2, apiladas por fecha de Change Request) pasaron a subsecciones de este único bloque — contenido sin resumir, ver `### CR-80 — Métricas de inventario, rentabilidad real y posición de IVA (sin migración)
+
+#### Escaneo de reutilización (obligatorio antes de diseñar)
+
+| Buscado | Encontrado | Decisión |
+|---|---|---|
+| Posición de IVA / crédito y débito fiscal | `ganaderia/5-implementador.md` §702 y `1-analista-funcional.md` §394 (implementado y en uso) | **Se reutiliza el criterio completo**: base devengado por fecha del comprobante, gráfico de barras compras/ventas + línea de saldo, y el rótulo obligatorio "no es un Libro IVA" **dentro de la card** (no en tooltip). No se importa código: allá el IVA está persistido por comprobante y acá hay que derivarlo del total. |
+| Costo histórico por línea | `ShowroomGriffin/arquitectura.md` (`CostoUnitario` por línea + `UltimoPrecioCompra` en la variante) | Mismo **modelo conceptual**, resuelto sin migración: en marihogar `OrdenCompraItem.PrecioCompra` ya es el costo de esa recepción y `Producto.PrecioCompra` ya es el último costo. Se reconstruye por fecha en vez de persistir una columna nueva. |
+| Clasificación ABC | `la-platense` (`Producto.ClasificacionABC`, columna A/B/C cargada a mano o sugerida por el importador) | **Se descarta el modelo**: acá se calcula al vuelo desde `MovimientoStock`, sin columna. Un ABC persistido queda viejo el día después de cargarlo y obliga a un recálculo manual. |
+| Agregación mensual + Chart.js barras y línea | `marihogar` mismo repo: `ProyeccionFinanciera/Index.cshtml` (CR-79) | Reutilización directa: mismo patrón de dos paneles alineados, misma paleta validada, mismo criterio de rotular la ventana de cada serie. |
+| Rotación / días de cobertura | Ninguno en los proyectos de `docs/` | Componente nuevo. |
+
+#### Mapa por capa
+
+**Domain** — sin cambios. Ninguna entidad, ningún enum, **ninguna migración EF**: todo sale de `MovimientoStock`,
+`Producto`, `VentaItem`, `OrdenCompraItem`, `OrdenCompra` y `ComprobanteAfip`, que ya están cargados.
+
+**Application**
+- `DTOs/InventarioDtos.cs` (nuevo) — `InventarioResumenDto` (capital inmovilizado, plata quieta, cantidad de productos
+  quietos, ventana en días, desglose por categoría), `InventarioProductoDto` (producto, categoría, marca, clase ABC,
+  stock, valor de stock, unidades vendidas, días de cobertura `decimal?`, última venta `DateTime?`, bajo mínimo).
+- `DTOs/RentabilidadDtos.cs` (nuevo) — `RentabilidadPeriodoDto` (ventas, costo, margen, % margen, % cobertura de costo
+  histórico), `RentabilidadGrupoDto` (nombre, ventas, costo, margen, %) para categoría y marca, y las dos listas de
+  productos.
+- `DTOs/DashboardDtos.cs` — `PosicionIvaDto` (débito, crédito, saldo, desde, hasta) y `PosicionIvaMesDto` (año, mes,
+  etiqueta, IVA ventas, IVA compras, saldo) para la serie de 12 meses. `MargenBrutoDto` += `PorcentajeCoberturaCostoHistorico`.
+- `DTOs/InventarioDtos.cs` — `CapitalInmovilizadoDto` (capital, plata quieta, productos quietos, ventana) para la card
+  del Dashboard, reutilizando el mismo cálculo que la pantalla.
+- Interfaces nuevas: `IInventarioService`, `IRentabilidadService`. `IDashboardService` += `ObtenerPosicionIvaAsync(desde, hasta)`
+  y `ObtenerSeriePosicionIvaAsync(meses)`.
+
+**Infrastructure**
+- `Services/InventarioService.cs` (nuevo).
+  - Capital inmovilizado: `Productos` con `StockActual > 0`, proyección `{ Id, Nombre, CategoriaId, MarcaId, StockActual, PrecioCompra, StockMinimo }`.
+  - Unidades vendidas y última venta: `MovimientosStock` con `Tipo == Venta` y `Fecha >= desde`, agrupado por producto.
+    **Signo**: en una venta la cantidad se guarda negativa y la reversión por cancelación positiva, así que
+    `unidadesVendidas = -Σ Cantidad` ya netea las ventas canceladas sin consultar `Venta` (CA-CR80.4). `Ajuste` **nunca**
+    entra: un ajuste manual no es una venta.
+  - Días de cobertura = `StockActual ÷ (unidadesVendidas ÷ díasVentana)`; `null` si no hubo ventas (la vista lo muestra
+    como "sin movimiento", nunca 0 ni ∞).
+  - ABC: ventas valorizadas de la ventana por producto, ordenadas desc, acumulado sobre el total → A hasta 80%, B hasta
+    95%, C el resto. Si el total es 0, todos quedan C (nunca una división por cero).
+- `Services/RentabilidadService.cs` (nuevo). **Reconstrucción del costo histórico, en 2 consultas y sin N+1**:
+  1. `VentaItem` de ventas no canceladas del período con `{ VentaId, ProductoId, Cantidad, Subtotal, FechaVenta }`.
+  2. Para los productos de esa lista, todas las líneas de OC **Recibida** con `{ ProductoId, PrecioCompra, FechaRecepcion }`
+     (`FechaRecepcion != null`), ordenadas. En memoria se arma `Dictionary<int, List<(fecha, costo)>>` y por cada línea de
+     venta se busca la última recepción con `fecha <= fechaVenta` (búsqueda binaria sobre la lista ordenada).
+     Sin recepción anterior → `Producto.PrecioCompra` actual y la línea se marca **no cubierta**.
+  - **LP-001**: las dos consultas filtran por el conjunto explícito de estados consumados del padre — ventas
+    `Pendiente/PagadaParcial/Pagada` (nunca `!= Cancelada`) y OC `Recibida` (una OC confirmada sin recibir todavía no
+    define el costo de nada).
+  - **MH-001**: los `IN` de productos van sobre `List<int>`, jamás sobre colecciones de string.
+- `Services/DashboardService.cs` — `ObtenerPosicionIvaAsync` y `ObtenerSeriePosicionIvaAsync`.
+  - Débito fiscal: `ComprobantesAfip` `Estado == Emitido`, tipo `FacturaA/FacturaB` (suma) y `NotaCreditoA/NotaCreditoB`
+    (resta), por `Fecha` del comprobante. El IVA de cada uno se deriva con **la misma fórmula que se declaró a AFIP**.
+  - Crédito fiscal: `OrdenesCompra` con `Facturada == true`, estado `Confirmada/Recibida`, `MontoIva` ya persistido, por
+    `Fecha` de la OC.
+  - **Punto de arquitectura**: `AfipService.CalcularNetoIva` es privado y la tasa vive en `Afip:PorcentajeIva`. Se expone
+    como helper estático compartido (`Domain/Helpers/CalculoIva.cs` o método público en `IAfipService`) y lo consumen los
+    dos lados — **prohibido duplicar la fórmula**: si la pantalla y lo declarado a AFIP divergen, el número no sirve
+    (CA-CR80.8). La tasa se lee de la misma configuración, nunca hardcodeada.
+- `DependencyInjection.cs` — `AddScoped` de los dos servicios nuevos, en el bloque de métricas (M9/M15/M17).
+
+**Web**
+- `Controllers/InventarioController.cs` y `Controllers/RentabilidadController.cs` (nuevos), ambos con
+  `[Authorize(Policy = "RequireAdministracion")]` a nivel de clase (CA-CR80.13, regla REG-010).
+- `Controllers/DashboardController.cs` — `GetPosicionIva`, `GetSeriePosicionIva`, `GetCapitalInmovilizado`, cada uno con
+  `[Authorize(Policy = "RequireAdministracion")]` explícito en el endpoint, igual que los KPI financieros de CR-58.
+- `Views/Dashboard/Admin.cshtml` — reestructurada en los 4 bloques del diseño, conservando el patrón de carga
+  independiente por card (un fetch por KPI, `spinner-border` mientras carga, error por card).
+- `Views/Inventario/Index.cshtml` y `Views/Rentabilidad/Index.cshtml` (nuevas), con `ov-filtros` plegado y
+  `ov-tabla-datos`.
+- `_Layout.cshtml` — dos ítems de menú nuevos, visibles solo para el rol con permiso (la visibilidad del sidebar no
+  reemplaza la autorización del controller: REG-010).
+- Chart.js 4.4.1 por CDN solo en la vista del Dashboard (mismo criterio que CR-79), paleta ya validada.
+
+#### Riesgos técnicos
+
+- **RT-CR80.1 — Volumen del cálculo de costo histórico.** Son 2 consultas acotadas al período + resolución en memoria;
+  el riesgo es traer todas las líneas de OC de todos los tiempos para los productos vendidos. Mitigación: se traen solo
+  las de los productos del período y solo `{ ProductoId, PrecioCompra, FechaRecepcion }`.
+- **RT-CR80.2 — Round-trips.** Lección medida en CR-79: el costo de estas pantallas es la **cantidad de consultas**
+  (~200 ms cada una desde fuera del hosting), no el volumen de filas. Cada KPI del Dashboard ya carga por su propio
+  endpoint, así que ninguna card nueva puede sumar más de 1 o 2 consultas.
+- **RT-CR80.3 — El margen del Dashboard cambia de valor** (R-CR80.1). No es defecto: el número anterior estaba sesgado.
+  Se declara en la card y en el resumen al cliente.
+- **RT-CR80.4 — Una sola alícuota de IVA** (R-CR80.4): la derivación desde el total asume la tasa configurada vigente
+  para todo el historial.
+
+#### Impacto en datos
+
+**Ninguno.** Sin columnas nuevas, sin migración EF, sin backfill. Las tres métricas son consultas de solo lectura sobre
+datos ya cargados — el mismo criterio con el que se hizo CR-79.
+
+## Historial de ajustes` para el resumen de una línea por versión.
 
 ### Alcance funcional resumido
 

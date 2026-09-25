@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: marihogar
-## Ultima actualizacion: 2026-09-23 (CR-77 — Nota de Crédito: corregir la factura vs. anular la venta)
+## Ultima actualizacion: 2026-09-25 (CR-80 — inventario/ABC + rentabilidad con costo histórico + posición de IVA + Dashboard reestructurado)
 
 ## Definiciones vigentes
 
@@ -1718,7 +1718,131 @@ Sobre Discovery + Análisis v10 (`1-analista-funcional.md`), Diseño v7 (`2-dise
 - [ ] Verificación manual del usuario en navegador — pendiente, ver "Pruebas mínimas".
 - [ ] Deploy a producción — pendiente.
 
+## CR-80 (2026-09-25) — Inventario (capital inmovilizado/ABC) + rentabilidad con costo histórico + posición de IVA + Dashboard reestructurado
+
+**Gate verificado antes de codificar**: definiciones 1, 2 y 3 aprobadas y cerradas, con sección propia de CR-80 en las tres (`1-analista-funcional.md` §CR-80 con CA-CR80.1 a .14 y R-CR80.1 a .4; `2-disenador-funcional.md` §CR-80 con los 4 bloques del Dashboard, las 2 pantallas nuevas y HU-80.1 a .6; `3-arquitecto-mvc.md` §CR-80 con el mapa por capa y RT-CR80.1 a .4). Es el primer CR de la serie post-Etapa 1 que abrió sección en las tres definiciones.
+
+**Escaneo de reutilización** (resuelto en la definición 3, verificado y aplicado):
+
+| Buscado | Fuente | Qué se reutilizó |
+|---|---|---|
+| Gráfico de barras + línea de saldo por mes | `marihogar` mismo repo, `ProyeccionFinanciera/Index.cshtml` (CR-79) | **Código portado**: Chart.js 4.4.1 por CDN, dos paneles alineados (**sin doble eje**), paleta validada para daltonismo `#16a34a`/`#b91c1c` + `#2b9de4` para la línea, plugin de franja para marcar el tramo que no es dato cerrado, `borderColor: superficie` entre segmentos, etiquetas de mes fijas sin depender de la cultura del hosting. |
+| Criterio de posición de IVA | `ganaderia` (en producción) | **Criterio, no código** (allá el IVA está persistido por comprobante, acá hay que derivarlo del total): base devengado por fecha del comprobante y rótulo obligatorio **dentro** de la card, no en tooltip. |
+| Costo histórico por línea | `ShowroomGriffin` (`CostoUnitario` persistido) | **Modelo conceptual**, resuelto sin migración: se reconstruye desde `OrdenCompraItem.PrecioCompra` + `OrdenCompra.FechaRecepcion`. |
+| Clasificación ABC | `la-platense` (`Producto.ClasificacionABC`, columna cargada a mano) | **Descartado el modelo**: acá se calcula al vuelo, sin columna — un ABC persistido queda viejo al día siguiente. |
+| Días de cobertura / rotación | Ninguno en `docs/` | Componente nuevo. Candidato a patrón si un segundo proyecto lo pide. |
+
+**Cambios por capa**
+
+**Domain** — 1 archivo nuevo, ninguna entidad, ningún enum, **ninguna migración**.
+- `Helpers/CalculoIva.cs` (nuevo) — `CalcularNetoIva(total, porcentajeIva)`. La fórmula del IVA estaba **duplicada desde antes de este CR**: método privado idéntico en `AfipService` (lo que se declara a AFIP en el FECAESolicitar) y en `ComprobanteAfipService` (el desglose del PDF de la Factura A, con un comentario que decía "duplicada aquí porque son capas distintas"). La pantalla nueva habría sido la **tercera copia**. Los tres consumidores llaman ahora al helper y la tasa se sigue leyendo de `Afip:PorcentajeIva` — nunca hardcodeada (CA-CR80.8). Redondeo preservado tal cual (2 decimales, `AwayFromZero`, neto primero e IVA por diferencia): es lo que ya se declaró en los comprobantes reales emitidos, cambiarlo haría diferir la pantalla de lo declarado.
+
+**Application**
+- `DTOs/InventarioDtos.cs` (nuevo) — `InventarioVentana` (las ventanas 60/90/180 + `Normalizar`, en un solo lugar para que el combo de la vista, la validación del controller y el service usen la misma lista), `InventarioResumenDto`, `InventarioCapitalGrupoDto`, `InventarioProductoDto`, `CapitalInmovilizadoDto`.
+- `DTOs/RentabilidadDtos.cs` (nuevo) — `RentabilidadPeriodoDto`, `RentabilidadGrupoDto`, `RentabilidadProductoDto`.
+- `DTOs/DashboardDtos.cs` — `PosicionIvaDto` y `PosicionIvaMesDto` nuevos; `MargenBrutoDto` += `PorcentajeCoberturaCostoHistorico`; `VentasPeriodoDto` += `TotalPeriodoAnterior` y `VariacionPorcentaje` (`decimal?`).
+- `Interfaces/IInventarioService.cs` y `Interfaces/IRentabilidadService.cs` (nuevos); `IDashboardService` += `ObtenerPosicionIvaAsync` y `ObtenerSeriePosicionIvaAsync`.
+
+**Infrastructure**
+- `Services/InventarioService.cs` (nuevo) — 3 consultas fijas, sin importar cuántos productos haya: catálogo, `MovimientosStock` de tipo Venta agrupados por producto, y `VentaItem` valorizado por producto para el Pareto. Unión y clasificación en memoria.
+- `Services/RentabilidadService.cs` (nuevo) — 2 consultas + resolución en memoria con búsqueda binaria sobre las recepciones ordenadas por fecha (sin N+1).
+- `Services/DashboardService.cs` — `ObtenerPosicionIvaAsync` y `ObtenerSeriePosicionIvaAsync` nuevos (2 consultas cada uno, una por lado); `ObtenerMargenBrutoAsync` **dejó de tener cálculo propio** y delega en `IRentabilidadService`.
+- `Services/AfipService.cs` y `Services/ComprobanteAfipService.cs` — sus `CalcularNetoIva` privados pasan a ser una línea que llama a `CalculoIva`. Sin cambio de comportamiento.
+- `DependencyInjection.cs` — `AddScoped` de los dos services nuevos, en el bloque de métricas.
+
+**Web**
+- `Controllers/InventarioController.cs` y `Controllers/RentabilidadController.cs` (nuevos), ambos con `[Authorize(Policy = "RequireAdministracion")]` **a nivel de clase** (CA-CR80.13, REG-010) y filtro persistido en `Session` (`Filtros:Inventario:Index`, `Filtros:Rentabilidad:Index`) + `LimpiarFiltros` POST.
+- `Controllers/DashboardController.cs` — `GetPosicionIva`, `GetSeriePosicionIva`, `GetCapitalInmovilizado`, los tres con la policy explícita en el endpoint (mismo criterio que los KPI de CR-58). Inyecta `IInventarioService`.
+- `Models/InventarioViewModels.cs` y `Models/RentabilidadViewModels.cs` (nuevos).
+- `Views/Inventario/Index.cshtml`, `Views/Rentabilidad/Index.cshtml` y `Views/Rentabilidad/_GruposRentabilidad.cshtml` (nuevas).
+- `Views/Dashboard/Admin.cshtml` — reescrita en los 4 bloques, conservando la carga independiente por card.
+- `Views/Shared/_Layout.cshtml` — "Análisis de inventario" en Catálogo (junto a Stock) y "Rentabilidad" en Financiero, ambos dentro del `if` de Administrador/SuperUsuario.
+- `wwwroot/css/olvidata-theme.css` y `wwwroot/js/site.js` — componentes del design system (ver abajo).
+
+**Decisiones propias (dentro del margen del implementador)**
+
+1. **La clase ABC se calcula contra todo el negocio, no contra la categoría filtrada.** La consulta de ventas valorizadas es deliberadamente la única que **no** aplica el filtro de categoría. Si el Pareto se calculara sobre el subconjunto filtrado, el mismo producto sería clase A mirando su categoría y clase B mirando el total, y la card del Dashboard (que nunca filtra) contradiría a la pantalla. La pantalla lo dice explícitamente en su texto de ayuda.
+2. **El corte del Pareto se evalúa con el acumulado ANTERIOR al producto**, no con el que ya lo incluye. Con el acumulado posterior, un negocio donde un único producto explica el 100% de las ventas lo dejaría en clase C — exactamente al revés de lo que significa. Con esta regla, el producto que cruza el 80% sigue siendo A y **siempre** hay al menos un A cuando hubo ventas.
+3. **Días de cobertura con stock 0 y ventas > 0 = 0 días ("agotado"), no `null`.** `null` está reservado para "sin ventas en la ventana → sin movimiento" (CA-CR80.3). Son dos situaciones distintas y mostrarlas igual perdería la más urgente de las dos.
+4. **Unidades vendidas negativas se tratan como sin movimiento.** La reversión de una cancelación puede caer dentro de la ventana mientras la venta original quedó afuera: el neto da negativo y "vendió −3 unidades" no significa nada.
+5. **`ObtenerCapitalInmovilizadoAsync` (card del Dashboard) reutiliza el resumen completo de la pantalla** y descarta el detalle, en vez de tener su propia consulta más barata. Paga armar la lista de productos en memoria, pero garantiza que el capital del Dashboard y el de `/Inventario` **no puedan** diferir.
+6. **El % de cobertura de costo histórico se mide en pesos, no en cantidad de líneas.** Es lo que pondera cuánto del margen es confiable: 100 líneas chicas sin cubrir pesan menos que una grande.
+7. **El KPI de margen del Dashboard delega en `IRentabilidadService` en vez de mantener su consulta.** Conservar las dos habría dejado dos márgenes distintos del mismo período (la card y la pantalla nueva) — la incoherencia interna que LP-001 marca como defecto. **Consecuencia esperada y avisada: el número de esa card cambia el día del deploy** (R-CR80.1/RT-CR80.3).
+8. **La variación vs. período anterior usa `AddMonths(-1)`, el criterio que ya usa Caja mensual**, no "la misma cantidad de días". Es 1 consulta extra de una sola columna. El filtro de estado de esa consulta replica deliberadamente el `!= Cancelada` de la consulta principal del mismo método (CR-9) en vez de la lista explícita de LP-001: si las dos mitades de una variación usaran criterios distintos, el porcentaje sería falso. Hoy son equivalentes; queda anotado para tocarlas juntas.
+9. **Sin variación cuando el período anterior no tuvo ventas**: `VariacionPorcentaje` es `null` y la card lo dice, en vez de inventar un "+100%" sobre una base que no existe.
+10. **El gráfico de IVA tiene ventana propia (12 meses) y no sigue al filtro de fecha**, y su endpoint no recibe el rango. El último mes es el **mes en curso** y se marca con franja sombreada + aviso en el texto: comparar un mes abierto contra meses cerrados sin decirlo es el defecto que describe KOI-017.
+11. **`GetStockCritico` se dejó en pie aunque ninguna vista lo consuma más.** La card "Stock crítico" pasó a leer del endpoint de capital, que devuelve además cuántos de esos críticos son clase A (el dato que hace accionable la alerta). El endpoint viejo aplica el **mismo** criterio (`StockActual < StockMinimo`), así que no puede divergir; borrarlo era un cambio de superficie pública fuera del alcance.
+12. **Suma condicional (`SUM(CASE WHEN...)`) en vez de `g.Where(...).Sum(...)` dentro del `GroupBy`.** La primera es SQL estándar que el provider MySQL traduce sin sorpresas; la segunda es el tipo de construcción que ya dio dos particularidades de traducción en este proyecto (MH-001/MH-002) y no se puede verificar sin correr contra la base.
+13. **Nombres de producto escapados en el HTML que arma el JS** (`$('<div>').text(...).html()`) en la tabla de más vendidos. El código anterior los interpolaba crudos.
+
+**Reglas del catálogo de QA aplicadas**
+
+- **LP-001** — conjunto explícito de estados consumados en las 4 agregaciones nuevas: Venta `Pendiente/PagadaParcial/Pagada` (inventario y rentabilidad), OC `Recibida` para el costo histórico, OC `Confirmada/Recibida` para el crédito fiscal. Ningún `!= Cancelada` en código nuevo salvo el caso documentado en la decisión 8.
+- **MH-001** — los `Contains` van sobre `List<int>`; ninguna colección local de string.
+- **REG-010** — policy a nivel de clase en los dos controllers nuevos + explícita en los 3 endpoints nuevos del Dashboard. La visibilidad del sidebar no reemplaza la autorización.
+- **KOI-B02** — cada bloque de JS resuelve sus elementos primero y sale si no están: la tabla de Inventario (no se renderiza con catálogo vacío), el daterangepicker de Rentabilidad, los dos canvas del gráfico y el propio panel `ov-filtros`.
+- **KOI-017** — cada card del Dashboard lleva su chip de ventana (`período`, `a hoy`, `30 días`, `90 días`, `histórico`, `12 meses · devengado`), el encabezado aclara que el rango afecta solo a las marcadas con «período», y las 3 cabeceras de Inventario declaran la ventana con la que están medidas.
+- **Sin división por cero ni ∞** — cobertura `null` sin ventas; si el total de ventas de la ventana es 0 todos los productos quedan C sin dividir; `MargenPorcentaje`/`PorcentajeCobertura` devuelven 0 con ventas 0.
+
+**Design system** (`25-frontend-design-system` + `38-diseno-pantallas-portal`)
+
+Componentes nuevos, sistémicos (una implementación, una clase por vista) — el proyecto no los tenía:
+- `olvidata-theme.css` — `ov-filtros*` (panel plegable), `table.ov-tabla-datos` (con la especificidad subida a `table.` para ganarle a `dataTables.bootstrap5.min.css`, que se linkea después del theme), `ov-celda-secundaria`, `ov-vacio`, `ov-estado-tenue`, `ov-chip-ventana`, `ov-bloque*`, `ov-kpi-valor`/`ov-kpi-heroe`/`ov-kpi-rotulo`, + media query de 575 px para que la card héroe deje de ser más ancha pero conserve el número más grande. Solo tokens `--ov-*`, sin literales de color.
+- `site.js` — comportamiento del panel de filtros **una sola vez**: arranca cerrado sin filtros y abierto con alguno, y cuenta los puestos a la vista. Un control cuenta como filtro puesto cuando difiere de su **valor por defecto** (`data-filtro-default`), no cuando tiene valor: la ventana de 90 días y el mes en curso son comportamiento normal, no filtros, y contarlos por valor abriría el panel siempre. `data-filtros-puestos` en el panel deja que el server sea la fuente de verdad del contador.
+- `ov-monto` en **todos** los importes, incluidos los que arma el JS.
+- Se eliminó el placeholder "Conversión de leads" del Dashboard (CRM en espera): ocupaba primera pantalla sin dar información.
+
+**Desvío consciente del design system, pre-existente y no introducido por este CR**: los `<select>` de los filtros nuevos son selects planos, sin Select2. La regla de `25-frontend-design-system` pide Select2 en todo `<select>`, pero **marihogar no tiene el auto-init global** y ninguno de sus paneles de filtro lo aplica (Select2 solo se usa en los combos de alta/edición). Aplicarlo solo a estas dos pantallas las dejaría distintas del resto; agregar el auto-init global es un pase sistémico sobre 16 vistas, con riesgo real de pisar los combos AJAX de `Ventas/Create` — fuera del alcance de CR-80. **Queda propuesto como ítem propio.**
+
+**Layout del Dashboard: dos apartamientos menores del diseño, con motivo**
+
+1. **Bloque 3 (Vencimientos) no tiene card héroe.** El diseño enuncia "una card héroe por bloque", pero su propia tabla de cards no marca ninguna como héroe en este bloque (a diferencia de los otros tres). Se respetó la tabla, que es la instrucción más específica: 3 cards `col-lg-4` iguales, la tercera es el acceso a Proyección financiera (el dato no se duplica).
+2. **Las 2 cards secundarias del bloque Plata van en `col-lg-6`, no `col-lg-3`.** Con la card de IVA destacada ocupando `col-lg-6` (necesita el ancho para el rótulo obligatorio de base devengada), dejar Gastos y Deuda en `col-lg-3` partía la fila y dejaba media grilla vacía. La jerarquía la sigue cargando el tamaño del número (el `fs-1` del héroe contra el `fs-3` de estas), que es lo que el diseño dice que se lee primero.
+
+**Migraciones EF**: **ninguna**. Ninguna columna nueva, ningún backfill (S-CR80.1). No se creó ni se aplicó nada contra ninguna base. Todo el CR son consultas de solo lectura sobre datos ya cargados.
+
+**Evidencia de build**: `dotnet build C:\Sistemas\marihogar\MariHogar.slnx` → **0 errores**, **9 warnings preexistentes** (NU1902 de MailKit/MimeKit + CS0114 en `HomeController.StatusCode`), **ninguno nuevo**. Los bloques de JS de las 3 vistas y `site.js` verificados aparte con `node --check` (sintaxis OK) — el compilador de Razor no valida el JS embebido.
+
+**Sin smoke test propio** (regla del proyecto): no se levantó la app ni se simularon requests, y **no se corrió nada contra producción** (los 3 hosted services recuperan la corrida diaria ~30 s después de arrancar y escriben notificaciones). Cierre = build limpio + revisión de código propia.
+
+**Pruebas mínimas para QA**
+
+1. **CA-CR80.8, el más importante**: tomar un `ComprobanteAfip` Emitido real y comparar su IVA en la card de Posición de IVA contra el IVA impreso en el PDF de esa misma factura y contra lo declarado a AFIP. Tienen que coincidir **peso por peso** — los tres salen ahora de `CalculoIva`. Verificar también que cambiar `Afip:PorcentajeIva` mueve los tres números juntos.
+2. **CA-CR80.1**: el capital inmovilizado de `/Inventario` contra `SELECT SUM(StockActual * PrecioCompra) FROM Productos WHERE StockActual > 0 AND DeletedAt IS NULL`, y que la suma de la tabla por categoría dé exactamente el total (la fila de cierre lo muestra al lado).
+3. **CA-CR80.2**: cambiar la ventana de 90 a 180 → "plata quieta" **nunca** puede subir, y la cantidad de productos quietos tampoco.
+4. **CA-CR80.3 / CA-CR80.14**: un producto sin ventas en la ventana muestra "sin movimiento" (no 0, no ∞, no error); uno agotado con ventas muestra "agotado". Con catálogo vacío y con una categoría filtrada sin productos, la pantalla muestra su estado vacío **sin error en consola**.
+5. **CA-CR80.4**: cancelar una venta reciente y recargar → las unidades vendidas de ese producto bajan exactamente en la cantidad cancelada (la reversión de stock lo netea). Un ajuste manual de stock hacia abajo **no** debe aparecer como unidades vendidas.
+6. **CA-CR80.5**: la suma de ventas de A + B + C es igual al total de ventas de la ventana y ningún producto queda sin clase. Con base sin ventas en la ventana, todos quedan C.
+7. **CA-CR80.6 (invariante fuerte)**: anotar el margen de un período pasado; cargar y **recibir** una OC de un producto vendido en ese período con fecha de recepción de hoy; recalcular → el margen de ese período no cambia.
+8. **CA-CR80.7**: el % de ventas valuadas con costo histórico se ve en `/Rentabilidad` (cabecera + por categoría/marca) y en la card de margen del Dashboard. Con 0% cubierto, ambas lo dicen explícitamente en vez de mostrar el margen como exacto.
+9. **CA-CR80.9 / CA-CR80.10**: emitir una NC en un mes → el débito fiscal de **ese** mes baja. Una factura de un mes cobrada al siguiente **no** mueve el saldo del segundo (el criterio es la fecha del comprobante).
+10. **CA-CR80.11**: el rótulo de base devengada y "no reemplaza el Libro IVA ni la liquidación del contador" están **visibles en la card y en el gráfico**, no en un tooltip.
+11. **CA-CR80.12**: recorrer las cards del Dashboard y confirmar que cada una tiene su chip de ventana, y que mover el rango de fecha cambia **solo** las marcadas con «período».
+12. **CA-CR80.13 (REG-010)**: con sesión de Vendedor, `/Inventario`, `/Rentabilidad`, `/Dashboard/GetPosicionIva`, `/Dashboard/GetSeriePosicionIva` y `/Dashboard/GetCapitalInmovilizado` armados a mano → **403**, y ningún ítem nuevo en el sidebar.
+13. **Panel de filtros**: entrar limpio a las dos pantallas nuevas → panel **cerrado**, "sin filtros". Elegir una categoría o mover la ventana → panel **abierto** y "1 filtro puesto". "Limpiar filtros" → los controles vuelven al default **y** no reaparecen al navegar afuera y volver (se borra la clave de `Session`).
+14. **Carga independiente**: el Dashboard tiene que renderizar completo aunque un endpoint falle — solo esa card muestra "Error al cargar", el resto sigue.
+15. **Margen del Dashboard cambió a propósito** (R-CR80.1): comparar el valor contra el que mostraba antes del deploy y confirmar que la diferencia se explica por el costo histórico (la card informa el % de cobertura). **No es un bug.**
+16. **Mobile 390 px**: una card por fila, el orden de bloques se mantiene (operación → plata → vencimientos → inventario), las tablas scrollean horizontal sin romper la página.
+
+**Checklist de salida para merge**
+- [x] Build `MariHogar.slnx` limpio: 0 errores, 9 warnings preexistentes, ninguno nuevo.
+- [x] **Sin migración EF, sin columnas nuevas** — el CR es de solo lectura.
+- [x] Lógica de negocio en Services; los controllers solo orquestan y mapean al ViewModel.
+- [x] Fórmula de IVA unificada en un único helper y consumida por los 3 lados (CA-CR80.8). Tasa desde configuración.
+- [x] LP-001 con estados explícitos en toda agregación nueva; MH-001 con `List<int>`.
+- [x] REG-010 en los 2 controllers nuevos y en los 3 endpoints nuevos.
+- [x] KOI-B02 en todo el JS nuevo; KOI-017 con chip de ventana por número.
+- [x] `ov-monto` en todo importe, incluidos los generados por JS. Tildes revisadas en todo texto visible.
+- [x] Sintaxis del JS embebido verificada con `node --check`.
+- [x] Sin smoke test propio ni corrida contra producción (regla del proyecto).
+- [ ] Verificación funcional de QA (etapa 6) — pendiente, ver "Pruebas mínimas".
+- [ ] Verificación visual del usuario en navegador (1440 y 390 px) — pendiente.
+- [ ] Aviso al cliente de que el margen del Dashboard cambia de valor — pendiente (va en el resumen de entrega, R-CR80.1).
+- [ ] Commit y deploy — pendientes, los hace el usuario al cerrar el flujo.
+
+
 ## Historial de ajustes
+- 2026-09-25: **CR-80 cerrado en dev — 3 métricas nuevas (inventario/ABC, rentabilidad con costo histórico, posición de IVA) + Dashboard reestructurado en 4 bloques** (ver sección completa "CR-80 (2026-09-25)" más arriba). Definiciones 1, 2 y 3 con sección propia de CR-80, verificadas antes de codificar. **Sin migración EF ni columnas nuevas**: las tres métricas son consultas de solo lectura sobre datos ya cargados. Hallazgo aprovechado: la fórmula del IVA ya estaba **duplicada** en `AfipService` y `ComprobanteAfipService` — se unificó en `Domain/Helpers/CalculoIva.cs` y la consumen los tres lados (lo declarado a AFIP, el PDF y la pantalla), con la tasa desde `Afip:PorcentajeIva` (CA-CR80.8). El KPI de margen del Dashboard **dejó de tener cálculo propio** y delega en `RentabilidadService`: una sola fuente del margen, pero **el número de esa card cambia el día del deploy** (R-CR80.1, hay que avisarle al cliente). Costo histórico reconstruido desde `OrdenCompraItem` por fecha de recepción, con búsqueda binaria y sin N+1 (2 consultas); ABC calculado al vuelo y **contra todo el negocio**, no contra la categoría filtrada. Reutilización: gráfico portado de `ProyeccionFinanciera` (CR-79, dos paneles sin doble eje), criterio de IVA de `ganaderia`, modelo de costo de `ShowroomGriffin`, ABC de `la-platense` **descartado** (columna persistida). Design system: `ov-filtros`/`ov-tabla-datos`/`ov-celda-secundaria`/`ov-chip-ventana`/`ov-bloque`/`ov-kpi-*` agregados al theme y el plegado de filtros a `site.js` (una vez, no por vista) — el proyecto no los tenía. Desvío documentado: los selects de filtro siguen sin Select2, como el resto de los paneles del proyecto (el auto-init global es un pase sistémico aparte). Build 0 errores, sin warnings nuevos; JS embebido validado con `node --check`. Sin smoke test ni corrida contra producción (regla del proyecto). Pendiente: QA (etapa 6), verificación visual del usuario, commit y deploy.
 - 2026-09-23: **CR-77 cerrado en dev — Nota de Crédito con elección entre "corregir la factura" y "anular la venta"** (ver sección completa "CR-77 (2026-09-23)" más arriba). Nace de un caso real de producción (Venta #724) que quedó inconsistente: la NC de CR-55 nunca tocaba `Venta.Estado`. Escaneo de reutilización: **0 hits portables** (la-platense lo tiene planificado pero no implementado). Solo Web: el controller inyecta `IVentaService` y encadena `CancelarAsync` cuando el usuario elige anular; el flag NO entra a `GenerarNotaCreditoInput` (sería campo muerto). `VentaId` leído del comprobante, nunca del form. Dos transacciones separadas a propósito (la NC en AFIP es irreversible). Guards de `CancelarAsync` verificados por lectura y **sin modificar** — `TieneComprobanteAsociadoAsync` ya deja pasar la venta cuya factura se acaba de anular (CR-55/MH-013). Sin migración EF. Build 0 errores. Sin smoke test (regla del proyecto). Pendiente: verificación manual del usuario y deploy.
 - 2026-09-03: **CR-71 cerrado en dev — "Pagos con tarjeta" lista todos los pagos de ventas** (ver sección completa "CR-71 (2026-09-03)" más arriba). Se retira el filtro fijo por `TarjetaCredito` de CR-59; la pantalla suma filtro + columna "Forma de pago" (ordenable) y "solo pendientes" queda cubierto por el filtro de Estado ya existente. Solo pagos de Ventas (pagos a proveedores fuera de alcance, confirmado con el cliente). Sin renombrar controller/ruta/menú (decisión documentada). Sin migración EF. Build 0 errores. Pendiente: verificación manual del usuario y deploy.
 - 2026-09-02: **CR-70 cerrado — Gasto con varias líneas de pago** (ver sección completa "CR-70 (2026-09-02)" más arriba). Diseño+Arquitectura tomados de `1-analista-funcional.md` (mismo criterio que CR-64..CR-69). Escaneo de reutilización: **0 hits cross-proyecto** y nada en `catalogo.yml` — se reutilizó el patrón **interno** `PagoVenta`/`VentaService`/`Ventas/Create.cshtml` (modelado, `Pagos.Any(...)`, `FormasPago` fuera de la query paginada, transporte `pagosJson`), adaptado sin copiar literal (Gasto no tiene cuotas, tarjeta, acreditación diferida ni baja de línea suelta). `GastoPago` nueva (sin `SoftDestroyable`), `Gasto.FormaPago` retirado, `Gasto.Monto` pasa a ser la suma de las líneas. **1 migración EF con backfill** (`AddGastoPagoLineas`), editada a mano porque EF scaffoldeó el `DropColumn` **antes** del `CreateTable`; `Down()` lossy y documentado. Verificado contra `marihogar_dev`: 492 Gastos → 492 líneas, 0 sin línea, sumas y distribución de forma de pago idénticas, columna vieja eliminada. Un solo movimiento de Egreso por gasto (sin cambio en CC Local/Caja). 7 decisiones propias documentadas + 2 tools corregidos por el grep de referencias colgantes. Build 0 errores, sin warnings nuevos. Sin smoke test (regla del proyecto).
