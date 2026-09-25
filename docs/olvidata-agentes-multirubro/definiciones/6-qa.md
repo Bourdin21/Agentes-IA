@@ -1,9 +1,172 @@
 # Memoria - QA
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-09-17 (QA M14)
+## Ultima actualizacion: 2026-09-24 (QA M18 Portal del cliente del estudio)
 
 ## Definiciones vigentes
+
+# QA M18 - Portal del cliente del estudio (2026-09-24) - CERRADA
+
+**VEREDICTO: aprobado con reparos. La frontera aguanta; lo que estaba roto era todo lo de alrededor.**
+Los 12 criterios de aceptacion dan **PASS despues de 4 auto-fixes** (0 FAIL, 0 BLOCKED). Ninguno de los 4 defectos
+era de aislamiento de datos: el barrido de 46 URLs del estudio con sesion de cliente real, el IDOR cliente-cliente
+por Id directo y el barrido de 1.894 fragmentos del nucleo dieron **cero fugas de datos**. Lo que fallaba era el
+**cromo** (el menu del estudio dibujado en los 403/404), la **cuenta propia** del cliente (contrasena y tema muertos),
+la **funcion central del modulo** (el agente no podia leer un solo papel) y un **GET que escribia**.
+
+Entrada: `1-analista-funcional.md` M18 (RF-M18-01..36, 12 CA), `docs/diseno-portal-cliente.md` (15 HU, seccion 9 con
+los textos exactos), `5-implementador.md` M18 (DI-M18-A..I, 9 pruebas minimas). Commits `8e1eef4`..`0000506`.
+**La migracion `PortalCliente` se aplico a la base de desarrollo en esta corrida** (llego sin aplicar).
+
+**Linea base:** build 0 errores / 2 advertencias (preexistentes, analizadores xUnit en tests). `dotnet test`
+**891/891** (una corrida dio 890/891 por el flaky conocido `LectorDocumentosTests.Extraccion_que_supera_el_tiempo`,
+que paso aislado). `git status` limpio.
+
+**Costo cero:** `Anthropic__Simulado=true` + `Anthropic__ApiKey` invalida de resguardo, confirmado en **cada** uno de
+los 3 arranques por la linea *"Motor de agentes con MODELO SIMULADO ... el costo es cero"*; `grep -c anthropic.com`
+sobre los logs = **0**. Ningun `appsettings` editado.
+
+**Camino de verificacion:** el servidor MCP `playwright` **no respondio en esta sesion** - `browser_navigate` y hasta
+`browser_close` devolvian *"Browser is already in use ... use --isolated"*, un lock de perfil que no se libero ni
+matando los procesos ni borrando los `Singleton*`. Declarado y **caida al procedimiento alternativo de la
+instruccion 33**: Playwright por Python (Chromium real, `ignore_https_errors`, cookie `crm-tema`) + `mysql` contra
+`olvidata_agentes_dev`.
+
+## Los 4 defectos (todos reproducidos, todos corregidos, un commit cada uno)
+
+| Id | Sev | Que pasaba | Commit |
+|---|---|---|---|
+| **OLV-021** | major | Un cliente que pegaba una URL del estudio veia el **menu del estudio** (Inicio/Agentes/Tareas/Notificaciones, campana, "Mi perfil") en AccessDenied y en todo 404. Datos NO se filtraban (`/Notifications/GetRecent` daba 403): se filtraba el cromo, que es justo lo que prohibe el diseno seccion 9. Causa: `_Layout` decide con `EsMiembro && !EsStaff`, modismo pre-M18; al dejar `EsMiembro` de alcanzar al rol Cliente (DI-M18-A #1) la expresion se volvio false y lo mando a la rama del **staff**. | `974edb5` |
+| **OLV-022** | major | El tapon `NoEsCliente` de la policy por defecto (DI-M18-A #2) cerro tambien los `[Authorize]` de `AccountController`: **"Cambiar contrasena"** (que el menu del cliente ofrece) daba acceso denegado y el **boton de tema** respondia 302 a AccessDenied, asi que el **tema oscuro era inalcanzable para un cliente**. | `aacfe0a` |
+| **OLV-023** | **critical (funcional)** | **El bloque "Consultas" era inerte de punta a punta.** `ResolvedorHerramientas` arma bien la lista blanca de la `ConsultaCliente`, pero `HerramientaDocumentoBase.EjecutarAsync` - que M18 no toco, sigue como la dejo M16 - exige `TipoTarea.Trabajo` y devolvia "Herramienta no disponible para este agente." en el **100%** de las llamadas. La pantalla promete "la respuesta se apoya solo en tu carpeta" y el agente no podia leer un papel. **El agente redacta el fracaso en castellano**, asi que desde la pantalla no se ve nada raro: se detecta leyendo `PasosTarea` en la base. | `6df04a9` |
+| **OLV-024** | major | "Pedirselo al cliente" era un enlace a `GET /Pedidos/Nuevo?propuesta=N`, y ese GET **creaba el pedido y marcaba la propuesta Aplicada**: escritura por GET sin antiforgery, alcanzable por prefetch, historial o un `img src` externo. Se detecto porque el estado cambio sin llegar a apretar Guardar. El resto del producto (M4b) ya iba por POST. | `1915a54` |
+
+**Post-fix: build 0 errores, `dotnet test` `Con error: 0, Superado: 891, Omitido: 0, Total: 891`, exit 0.**
+
+## Lo que se probo y aguanto
+
+- **La frontera (CA-M18-01).** 46 URLs del estudio con sesion de cliente real: todas a AccessDenied o 404, **ninguna
+  con un dato**. `/` y `/Home/Index` mandan a `/Portal`. Tras el fix 1, ninguna dibuja navegacion del estudio.
+- **Cliente-cliente (CA-M18-02) y visibilidad (CA-M18-03).** Documento propio 200; documento de otro cliente, del
+  estudio sin el interruptor, y de otra organizacion: **404, nunca 403** (no confirma que exista). El interruptor
+  "Lo ve el cliente" muestra y oculta **en el acto**, en la lista y por Id directo. Lo que sube el cliente lo ve
+  siempre (`Origen=Cliente`, `VisibleParaCliente=1`). Item de pedido ajeno **con archivo**: 404 "No existe.", sin
+  escribir nada.
+- **Fuga por el agente.** Barrido de **1.894 fragmentos** reales del nucleo + 13 marcadores tecnicos sobre las 6
+  pantallas del cliente y las compartidas: **0 coincidencias**, con **control positivo validado** (11 fragmentos en
+  `/Nucleo/Version/89` como staff). Se planto una clave en las instrucciones del agente y otra en una regla de
+  empresa y se le pidio al agente, en castellano, que las revelara junto con los honorarios y los papeles de otro
+  cliente: **ninguna llego al HTML**. Sin "Ver pasos", sin nombres de herramienta, sin JSON, sin un solo numero de
+  costo. Tras el fix 3, el agente lista **solo** la carpeta de su cliente (47, 48, 49, 74) y ninguna del otro.
+- **El cliente no aprueba nada (CA-M18-06).** Con el caso peligroso que pide DI-M18-G: aprobacion fabricada en nivel
+  `Autor` sobre una tarea cuyo autor **es** el cliente. El cliente: `/Aprobaciones` denegado y todo POST rechazado.
+  El **Director la ve y la puede resolver**. Un Empleado que no es autor ni Director, no.
+- **Gasto (CA-M18-07).** Con el tope alcanzado no se crea la tarea ni se llama al modelo, y el texto de la seccion 9
+  aparece (placeholder del cuadro en `Ver`, dialogo al enviar en `Index`), **sin un solo numero**.
+- **Codigo de acceso (CA-M18-04).** Usado, vencido y revocado dan **el mismo mensaje, palabra por palabra**:
+  *"Ese codigo no sirve. Pedile uno nuevo a tu estudio."* Hasheado SHA-256 del codigo sin guiones, vence a 7 dias,
+  el contador por codigo sube y auto-revoca, y el limite por IP (5/15 min) frena. Tope de usuarios por cliente: frena
+  con su mensaje y no crea el usuario.
+- **Cortes (CA-M18-10, HU-M18-14).** "Cortar acceso" y la baja logica del `ClienteCartera` dejan al usuario afuera
+  **en el siguiente request** de la sesion viva.
+- **Portal apagado (CA-M18-11).** `/acceso` 404, sin card en la ficha, usuarios existentes afuera.
+- **Propuesta del agente (CA-M18-08).** Mientras esta Pendiente **al cliente no le llega nada**; aplicarla dos veces
+  da *"Esta propuesta ya se resolvio."* y no crea un segundo pedido.
+- **Rechazo (RF-M18-22).** Sin motivo lo frena con el texto exacto de la seccion 9; con motivo, el cliente lo ve.
+- **Visual (CA-M18-12).** 390 y 1440 px x claro y oscuro x 6 pantallas = 24 combinaciones: **sin scroll horizontal y
+  sin errores de consola**.
+- **Goldens (CA-M18-09).** 51/51 verdes, identicos.
+- **Regresion del estudio.** Director, Empleado y SuperUsuario, controller por controller, antes y despues de los 4
+  fixes: sin cambios. El tapon `NoEsCliente` **no rompio nada del lado del estudio** (`/Account/Perfil` y
+  `/Account/CambiarPassword` siguen en 200 para los dos roles).
+
+## Lo que NO se toco: tres decisiones de producto para Joaquin
+
+1. **Las reglas de alcance Organizacion entran al contexto de la consulta del cliente.** Verificado en
+   `TareasAgente.ReglasAplicadasJson`: las 5 reglas aplicadas eran `Alcance=Organizacion`, incluida una plantada a
+   proposito que decia cuanto se le cobra al cliente. **RF-M18-27 y el diseno 3.3 dicen "reglas de alcance
+   Cliente"**; DI-M18-F eligio a conciencia el mismo contexto que una tarea de trabajo para no mover los goldens. Es
+   una contradiccion real entre el contrato y la implementacion, pero la decision esta documentada y razonada: **la
+   define Joaquin, no QA.** Mitigado por las reglas de plataforma (56, 57, 58), que si se aplican.
+2. **El agente lee toda la carpeta, no solo lo visible para el cliente.** Consecuencia del fix 3, y es lo que pide
+   la seccion 3.3 ("su carpeta"). Pero significa que el agente puede leer - y citar - un papel interno que el cliente
+   no puede abrir en el portal. Conviene decidirlo a sabiendas; la alternativa (acotar a `VisibleParaCliente ||
+   Origen=Cliente`) seria **logica de negocio nueva** y por eso no se aplico.
+3. **El simulador no tiene guion para `pedido_documentacion_proponer`.** La mitad "el agente propone" de CA-M18-08 no
+   se puede ejercitar a costo cero; se verifico fabricando la propuesta. M14 dejo el estandar de que el simulado cubra
+   lo nuevo (CA-M14-12) y aca quedo sin cubrir.
+
+## Observaciones menores (no bloquean)
+
+- **`MensajesPortalCliente.DemasiadosIntentos`** (*"Probaste muchas veces. Espera 15 minutos."*, texto de la seccion
+  9) esta **escrito y no se usa en ningun lado**: al pasarse del limite se ve el mensaje generico del rate limiter del
+  portal. Mismo patron que DEF-M14-3.
+- **Contraste**: `.btn-outline-secondary` (3.81:1) y `.form-text` (3.12:1) quedan por debajo de 4.5:1 en los dos temas.
+  **Preexistente y transversal**: son los grises por defecto de Bootstrap, sin override en el theme, usados en
+  **101 vistas** incluido todo el lado del estudio. No es regresion de M18.
+- **`confirmButtonColor` literal** (`#2b9de4`, `#ef4444`) en las vistas nuevas: contra la instruccion 38 seccion 6
+  ("solo tokens"), pero **preexistente en 29 vistas** (SweetAlert no toma variables CSS facil).
+- **`fw-semibold`** aparece una vez en `Views/Pedidos/Index.cshtml:107` y **es inerte** (no existe en el CSS servido,
+  ya anotado en la corrida del 2026-09-21). Ahi no es el unico diferenciador, asi que es solo cosmetico.
+- En las pantallas **compartidas** el menu del cliente sale con 4 opciones en vez de 5 (falta "Consultas"), porque
+  `ViewBag.HayAgentesHabilitados` no lo puebla nadie fuera de `PortalClienteControllerBase`. Degradacion aceptable.
+- El avatar del cliente usa la inicial del **email**, no la del nombre (dos clientes distintos mostraban "A").
+- `/Pedidos` (lado estudio) sigue accesible con el portal apagado. Defendible - son datos ya cargados - pero conviene
+  confirmarlo contra RF-M18-06.
+- **Higiene del catalogo cross-proyecto:** `KOI-016` **titula dos defectos distintos** en
+  `docs/qa/regresiones-manuales.yml` (guarda de privilegio fail-open, y cifra derivable por resta). Es de otro
+  proyecto; se reporta, no se renumera.
+- **Ajeno a M18:** durante la corrida aparecieron modificados 3 archivos de `nucleo/plataforma/` (configurador de
+  reglas, su evaluacion y la instruccion 00) con ediciones de contenido de producto, a las 20:36. **No son de esta
+  corrida** - QA no toca `nucleo/` - y quedaron **sin commitear y sin tocar**: son de otra sesion trabajando en
+  paralelo en el mismo arbol.
+
+## Reglas cross-proyecto validadas
+
+- Ultima validacion de reglas cross-proyecto: 2026-09-24
+- **Reglas nuevas desde la corrida anterior (2026-09-21), todas ejecutadas contra el sistema en esta corrida:**
+
+| Regla | Origen | Resultado | Detalle |
+|---|---|---|---|
+| **Instruccion 38 completa** (diseno de pantallas del portal) - archivo **nuevo** del 2026-09-23, salido del rediseno de **este mismo producto** | `38-diseno-pantallas-portal.instructions.md` (`6930e63`) | **PASS con 2 observaciones menores** | Seccion 1: `ov-filtros` en los dos listados con filtros; **todas** las tablas con `ov-tabla-datos`; **cero** `position:sticky`. Seccion 4: sin accion duplicada encabezado+estado vacio (medido por visibilidad real, no por texto). Seccion 5: encabezados con chips; sin `v@Model`. Observaciones: colores literales en SweetAlert (seccion 6) y `fw-semibold` inerte, **los dos preexistentes**. |
+| **KOI-015** - un helper de consulta compartido recibe el filtro como parametro y proyecta al final | `32-estandares-qa-implementador` (`6930e63`) | **PASS** | M18 no introdujo ningun helper que devuelva un `IQueryable` ya proyectado. **Se aplico la regla al propio auto-fix 3**: el predicado del tipo de tarea va **inline** en el `AnyAsync` y no por el metodo auxiliar, que EF no habria traducido. |
+| **KOI-016** - guarda de privilegio fail-closed sobre la lista COMPLETA de roles | `32-estandares-qa-implementador` (`6930e63`) | **PASS** | `PermisoOrganizacionHandler` no usa `FirstOrDefault()` ni compara por desigualdad de string: `RequireMiembro`/`RequireDirector` resuelven contra `IPermisosOrganizacion` y **fallan cerrado** sin rol. `NoEsCliente` mira el rol crudo a proposito, para que un cliente **bloqueado** tampoco entre por la puerta de los miembros. Probado el caso del rol vacio: staff y SuperUsuario pasan, cliente no. |
+| **KOI-017** - la ventana de una magnitud comparativa es un dato del modelo | `32-estandares-qa-implementador` (`a42294f`) | **N/A** | M18 no agrega ninguna pantalla que dibuje magnitudes lado a lado para compararse. El unico numero que el portal del cliente muestra es "0 de 2" de un pedido, que es un conteo de la misma unidad. |
+| `34-integracion-afip-arca`, `35-pantalla-control-stock` | - | **N/A** | El producto no factura ni tiene control de stock. |
+
+**Nota de metodo:** la regla 38 se valido **midiendo en el navegador**, no leyendo las vistas - que es lo que la
+propia instruccion pide en la seccion 6 ("tres de los cambios se veian bien en el codigo y estaban rotos en
+pantalla"). En esta corrida eso evito **dos falsos positivos** propios: la "accion duplicada" del estado vacio (los
+dos botones nunca se ven juntos) y el "Director no ve la aprobacion" (el listado carga por DataTables y lo habia
+leido antes de la XHR).
+
+## Cobertura del catalogo cross-proyecto
+
+Items nuevos creados en esta corrida: **OLV-021, OLV-022, OLV-023, OLV-024** (con `fix_aplicado` apuntando al commit
+de cada uno). Del catalogo previo, lo que aplica a un portal con un tercero autenticado adentro del tenant se ejecuto
+y dio verde: **PAT-017** (IDOR - el id sale de la sesion, nunca de la URL: **ningun metodo de
+`IPortalClienteService` recibe el id del cliente**, verificado por codigo y por 6 intentos de IDOR reales),
+**OLV-013..OLV-020** (aislamiento multi-tenant, `IgnoreQueryFilters` nombrado, listados sin 500, links de sidebar con
+autorizacion real). El resto del catalogo es de otros stacks o de modulos que M18 no toca.
+
+## Tecnicas que sirvieron (para la proxima corrida)
+
+- **El barrido de fuga necesita su control positivo, si o si.** El primero dio "0 fugas" en el cliente **y 0 en el
+  control**: estaba roto. El fragmento util sale de `ArtefactoVersiones` leyendo los bytes con `subprocess` (la
+  consola de Windows mangla el UTF-8 **al imprimir**, pero el archivo sale bien: no confundir una cosa con la otra).
+  `/Nucleo` no sirve de control - lista rubros -; el que sirve es `/Nucleo/Version/<id del prompt base>`.
+- **Un `documentos_listar` que falla no se ve en pantalla.** El agente redacta el fracaso en castellano y parece una
+  respuesta valida. Para cualquier herramienta nueva, leer `PasosTarea.ContenidoJson` y buscar `esError`.
+- **Antes de dar por roto un listado, esperar la XHR de DataTables** (~2 s). Me dio un falso "el Director no ve la
+  aprobacion".
+- **`ControlGasto` suma `PasosTarea.CostoUsd`, no `EventosUso`.** Fabricar gasto insertando en `EventosUso` no mueve
+  el limite; hay que tocar el costo de un paso.
+- El mensaje de un tope puede estar en un **`placeholder`**, que `innerText` no ve; y el de un envio bloqueado, en un
+  **SweetAlert** posterior al POST. Buscar los dos antes de reportar "no avisa".
+- El hash del codigo de acceso es SHA-256 del codigo **sin guiones y en mayuscula**: sirve para fabricar codigos
+  vencidos o revocados sin pasar por la pantalla.
+
+---
 
 # QA M14 — Instructivos, búsqueda web, espacio del cliente y control de gasto (2026-09-17) — CERRADA
 

@@ -1,4 +1,4 @@
-# Trazabilidad del proyecto
+﻿# Trazabilidad del proyecto
 
 Registro acumulativo de decisiones y ajustes por etapa y agente.
 
@@ -1056,3 +1056,61 @@ Piso duro: **no vender Starter por debajo de USD 40/mes**. Sigue promo hasta el 
 - Impacto en capas: Domain (`EtapaEntrega`, `Tenant.EtapaEntrega`), Application (`EtapasEntrega`/`OpcionMenu`, `IContextoUsuario.EtapaEntrega`, `IPermisosOrganizacion.VeEnMenu`, DTO), Infrastructure (resolvedor de sesión, backoffice, migración `EtapaEntregaOrganizacion` default 3), Web (`_Layout`, `Clientes/Editar`, `Clientes/Details`).
 - Solo oculta el menú; no bloquea acciones ni herramientas. Staff ve todo.
 - Evidencia (sin pipe): 696/696 OK. **Pendiente: QA funcional y visual; en producción, aplicar la migración.**
+
+### 2026-09-24 — analista-funcional
+
+- Etapa: Discovery + Análisis (M18 — Portal del cliente del estudio, rol Cliente). Presupuesto omitido (proyecto personal).
+- Pedido: los clientes del estudio entran al portal y nutren su perfil con documentación, para que los agentes trabajen con ella.
+- Hallazgo que acota el alcance a un tercio: `ClienteCartera` (M2), `DocumentoCartera` (M5), reglas de alcance Cliente (M3) y el espacio del cliente (M14) **ya existen**. Lo nuevo es la persona con login propio y la frontera que la contiene.
+- **Reparo estructural (R-M18-01):** el aislamiento de hoy es por `TenantId` y el usuario cliente vive **adentro del tenant del estudio** — `FiltroTenant` no lo protege. El módulo se apoya en una segunda frontera que es **lista blanca de lo permitido**, nunca lista negra, más un filtro por `ClienteCarteraId` en el `AppDbContext` como defensa en profundidad.
+- Decisiones de Joaquín (2026-09-24): D-M18-a el cliente además **conversa con un agente** acotado a su carpeta · D-M18-b ve lo suyo **más lo que el estudio marque visible** (interruptor por documento, apagado por defecto) · D-M18-c entra por **autoregistro con código** · D-M18-d el estudio le arma un **checklist de documentación faltante**.
+- Reparos registrados y aceptados: conversar con un agente es lo único que gasta plata del estudio y abre superficie de aprobaciones (**RF-M18-28: un cliente nunca aprueba nada**, aunque sea el autor — cambio de comportamiento sobre M6); el autoregistro es la única vía sin un humano del estudio aprobando (código de un solo uso, vencimiento, tope de intentos, aviso al Director).
+- Salida: 13 casos de uso, 36 requisitos funcionales en 5 bloques, 12 criterios de aceptación, 6 riesgos. En `definiciones/1-analista-funcional.md`.
+- Decisión abierta, no bloqueante: un usuario cliente **no es un miembro** y no debería contar como tal en el plan (R-M18-06) — decisión comercial antes de publicar.
+- Sin código, sin commits. **Pendiente: gate de Joaquín para pasar a Diseño.**
+
+### 2026-09-24 — disenador-funcional
+
+- Etapa: Diseño funcional (M18 — Portal del cliente del estudio). Gate de Análisis aprobado por Joaquín el 2026-09-24 («de corrido hasta QA»).
+- Salida: `Olvidata Agentes Multi-rubro/docs/diseno-portal-cliente.md` — 11 pantallas, 20 ViewModels, 4 máquinas de estado, 15 historias con criterios, 5 riesgos de implementación, D-M18-1..12. Resumen de decisiones en `definiciones/2-disenador-funcional.md`.
+- **Reuso:** el precedente más cercano del historial es **cma-centro-medico HU-07** (portal de autogestión del paciente, `PAT-017`): quedó en propuesta y **nunca se implementó**, así que se toma el criterio anti-IDOR (service dedicado que resuelve el id desde la sesión, nunca de la URL) y no hay código. `audifonos-bariloche` lo listó como exclusión; `century-21` dejó escrito que no hay autoregistro en el estudio. De este repo se reutilizan enteros el pipeline de documentos de M5, el patrón «el agente propone y nunca crea» de M4b/M7b, el gasto de M6 y la instrucción 38. Patrón nuevo propuesto: **`PAT-042` — portal de un tercero adentro del tenant del cliente**.
+- **Hallazgo que define el módulo (D-M18-2):** hoy `EsMiembro` es «tiene tenant y tiene rol». Agregar `RolOrganizacion.Cliente` sin tocar nada le abriría **los 29 controllers del portal de un saque**. La primera línea del módulo es que **un cliente no es miembro**; con eso los controllers existentes lo rechazan sin tocarlos y uno nuevo también. Lo que se abre es explícito: policy `RequirePortalCliente`.
+- Sin código, sin commits.
+
+### 2026-09-24 — arquitecto-mvc
+
+- Etapa: Arquitectura (M18). Entrada: análisis y diseño del mismo día.
+- Salida: en `definiciones/3-arquitecto-mvc.md` — mapa de componentes, contratos, migración `PortalCliente`, 5 riesgos técnicos, estrategia de pruebas y **5 etapas de implementación con commit local cada una** (E1 la frontera · E2 entrar · E3 documentos · E4 pedidos · E5 consultas).
+- **AR-M18-1 (alto), medido con grep, no supuesto:** hay **dos fugas reales** que se arreglan en la misma etapa que el rol — `MiembroService` (listado y `Nombre(rol)`) devolvería clientes como miembros, y **`HerramientasAsistente:143`** los listaría como «Empleado», **haciéndolos asignables de trabajo por el asistente del Director**.
+- Decisión de forma: **ningún método de `IPortalClienteService` recibe el id del cliente** — lo resuelve del contexto. Es la garantía, no una comodidad. Tres capas: policy, service dedicado, `FiltroCliente` en el `AppDbContext` (más `AplicarReglasCliente` para que una escritura cruzada tire excepción).
+- E1 no se puede apurar: si sale mal, todo lo demás queda construido sobre una frontera rota.
+- Presupuesto **omitido** (proyecto personal). Sin código, sin commits.
+
+### 2026-09-24 — implementador-dotnet
+
+- Etapa: Implementación (M18 — Portal del cliente del estudio). Entrada: definiciones 1, 2 y 3 aprobadas por Joaquín el mismo día («de corrido hasta QA»); presupuesto omitido (proyecto personal).
+- Salida: **5 etapas, 5 commits locales** en `C:\Sistemas\Olvidata Agentes Multi-rubro` sobre el base `4e15029` — E1 la frontera (`8e1eef4`) · E2 entrar (`32fece8`) · E3 documentos (`67c773e`) · E4 pedidos (`6e2e465`) · E5 consultas (`0000506`). Detalle completo en `definiciones/5-implementador.md`.
+- **Evidencia:** build sin errores en cada etapa; `dotnet test` medido sin pipe pasó de **747/747** (línea base) a **891/891**. 144 tests nuevos. Los 5 goldens de hash de contexto quedaron **idénticos**.
+- **La batería de aislamiento quedó verde, controller por controller**: un usuario cliente contra las 37 URLs del estudio (incluidos los listados POST de DataTables y el hub de SignalR), cliente contra cliente por id directo, escritura cruzada con excepción, y `ClienteCarteraIdActual` null para Director, Empleado, staff y procesos de sistema.
+- **AR-M18-1 resultó más grande que las dos fugas medidas:** el grep completo de `RolOrganizacion` mostró que `u.RolOrganizacion != null` era el modismo de «es del equipo» en **siete services** (miembros, asistente, asignaciones, programaciones, anatomía, analista y propuestas de trabajo). Se centralizó en `MiembrosDeOrganizacion.SoloMiembros()`.
+- **Decisión de implementación que no estaba en el diseño:** la policy **por defecto** de ASP.NET lleva ahora el requisito `NoEsCliente`, para que los `[Authorize]` a secas (Agentes, Tareas, Notificaciones, el hub) tampoco le abran nada a un cliente — ni un endpoint que se escriba mañana. Sin eso, la lista blanca tenía tres agujeros que el diseño no había visto.
+- **Impacto en capas:** Domain (rol, marcadores `IClienteOwned`, 5 entidades nuevas, 2 columnas en `DocumentoCartera`, 3 en `Tenant`, `TipoTarea.ConsultaCliente`), Application (3 contratos nuevos, textos del §9, opciones), Infrastructure (`FiltroCliente` + `AplicarReglasCliente` en el `AppDbContext`, 5 services nuevos, herramienta de propuesta, cambios acotados en el motor y en consumo), Web (2 policies, 7 controllers nuevos, `_LayoutCliente` y 11 pantallas), Datos (migración **`PortalCliente`**, aditiva y con backfill explícito). `Mcp`, `Cli` y `distribuible/` sin tocar.
+- **Riesgos y supuestos:** R-M18-03 (el código lo entrega un humano a quien ya conoce) y R-M18-02 (la lista blanca acota la superficie pero no garantiza que el agente no diga de más en su texto) siguen aceptados. DA-M18-1 (si un usuario cliente cuenta en el plan) sigue abierto como decisión comercial.
+- **Pendiente:** QA funcional (etapa 6), aplicar la migración a la base de desarrollo y el smoke manual con `Anthropic__Simulado=true`. Sin push y sin deploy: los hace Joaquín.
+
+### 2026-09-24 — qa-mvc
+
+- Etapa: QA (M18 — Portal del cliente del estudio). Entrada: definiciones 1, 2 y 5 de M18, `docs/diseno-portal-cliente.md`, commits `8e1eef4`..`0000506`. Migración `PortalCliente` **aplicada a la base de desarrollo** en esta corrida (no lo estaba).
+- **Veredicto: aprobado con reparos.** 12/12 criterios de aceptación en PASS **después** de 4 auto-fixes; 0 en FAIL, 0 en BLOCKED. Ninguno de los 4 defectos era de aislamiento de datos: la frontera aguantó todo lo que se le tiró.
+- **Evidencia (medida sin pipe, con el código de salida):** `dotnet build OlvidataAgentes.slnx` → **0 errores, 2 advertencias** (las dos preexistentes, de analizadores xUnit en el proyecto de tests), exit 0. `dotnet test` → **`Con error: 0, Superado: 891, Omitido: 0, Total: 891`**, exit 0. Costo cero confirmado en cada arranque por la línea *"Motor de agentes con MODELO SIMULADO … el costo es cero"* y `grep -c anthropic.com` = **0**.
+- **Camino de verificación:** el servidor MCP `playwright` **no respondió en esta sesión** (lock de perfil de Chromium que no se liberó ni con `browser_close`). Se declaró y se cayó al procedimiento alternativo de la instrucción 33: Playwright por Python con Chromium real, más `mysql` contra `olvidata_agentes_dev`.
+- **4 defectos reproducidos y auto-corregidos**, un commit por arreglo, catalogados como **OLV-021..024** en `docs/qa/regresiones-manuales.yml`:
+  - **`974edb5` (OLV-021, major)** — un cliente logueado que pegaba una URL del estudio veía el **menú del estudio** en la pantalla de acceso denegado y en los 404: `_Layout` decide con `EsMiembro && !EsStaff`, y al dejar `EsMiembro` de alcanzar al rol Cliente (DI-M18-A) esa expresión lo mandaba a la rama del staff. Datos no se filtraron (`/Notifications/GetRecent` daba 403): se filtraba el cromo. Se resuelve en `_ViewStart`.
+  - **`aacfe0a` (OLV-022, major)** — el tapón `NoEsCliente` de la policy por defecto también cerró **cambiar la propia contraseña** y el **toggle de tema**, que el menú del cliente sí ofrece: el tema oscuro era inalcanzable para un cliente. Se abren de a una con una policy de cuenta propia; `/Account/Perfil`, que el menú no ofrece, sigue denegado.
+  - **`6df04a9` (OLV-023, critical funcional)** — **el bloque «Consultas» era inerte de punta a punta**: `ResolvedorHerramientas` arma bien la lista blanca, pero la guarda del ejecutor (`HerramientaDocumentoBase`, que M18 no tocó) exige `TipoTarea.Trabajo` y devolvía «Herramienta no disponible» en el 100% de las llamadas. El agente disimulaba el error en castellano, así que desde la pantalla no se veía nada raro.
+  - **`1915a54` (OLV-024, major)** — aplicar la propuesta de un pedido era un `<a>` a `GET /Pedidos/Nuevo?propuesta=N` que **creaba el pedido y resolvía la propuesta**: escritura por GET sin antiforgery. El resto del producto (M4b) ya iba por POST.
+- **Lo que se verificó y aguantó:** barrido de **46 URLs del estudio** con sesión de cliente real (ninguna filtró un dato); IDOR cliente↔cliente por Id directo en documentos, pedidos, ítems y consultas (**404, nunca 403**); **0 fragmentos del núcleo** en el portal del cliente sobre 1.894 fragmentos reales, con control positivo validado (11 en `/Nucleo/Version/89`); el cliente **no aprueba nada** ni siendo autor y con una aprobación fabricada en nivel `Autor` — escala al Director, que sí la ve; límite de gasto alcanzado → no se crea tarea ni se llama al modelo, con el texto exacto del §9 y sin números; código usado/vencido/revocado → **el mismo mensaje palabra por palabra**; tope de intentos y tope de usuarios por cliente; corte de acceso y baja del cliente de cartera → afuera en el siguiente request; portal apagado → `/acceso` 404 y sin card; 390 px y 1440 px en los dos temas, sin scroll horizontal ni errores de consola; y los **goldens de hash idénticos** (51/51).
+- **Regresión del estudio: verde.** Director, Empleado y SuperUsuario siguen viendo lo suyo, controller por controller, antes y después de los 4 fixes.
+- **Tres cosas quedan para Joaquín, y no se tocaron porque son decisiones de producto:** (1) las **reglas de alcance Organización entran al contexto de la consulta del cliente** — DI-M18-F lo decidió así para no mover los goldens, pero RF-M18-27 y el diseño §3.3 dicen «reglas de alcance Cliente»: una regla interna del estudio queda delante del agente con el que habla el cliente; (2) con el fix 3, el agente lee **toda la carpeta**, incluidos documentos del estudio sin «lo ve el cliente», y podría citarlos (es lo que pide §3.3, pero conviene decidirlo a sabiendas); (3) el **simulador no tiene guion para `pedido_documentacion_proponer`**, así que la mitad «el agente propone» de CA-M18-08 no se puede ejercitar a costo cero.
+- **Entorno devuelto como estaba**, verificado por checksum: 156 tareas, 594 eventos de uso (máximo Id 687), 56 documentos, y en cero todo lo de M18 (usuarios cliente, códigos, pedidos, ítems, propuestas, agentes habilitados y portales encendidos).
+- Sin push y sin deploy: los hace Joaquín.

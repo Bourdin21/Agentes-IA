@@ -26,7 +26,7 @@
 
 version: 1
 proyecto: ShowroomGriffin
-ultima_actualizacion: 2026-09-03
+ultima_actualizacion: 2026-09-24
 
 regresiones:
 
@@ -3201,6 +3201,130 @@ regresiones:
       - "SQL: reproducir el GROUP BY del informe y verificar que ningun grupo tiene mas de un TenantId distinto."
       - "Navegador: la grilla tiene columna de organizacion."
     nota_generalizacion: "Regla del estudio: en cuanto una consulta saca el filtro global de tenant, TODO lo que venga despues (GroupBy, Distinct, Any, joins por nombre) perdio la separacion entre organizaciones y hay que reponerla explicitamente. El caso mas traicionero es agrupar por un nombre que el usuario elige, porque dos organizaciones pueden elegir el mismo. En QA: ante cualquier informe cross-tenant, leer la clave del GroupBy antes que la pantalla."
+
+  - id: OLV-021
+    modulo: "Portales con dos publicos en la misma app (staff/miembro y un tercero autenticado): layout de las vistas COMPARTIDAS"
+    titulo: "El rol nuevo queda afuera de EsMiembro y las pantallas compartidas (AccessDenied, Error, 404) le dibujan el menu del OTRO publico: la frontera tapa los datos pero no el menu"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - QA M18 2026-09-24, commit 0000506, localhost:7200 con Playwright (Python) y sesion real de un usuario rol Cliente. Barrido de 46 URLs del estudio."
+    pasos:
+      - "Entrar con el usuario del portal nuevo (rol que NO es miembro)."
+      - "Pegar en la barra cualquier URL del otro publico: /Miembros, /Tareas, /Nucleo, /Consumo, o una inexistente (/noexiste-xyz)."
+      - "Mirar la barra lateral y el desplegable del usuario, no el cuerpo de la pagina."
+    sintoma: "La pagina de acceso denegado y el 404 se dibujan con el layout del staff: sidebar con Inicio / Agentes / Tareas / Notificaciones, campana de notificaciones y 'Mi perfil' en el desplegable. Los links no abren nada (la API responde 403) pero el tercero se entera de que existen esas secciones, que es justo lo que el diseno prohibe."
+    expectativa: "Un usuario del portal nuevo nunca ve el layout del otro publico, ni siquiera en un 403 o un 404."
+    causa_raiz: "El layout compartido decide con un modismo viejo del tipo EsMiembro && !EsStaff, escrito cuando solo habia dos publicos. Al agregar un rol que deliberadamente deja de contar como miembro, esa expresion se vuelve false para el y lo manda a la rama del staff. No falla nada: es una condicion booleana que cambio de significado sin que nadie la tocara. Las vistas PROPIAS del portal nuevo fijan su layout a mano, asi que el agujero queda solo en las compartidas, que son las que nadie prueba."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Views/_ViewStart.cshtml
+        motivo: "Elegir el layout por el ROL CRUDO del usuario (no por un permiso derivado, para que un usuario bloqueado tampoco vea el equivocado). Es el unico lugar que cubre toda vista compartida, presente y futura; arreglar AccessDenied.cshtml a mano deja el 404 y el /Error abiertos."
+    migracion_ef: null
+    fix_aplicado: "olvidata-agentes-multirubro commit 974edb5 (QA M18 fix 1)"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Con la sesion del rol nuevo, GET a >=6 URLs del otro publico incluida una inexistente; en cada una evaluar document.querySelector de la clase del sidebar ajeno"
+      condicion_falla: "Alguna respuesta dibuja un elemento de navegacion del otro publico."
+    criterio_aceptacion:
+      - "En las 403 y 404 alcanzables, el menu que se dibuja es el del portal propio."
+      - "Ningun enlace ni contador del otro publico aparece en el HTML."
+    pruebas_minimas:
+      - "Barrido de todas las URLs de controllers del otro publico + una inexistente + /Error, contando elementos de navegacion ajenos: tiene que dar 0."
+      - "Repetirlo con el usuario BLOQUEADO del portal nuevo."
+    nota_generalizacion: "Aplica a todo proyecto del estudio que meta un segundo publico autenticado adentro de la misma app (portal del paciente, del cliente, del proveedor). La frontera se prueba casi siempre contra los DATOS y casi nunca contra el CROMO: el equipo escribe tests HTTP por controller, ven 403 y dan el tema por cerrado. Regla: la lista blanca tiene que cubrir tambien QUE LAYOUT se dibuja, y el lugar correcto es _ViewStart, no cada vista. Chequeo barato: pedir una URL inexistente con la sesion del publico nuevo y mirar el sidebar."
+
+  - id: OLV-022
+    modulo: "Policy por defecto fail-closed contra un rol nuevo: las acciones de CUENTA PROPIA quedan del lado prohibido"
+    titulo: "Al meter el requisito 'no es <rol nuevo>' en la DefaultPolicy, todo [Authorize] a secas se cierra - incluidos cambiar la propia contrasena y el toggle de tema, que el menu del portal nuevo SI ofrece"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - QA M18 2026-09-24, commit 0000506. El boton de tema del portal del cliente respondia 302 -> AccessDenied y la cookie no cambiaba."
+    pasos:
+      - "Entrar con el usuario del portal nuevo."
+      - "Abrir el desplegable del usuario y tocar 'Cambiar contrasena'."
+      - "Tocar el boton de tema y recargar."
+    sintoma: "'Cambiar contrasena' lleva a acceso denegado. El tema no cambia nunca: el POST se va a AccessDenied y la cookie queda igual, asi que el tema oscuro es inalcanzable para ese publico aunque la hoja de estilos lo soporte."
+    expectativa: "Lo que el menu del portal ofrece, funciona. Lo que no ofrece, sigue denegado."
+    causa_raiz: "Cerrar la DefaultPolicy es la decision correcta (un endpoint nuevo con [Authorize] a secas no le abre nada al rol nuevo), pero barre tambien los [Authorize] viejos de AccountController, que no son del otro publico: son acciones sobre la propia cuenta, comunes a los dos. El sintoma es invisible en los tests HTTP por controller, porque nadie escribe un test que diga 'el cliente SI puede cambiar su contrasena'."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Program.cs
+        motivo: "Policy aparte para cuenta propia (solo RequireAuthenticatedUser)."
+      - path: src/<Proyecto>.Web/Controllers/AccountController.cs
+        motivo: "Ponerla SOLO en las acciones que el menu del portal nuevo ofrece (cambiar contrasena, toggle de tema). Las demas (perfil, etc.) se dejan denegadas: la lista blanca se abre de a una, no en bloque."
+    migracion_ef: null
+    fix_aplicado: "olvidata-agentes-multirubro commit aacfe0a (QA M18 fix 2)"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Con la sesion del rol nuevo, seguir TODOS los enlaces y botones del layout propio y verificar que ninguno termina en AccessDenied"
+      condicion_falla: "Un enlace o boton del menu propio responde 302 a la pagina de acceso denegado."
+    criterio_aceptacion:
+      - "Cambiar contrasena y cambiar tema funcionan para el rol nuevo."
+      - "Una accion que el menu NO ofrece sigue denegada."
+    pruebas_minimas:
+      - "Tocar el toggle de tema, recargar y leer document.documentElement.dataset.theme: tiene que haber cambiado."
+      - "GET a la accion de cuenta que el menu no ofrece: sigue en acceso denegado."
+    nota_generalizacion: "Siempre que se endurezca la DefaultPolicy (o se agregue un FallbackPolicy), hay que listar los [Authorize] a secas que ya existian y clasificarlos en 'del otro publico' y 'de la propia cuenta'. Chequeo de QA que lo agarra sin leer codigo: con la sesion del publico nuevo, hacer clic en cada item de SU propio menu; el que caiga en acceso denegado es el defecto. Es la variante inversa de 'link de sidebar sin autorizacion real' (regla 32): aca la autorizacion es demasiada, no demasiado poca."
+
+  - id: OLV-023
+    modulo: "Tipo de tarea nuevo + herramientas: la lista blanca del resolvedor y la guarda del EJECUTOR se escriben en archivos distintos"
+    titulo: "El resolvedor ofrece la herramienta al tipo de tarea nuevo pero el ejecutor sigue exigiendo el tipo VIEJO: la herramienta aparece en la solicitud al modelo y falla en el 100% de las llamadas"
+    severidad: critical
+    reproducido_en: "olvidata-agentes-multirubro - QA M18 2026-09-24, commit 0000506. Tarea 221 (TipoTarea.ConsultaCliente): documentos_listar -> esError 'Herramienta no disponible para este agente.' El bloque Consultas del portal del cliente era inerte de punta a punta."
+    pasos:
+      - "Crear una tarea del tipo NUEVO desde la pantalla que lo estrena."
+      - "Dejar que el modelo (o el simulado) use una de las herramientas que la lista blanca dice que recibe."
+      - "Mirar el resultado de la herramienta en la base (PasosTarea) o en 'Ver pasos', no la respuesta final del agente."
+    sintoma: "La respuesta del agente suena razonable ('no encontre documentos de este cliente') y la pantalla no muestra ningun error, porque el usuario final no ve los pasos. En la base, cada uso de herramienta vuelve con esError y el mensaje de no disponible."
+    expectativa: "La herramienta que la lista blanca ofrece, se puede ejecutar."
+    causa_raiz: "La autorizacion de una herramienta esta partida en dos: QUE se ofrece (resolvedor, tocado al agregar el tipo nuevo) y QUE se puede ejecutar (guarda propia de cada familia de herramientas, escrita cuando solo existia el tipo viejo y no tocada). Las dos compilan, los tests unitarios de cada lado pasan, y solo se contradicen al ejecutar. Se agrava porque el agente disimula el error con lenguaje natural."
+    capa: Infrastructure
+    archivos_fix:
+      - path: src/<Proyecto>.Infrastructure/Services/<Familia>/Herramientas<Familia>.cs
+        motivo: "Aceptar el tipo de tarea nuevo en la guarda del ejecutor, SIN aflojar la condicion que aisla (que la tarea sea de ese cliente/dueno en ese tenant). El predicado va inline en la consulta EF, no por un metodo auxiliar (KOI-015)."
+    migracion_ef: null
+    fix_aplicado: "olvidata-agentes-multirubro commit 6df04a9 (QA M18 fix 3)"
+    deteccion_qa:
+      tipo: consulta
+      selector_o_endpoint: "SELECT ContenidoJson FROM PasosTarea WHERE TareaAgenteId = <tarea del tipo nuevo> AND Tipo = 2"
+      condicion_falla: "Algun resultado de herramienta tiene esError true con el mensaje de 'no disponible' siendo que la lista blanca la ofrece."
+    criterio_aceptacion:
+      - "Una tarea del tipo nuevo ejecuta las herramientas que su lista blanca ofrece."
+      - "Sigue sin ver nada de otro dueno: la consulta devuelve solo la carpeta propia."
+    pruebas_minimas:
+      - "Correr una tarea del tipo nuevo y leer los resultados de herramienta en la base: 0 esError."
+      - "Con dos duenos cargados, verificar que el listado que devuelve la herramienta trae SOLO los del dueno de la tarea."
+    nota_generalizacion: "Regla del estudio: cada vez que se agrega un TipoTarea (o cualquier discriminador que gobierne permisos), hay que hacer grep del enum entero, no solo de donde se arma la lista de herramientas. Las guardas de ejecucion suelen estar escritas como 'if (tipo != TipoViejo) return NoDisponible;' y son invisibles desde el archivo que se esta tocando. El sintoma NUNCA es un error en pantalla: el modelo redacta el fracaso en castellano y parece una respuesta valida. La unica deteccion barata es leer los pasos en la base."
+
+  - id: OLV-024
+    modulo: "Aplicar la propuesta de un agente (patron propuesta -> tarjeta -> boton)"
+    titulo: "El boton 'aplicar' es un <a> a una accion GET que crea la entidad y marca la propuesta como aplicada: escritura por GET, sin antiforgery"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - QA M18 2026-09-24, commit 0000506. GET /Pedidos/Nuevo?propuesta=1 creaba el pedido y resolvia la propuesta; se detecto porque el estado cambio sin llegar a apretar Guardar."
+    pasos:
+      - "Dejar una propuesta Pendiente."
+      - "Pedir por la barra la URL del 'aplicar' (o dejar que el navegador la prefetchee / volver atras en el historial)."
+      - "Mirar el estado de la propuesta y si aparecio la entidad."
+    sintoma: "La propuesta queda Aplicada y la entidad creada sin que nadie haya confirmado nada, y sin token antiforgery de por medio."
+    expectativa: "Aplicar una propuesta es POST con antiforgery. El GET solo muestra."
+    causa_raiz: "Para que el alta apareciera con los items precargados se reuso la accion GET del alta, pasando el id de la propuesta como query string, y se aprovecho a aplicarla ahi mismo. El resto de las propuestas del mismo producto ya iban por POST: es una excepcion que entro con el modulo nuevo."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Controllers/<Entidad>Controller.cs
+        motivo: "Separar en [HttpPost, ValidateAntiForgeryToken] AplicarPropuesta(id) con el mismo cuerpo y el mismo redirect; la accion de alta vuelve a ser solo el alta en blanco."
+      - path: src/<Proyecto>.Web/Views/<Entidad>/Index.cshtml
+        motivo: "El enlace pasa a ser un form method=post con el id en un hidden."
+    migracion_ef: null
+    fix_aplicado: "olvidata-agentes-multirubro commit 1915a54 (QA M18 fix 4)"
+    deteccion_qa:
+      tipo: consulta
+      selector_o_endpoint: "grep de asp-route- en los botones de 'aplicar', y de acciones de controller sin [HttpPost] que llamen a un service de escritura"
+      condicion_falla: "Una accion sin [HttpPost] invoca un metodo que escribe."
+    criterio_aceptacion:
+      - "El GET viejo ya no aplica nada: la propuesta queda Pendiente."
+      - "El boton por POST aplica, precarga y redirige igual que antes."
+    pruebas_minimas:
+      - "GET a la URL vieja con la propuesta Pendiente: sigue Pendiente y no se creo la entidad."
+      - "Clic en el boton: la propuesta queda Aplicada una sola vez; el segundo intento lo rechaza el service."
+    nota_generalizacion: "Chequeo de QA de 30 segundos para cualquier modulo con el patron propuesta/tarjeta: listar las acciones del controller y verificar que TODAS las que resuelven una propuesta llevan [HttpPost, ValidateAntiForgeryToken]. Cuando el producto ya tiene el patron resuelto en otro modulo, comparar contra ese: el modulo nuevo suele ser el unico que se desvia, porque quiso reusar el alta para precargar el formulario."
 
   - id: KOI-015
     modulo: Consultas EF / proyeccion a record reutilizable (ConceptosGastoQuery)
