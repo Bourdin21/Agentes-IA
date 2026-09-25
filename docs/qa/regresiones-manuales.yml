@@ -3427,3 +3427,43 @@ regresiones:
       - "Poner la parte reservada en 0, en un valor chico y en uno grande; en las tres corridas ninguna cifra del rol puede cambiar."
       - "Restar de a pares todas las cifras monetarias del rol para el mismo periodo y verificar que ninguna da la parte reservada."
     nota_generalizacion: "Aplica a TODO proyecto con un rol de acceso parcial (portal de cliente, de inversor, de proveedor) donde exista un dato reservado que sea la DIFERENCIA entre dos magnitudes publicables. Regla del estudio: la confidencialidad no se evalua pantalla por pantalla sino sobre el CONJUNTO de lo que el rol alcanza; el barrido tiene que ser sobre el menu completo del rol y para un mismo periodo, y la prueba decisiva es mover solo el dato reservado y ver si algo visible se mueve. Corolario contraintuitivo, y es el que se olvida: endurecer una sola pantalla puede abrir la brecha en vez de cerrarla, porque introduce una base distinta a la del resto y crea una resta que antes no existia."
+  - id: MH-022
+    modulo: "Proyeccion financiera (M17) — ProyeccionFinancieraService.ObtenerAsync (CR-79)"
+    titulo: "Una proyeccion que estima por promedio SOLO el egreso y del lado del ingreso pone unicamente los compromisos con fecha da deficit garantizado y falso: anunciaba caja negativa en 2 meses y -$31M en 6, sobre un negocio que venia cerrando +$7M por mes"
+    severidad: major
+    reproducido_en: "marihogar - base REAL de produccion (QA del 2026-09-24, antes de entregar la pantalla al cliente). El service se corrio desde un runner de consola de solo lectura contra la base de produccion; el defecto no se ve con datos de prueba chicos ni con la base de desarrollo, porque necesita un historial real de ventas de contado."
+    pasos:
+      - "Abrir la pantalla de proyeccion con datos reales de un negocio que cobra la mayor parte de sus ventas en el acto (efectivo, debito, transferencia)."
+      - "Mirar el ingreso proyectado de cada mes futuro y compararlo con el ingreso real de los meses historicos que la misma pantalla muestra al lado."
+      - "Mirar el veredicto de la pantalla (saldo proyectado al final de la ventana, primer mes en negativo) y compararlo con el resultado historico mes a mes."
+    sintoma: "Los meses futuros mostraban $168.000 de ingreso total (el unico pago con fecha de acreditacion pendiente que habia cargado) contra $6.512.125 por mes de gasto operativo estimado por promedio. El saldo proyectado caia a -$31.040.774 y la pantalla anunciaba en rojo que la caja se iba a negativo en el segundo mes futuro, mientras los 6 meses historicos de la MISMA pantalla mostraban ingresos de ~$14M por mes y neto positivo en todos."
+    expectativa: "El veredicto de la proyeccion es coherente con el desempeño historico que la propia pantalla muestra: si no hay ningun hecho nuevo (una deuda grande que vence, una caida de ventas ya ocurrida) que explique el cambio de signo, la proyeccion no puede dar deficit."
+    causa_raiz: "Asimetria de bases entre los dos lados de la misma resta — misma familia que KOI-017, aplicada al tiempo en vez de al espacio. Al reemplazar el promedio como formula central por 'compromisos con fecha', el egreso conservo una estimacion por promedio (el gasto operativo, que es lo unico que no se puede conocer de antemano) pero el ingreso quedo solo con los compromisos. Y del lado del ingreso los compromisos son estructuralmente casi vacios: una venta de contado se cobra en el acto y no deja NADA agendado a futuro, asi que solo aparecian los pagos con tarjeta pendientes de acreditar. El defecto no da error, no rompe ninguna consulta y compila perfecto: la pantalla simplemente afirma algo que no es cierto, con numeros que cada uno por separado son correctos."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/ProyeccionFinancieraService.cs
+        motivo: "Se estima la operacion habitual de los DOS lados con el mismo criterio (promedio de los meses cerrados de la ventana, neto de reversiones), y cada estimado se netea contra lo ya comprometido del mismo mes: Math.Max(0, promedio * proporcion - comprometido). En el mes en curso la proporcion es los dias que faltan sobre los dias del mes, porque los transcurridos ya estan en el dato real."
+      - path: MariHogar.Application/DTOs/ProyeccionFinancieraDtos.cs
+        motivo: "IngresoOperativoMensualEstimado (DTO raiz) y ProyeccionMesDto.IngresoOperativoEstimado, con el doc-comment que explica por que existen y por que van neteados."
+      - path: MariHogar.Web/Views/ProyeccionFinanciera/Index.cshtml
+        motivo: "Cada tramo rotulado como lo que es (real / comprometido / estimado): el estimado se dibuja con trama rayada del mismo color, no con un color propio, y el texto de la pantalla dice cual es el promedio usado y que se le descuenta lo comprometido."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-24"
+      por: "Claude Opus 5 (implementador), hallazgo propio en el QA contra produccion antes de entregar"
+      resultado: "aplicado"
+      build: "dotnet build MariHogar.slnx -> 0 Errores."
+      verificacion: "Con los datos reales de produccion: $13.774.127/mes de ventas estimadas y $6.512.125/mes de gastos (ambos promedios verificados con SQL independiente), sin ningun mes en negativo y +$54.190.817 al cierre de la ventana. Los 6 invariantes de la pantalla cierran, entre ellos que la columna 'Cambio de saldo' sea exactamente la diferencia contra el saldo del mes anterior."
+    deteccion_qa:
+      tipo: calculo
+      selector_o_endpoint: "GET /ProyeccionFinanciera — series de ingreso y de egreso de los meses futuros"
+      condicion_falla: "Un lado de la proyeccion se estima por promedio historico y el otro solo contiene compromisos con fecha; o el veredicto de la proyeccion contradice el resultado historico que la misma pantalla muestra sin ningun hecho nuevo que lo explique."
+    criterio_aceptacion:
+      - "Para cada serie proyectada, poder responder desde el MODELO (no desde el nombre de la serie ni un comentario) si es dato cierto o estimacion, y con que base se estimo."
+      - "Si un lado se estima por promedio, el otro tambien — o ninguno."
+      - "El estimado de cada mes esta neteado contra lo comprometido de ese mismo mes: nunca se suman los dos enteros."
+    pruebas_minimas:
+      - "Correr el calculo contra datos REALES de produccion (no de prueba) y comparar el veredicto con el neto historico mes a mes de la propia pantalla: si el historial cierra positivo todos los meses y la proyeccion da deficit sin causa visible, el sesgo esta en la formula."
+      - "Cargar un cobro comprometido grande en un mes futuro y verificar que el ingreso total de ese mes NO crece en todo su monto (el estimado se corre hacia abajo lo mismo): eso prueba que no hay doble conteo."
+      - "Verificar que la suma de los KPIs del horizonte coincida con la suma mes a mes de la serie correspondiente."
+    nota_generalizacion: "Aplica a TODA proyeccion o forecast de cualquier proyecto (caja, stock, capacidad, cobranzas) donde una parte del futuro se conozca con fecha y otra haya que estimarla. El sesgo se cuela por donde la asimetria es invisible: lo que se cobra en el acto no deja compromiso agendado, asi que el lado del ingreso parece vacio mientras el del egreso (cheques, pagos programados, gastos recurrentes) parece completo. La prueba decisiva no es revisar las consultas una por una — cada una da bien — sino enfrentar el veredicto de la proyeccion con el historial que la misma pantalla muestra al lado. Corolario: en una pantalla que compara, la simetria de las bases es un requisito funcional, no una cuestion de prolijidad."
