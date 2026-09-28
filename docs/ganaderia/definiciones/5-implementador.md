@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: ganaderia
-## Ultima actualizacion: 2026-09-08
+## Ultima actualizacion: 2026-09-28
 
 ## Contexto inicial
 
@@ -1255,3 +1255,96 @@ la primera (ultima verificacion: 0, el 2026-09-08 17:24).
 **DEPLOYADO A PRODUCCION el 2026-09-08.** Las tres migraciones aplicadas en orden y el codigo publicado en el mismo deploy. RT23 re-verificado minutos antes (`FacturasVenta` = 0), y verificacion post-deploy contra produccion en verde: esquema viejo eliminado, esquema nuevo presente, 4 semillas del catalogo cargadas, indice unico con `NON_UNIQUE = 0`, y los dos invariantes de control (contramovimientos duplicados, `StockActual` vs ledger) en 0 filas.
 
 Sin backup previo, con el riesgo advertido y aceptado por el usuario. Queda abierto —y ya son dos meses— el pendiente de instalar `mysqldump` en el entorno de deploy y programar backups periodicos: la proxima migracion destructiva sobre una tabla con datos **no** deberia correrse en estas condiciones.
+
+
+## Iteracion v19 — Cobros y pagos de facturas en el Tablero Anual (2026-09-28)
+
+Pedido directo del usuario, sin pasar por analista/diseñador/arquitecto: *"mostrar tambien pagos de las
+facturas en el dashboard economico"*. Se desambiguo con el usuario antes de tocar codigo (tres formas
+posibles y dos alcances): pidio **las tres formas** y **las dos puntas** (cobros de factura de venta y
+pagos de egreso). Repositorio: `C:\Sistemas\ganaderia - emo`. Sin migracion: no hay campos nuevos.
+
+### 0. Escaneo de reutilizacion
+
+| Buscado | Encontrado | Decision |
+|---|---|---|
+| Grafico Chart.js de barras mensuales | **Este mismo repo**: `chartMensual` / `chartIva` en `TableroAnual.cshtml` | Reutilizado como molde; el nuevo agrega `stack` + `scales.{x,y}.stacked` para partir cada barra en acreditado/pendiente. |
+| Tabla de movimientos con drill-down al comprobante | **Este mismo repo**: `Caja/Index.cshtml` (link a factura o egreso segun el origen del movimiento) | Reutilizado el patron de link y el `Egreso #id` (el egreso no tiene numerador propio). |
+| Fecha en que un `EgresoPago` mueve la caja | `EgresoPagoService` / `EgresoHelper` | La entidad **no** guarda `FechaAcreditacion`: cheque = `FechaVencimiento`, efectivo/transferencia = `FechaEfectiva`. Se encapsulo en `DashboardService.FechaCajaPago` + `PagoEnRango` para no repetir la regla en cuatro consultas. |
+
+### 1. La decision de fondo: una TERCERA base contable, no mas series de caja
+
+El tablero ya mezclaba **caja** (`MovimientosCaja` acreditados) y **devengado** (IVA por fecha de
+comprobante). Poner "los pagos" por fecha de acreditacion habria sido **duplicar la serie de caja**:
+en este sistema Caja es de solo lectura y todo movimiento nace de un `FacturaVentaIngreso` o de un
+`EgresoPago`, asi que esa serie ya *es* la de cobros y pagos.
+
+Lo que faltaba, y es lo que se agrego, es la base **VENCIMIENTO**: cada cobro/pago imputado al mes en
+que vence, partido en lo ya acreditado y lo que falta. Contesta la pregunta que caja no contesta
+(*cuanto queda por entrar y salir, y cuando*) y ademas hace visible el desfasaje: los 3 ingresos con
+vencimiento en agosto que se acreditaron en septiembre aparecen en **agosto** en el grafico nuevo y en
+**septiembre** en el listado de acreditados. Por eso cada bloque de la pantalla lleva su etiqueta de
+base al lado del titulo — `Caja`, `Vencimiento`, `Devengado` — **KOI-017**, que exige que la ventana de
+cada magnitud sea un dato explicito y este rotulada. Se le agrego la etiqueta `Caja` a los dos bloques
+viejos que no la tenian.
+
+### 2. Cambios por capa
+
+**Application**
+- `DTOs/Ganaderia/TableroAnualDtos.cs` — `TableroAnualMesDto` += `CobrosAcreditados`, `CobrosPendientes`,
+  `PagosAcreditados`, `PagosPendientes` (con default, igual que la serie de IVA de v17) + los calculados
+  `Cobros`, `Pagos`, `NetoCobrosPagos`. Record nuevo `TableroCobroPagoDto`, forma comun a las dos puntas
+  para poder ordenarlas juntas por fecha. `TableroAnualDto` += `CobrosPagosPeriodo` y `PendientesProximos`.
+  El `Estado` del DTO es **string**: `EstadoIngreso` y `EstadoPagoEgreso` son enums distintos con los
+  mismos tres valores, y aplanarlo evita un tercer enum solo para la vista.
+- **Ninguna interfaz cambio de firma.**
+
+**Infrastructure**
+- `Services/Ganaderia/DashboardService.cs` — cuatro consultas nuevas dentro de `GetTableroAnualAsync`:
+  serie anual por vencimiento (cobros y pagos), y detalle del periodo (acreditados). Las de pendientes
+  **no son nuevas**: las dos que ya alimentaban los KPI pasaron de proyectar `Importe` suelto a proyectar
+  la fila completa, y de ahi salen el KPI *y* la tabla de vencimientos — una sola consulta para los dos.
+  - `FechaCajaPago(DateOnly?, DateOnly)` y `PagoEnRango(desde, hasta)` centralizan la regla del cheque.
+    `PagoEnRango` se escribe como **OR de comparaciones simples y no con `??`**, para no depender de la
+    traduccion de `COALESCE` del proveedor MySQL de Oracle (mismo criterio conservador que la agrupacion
+    en memoria por mes que ya existia).
+  - **LP-001**: los estados se enumeran en positivo (`== Acreditado || == Pendiente`) y no como
+    `!= Rechazado`, para que un estado futuro no se cuele solo en las sumas.
+  - Sin `IgnoreQueryFilters()` (RT20/PF75): anular una factura da de baja sus ingresos y anular un egreso
+    da de baja sus pagos, asi que el filtro global de soft delete es exactamente lo que excluye anulados.
+  - Los **rechazados quedan afuera** de los tres bloques: no movieron plata ni son obligacion vigente.
+    La vista lo dice; se gestionan desde Ingresos / Egresos.
+
+**Web**
+- `Views/Dashboard/TableroAnual.cshtml` — cuatro bloques nuevos: grafico `chartCobrosPagos` (barras
+  **apiladas**: pleno = acreditado, claro = pendiente; dos stacks, cobros y pagos), desglose mes a mes,
+  listado de **cobros y pagos acreditados del periodo** y listado de **vencimientos pendientes** (global,
+  con badge rojo "Vencido" y el mas viejo arriba). Los dos listados son `ov-datatable` con
+  `data-dt-sum-cols` en las columnas de importe, drill-down a `Facturas/Details` o `Egresos/Details`, y
+  vacio explicito en vez de tabla vacia. **Dos columnas de importe separadas (Cobro / Pago) en vez de una
+  con signo**: el sumador del pie parsea el texto de la celda y con signos habria sumado cobros y pagos
+  como si fueran lo mismo.
+- `borderDash` en los datasets de barra **no existe** en Chart.js 4 (`BarElement` solo usa
+  `backgroundColor`/`borderColor`): se saco. Lo pendiente se distingue por opacidad + el tooltip por
+  segmento + la tabla de abajo.
+
+### 3. Evidencia
+
+- **Build** `dotnet build Ganaderia.slnx -c Debug --no-incremental`: **0 errores**, y el unico warning
+  `CS/RZ` es el preexistente `CS0114` de `HomeController`. **Ningun warning nuevo.**
+- **Smoke HTTP autenticado** contra `ganaderia_dev` (login real + cookie): `/Dashboard/TableroAnual` sin
+  filtro, `?anio=2026&mes=0`, `?anio=2026&mes=9` y `?anio=2025&mes=0` -> **200** las cuatro.
+- **Cuadre contra SQL** (todas exactas): desglose mes a mes = `GROUP BY MONTH(vencimiento), Estado`;
+  detalle de septiembre = 5 cobros $145.780.810,24 + 3 pagos $13.304.250,00; pendientes = 4 cobros
+  $195.796.002,71 y 0 pagos, identico al KPI. Los arrays del grafico salieron JSON valido.
+- **Render del grafico** verificado con Chrome headless sobre el HTML realmente servido: barras apiladas
+  correctas, mes filtrado resaltado en la tabla.
+- **Trampa de verificacion, anotada**: la primera comparacion "no cerraba" por $130.050.810,24. No era un
+  bug: al **levantar la app** corrio `AcreditacionIngresosHostedService` y acredito 2 ingresos vencidos
+  (`JobEjecuciones` id 13), o sea la base cambio entre el `SELECT` de control y el render. **Regla para
+  QA de este sistema: en dev, tomar el snapshot de control DESPUES de levantar la app**, nunca antes.
+
+### Estado de deploy
+
+**NO DEPLOYADO Y NO COMMITEADO.** Sin migracion pendiente (no hay cambios de esquema), asi que el deploy
+es solo de binarios y vistas.
