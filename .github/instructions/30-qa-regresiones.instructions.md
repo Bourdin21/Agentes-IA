@@ -33,14 +33,30 @@ Antes de aprobar un build:
    - Si se cumple `condicion_falla` (confirmado por automatizacion o por el reporte manual del usuario), reportar regresion citando el `id`.
    - Validar `criterio_aceptacion` y correr `pruebas_minimas`.
 3. Reportar resultado consolidado por `id`.
-4. **Auto-fix obligatorio cuando se reproduce un bug detectado en prueba manual**:
-   - Si la regresion fue confirmada manualmente (humano reporto el sintoma o `deteccion_qa` la confirmo), el agente QA debe:
-     1. Aplicar el parche derivado de `archivos_fix` y `migracion_ef`, respetando las fronteras por capa.
-     2. Si el item no esta catalogado todavia, crearlo en `docs/qa/regresiones-manuales.yml` antes de proponer el fix.
-     3. Re-ejecutar `deteccion_qa` y `pruebas_minimas` post-parche para confirmar cierre.
-     4. Registrar el resultado en `/docs/<proyecto>/definiciones/6-qa.md` (memoria del agente QA).
-   - El auto-fix no debe re-implementar logica de negocio nueva: se limita a replicar la solucion ya validada en el catalogo.
-   - Si la causa raiz es ambigua o no hay item catalogado, escalar al agente Implementador con la evidencia, en lugar de adivinar el parche.
+4. **Parte de defecto obligatorio (reemplaza al auto-fix, 2026-09-25)**:
+   - Cuando se reproduce una regresion, el agente QA **no aplica el parche**. Emite un parte de defecto con: `id` del catalogo, severidad, pasos de reproduccion, **evidencia observada**, `archivos_fix` + `migracion_ef` sugeridos (como hipotesis) y el **criterio de re-verificacion** que va a decidir el PASS.
+   - Si el item no esta catalogado todavia, crearlo en `docs/qa/regresiones-manuales.yml` antes de emitir el parte. Escribir el catalogo si es tarea de QA: es memoria del estudio, no el sistema del cliente.
+   - Registrar el parte en `/docs/<proyecto>/definiciones/6-qa.md` (memoria del agente QA).
+   - Si la causa raiz es ambigua, declararlo y escalar con la evidencia, en lugar de adivinar el parche.
+   - **Ciclo de cierre:** QA reporta -> Implementador aplica -> QA re-verifica en una corrida posterior, con contexto nuevo y el criterio de vuelta en FAIL. Un defecto no se cierra en la misma corrida que lo encontro, ni lo cierra quien lo arreglo.
+
+## Contrato de evaluacion independiente (2026-09-25)
+
+Motivo del cambio: hasta esta fecha el mismo agente que arreglaba el bug era el que despues lo calificaba (auto-fix + reporte PASS). Es el problema que Anthropic documento construyendo aplicaciones largas — el generador elogia su propio trabajo — y lo teniamos por diseño.
+
+Reglas duras:
+
+1. **QA no escribe en el repo del sistema bajo prueba.** Lo lee, lo compila, lo levanta y lo navega; no lo edita. Su unica escritura es sobre `Agentes-IA/docs/` (memoria del rol, `trazabilidad.md`, catalogo de regresiones).
+2. **Default-FAIL:** todo criterio de aceptacion, item del catalogo y regla cross-proyecto **arranca en FAIL**. Solo pasa a PASS con evidencia observada (respuesta HTTP, texto en pantalla, fila en la BD, snapshot). Inferencia desde el codigo, palabra del implementador o ausencia de sintomas **no** son evidencia.
+3. **Criterio no testeable = BLOCKED**, no PASS: vuelve al analista para que lo reescriba como assertion observable.
+4. **Contexto fresco:** QA no arranca con la transcripcion de la construccion. Se entera de lo que se hizo por los artefactos (`5-implementador.md` del sprint, diff), no por el razonamiento del que lo hizo.
+5. **Verificacion mecanica:** al cerrar, QA corre `git status --porcelain` en el repo del sistema y declara en su salida que no dejo cambios propios.
+
+## Obligaciones del agente Implementador frente a un parte de defecto
+
+1. Aplicar el fix del parte respetando las fronteras por capa, sin re-litigar el diagnostico salvo que tenga evidencia de que el parte esta mal.
+2. Dejar el `id` del catalogo en el mensaje de commit y en su bloque de `5-implementador.md`.
+3. **No marcar el defecto como cerrado.** El cierre lo declara QA en la corrida siguiente. El Implementador declara "aplicado, pendiente de re-verificacion".
 
 ## Reutilizacion cross-proyecto del catalogo
 
@@ -62,5 +78,6 @@ Cuando el agente QA valida un **sistema nuevo** (primera entrada del proyecto a 
 - Solo se registran bugs **funcionales** reproducidos. No usar este catalogo para tareas, mejoras o refactors.
 - Cada item debe ser ejecutable de forma independiente (sin orden implicito).
 - Los `selector_o_endpoint` deben ser estables; si cambian, actualizar el item en el mismo PR.
-- El auto-fix de QA **no exime** al Implementador de su obligacion de catalogar bugs corregidos en su propio flujo: ambos agentes mantienen el catalogo.
+- El parte de defecto de QA **no exime** al Implementador de su obligacion de catalogar bugs corregidos en su propio flujo: ambos agentes mantienen el catalogo.
+- Un `id` reportado en FAIL dos corridas seguidas escala: deja de ser un bug de implementacion y pasa a revisarse como problema de diseño o de criterio.
 - Si el sistema bajo prueba no usa MySQL/EF Core, marcar como `N/A` los items cuya `causa_raiz` dependa exclusivamente de ese stack (ej. RowVersion MySQL).

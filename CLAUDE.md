@@ -25,7 +25,7 @@ Discovery → Análisis → Diseño → Arquitectura → Presupuesto → Impleme
 | 6 | qa-mvc | `.github/agents/qa-mvc.agent.md` | Agent |
 | 7 | documentador | `.github/agents/documentador.agent.md` | Ask |
 
-**Regla de oro:** no iniciar etapa hasta que la anterior haya cerrado su archivo de definición.
+**Regla de oro:** no iniciar etapa hasta que la anterior haya cerrado su archivo de definición — y **la etapa nueva arranca en un contexto nuevo**, cargado desde ese archivo y el brief comprimido, no continuando el contexto de la anterior (ver `39-presupuesto-contexto`, sección 4b: compactar para seguir no evita que el modelo cierre el trabajo antes de tiempo).
 
 ### Stacks alternativos al MVC
 
@@ -37,6 +37,10 @@ El rol #5 (implementador) tiene una variante por stack — la secuencia 1-4 y 7 
 | Sitio institucional estático (Astro + Tailwind, sin backend de negocio) | implementador-dotnet | `.github/agents/implementador-astro-front.agent.md` |
 
 Precedente: `diercas-front` (ver `docs/diercas/`), primer proyecto del estudio en este stack alternativo.
+
+## AGENTS.md
+
+`AGENTS.md` en la raíz es la entrada **portable** para cualquier agente de código (Codex, Cursor, Copilot u otro): qué es el repo, la secuencia de etapas, las reglas por capa, el presupuesto de contexto y los scripts. No duplica contenido — apunta a las instructions, que siguen siendo la fuente de verdad. Este `CLAUDE.md` es la entrada específica de Claude Code.
 
 ## Cursor
 
@@ -95,7 +99,8 @@ Leer según el agente activo:
 - `33-verificacion-automatizada-qa` — QA ejecuta verificacion automatizada por navegador para casos objetivamente chequeables (catalogo de regresiones + estandares 32 + criterios de aceptacion criticos); el resto sigue siendo manual
 - `37-servicios-externos-fiscales` — consumo de servicios fiscales externos (padrones, constancias, validaciones)
 - `38-diseno-pantallas-portal` — decisiones de diseño de las pantallas del portal del usuario final
-- `39-presupuesto-contexto` — **techo de contexto por agente, carga por indice, techo de 150 KB por archivo de memoria, hand-off comprimido y QA por lotes (siempre)**
+- `39-presupuesto-contexto` — **techo de contexto por agente, carga por indice, techo de 150 KB por archivo de memoria, reset de contexto entre etapas, hand-off comprimido, QA por lotes y traza de corrida (siempre)**
+- `40-evals-del-harness` — suite de evals del propio sistema de agentes: casos sacados de fallos reales, graders, `pass@k` vs `pass^k`. Obligatoria antes de commitear un cambio a `32`, `27`, `39`, `30`, `33` o a cualquier `.agent.md`
 
 ## Presupuesto de contexto (obligatorio, `39-presupuesto-contexto`)
 
@@ -124,7 +129,7 @@ Las instrucciones modulares de arriba son la **fuente completa**; las skills de 
 
 `python scripts/doctor.py` verifica en segundos que la memoria no se haya desincronizado: numeros de precio contradictorios entre archivos, estado de proyecto declarado fuera de `docs/indice.md`, IDs de regla duplicados, cierres reales que quedaron sin cargar en `docs/calibracion/dataset.yml`, **archivos de memoria sobre el techo de 150 KB**, **indices planos (`cat_resumen.txt`) desactualizados respecto de su catalogo**, archivos de mas de 300 KB y huerfanos. `--fast` corre solo los chequeos baratos (incluye el techo de memoria).
 
-Los otros dos scripts: `python scripts/contexto.py` (presupuesto de arranque por agente, indices de los archivos grandes, regeneracion de los `cat_resumen.txt`) y `python scripts/archivar_memoria.py` (mueve los sprints/CR/modulos cerrados a `historial/` para mantener el techo; dry-run por defecto, `--aplicar` para hacerlo).
+Los otros scripts: `python scripts/contexto.py` (presupuesto de arranque por agente, indices de los archivos grandes, regeneracion de los `cat_resumen.txt`), `python scripts/archivar_memoria.py` (mueve los sprints/CR/modulos cerrados a `historial/` para mantener el techo; dry-run por defecto, `--aplicar` para hacerlo), `python scripts/traza.py` (traza de corrida al cerrar una etapa: reintentos, criterios fallados y **reglas que hubo que releer** — una regla que se relee siempre esta mal ubicada en el arranque del rol) y `python scripts/evals.py` (suite de evals del harness; **`costo` antes de `preparar`: gasta tokens de verdad, y no ejecuta nada por si solo**).
 
 Esta enganchado a 3 hooks (`.claude/settings.json` -> `.claude/hooks/hook_doctor.py`): avisa al editar `docs/` o `.github/`, al abrir sesion y al terminar si quedaron muchos cambios sin commitear. **Errores** (rojo) son contradicciones que hay que arreglar; **avisos** son deuda documental. Corre tambien antes de dar por cerrada cualquier etapa.
 
@@ -140,6 +145,8 @@ Esta enganchado a 3 hooks (`.claude/settings.json` -> `.claude/hooks/hook_doctor
 ## Reglas base (siempre aplican)
 
 - Reutilización cross-proyecto: en Diseño, Arquitectura e Implementación, consultar primero `docs/patrones/cat_resumen.txt` (índice plano, una línea por patrón) y leer del `catalogo.yml` solo la entrada que matchea; si no hay match, `grep -ril "<entidad o flujo>" docs/*/definiciones/` y leer solo la sección que matchea, antes de proponer algo nuevo — si la funcionalidad ya fue diseñada/implementada en otro proyecto, reutilizar y adaptar ese diseño/código (ver `ruta_repositorio` en el `metadata.md` de origen, o completar la ruta en `catalogo.yml` si estaba pendiente) en vez de construir desde cero. Nunca leer las definiciones del historial por cuerpo completo (ver `39-presupuesto-contexto`). Todo patrón reutilizable nuevo se agrega al catálogo antes de cerrar la etapa.
+- **Quien construye no califica:** el Implementador escribe código y no ejecuta la app; el QA prueba y califica con el repo del sistema en **read-only** — no aplica fixes, emite *partes de defecto*, y todo criterio arranca en **FAIL** hasta que haya evidencia observada. Un defecto no se cierra en la misma corrida que lo encontró (`30-qa-regresiones`)
+- **Memoria por entradas con id:** un dato que reemplaza a otro nace como entrada nueva y marca la vieja `superada-por: <id>`; nunca se pisa el texto viejo. La poda es `archivar_memoria.py`, no reescribir (`29-trazabilidad-conversacion`)
 - Lógica de negocio: en Services, nunca en Controllers
 - Controllers: solo coordinan request/response
 - Acceso a datos: en DbContext, repositorios o infraestructura

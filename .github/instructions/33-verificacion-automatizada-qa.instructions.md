@@ -34,7 +34,8 @@ Hasta esta fecha, ni el Implementador ni el QA ejecutaban la aplicacion — el I
 2. Usar el servidor MCP `playwright` configurado en `.mcp.json` de este repo (herramientas `mcp__playwright__*`: navegacion, click, fill, screenshot, evaluacion de contenido) para ejecutar cada caso del alcance automatizable de arriba. Si el servidor MCP no esta disponible/conectado en la sesion actual (ver seccion "Si no hay herramienta disponible" abajo), caer al procedimiento manual.
 3. Para cada caso: navegar, ejecutar la accion, capturar el resultado real (texto/estado/respuesta HTTP), compararlo contra el resultado esperado del criterio de aceptacion o de `condicion_falla`.
 4. Registrar PASS/FAIL con evidencia (que se observo, no solo "paso"/"fallo") en `docs/<proyecto>/definiciones/6-qa.md`.
-5. Ante un FAIL, aplica el flujo de auto-fix obligatorio ya definido en `30-qa-regresiones.instructions.md` (mismo criterio, ahora con deteccion automatizada en vez de manual).
+5. Ante un FAIL, emitir el **parte de defecto** definido en `30-qa-regresiones.instructions.md` (seccion "Parte de defecto obligatorio"). QA no aplica el parche: lo describe con evidencia y criterio de re-verificacion, y el Implementador lo aplica.
+6. **Default-FAIL (2026-09-25):** cada caso de la matriz arranca marcado FAIL y solo pasa a PASS cuando la assertion se evaluo contra el resultado real. Un caso que no se pudo ejecutar es **BLOCKED**, nunca PASS. Si la herramienta de automatizacion no estaba disponible y tampoco se corrio el procedimiento manual, el caso queda BLOCKED y eso se reporta como riesgo de liberacion, no como cobertura.
 
 ## Si no hay herramienta de automatizacion disponible en el entorno
 
@@ -53,6 +54,12 @@ El catálogo de reglas cross-proyecto (`32-estandares-qa-implementador.instructi
 3. Para cada regla nueva identificada: ejecutarla contra el sistema bajo prueba (automatizada si es objetivamente chequeable por navegador, manual si no) igual que cualquier otro caso del catálogo — no se salta solo porque no hay un cambio de código de esta sprint que la dispare directamente; el objetivo es cerrar la brecha retroactiva.
 4. Reportar el resultado en la salida mínima (punto 4b de `qa-mvc.agent.md`) y en `6-qa.md`.
 5. Al cerrar, actualizar el campo "Última validación de reglas cross-proyecto" a la fecha de esta corrida — sin este paso, la próxima corrida no tiene desde dónde diferenciar y tendría que re-revisar todo el catálogo entero cada vez.
+
+## Por que el evaluador no puede ser el que arregla (2026-09-25)
+
+La version original de esta instruccion (2026-08-14) cerraba el punto ciego de "nadie ejecuta la app antes de la entrega", pero dejaba abierto otro: el mismo agente que aplicaba el auto-fix era el que despues firmaba el PASS. Un generador que se autocalifica aprueba su propio trabajo aunque este mediocre — es un resultado medido, no una hipotesis.
+
+Desde esta fecha la automatizacion **verifica y reporta**; no repara. Ver el contrato completo en `30-qa-regresiones.instructions.md`, seccion "Contrato de evaluacion independiente".
 
 ## Alcance de este cambio
 

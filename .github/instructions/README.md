@@ -32,6 +32,11 @@ da el indice de cualquiera de ellos.
   servicio y **que NO existe**. Obligatorio **antes de cotizar cualquier conector** de un proyecto contable/impositivo
 - **38-diseno-pantallas-portal** — decisiones de diseño de pantallas del portal (listados con filtros plegados,
   conversaciones como expediente, grillas de tarjetas, estados vacíos). Leer ANTES de maquetar una pantalla nueva.
+- **39-presupuesto-contexto** — techo de arranque por agente, carga por indice, reset de contexto entre etapas,
+  techo de 150 KB por archivo de memoria, hand-off comprimido, QA por lotes y traza de corrida. Se lee siempre.
+- **40-evals-del-harness** — como saber si un cambio a una instruction mejoro o empeoro al agente. Casos sacados
+  de fallos reales, graders, `pass@k` vs `pass^k`. **Obligatoria antes de commitear un cambio a `32`, `27`, `39`,
+  `30`, `33` o a cualquier `.agent.md`** — corriendo solo los casos del rol afectado.
 
 ## Como usar
 - Las reglas globales definen marco comun de trabajo y formato de salida.
@@ -39,6 +44,9 @@ da el indice de cualquiera de ellos.
 - Los agentes y prompts deben referenciar explicitamente los modulos que priorizan, **y si los cargan completos o
   por indice** (seccion "Carga de contexto" de cada `.agent.md`).
 - Las grandes (`25`, `27`, `32`, `34`, `35`, `37`) se leen por seccion, nunca enteras.
+- **Tocar un archivo de esta carpeta cambia el comportamiento de un sistema en produccion.** Antes de commitear
+  un cambio a una instruction grande o a un `.agent.md`, correr los evals del rol afectado (`40`): el catalogo
+  que el agente no aplica es peor que uno chico que si, porque ocupa contexto y da falsa seguridad.
 
 ## Nota
 Evitar reglas globales con applyTo demasiado amplio salvo que sea estrictamente necesario.

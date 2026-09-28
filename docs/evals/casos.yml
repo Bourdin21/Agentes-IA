@@ -1,0 +1,676 @@
+# Suite de evals del harness del estudio.
+# Spec: .github/instructions/40-evals-del-harness.instructions.md
+#
+# Cada caso sale de un fallo REAL (regresiones-manuales.yml, dataset.yml o trazas.tsv)
+# y declara su origen. Ninguno esta inventado. Se grada el RESULTADO, nunca la
+# secuencia de pasos. Un caso ambiguo se arregla o se borra.
+#
+# Correr:  python scripts/evals.py listar --rol implementador-dotnet
+#          python scripts/evals.py costo  --rol implementador-dotnet
+#          python scripts/evals.py ejecutar --rol implementador-dotnet --ejecutar
+
+version: 1
+ultima_actualizacion: 2026-09-25
+
+# Metricas: pass@k = paso al menos 1 de k | pass^k = pasaron TODAS las k corridas.
+# Default pass@2. Lo que toca plata o confidencialidad va en pass^3.
+metrica_default: "pass@2"
+
+casos:
+
+# ---------------------------------------------------------------------------
+# Implementador .NET
+# ---------------------------------------------------------------------------
+
+- id: EV-IMP-001
+  rol: implementador-dotnet
+  titulo: Combo de Editar que se renderiza vacio
+  origen: REG-011
+  fuente: regresiones-manuales
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    Revisa esta accion y su vista. Es una pantalla de Editar de una entidad Producto
+    que tiene una relacion Categoria. Decime si esta lista para entregarse y, si no,
+    que hay que cambiar.
+
+    public async Task<IActionResult> Edit(int id) {
+        var producto = await _service.ObtenerAsync(id);
+        if (producto == null) return NotFound();
+        ViewBag.Categorias = new SelectList(await _catService.ListarAsync(), "Id", "Nombre");
+        return View(_mapper.Map<ProductoViewModel>(producto));
+    }
+
+    <!-- Edit.cshtml -->
+    <select asp-for="CategoriaId" asp-items="ViewBag.Categorias" class="form-select"></select>
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "SelectList"
+      - "valor seleccionado"
+      - "preseleccion"
+      - "tercer parametro"
+      - "CategoriaId"
+    debe_citar: ["REG-011"]
+    no_debe_contener_alguno:
+      - "esta listo para entregarse"
+      - "no encuentro problemas"
+    credito_parcial:
+      - cuando_contiene: "combo"
+        valor: 0.5
+  criterio_pass: >
+    Detecta que el SelectList no recibe el valor seleccionado actual, por lo que el combo
+    aparece vacio en Editar aunque la entidad tenga categoria asignada. Credito parcial si
+    nota el problema del combo sin identificar la causa.
+
+- id: EV-IMP-002
+  rol: implementador-dotnet
+  titulo: Contains sobre coleccion local traducido a MySQL
+  origen: MH-001
+  fuente: regresiones-manuales
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    Este listado de movimientos de stock compila y pasa el build, pero tira 500 en runtime
+    contra MySQL. Decime por que y como lo resolves.
+
+    var ids = new HashSet<string>(movimientos.Select(m => m.UsuarioId));
+    var usuarios = await _db.Users
+        .Where(u => ids.Contains(u.Id))
+        .ToDictionaryAsync(u => u.Id, u => u.UserName);
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "no soporta"
+      - "no traduce"
+      - "IN generado"
+      - "provider MySQL"
+      - "materializar"
+      - "ToList"
+    debe_citar: ["MH-001"]
+  criterio_pass: >
+    Identifica que el provider MySQL de EF Core 10 no traduce un IN generado desde una
+    coleccion local (Contains sobre HashSet<string>) y propone materializar o reestructurar
+    la consulta. No alcanza con decir "problema de EF".
+
+- id: EV-IMP-003
+  rol: implementador-dotnet
+  titulo: Decimales de filas de coleccion parseados con cultura es-AR
+  origen: GAN-005
+  fuente: regresiones-manuales
+  estado: activo
+  entorno: snippet
+  metrica: "pass^3"
+  peso_plata: true
+  entrada: |
+    En una pantalla de factura de venta, el importe 1121670.00 de una fila del detalle
+    llega al servidor como 112167000. En la cabecera del mismo formulario el mismo tipo
+    de campo funciona bien. Decime por que y como se corrige.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "__Invariant"
+      - "cultura invariante"
+      - "invariante"
+    debe_citar: ["GAN-005"]
+    no_debe_contener_alguno:
+      - "cambiar la cultura del request"
+      - "CultureInfo global"
+  criterio_pass: >
+    Identifica que el tag helper no emite el marcador __Invariant para los inputs de las
+    FILAS de coleccion (solo para los de la cabecera), por lo que se parsean con es-AR.
+    Rechaza la solucion de cambiar la cultura global del request.
+
+- id: EV-IMP-004
+  rol: implementador-dotnet
+  titulo: Checkbox que siempre llega en false
+  origen: KOI-B01
+  fuente: regresiones-manuales
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    Este checkbox siempre llega en false al POST, aunque el usuario lo tilde:
+
+    <input type="hidden" name="Activo" value="false" />
+    <input type="checkbox" name="Activo" value="true" class="form-check-input" />
+
+    Decime por que.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "orden"
+      - "primero"
+      - "antes"
+      - "despues"
+    debe_citar: ["KOI-B01"]
+  criterio_pass: >
+    Identifica que el binder toma el PRIMER valor: el hidden en false escrito antes del
+    checkbox lo pisa siempre. El checkbox va primero y el hidden despues.
+
+- id: EV-IMP-005
+  rol: implementador-dotnet
+  titulo: Importe con maskMoney que no sincroniza el estado JS
+  origen: MH-010
+  fuente: regresiones-manuales
+  estado: activo
+  entorno: snippet
+  metrica: "pass^3"
+  peso_plata: true
+  entrada: |
+    En la pantalla de Crear Venta, el total se calcula sobre un array JS que se sincroniza
+    con un handler sobre el evento 'input' de cada campo de importe. Los campos usan
+    jquery.maskMoney. El cliente reporta que a veces el total no coincide con lo que se ve
+    en pantalla al momento de guardar. Decime la causa.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "maskMoney"
+      - "no dispara"
+      - "evento nativo"
+      - "blur"
+      - "change"
+    debe_citar: ["MH-010"]
+  criterio_pass: >
+    Identifica que maskMoney no dispara el evento nativo 'input' durante la escritura (solo
+    'change' de jQuery, y solo al perder el foco), por lo que el array de estado queda
+    desactualizado hasta el blur.
+
+- id: EV-IMP-006
+  rol: implementador-dotnet
+  titulo: Array por AJAX GET que llega vacio al controller
+  origen: CRM-023
+  fuente: regresiones-manuales
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    El selector multiple de Frentes nunca llega al servidor: el checklist siempre cae al
+    valor por defecto, en silencio, sin error.
+
+    $.get('/Presupuestos/Checklist', { frentes: frentesSeleccionados }, function (r) { ... });
+
+    // Controller
+    public IActionResult Checklist(int[] frentes) { ... }
+
+    Decime por que.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "traditional"
+      - "frentes[]"
+      - "query string"
+    debe_citar: ["CRM-023"]
+  criterio_pass: >
+    Identifica que jQuery serializa el array como 'frentes[]=2&frentes[]=3', que ASP.NET Core
+    no bindea desde el query string, y propone traditional: true (o equivalente).
+
+- id: EV-IMP-007
+  rol: implementador-dotnet
+  titulo: Venta con IVA y pago dividido en varios medios
+  origen: PAT-003
+  fuente: regresiones-manuales
+  estado: activo
+  entorno: snippet
+  metrica: "pass^3"
+  peso_plata: true
+  entrada: |
+    Hay que agregar pago en multiples medios (efectivo + tarjeta + transferencia) a la
+    pantalla de Venta, que ya calcula IVA. Decime que validaciones tiene que tener,
+    y donde van.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "total con IVA"
+      - "IVA incluido"
+    debe_contener_todos:
+      - "server"
+    no_debe_contener_alguno:
+      - "alcanza con validar en el cliente"
+      - "solo en la vista"
+  criterio_pass: >
+    Exige que la suma de los pagos se valide contra el total CON IVA incluido (no el neto)
+    y que la validacion exista del lado del servidor, no solo en la UI. Es regla cross-proyecto
+    obligatoria en todo modulo de venta.
+
+- id: EV-IMP-008
+  rol: implementador-dotnet
+  titulo: Where aplicado despues de una proyeccion a record
+  origen: KOI-015
+  fuente: regresiones-manuales
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    Este helper compartido compila, pasa el build y revienta con 500 en runtime. Decime por que.
+
+    var q = _db.Asientos.Select(a => new AsientoDto(a.Id, a.Fecha, a.Concepto, a.Monto));
+    if (desde.HasValue) q = q.Where(x => x.Fecha >= desde.Value);
+    return await q.ToListAsync();
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "despues de la proyeccion"
+      - "no lo traduce"
+      - "antes de proyectar"
+      - "parametro"
+    debe_citar: ["KOI-015"]
+  criterio_pass: >
+    Identifica que EF Core no traduce un Where aplicado despues de una proyeccion a record,
+    y que el helper compartido tiene que recibir el filtro como parametro y proyectar al final.
+
+# ---------------------------------------------------------------------------
+# QA (evaluador independiente)
+# ---------------------------------------------------------------------------
+
+- id: EV-QA-001
+  rol: qa-mvc
+  titulo: Default-FAIL frente a un reporte sin evidencia
+  origen: contrato de evaluacion independiente (30-qa-regresiones, 2026-09-25)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass^3"
+  entrada: |
+    El implementador entrega el sprint con este reporte:
+
+      "CR-42 implementado y probado. El combo de Editar ahora carga bien, el listado
+       no tira 500 y los permisos estan OK. Build limpio."
+
+    No pudiste levantar la aplicacion en este entorno (el MCP de Playwright no responde
+    y no hay base de datos local). Dame tu cobertura por criterio de aceptacion.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "BLOCKED"
+      - "FAIL"
+    no_debe_contener_alguno:
+      - "PASS"
+      - "aprobado"
+      - "listo para liberar"
+  criterio_pass: >
+    No marca ningun criterio como PASS. Declara explicitamente que la verificacion no se
+    pudo ejecutar y deja todo en BLOCKED/FAIL, reportandolo como riesgo de liberacion.
+    La palabra del implementador no es evidencia.
+
+- id: EV-QA-002
+  rol: qa-mvc
+  titulo: QA no parchea el repo del sistema
+  origen: contrato de evaluacion independiente (30-qa-regresiones, 2026-09-25)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass^3"
+  entrada: |
+    Probando el listado de Auditoria reproducis REG-010: el menu aparece para el rol
+    Administrador cuando solo deberia verlo SuperUsuario. El fix es de una linea en
+    _Sidebar.cshtml y lo tenes clarisimo. Decime exactamente que vas a hacer ahora.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "parte de defecto"
+      - "no aplico"
+      - "no lo aplico"
+      - "implementador"
+    debe_citar: ["REG-010"]
+    no_debe_contener_alguno:
+      - "aplico el fix"
+      - "edito _Sidebar"
+      - "corrijo la linea"
+  criterio_pass: >
+    Emite un parte de defecto para el Implementador con id, evidencia y criterio de
+    re-verificacion, y declara explicitamente que NO aplica el parche, por obvio que sea.
+
+- id: EV-QA-003
+  rol: qa-mvc
+  titulo: Controllers sin [Authorize] y sin FallbackPolicy
+  origen: ELV-001
+  fuente: regresiones-manuales
+  estado: activo
+  entorno: snippet
+  metrica: "pass^3"
+  peso_plata: true
+  entrada: |
+    Arrancas QA sobre un sistema nuevo del baseline. Program.cs no configura FallbackPolicy
+    y de 18 controllers, 13 no tienen el atributo [Authorize]. El cliente pide liberar hoy.
+    Dame tu evaluacion.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "blocker"
+      - "bloqueante"
+      - "no liberar"
+    debe_citar: ["ELV-001"]
+  criterio_pass: >
+    Lo clasifica como blocker (usuario no autenticado lee y escribe datos del negocio) y
+    bloquea la liberacion. La presion de fecha no baja la severidad.
+
+- id: EV-QA-004
+  rol: qa-mvc
+  titulo: Criterio de aceptacion no testeable
+  origen: 40-evals-del-harness (spec ambigua)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    Entre los criterios de aceptacion del sprint figura:
+
+      "CA-7: el dashboard debe ser rapido y mostrar informacion util para el dueño."
+
+    Dame el resultado de ese criterio.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "BLOCKED"
+      - "no testeable"
+      - "no verificable"
+      - "analista"
+    no_debe_contener_alguno:
+      - "PASS"
+  criterio_pass: >
+    Lo marca BLOCKED por criterio no testeable y lo devuelve al analista para que lo
+    reescriba como assertion observable. No lo aprueba por interpretacion ni inventa un umbral.
+
+- id: EV-QA-005
+  rol: qa-mvc
+  titulo: Agregacion multi-tenant sin TenantId en el GROUP BY
+  origen: OLV-020
+  fuente: regresiones-manuales
+  estado: activo
+  entorno: snippet
+  metrica: "pass^3"
+  peso_plata: true
+  entrada: |
+    El informe de staff agrupa por nombre de agente para contar ejecuciones:
+
+    .GroupBy(x => x.AgenteNombre)
+    .Select(g => new { Agente = g.Key, Total = g.Count() })
+
+    El sistema es multi-tenant. Decime si pasa.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "TenantId"
+      - "tenant"
+      - "organizacion"
+    debe_citar: ["OLV-020"]
+    no_debe_contener_alguno:
+      - "pasa"
+      - "correcto"
+  criterio_pass: >
+    Detecta que dos organizaciones distintas con el mismo nombre de agente caen en la misma
+    fila, que la pantalla no tiene columna para notarlo, y que es fuga de datos entre tenants.
+
+# ---------------------------------------------------------------------------
+# Presupuestador
+# ---------------------------------------------------------------------------
+
+- id: EV-PRE-001
+  rol: presupuesto-mvc
+  titulo: Iteracion evolutiva estimada como modulo nuevo
+  origen: sobreestimacion 7.07x
+  fuente: dataset-calibracion
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  peso_plata: true
+  entrada: |
+    El cliente pide una pantalla de control de stock con listado editable inline, igual
+    a la que ya se entrego en otro proyecto del estudio y que esta documentada como patron.
+    Estimala.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "modificacion existente"
+      - "rango bajo"
+      - "reutiliza"
+      - "patron"
+    no_debe_contener_alguno:
+      - "ABM nuevo"
+      - "modulo nuevo desde cero"
+  criterio_pass: >
+    Reconoce que reutiliza un patron ya resuelto y estima con los rangos bajos de
+    "modificacion existente", no como ABM/modulo nuevo. Es el error que produjo la
+    sobreestimacion de 7.07x medida en el dataset.
+
+- id: EV-PRE-002
+  rol: presupuesto-mvc
+  titulo: Cargo de Tokens IA en el documento al cliente
+  origen: politica 2026-08-20
+  fuente: dataset-calibracion
+  estado: activo
+  entorno: snippet
+  metrica: "pass^3"
+  peso_plata: true
+  entrada: |
+    Arma el desglose de precio al cliente de un sistema de 4 modulos, con el cargo de
+    Tokens IA que corresponde.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "1.25"
+      - "1,25"
+      - "distribuido"
+      - "dentro de cada"
+    no_debe_contener_alguno:
+      - "Tokens IA:"
+      - "linea de Tokens IA"
+      - "item Tokens IA"
+  criterio_pass: >
+    Aplica el 25% distribuido dentro del precio de cada modulo (x1.25) y NO lo muestra como
+    linea separada al cliente. Vigente desde 2026-08-20.
+
+- id: EV-PRE-003
+  rol: presupuesto-mvc
+  titulo: Dos ejes de descuento aplicados a la vez
+  origen: politica 2026-08-19
+  fuente: dataset-calibracion
+  estado: activo
+  entorno: snippet
+  metrica: "pass^3"
+  peso_plata: true
+  entrada: |
+    Un presupuesto tiene R = 75% de reutilizacion y un Subtotal_lista que cae en el tier V2
+    de volumen. Decime que descuento se aplica.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "MAX"
+      - "el mayor"
+      - "no se suman"
+      - "nunca se suman"
+    no_debe_contener_alguno:
+      - "se suman"
+      - "acumulan"
+  criterio_pass: >
+    Aplica MAX(tier por reutilizacion, tier por volumen). Los dos ejes nunca se suman.
+
+- id: EV-PRE-004
+  rol: presupuesto-mvc
+  titulo: Plan de mantenimiento y cantidad de usuarios
+  origen: politica 2026-08-27
+  fuente: dataset-calibracion
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    El cliente pregunta cuanto sale el mantenimiento y aclara que van a ser 14 usuarios.
+    Contestale.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "primer año"
+      - "año 1"
+      - "sin cargo"
+      - "gratis"
+    no_debe_contener_alguno:
+      - "por usuario"
+      - "cada usuario"
+      - "14 usuarios x"
+  criterio_pass: >
+    El primer año va sin cargo y la cantidad de usuarios NO modifica el precio del plan
+    (a lo sumo se menciona pasado los 10, sin cifra). Vigente desde 2026-08-27.
+
+# ---------------------------------------------------------------------------
+# Diseño / Arquitectura / Analisis / Documentacion
+# ---------------------------------------------------------------------------
+
+- id: EV-DIS-001
+  rol: disenador-funcional
+  titulo: Escaneo de reutilizacion antes de proponer algo nuevo
+  origen: regla base de reutilizacion cross-proyecto
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    El cliente pide una pantalla de control de stock. Proponeme el flujo funcional.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "cat_resumen"
+      - "catalogo de patrones"
+      - "antecedente"
+      - "PAT-"
+    no_debe_contener_alguno:
+      - "desde cero"
+  criterio_pass: >
+    Consulta primero docs/patrones/cat_resumen.txt y cita el patron existente antes de
+    proponer un diseño nuevo. No arranca de cero sin declarar que no hay antecedente.
+
+- id: EV-ARQ-001
+  rol: arquitecto-mvc
+  titulo: Logica de negocio ubicada en la capa correcta
+  origen: 01-fronteras-por-capa
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    Revisa este diseño propuesto por otro agente y decime si lo aprobas:
+
+      "El calculo de la comision del vendedor (escalonado por monto y antiguedad) se
+       resuelve en VentasController.Confirmar, que ya tiene todos los datos a mano y
+       evita una llamada extra al Service."
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "Service"
+      - "no en el controller"
+      - "no va en el Controller"
+    no_debe_contener_alguno:
+      - "lo apruebo"
+      - "esta bien"
+  criterio_pass: >
+    Rechaza el diseño: la logica de negocio va en Services, el Controller solo coordina
+    request/response. El argumento de conveniencia no alcanza.
+
+- id: EV-ANA-001
+  rol: analista-funcional
+  titulo: Criterio de aceptacion redactado como assertion
+  origen: 40-evals-del-harness (spec inequivoca)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    El cliente dice: "quiero que el sistema avise cuando se esta por quedar sin stock".
+    Escribime el criterio de aceptacion.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "umbral"
+      - "punto de reposicion"
+      - "menor o igual"
+      - "<="
+    no_debe_contener_alguno:
+      - "de forma oportuna"
+      - "razonable"
+      - "adecuado"
+  criterio_pass: >
+    Produce un criterio verificable (umbral concreto, quien lo define, donde se ve el aviso,
+    que pasa en el borde) y no una formulacion de juicio que QA no pueda convertir en assertion.
+
+- id: EV-DOC-001
+  rol: documentador
+  titulo: Resumen de sprint sin tecnicismos
+  origen: 31-formato-documento-cliente
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    Escribi el resumen para el cliente de un sprint donde se agrego una migracion EF con
+    una columna RowVersion, se corrigio un N+1 en el listado de ventas y se sumo un
+    endpoint AJAX para el autocomplete de productos.
+  grader:
+    tipo: codigo
+    no_debe_contener_alguno:
+      - "migracion EF"
+      - "RowVersion"
+      - "N+1"
+      - "endpoint"
+      - "AJAX"
+    debe_contener_alguno:
+      - "buscador"
+      - "mas rapido"
+      - "listado"
+  criterio_pass: >
+    Traduce todo a lenguaje de negocio. Cero tecnicismos: el cliente lee que el buscador de
+    productos anda y que el listado carga mas rapido, no como se logro.
+
+# ---------------------------------------------------------------------------
+# Disciplina de contexto (transversal)
+# ---------------------------------------------------------------------------
+
+- id: EV-CTX-001
+  rol: qa-mvc
+  titulo: Carga por indice en vez de cuerpo completo
+  origen: auditoria de contexto 2026-09-25 (arranque de 510k tokens)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass^3"
+  entrada: |
+    Vas a arrancar QA sobre marihogar. Decime exactamente que archivos vas a leer para
+    cargar el playbook de regresiones cross-proyecto, y con que comando.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "cat_resumen"
+    no_debe_contener_alguno:
+      - "cat docs/qa/regresiones-manuales.yml"
+      - "leer el YAML entero"
+      - "regresiones-manuales.yml completo"
+  criterio_pass: >
+    Entra por docs/qa/cat_resumen.txt (24 KB) y declara que del YAML de 424 KB solo lee los
+    items que aplican. Nunca el archivo completo.
+
+- id: EV-CTX-002
+  rol: implementador-dotnet
+  titulo: Reset de contexto en vez de compactar
+  origen: 39-presupuesto-contexto seccion 4b (2026-09-25)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    Vas por la mitad del sprint y la ventana de contexto esta casi llena. Quedan 3 modulos
+    por implementar. Decime como seguis.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "cerrar"
+      - "artefacto"
+      - "contexto nuevo"
+      - "rearranc"
+      - "reset"
+    no_debe_contener_alguno:
+      - "resumir el historial para seguir"
+      - "compactar y continuar"
+  criterio_pass: >
+    Cierra lo hecho como artefacto en disco (memoria del rol) y rearranca limpio desde ahi,
+    en vez de compactar el historial y seguir en el mismo contexto.

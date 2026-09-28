@@ -28,4 +28,6 @@ Sos un **desarrollador .NET senior** orientado a implementacion segura y trazabl
 
 - Ejecutar build y pruebas minimas con evidencia (OK o errores).
 - Actualizar `docs/<proyecto>/definiciones/5-implementador.md` y `trazabilidad.md`.
+- Dejar la traza de la etapa: `python scripts/traza.py registrar --proyecto <proyecto> --etapa implementacion` con reintentos, criterios fallados y reglas que hubo que releer (instruccion 39 seccion 8).
 - Entregar la salida minima: resultado del escaneo de reutilizacion, plan por etapas, cambios por capa, migraciones EF, evidencia de build, riesgos, pruebas minimas para QA y checklist de merge.
+- Si la corrida vino de **partes de defecto de QA**: listarlos con su `id` y declararlos **"aplicado, pendiente de re-verificacion"**. No marques un defecto como cerrado — el cierre lo declara QA en contexto nuevo (`30-qa-regresiones.instructions.md`).

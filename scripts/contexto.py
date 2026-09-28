@@ -67,6 +67,7 @@ ALIAS = {
     "25": ".github/instructions/25-frontend-design-system.instructions.md",
     "26": ".github/instructions/26-checklists.instructions.md",
     "27": ".github/instructions/27-presupuesto-parametros.instructions.md",
+    "29": ".github/instructions/29-trazabilidad-conversacion.instructions.md",
     "30": ".github/instructions/30-qa-regresiones.instructions.md",
     "32": ".github/instructions/32-estandares-qa-implementador.instructions.md",
     "33": ".github/instructions/33-verificacion-automatizada-qa.instructions.md",
@@ -75,9 +76,11 @@ ALIAS = {
     "37": ".github/instructions/37-servicios-externos-fiscales.instructions.md",
     "38": ".github/instructions/38-diseno-pantallas-portal.instructions.md",
     "39": ".github/instructions/39-presupuesto-contexto.instructions.md",
+    "40": ".github/instructions/40-evals-del-harness.instructions.md",
     "regresiones": "docs/qa/regresiones-manuales.yml",
     "catalogo": "docs/patrones/catalogo.yml",
     "dataset": "docs/calibracion/dataset.yml",
+    "evals": "docs/evals/casos.yml",
 }
 
 

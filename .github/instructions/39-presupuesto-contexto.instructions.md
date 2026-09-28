@@ -36,7 +36,7 @@ Reglas duras:
 - El techo se mide **antes** de leer codigo o navegar. Lo que se lee despues (archivos del repo del sistema, resultados de build, snapshots de Playwright) es trabajo, no arranque.
 - Si la carga declarada de un agente excede su techo, **no se carga entera**: se aplica carga por indice (seccion 2). No se elimina la regla, se posterga su cuerpo.
 - Verificacion: `python scripts/contexto.py presupuesto <proyecto>` imprime el arranque real de cada agente contra su techo.
-- Si en medio de una etapa el contexto se siente saturado (respuestas que repiten, reglas que se olvidan), **cerrar la etapa y arrancar de nuevo con el brief de la seccion 4** es mas barato que seguir.
+- **Reset de contexto, no compactacion (obligatorio desde 2026-09-25).** Ver seccion 4b.
 
 ## 2. Carga por indice (como leer un archivo grande)
 
@@ -86,6 +86,21 @@ El orquestador (y cualquier agente que delegue) **no** dice "lee las definicione
 
 El subagente **puede** ampliar leyendo esos punteros, pero arranca del brief. Si el brief no alcanza, el problema es el brief: se corrige y se vuelve a delegar, no se compensa cargando todo.
 
+## 4b. Reset de contexto entre etapas (regla dura, no sugerencia)
+
+Hasta el 2026-09-25 esto era una recomendacion ("si se siente saturado, conviene cerrar"). Pasa a ser mecanismo, por dos motivos medidos en sistemas de agentes largos:
+
+1. **Comprimir el historial no alcanza.** Un resumen del contexto conserva las conclusiones y tira el detalle de dominio; el agente sigue arrastrando la etapa anterior, mas pobre.
+2. **Ansiedad de contexto.** Con la ventana llenandose, el modelo **cierra el trabajo antes de tiempo**: acorta el alcance, da por probado lo que no probo, entrega "listo" a medio camino. No lo declara — se nota en el resultado. Es la falla mas cara porque se parece a terminar.
+
+Reglas:
+
+- **Toda etapa cierra su archivo de definicion antes de pasar a la siguiente** (ya estaba en `CLAUDE.md`) **y la siguiente arranca en un contexto nuevo**, cargado desde ese archivo + el brief de la seccion 4. No se continua una etapa nueva en el contexto de la anterior "porque ya tiene el contexto cargado" — eso es exactamente el problema, no una ventaja.
+- **Prohibido compactar para seguir.** Si la ventana se llena en el medio de una etapa: se cierra lo hecho como artefacto (definicion, parte de defecto, reporte de lote), y se rearranca limpio desde ahi. El estado vive en el disco, no en la ventana.
+- **Sintomas que obligan al reset inmediato**, sin esperar al cierre: respuestas que repiten lo ya dicho, una regla del arranque que se olvido, alcance que se achica solo, "para no extenderme" sin que nadie lo haya pedido.
+- **El costo es real y se acepta:** rearrancar cuesta releer el artefacto y algo de latencia. Es mas barato que una etapa cerrada de mas con trabajo sin hacer.
+- **QA por lotes (seccion 5) ya es esto aplicado.** La regla generaliza el mismo mecanismo al resto del flujo.
+
 ## 5. QA por lotes
 
 Una corrida de QA sobre un sistema con muchos modulos **no se hace en un solo contexto**:
@@ -104,7 +119,8 @@ Motivo: un lote con contexto limpio encuentra bugs que el lote 12 de una corrida
   `python scripts/archivar_memoria.py <archivo>` (dry-run; `--aplicar` para hacerlo)
 - El script agrupa lo archivado por **mes** o por **modulo** (`M08`), segun como el archivo identifique su unidad de trabajo, y nunca pisa un archivo de historial existente. `--techo 70` poda mas agresivo: sirve cuando el bloque vigente acumulo modulos ya entregados de sprints viejos.
 - Si el script avisa **PARCIAL**, archivo lo que podia y el resto del peso esta en secciones que no declaran sprint/CR/modulo: ahi hace falta curaduria a mano (decidir que del bloque vigente ya es historia). Ningun script puede tomar esa decision por nosotros.
-- El archivo vigente queda con: cabecera + `## Definiciones vigentes` + el ultimo sprint/CR + `## Historial de ajustes` con **una linea y un puntero por bloque archivado**.
+- El archivo vigente queda con: cabecera + `## Definiciones vigentes` (entradas con id, sin marca `superada-por`) + el ultimo sprint/CR + `## Historial de ajustes` con **una linea y un puntero por bloque archivado**.
+- **El techo se sostiene archivando, no reescribiendo.** Una entrada superada se marca `superada-por: <id>` y se archiva; no se pisa su texto ni se resume para hacer lugar. Reescribir para achicar es la forma mas cara de perder memoria: el archivo queda chico y nadie sabe que se fue. Ver `29-trazabilidad-conversacion`, "Regla de edicion: entradas con id".
 - Esto no es opcional ni cosmetico: es la unica razon por la que el arranque de un agente se mantiene bajo su techo con el paso de los sprints. Ver tambien la regla vigente/historial de `29-trazabilidad-conversacion`.
 
 ## 7. Higiene durante la corrida
@@ -112,4 +128,29 @@ Motivo: un lote con contexto limpio encuentra bugs que el lote 12 de una corrida
 - No re-leer un archivo ya leido en la misma sesion.
 - `grep` antes de `cat`, siempre.
 - La salida del agente es la salida minima de su `.agent.md`: no volcar cuerpos de archivos leidos ni citar bloques largos "para mostrar contexto".
-- Al cerrar, actualizar la memoria **editando** el bloque vigente (nunca apilando una seccion nueva al lado de la vieja).
+- Al cerrar, actualizar la memoria **agregando la entrada con id** que corresponda y marcando `superada-por` la que reemplaza (nunca apilando una seccion con fecha al lado de la vieja, ni pisando el texto viejo — ver `29-trazabilidad-conversacion`).
+
+## 8. Traza de corrida (observabilidad del *durante*)
+
+`contexto.py presupuesto` mide lo que cargas **antes** de empezar. No habia nada que midiera lo que pasa **despues**: cuantos reintentos hubo, que criterio fallo, que regla hubo que releer porque no estaba en el arranque. Sin ese dato, cada ajuste a una instruction es intuicion: no se puede saber si mejoro o empeoro al agente.
+
+Al cerrar su etapa, todo agente registra la traza:
+
+```
+python scripts/traza.py registrar --proyecto <proyecto> --etapa <etapa>   [--lote N] --reintentos N --criterios-fallados "ID,ID"   --reglas-releidas "32#combos,30" [--arranque-kb N] [--nota "..."]
+```
+
+El script agrega el bloque de <= 5 lineas a `docs/<proyecto>/trazabilidad.md` **y** una linea al indice consultable `docs/trazas/trazas.tsv`.
+
+Que mirar despues (`python scripts/traza.py resumen`):
+
+| Señal | Que significa | Que se hace |
+|---|---|---|
+| La misma regla releida en varias corridas | esta mal ubicada en la carga de arranque del rol | subirla al arranque, o resumirla en la skill del rol |
+| El mismo criterio fallando en proyectos distintos | es un patron, no un bug del proyecto | item nuevo en `regresiones-manuales.yml` o regla en `32` |
+| Reintentos altos en una etapa concreta | el brief de hand-off de esa etapa es flojo | corregir la seccion 4, no compensar cargando mas |
+| Arranque real por encima del techo | la carga declarada del rol crecio de nuevo | volver a aplicar carga por indice (seccion 2) |
+
+Una traza **no es un reporte**: son 5 lineas mecanicas. Si cuesta escribirla, esta mal usada.
+
+Uso obligado: es la materia prima de la suite de evals (`40-evals-del-harness.instructions.md`). Los casos de eval salen de fallos reales registrados, no inventados.

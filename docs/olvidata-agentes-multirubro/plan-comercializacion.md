@@ -115,6 +115,167 @@ cliente andando**. El ángulo de comunicación deja de ser build-in-public y pas
 
 ---
 
+## 2.1. Los diferenciales que sostienen el precio — qué ya tenemos y qué falta nombrar
+
+Revisión del **2026-09-25** contra lo que publicaron en 2026 Microsoft, Anthropic, AWS y Google sobre
+cómo se opera un agente en producción. **El hallazgo no es que falte tecnología: casi todo lo que
+ellos venden como diferencial ya está construido en el portal y no se nombra en ninguna propuesta.**
+En su mayor parte es trabajo de redacción comercial, no de desarrollo.
+
+Para qué sirve: es la respuesta a la única objeción que realmente frena el setup de lista —
+*"¿por qué te pago a vos si un freelance me arma un agente por USD 500?"*. No se contesta con horas
+ni con funcionalidades: se contesta con **controles**.
+
+| # | Diferencial | Estado real | Cuándo se vende |
+|---|---|---|---|
+| A | Controles deterministas por checkpoint | Las piezas existen (M6, M11, M12); falta el **plano de control** que las muestre juntas (PA-42) | Hoy, nombrando lo que ya hay |
+| B | **Evals como entregable del abono** | M8 construido; sin corrida real (PA-17, PA-18) | Hoy, apenas corra PA-18 |
+| C | Credenciales fuera del runtime | **Ya está. Solo falta decirlo** | Hoy, sin tocar una línea |
+| D | Telemetría de valor (horas ahorradas) | Hay que construirlo (PA-43) | Renovación del año 2 |
+| E | Memoria de largo plazo desde eventos | Hay que construirlo (PA-44) | Upsell Básico → Intermedio |
+| F | A2A — agentes que hablan con agentes | Nada, y está bien que así sea | Posicionamiento 2027 |
+
+### A. Controles deterministas por checkpoint — *vendible hoy, con una reserva*
+
+**Qué se le dice:** *"Cada acción del agente pasa por cinco controles escritos y versionados: qué
+entra, qué se le manda al modelo, qué recuerda, qué herramienta ejecuta y qué sale. Los controles son
+tuyos, y cada vez que cambian queda registrado quién los cambió y cuándo."*
+
+**Contra qué objeción juega:** *"¿y si se manda una macana?"* y *"¿cómo sé que no inventa?"* — la
+primera pregunta de todo estudio contable.
+
+**Dónde engancha:** M6 (aprobaciones por rol, `Tenant.LimiteMensualUsd`), M11 (aprobación por llamada
+del Director, lista blanca de dominios, protección SSRF, registro de cada llamada **sin el cuerpo
+enviado ni credenciales**) y M12 (una tarea programada **no recibe** las herramientas que piden
+aprobación salvo que un Director lo habilite, y nunca se auto-aprueba). Es lo que sostiene el setup de
+lista frente al pedido de descuento: el freelance entrega un prompt, acá se entrega un plano de
+control.
+
+**Qué falta, y es lo importante:**
+
+1. **Mostrarlo como un solo artefacto versionado por organización** (YAML o equivalente) en vez de
+   cinco pantallas sueltas. Hoy el cliente no puede ver sus controles juntos ni firmar una versión.
+   Queda como **PA-42**.
+2. **PA-36, la herramienta de cálculo determinístico.** Mientras *"el agente no hace la aritmética"*
+   sea una instrucción de prompt y no código, el checkpoint de ejecución **no es determinista** y el
+   argumento tiene un agujero justo en el caso donde más lo van a mirar (conciliación, IVA, balances).
+   **PA-36 deja de ser una mejora técnica: es el bloqueante comercial de este argumento.**
+
+**Cuidado al decirlo:** no prometer "auditable" antes de tener PA-42. Hasta entonces se enumera lo que
+hay, módulo por módulo, que ya es más de lo que muestra cualquier competidor chico.
+
+Fuente: https://devblogs.microsoft.com/foundry/build-2026-open-trust-stack-ai-agents/ (Microsoft,
+*open trust stack*, Build jun-2026).
+
+### B. Evals como entregable del abono — *el diferencial más difícil de copiar*
+
+**Qué se le dice:** *"Tus reglas —cómo conciliás, qué no puede tocar el agente, hasta cuánto puede
+gastar— se convierten en casos de prueba. Antes de habilitarte el agente corren todos. Y cada vez que
+ajustamos algo vuelven a correr, y te mando el reporte."*
+
+**Contra qué objeción juega:** la más cara de todas, *"¿cómo sé que dentro de seis meses sigue
+funcionando bien?"*. Es objeción de **renovación**, no de cierre.
+
+**Dónde engancha — y esto es lo que más cambia:** le da contenido concreto a la línea más floja del
+abono, la *"1 ronda de ajuste de prompt por mes"*, que hoy no se puede demostrar. Pasa a ser
+**"re-corremos tu suite de controles y te mandamos el reporte"**. Un prompt mejor se copia en una
+tarde; una suite de controles mantenida, no.
+
+**Estado:** M8 (evaluación automática de prompts) **está construido**. Lo que falta es operativo:
+**PA-17** (aprobar los casos iniciales) y **PA-18** (primera corrida real, tope USD 1). De paso
+**PA-21 pasa a tener respuesta comercial**: si los evals son parte del abono, los agentes de la
+organización **sí** se evalúan antes de publicarse, y lo paga el abono.
+
+Fuente: https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents (marco ASSERT).
+
+### C. Credenciales fuera del runtime — *ya lo tenemos, falta nombrarlo*
+
+**Qué se le dice, literal:** *"Las credenciales nunca entran al entorno donde corre el agente."*
+
+**Contra qué objeción juega:** *"¿mis claves del banco, de ARCA o del CRM quedan adentro de una IA?"*.
+Para un contable pesa más que cualquier funcionalidad.
+
+**Dónde engancha:** es verdad hoy y está construido. M11: las credenciales **entran y no vuelven a
+salir** (cifradas con Data Protection; se muestran los nombres y la fecha de carga, y solo se
+reemplazan o se borran), el motor las descifra únicamente para llamar, y el historial de llamadas
+**nunca** guarda el cuerpo enviado ni una credencial. Y el modelo Tech Provider del frente Chatbots ya
+es el mismo principio sin haberlo nombrado: el WABA y la key de Claude son del cliente.
+
+**Costo de implementación: cero.** Es una frase en la propuesta. Es el ítem de mejor relación
+valor/esfuerzo de toda esta lista y entra en la próxima que se mande.
+
+Fuentes: https://www.anthropic.com/engineering/managed-agents ·
+https://www.anthropic.com/engineering/how-we-contain-claude
+
+### D. Telemetría de valor, no solo de costo — *hay que construirlo; es la renovación*
+
+**Qué se le dice:** *"A fin de mes no te mando lo que gastaste: te mando cuántas veces el agente hizo
+el trabajo y cuántas horas de oficina te sacó de encima."*
+
+**Contra qué objeción juega:** la del año 2, *"¿esto lo estoy usando?"*, que es la que decide si
+renueva.
+
+**Dónde engancha:** `EventoUso` ya registra tokens, costo y búsquedas por llamada — mide **lo que
+gastás**. Le falta el otro lado: **tareas completadas y horas administrativas ahorradas**, con un valor
+de horas por tipo de tarea cargado en la configuración. Es exactamente el eje con el que se justifica
+el precio **por complejidad del agente y no por costo de IA**: hoy ese argumento se dice en la venta y
+no se demuestra en el uso.
+
+**Estado:** hay que construirlo. Queda como **PA-43**. No bloquea ninguna venta de 2026; bloquea la
+conversación de renovación de 2027.
+
+Fuente: https://devblogs.microsoft.com/foundry/build-2026-from-observability-to-roi-for-ai-agents-on-any-framework/
+
+### E. Memoria de largo plazo desde los eventos — *upsell Básico → Intermedio*
+
+**Qué se le dice:** *"El agente se acuerda de cómo resolviste los casos raros del mes pasado, sin que
+se lo tengas que volver a explicar."*
+
+**Contra qué objeción juega:** *"cada vez hay que explicarle todo de nuevo"* — la que hace que el
+cliente lo abandone a los dos meses sin darse de baja, que es peor que la baja.
+
+**Dónde engancha:** es el **upsell natural de Básico a Intermedio sin necesidad del conector M11**, que
+es justo el caso de Contadores BMA (adaptador A: archivos exportados a mano, Bejerman/Onvio bloqueado
+por contrato). Hoy el agente lee documentos (M5) y reglas (M3), pero no destila memoria de lo que ya
+pasó. Lo difícil —el aislamiento por tenant— ya está resuelto.
+
+**Estado:** hay que construirlo, con cuidado: una memoria que cruce organizaciones sería el peor
+incidente posible del producto. Queda como **PA-44**, etapa propia con análisis y diseño.
+
+Fuente: https://aws.amazon.com/blogs/machine-learning/building-smarter-ai-agents-agentcore-long-term-memory-deep-dive/
+
+### F. A2A — *posicionamiento a 2027, cero código hoy*
+
+**Qué es:** el protocolo agente-a-agente de Google, hoy bajo la Linux Foundation, v1.2, con *agent
+cards* firmadas criptográficamente y alrededor de 150 organizaciones usándolo en producción.
+
+**Cuándo importa:** cuando Contadores BMA quiera que su agente hable con el agente de uno de sus
+clientes. Ese día el estándar ya va a estar decidido, y no lo vamos a decidir nosotros.
+
+**Qué se hace hoy: nada de código.** Se usa en la conversación, **una sola vez y sin insistir**, para
+ubicar el producto del lado correcto de la historia: *"esto no es un chat suelto, es un agente que en
+dos años va a poder hablar con los agentes de tus clientes"*. Y se ata a **PA-41** (canal
+internacional): si el producto se vende afuera, A2A es de lo primero que pregunta un comprador
+técnico.
+
+**Lo que no se vende: interoperabilidad.** No existe y no está en el roadmap.
+
+Fuente: https://developers.googleblog.com/en/a2a-a-new-era-of-agent-interoperability/
+
+### Qué cambia en el orden de trabajo
+
+1. **Hoy y gratis:** **C** entra en la próxima propuesta que se mande (es una frase). **A** se dice
+   módulo por módulo con lo que ya existe, sin prometer el plano.
+2. **Corto plazo y barato:** PA-17 y PA-18 desbloquean **B**, el diferencial más difícil de copiar y el
+   que sostiene el abono mes a mes.
+3. **PA-36 sube de prioridad.** Deja de ser mejora técnica: es lo que evita que **A** sea una promesa
+   justo en el caso que el cliente va a auditar.
+4. **PA-43 y PA-44 no bloquean 2026.** Son la conversación de renovación y el upsell de 2027.
+5. **Nada de esto cambia los precios vigentes** (§3.2 para la cartera propia; rubro estándar y tiers
+   Básico/Intermedio/Avanzado para organizaciones nuevas). Cambia **qué se dice para sostenerlos**.
+
+---
+
 ## 3. Vía A — el cierre (días 1 a 7)
 
 ### 3.1. La red de agentes de cada cliente

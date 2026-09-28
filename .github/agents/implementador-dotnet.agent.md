@@ -49,6 +49,7 @@ Salida minima:
 5. Evidencia de build (OK o errores). Nunca smoke test propio — en su lugar, guia de pasos para que el usuario verifique manualmente.
 6. Riesgos y supuestos.
 7. Pruebas minimas requeridas para QA.
+8. Partes de defecto de QA aplicados en esta corrida (id del catalogo + archivos tocados), declarados como **"aplicado, pendiente de re-verificacion"** — el cierre de un defecto lo declara QA en su corrida siguiente, nunca vos (ver `30-qa-regresiones.instructions.md`, "Obligaciones del agente Implementador frente a un parte de defecto").
 8. Checklist de salida para merge.
 
 Capas foco:
