@@ -1,9 +1,39 @@
 # Memoria - QA
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-09-25 (QA M20 coprocesador aritmetico + M21 ojos, segunda mitad)
+## Ultima actualizacion: 2026-10-01 (plan de QA de M27 escrito, sin ejecutar)
 
 ## Definiciones vigentes
+
+# QA M27 — PLAN ESCRITO, SIN EJECUTAR (2026-10-01)
+
+**Estado: el plan está, la corrida no.** 105 casos en tres lotes con 46 regresiones nombradas, escritos por tres
+evaluadores independientes durante la auditoría de pre-implementación (criterio Default-FAIL: cada caso arranca en FAIL
+y solo pasa con evidencia observada). Lo que SÍ está hecho: `dotnet build` limpio, **1120 tests verdes** y la
+verificación en navegador real a 1440 y 390 px en tema claro y oscuro. Lo que NO: la corrida funcional de estos 105.
+
+**El criterio de cierre del módulo está en el lote 2 y no lo puede ejecutar QA:** es la **tarea 17 de producción** con
+ocho o más idas y vueltas hasta un resultado, y la prueba la hace Joaquín. Y hoy está bloqueada por algo que no es
+código — **PA-45, la clave de la API sin saldo** (la tarea 18 de producción, del 2026-10-01 21:07, quedó `Fallida` con
+«Your credit balance is too low»).
+
+**Tres avisos de los evaluadores que cambian el plan y conviene leer antes de ejecutarlo:** (1) `docs/qa/regresiones-manuales.yml`
+**no existe en este repo** — el catálogo vive en `C:\Sistemas\Agentes-IA\docs\qa
+egresiones-manuales.yml`
+(OLV-001..OLV-027), y **OLV-025 es textualmente el problema de los `_ =>`** que M27 arregló; (2) los tests corren sobre
+EF InMemory, que **no aplica índices únicos ni valida largos**, así que todo lo que dependa de unicidad o de un
+`varchar` se verifica contra MySQL y no con un test verde; (3) para CA-M27-06 hace falta **un `.xls` binario real como
+fixture** — el que había eran 24 bytes de firma OLE2, no un libro.
+
+> Tres lotes, como manda la instruccion 39 §5. Se ejecuta DESPUES de la implementacion; el criterio de cierre del lote 2 es la tarea 17 de produccion, que prueba Joaquin.
+
+**Las tablas completas de los 105 casos** —con pasos, esperado y tipo de verificacion por caso— estan en
+[`historial/qa-m27-plan-de-casos.md`](historial/qa-m27-plan-de-casos.md): son material de referencia para ejecutar,
+no memoria para cargar en cada sesion. Resumen: **lote 1 unificacion de agentes** 37 casos y 15 regresiones ·
+**lote 2 motor y conversacion** 35 casos y 14 regresiones (incluye el criterio de cierre: la tarea 17) ·
+**lote 3 documentos y menu** 33 casos y 17 regresiones.
+
+---
 
 # QA M20 (coprocesador aritmetico) + M21 (ojos, segunda mitad: PDF escaneado) (2026-09-25) - CERRADA
 

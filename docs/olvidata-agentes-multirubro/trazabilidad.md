@@ -470,6 +470,104 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Impacto en capas: — (decisión de negocio, sin cambios de código)
 - Riesgos/supuestos: ninguno nuevo. No se tocó código ni ningún proyecto fuera de `docs/olvidata-agentes-multirubro/`.
 
+### 2026-10-01 - agentes-ia-implementador (M27, frentes 1, 2 y 6)
+- **Etapa:** 5 (Implementación). Definiciones 1, 2 y 3 aprobadas; presupuesto omitido (proyecto personal). Frentes 3 (documentos) y 4 (menú): otro implementador, en paralelo.
+- **Cambio:** 4 commits locales en `Olvidata Agentes Multi-rubro` (`625b30f`, `43dce94`, `f7103cf`, `28b929c`), sin push y sin deploy. **1091 tests verdes** (eran 1067). Una migración, `UnificacionAgentesM27`, exactamente la que fijó la arquitectura.
+- **Lo que hay que saber del frente 2, porque cambia qué se arregló:** la conciliación de la demo no la cortó ningún tope del sistema — la cortó `Anthropic:TaskBudgetTokens = 64000`. **Medido, no supuesto:** dos corridas contra la API con la misma conversación de 57.580 tokens de entrada; con 64.000 el modelo produjo 3.417 tokens de salida, dijo «ya no tengo capacidad disponible en esta sesión» y **no encontró ninguna** de las 11 partidas no conciliadas plantadas; con 400.000 produjo 42.884, dijo «terminé el cruce completo» y las listó con fecha, comprobante e importe. Doce veces más trabajo hecho por cambiar un número.
+- **Precisión del mecanismo (corrección de la auditoría):** el presupuesto **nunca se agotó**. `task_budget` cuenta lo del turno, no la historia reenviada: ~21k en el primer turno y casi nada después. El modelo **proyectó** que no le iba a alcanzar y se negó desde el primer turno — peor que agotarse, porque no hace falta gastar para que frene.
+- **A-M27-9 verificado: la compactación round-trippea.** No era un defecto. Los bloques se guardan en el paso, se deserializan con su discriminador y se reenvían en el mensaje del asistente. Queda un test que lo clava.
+- **Impacto en capas:** Domain (2 entidades, 1 enum), Application (settings, DTOs, 1 helper nuevo), Infrastructure (analista, propuestas, agentes, instructivos, motor), Web (9 vistas, 2 controllers, `site.js`, `site.css`), `nucleo/_compartido/` (nueva), tests.
+- **Decisiones que se tomaron en implementación y que conviene mirar:** el estado final ante el 400 por tamaño **se dejó en `Fallida`** (una tarea Fallida ya era seguible: faltaba el mensaje, no un estado — y `Completada` habría hecho que una tarea **programada** avisara «terminó correctamente» sobre un trabajo que no se hizo); la bandera `task-budgets` pasa a declararse **siempre** (atarla al número dejaba un 400 latente); y **`OpcionMenu.Automatizar` se movió a `PrimerosPasos`** (D-M27-18) porque, con el analista como única puerta, una organización nueva quedaba sin ninguna forma visible de armar un agente.
+- **Riesgos/supuestos:** (1) en producción `appsettings.Production.json` **no está versionado y gana**: tiene `MaxSeguimientosPorTarea = 20` escrito explícito, así que el default nuevo no lo toca y hay que editarlo en el server; `Anthropic.TaskBudgetTokens` **no** está escrito ahí, así que el 400.000 de `appsettings.json` sí entra solo. (2) La regla de prompt de A-M27-16 queda **escrita y sin enganchar**: las instrucciones de `plataforma` solo entran en los formatos 3/4/5 y nunca llegarían a un agente contable; engancharla es cambio de prompt (importar → evaluar → publicar) y el contenido de los rubros vive en otros repos. (3) `proponer_agente_empresa` la ofrecen **tres** prompts de plataforma y ninguna evaluación la cubre: el campo obligatorio nuevo los afecta a los tres y no se tocó ninguno. (4) `CaminoDeArranqueService` es el último enlace a `/Agentes/Crear`. (5) El analista no puede proponer un agente y su programación en la misma vuelta.
+- **Pendiente de QA.** La prueba final de CA-M27-04 la hace Joaquín sobre la tarea 17 de producción.
+
+
+### 2026-10-01 — M27: una sola puerta para armar un agente, y una tarea que no se corta (Discovery → Implementación)
+
+- **Etapa:** Discovery, Análisis, Diseño, Arquitectura e Implementación, en una vuelta. Presupuesto omitido (proyecto
+  personal, decisión permanente de Joaquín). **Origen: la primera demo con un cliente real**, no el roadmap.
+- **Alcance:** seis frentes, todos del mismo tipo — ninguno agrega capacidades, los seis sacan del medio lo que impidió
+  usar las que ya estaban. (1) El analista de automatizaciones pasa a ser la **única puerta** para armar un agente
+  propio, con sus pasos cargados y listo para usar. (2) La tarea de trabajo no se corta. (3) Ningún archivo se rechaza
+  en la puerta por su formato y el `.xls` viejo se lee. (4) El menú se lee de menos a más, en cuatro secciones. (5) Los
+  pasos del agente quedan establecidos y editables (`AgenteOrganizacion → Instructivo`). (6) El compositor del ajuste
+  deja de comerle la pantalla a la conversación — **pedido de Joaquín durante la implementación**.
+- **El hallazgo que define el módulo, y cómo se encontró.** El síntoma reportado era «el límite de memoria de los chats
+  está demasiado acotado». La lectura de la **tarea 17 de producción** descartó los cuatro frenos que la arquitectura
+  había supuesto: terminó `Completada`, sin error, 3 ajustes contra un tope de 20, todos los pasos con `end_turn` y un
+  contexto que **nunca pasó de ~60.000 tokens contra 1M de ventana**. Ningún tope del sistema actuó: el agente dijo tres
+  veces, textual, que no le quedaba contexto —*«No tengo espacio de contexto suficiente en esta conversación»*— y se
+  puso a dejar anotado lo que haría «en la tarea nueva». El único número que el sistema le da al modelo sobre su propio
+  espacio es la cuenta regresiva de `Anthropic:TaskBudgetTokens` = **64.000**.
+- **Medido, no deducido.** Dos corridas reales contra la API sobre la misma conversación de 4 turnos y 57.580 tokens de
+  entrada, con 11 partidas no conciliadas plantadas a propósito: con **64.000** devolvió 3.417 tokens de salida y
+  **ninguna** de las 11, diciendo «ya no tengo capacidad disponible en esta sesión»; con **400.000** devolvió 42.884 y
+  **las 11**, con comprobante e importe. El presupuesto **nunca se agotó**: cuenta lo que el modelo genera más los
+  resultados de herramienta que lee en ese turno, no la historia que se reenvía — así que la primera explicación
+  («56-60k de entrada contra 64.000») era **falsa**, y quedó corregida en las definiciones. El mecanismo real es peor:
+  **el modelo no se queda sin presupuesto, proyecta que no le va a alcanzar y se niega de antemano.**
+- **Decisiones de Joaquín (2026-10-01):** el analista es la **única** puerta y el formulario queda solo para editar ·
+  sin tope de ajustes, compactar y seguir, con el tope de gasto como único freno · Office viejo leído y el resto
+  guardado en vez de rechazado · menú reordenado sin perder ninguna opción · los **tres** prompts que ofrecen
+  `proponer_agente_empresa` se tocan y se corre la evaluación de aprobación · la regla «una tarea no se cierra pidiendo
+  abrir otra» va como **instrucción transversal del núcleo**, no en `plataforma`.
+- **Auditoría de pre-implementación (60 agentes, solo lectura, refutación adversarial + crítico de completitud).** Los
+  ocho frentes volvieron «sí, con cambios» y aparecieron **doce zonas que el mapa por capa no nombraba**. Dos anulaban
+  un frente entero: el rechazo por formato vive en `wwwroot/js/documentos.js` (el `.xls` **nunca llegaba al servidor**)
+  y el descarte del `switch` de extracción mandaba lo desconocido a `ExtractorTexto` (un `.exe` quedaba **`Legible` con
+  basura** que el agente iba a leer). Y un defecto que **no ve ningún frente solo**: `OpcionMenu.Automatizar` estaba
+  detrás de la etapa `TuFormaDeTrabajar`, así que con el frente 1 **una organización nueva quedaba sin ninguna forma
+  visible de crear un agente**, justo en la etapa donde el camino de arranque de M26 le pide su primer agente propio.
+- **Errores propios corregidos antes de implementar:** «todo en un solo `SaveChanges`» era inalcanzable y ya lo era
+  antes de M27 (`GuardarAsync` hace dos dentro de su propia transacción; con el instructivo son tres — la forma correcta
+  es una transacción del llamador y ninguna anidada) · `PublicarParaEmpresa` **no** exige Director, el gate real es
+  `PuedeResolverTipo` · poner los topes en **0** invertía el comportamiento en dos lugares distintos, porque las guardas
+  comparan con `>=` · poner `TaskBudgetTokens` en 0 puede **400-ear** todos los pedidos de los modelos grandes y
+  contradice de palabra una regla permanente del `CLAUDE.md` · el menú tiene **25** opciones, no 20 · el escalonamiento
+  ante el 400 no podía vivir donde decía (corre en un scope nuevo, sin conversación) y «nunca `Fallida`» estaba mal
+  planteado: una tarea `Fallida` ya es terminada y seguible, faltaba un **mensaje**, no un estado.
+- **Lo que se descartó con evidencia de producción, no por inspección:** que el prompt del agente le dijera que difiera
+  trabajo. Se leyó el **prompt publicado que corrió** (`ArtefactoVersion 60`, `cont-conciliacion`, rubro `contable`, más
+  una instrucción de organización de una línea) y no dice nada parecido: «fijá el alcance» es qué cuenta y qué período, y
+  «avanzar igual lo decide una persona» es no cerrar una diferencia sin explicar. Una auditoría interna afirmó lo
+  contrario leyendo un archivo fuente de otro repo; **vale el prompt publicado, que es el que viaja y tiene hash.**
+- **Dos defectos de permisos que el reordenamiento del menú iba a congelar:** «Configurar conversando» y «Repartir
+  trabajo conversando» se le **ofrecían a un Empleado** aunque sus controllers son `RequireDirector` —el enlace estaba y
+  daba 403—, y `Miembros` era el único ítem sin `VeEnMenu`. `EtapasEntrega.SoloDirector` ya tenía la respuesta escrita;
+  el layout no la consultaba. Ahora `VeEnMenu` chequea etapa **y** rol: una sola condición por opción.
+- **Impacto en capas.** *Domain:* `AgenteOrganizacion.InstructivoId`, dos columnas en `PropuestaTrabajo`,
+  `TipoDocumento` con el valor desconocido. *Application:* topes del motor, `EtapasEntrega` (el analista entra en la
+  primera etapa), textos de documentos, esquema de `proponer_agente_empresa` (tope de instrucciones de 8.000 a 30.000:
+  el esquema mentía contra un servidor que acepta 30.000). *Infrastructure:* `ProcesadorTareas`,
+  `ProveedorModeloAnthropic`, `PropuestaTrabajoService`, `HerramientasAnalista`, `ValidadorContenidoArchivo`, extractor
+  nuevo de planilla binaria (NPOI), `PermisosOrganizacion`. *Web:* catálogo y ficha de agentes, analista, detalle de
+  tarea, compositor (`site.js` + tokens nuevos), zona de subida, `documentos.js`, `MenuOrganizacion` y `_Layout` (219
+  líneas menos). *Núcleo:* instrucción transversal enganchada en los cuatro rubros, contrato compartido de la
+  herramienta, cuatro casos de evaluación. **Una migración:** `UnificacionAgentesM27`.
+- **Estado:** `dotnet build` limpio, **1120 tests verdes** (el menú trajo 29 nuevos, la prueba automática que la
+  arquitectura había dado por imposible). **Siete commits locales, sin push.** Plan de QA escrito: 105 casos en 3 lotes,
+  **sin ejecutar**.
+- **Pendiente y bloqueante para cerrar:** (a) importar, evaluar y publicar las tres suites de plataforma —aprobado por
+  Joaquín, con costo, corre con Opus 5—; (b) **el despliegue a producción**, que es lo que habilita la prueba de la
+  tarea 17: migración más editar `appsettings.Production.json`, que **no está versionado y gana** sobre el default de
+  C# (tiene `MaxSeguimientosPorTarea = 20` escrito explícito); (c) ejecutar los 105 casos de QA.
+- **Riesgos/supuestos.** Sacar el tope de ajustes deja al **tope de gasto de M6 como único freno**: es el riesgo
+  deliberado del módulo y lo que lo hace tolerable es que ya existe, ya avisa al 80 % y ya corta — **ningún valor de M6
+  se tocó**. Aceptar cualquier formato convierte el almacén en un lugar donde un tercero sube bytes arbitrarios, y lo
+  único que lo mantiene inofensivo es que **nunca se sirvan con su propio tipo**: `octet-stream` + `attachment` se puso
+  donde se guarda el `TipoContenido`, no en cada controller, y el camino *inline* funciona por lista blanca. Publicar
+  directo lo que propuso un modelo saca una revisión que existía de hecho (el agente nacía en borrador y alguien lo
+  terminaba en el formulario): la revisión **se adelanta** a la tarjeta, que muestra instrucciones, pasos, herramientas y
+  alcance antes del botón. Y el analista pasa a ser camino crítico: `Agentes/Crear` sigue existiendo y alcanzable por
+  URL, así que una falla degrada a «hay que saber la URL», no a «no se pueden crear agentes».
+- **Lo que queda como método, que vale más que el módulo.** De 24 hallazgos graves refutados por dos escépticos cada
+  uno sobrevivieron 3; pero el agente que solo pregunta *qué no se miró* encontró **doce zonas enteras** sin auditor
+  asignado, y dos de ellas anulaban un frente completo. En un módulo que nace de una demo —donde el síntoma lo reporta
+  quien mira la pantalla, no quien lee el log— **leer el estado real antes de diseñar el arreglo no es prolijidad: es la
+  diferencia entre arreglar y no arreglar.** Tres de los cuatro arreglos del frente 2 estaban diseñados contra una causa
+  que no existía, y lo único que impidió implementarlos igual fue que «reproducir primero» era el requisito número uno y
+  no una verificación al final.
+
 ## Historial de ajustes
 
 ### Bloques archivados (2026-09-25)
@@ -477,3 +575,9 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
 
 - **2026-09** — 71 bloques (2026-09-14 a 2026-09-25) → [`trazabilidad-2026-09.md`](historial/trazabilidad-2026-09.md)
+
+### Traza de corrida -- 2026-10-01 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: ninguna
+

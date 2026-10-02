@@ -1,11 +1,159 @@
 ﻿# Memoria - Analista funcional
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-09-24
+## Ultima actualizacion: 2026-10-01 (M27: una sola puerta para armar un agente, la tarea que no se corta, todo archivo entra, el menu de menos a mas)
 
 ## Definiciones vigentes
 
 ### Modulos/features analizados
+
+**M27 — Una sola puerta para armar un agente, y una tarea que no se corta** (Discovery + Análisis, 2026-10-01). Origen: **la primera demo con un cliente real**, no una lista de roadmap. Estado: **Análisis cerrado**; presupuesto omitido (proyecto personal). Las cinco cosas que anotó Joaquín en la demo están abajo en el orden en que **frenaron al cliente**, que no es el orden en que son difíciles.
+
+**Lo que hay que entender antes de leer los requisitos:** ninguno de los cinco puntos es una funcionalidad que falte. Los cinco son **funcionalidad que existe y no se encuentra, o que existe y se corta antes de servir**. M27 no agrega capacidades al producto: saca del medio lo que impidió usar las que ya están. Esa es la diferencia entre este módulo y los 26 anteriores, y es la razón por la que no hay ningún concepto nuevo en `docs/el-sistema-como-computadora.md` que haya que ubicar.
+
+#### Los cinco hallazgos de la demo
+
+**H1 — Hay dos puertas para armar un agente y ninguna de las dos termina el trabajo.** Hoy se llega a un agente propio por dos caminos que no se cruzan:
+
+- **A mano:** catálogo de Agentes → botón «Crear agente», o ficha de un agente de Olvidata → «Crear mi versión» (`_FichaCrearVersion.cshtml`) → formulario `Agentes/Crear`. La persona se sienta frente a un formulario en blanco con un campo de instrucciones de 30.000 caracteres y **nadie le preguntó qué hace en su trabajo**.
+- **Conversando:** *Automatizar lo que repetís* (el analista, M15) releva la tarea y propone un agente en una tarjeta (`TipoPropuestaTrabajo.AgenteEmpresa`), que al aplicarse crea el agente por el mismo service que el formulario.
+
+Las dos puertas son reales, están las dos a la vista, y **ninguna deja el agente terminado**: la del formulario deja a la persona escribiendo el método de trabajo sola, y la del analista crea el agente **en borrador, sin herramientas elegidas y sin los pasos** (`AplicarAgenteEmpresaAsync` manda `Herramientas = []` y nada de instructivo), así que para que sirva hay que ir al formulario igual. El cliente no vio dos caminos: vio **un camino cortado por el medio, dos veces**.
+
+**H2 — La conversación de una tarea se muere al tercer ida y vuelta, y el cliente no pudo hacer la conciliación.** Es el hallazgo más caro de los cinco, porque es el único que impidió **terminar un trabajo**, no configurarlo. Hay tres frenos distintos que terminan todos en el mismo cartel —«Empezá una tarea nueva»— y hasta no reproducirlo contra producción no se sabe cuál cortó:
+
+1. **Tope de ajustes** (`MaxSeguimientosPorTarea = 20`, `MotivoNoPuedeSeguir.Limite`): `ServicioTareas.MensajeLimite`. Veinte no son tres, así que **solo explica el síntoma si el valor en producción es más bajo que el del repo**: hay que verificarlo, no suponerlo.
+2. **Rechazo de la API por tamaño** (`ProcesadorTareas.MensajeConversacionLarga`): la tarea queda **`Fallida`** y se ofrece empezar de nuevo. Es el candidato más probable por el texto exacto del cartel. Una conciliación lo alcanza rápido: `MaxCaracteresPorLectura = 40.000` por llamada y hasta 25 llamadas por turno son ~1.000.000 de caracteres (~300.000 tokens) en **un** turno, y tres turnos pasan el millón de la ventana de `claude-sonnet-5`.
+3. **Tope de gasto** (`MotivoNoPuedeSeguir.LimiteGasto`): corta por plata, no por largo. Se descarta o se confirma mirando el consumo de la organización de la demo.
+
+**La compactación del lado del servidor está bien pedida** (`ProveedorModeloAnthropic.BetasDe` declara la bandera y `GestionDeContexto` manda `BetaCompact20260112Edit`), así que si igual llegó el 400 hay un cuarto sospechoso que **es un defecto, no un tope**: que los bloques de compactación que devuelve la API no se estén guardando y reenviando en la reconstrucción del contexto. Si eso pasa, la compactación se pide en cada pedido y **nunca se aplica**, porque el servidor necesita sus propios bloques de vuelta para reemplazar la historia compactada. La API lo documenta como la trampa principal de la función.
+
+> **Verificado contra la documentación de la API (2026-10-01):** `claude-sonnet-5` tiene **1M de ventana de forma nativa** —no hay ninguna beta de 1M que haya que habilitar, y el supuesto contrario que apareció al abrir el tema es falso—. La compactación es la beta `compact-2026-01-12` y **se dispara a los 150.000 tokens** por defecto, muy por debajo de la ventana; la limpieza de resultados de herramienta es otra beta distinta (`context-management-2025-06-27`) y hoy está **apagada** (`LimpiarResultadosViejos: false`). Tope de pedido: 32 MB.
+
+#### H2 resuelto: qué cortó de verdad (lectura de la tarea 17 en producción, 2026-10-01)
+
+RF-M27-10 se ejecutó antes de escribir una línea de código, y el resultado **descarta los cuatro sospechosos y encuentra un quinto**. Es exactamente el caso que preveía R-M27-07, y por eso el requisito era el primero.
+
+**La tarea 17 no se cortó: terminó bien.** `Estado = Completada`, `Error = NULL`, `CantidadSeguimientos = 3` contra un tope de **20** en producción, y los 15 pasos cerraron **todos** con `StopReason = end_turn` —ninguno con `max_tokens`, ninguno con corte por pasos, ninguno con error—. La entrada por llamada fue de 10.204 → 56.093 → 58.099 → 59.826 → 60.298 tokens: el contexto nunca pasó de **~60.000**, contra el **1M** de ventana de `claude-sonnet-5`. Los 371.153 tokens de `TareasAgente.TokensEntrada` son la **suma de las ocho llamadas**, no el tamaño de la conversación. Costo total: USD 0,26, contra un tope de 100.
+
+**O sea: ningún tope del sistema actuó.** No fue el tope de ajustes, no fue el rechazo de la API por tamaño, no fue el tope de gasto y no fue la compactación perdida. **El agente decidió solo diferir el trabajo.** Lo dice con sus palabras en el último paso:
+
+> «No puedo abrir yo la tarea nueva — eso lo iniciás vos cuando quieras desde tu lado. En cuanto la abras, voy a: 1. Releer ambos documentos… Quedo a la espera de esa nueva tarea para completar la conciliación.»
+
+Y hay más en el detalle de los pasos: en el **primer** turno leyó los dos documentos (un resultado de herramienta de 72.145 caracteres) y contestó; en los **tres turnos siguientes** no hizo prácticamente nada —una herramienta y una respuesta corta cada vez, 713/723/446 tokens de salida— hasta anunciar que el cruce iba en otra tarea. **El agente no se quedó sin lugar: se quedó sin presupuesto, y se comportó como corresponde a un presupuesto.**
+
+**El culpable es `Anthropic:TaskBudgetTokens = 64000`**, y el 2026-10-01 pasó de deducción a **hecho probado, con una mecánica distinta —y peor— de la que supuse primero**. El agente lo dice con sus palabras, tres veces, en los pasos de la tarea 17:
+
+> #5 — «No llego a completar un análisis movimiento por movimiento confiable **con el contexto restante disponible en esta conversación** (el extracto tiene ~570 líneas y el mayor ~150…)»
+> #7 — «**No tengo espacio de contexto suficiente en esta conversación** para rehacer el cruce completo de ~570 líneas de extracto contra ~150 del mayor con el detalle 1:1 que pediste»
+> #11 — «**Con el contexto que me queda en esta conversación** no puedo ya ejecutar el cruce completo de los ~570 movimientos»
+
+Y es falso: tenía **~60.000 tokens usados contra 1M de ventana**. El único número que el sistema le da al modelo sobre su propio espacio es la **cuenta regresiva del `task_budget`** (`output_config.task_budget`, 64.000), que existe a propósito para que *«se administre y cierre prolijo en vez de que lo cortemos de golpe»*.
+
+**La corrección que hay que anotar, porque la primera versión de este análisis la tenía mal:** el presupuesto **nunca se agotó**. No cuenta la historia que se reenvía en cada pedido —cuenta lo que el modelo genera más los resultados de herramienta que lee **en ese turno**—, así que la comparación «56-60k de entrada por llamada contra un total de 64.000» que escribí primero **no prueba nada**. Medido turno por turno: ~21.000 en el turno 1 (el resultado de 72.145 caracteres de `documento_leer`) y casi nada en los otros tres.
+
+**Entonces el mecanismo real es otro, y es más grave: el modelo no se quedó sin presupuesto, PROYECTÓ que no le iba a alcanzar y se negó de antemano, desde el primer turno.** Leyó que tenía 64.000 para toda la tarea, estimó que un cruce 1:1 de 720 movimientos más la planilla no entraba, y en vez de empezar y ver, se puso a dejar anotado en la memoria del cliente lo que haría «en la tarea nueva». No hace falta gastar el presupuesto para que frene: alcanza con que crea que no le va a alcanzar.
+
+**El segundo sospechoso queda descartado con evidencia de producción, no por inspección del repo:** se leyó el **prompt publicado que efectivamente corrió** —`ArtefactoVersion 60`, artefacto `cont-conciliacion`, rubro `contable`, más las instrucciones de la organización, que son una sola línea («Concilia extracto bancario con el libro mayor»)— y **no le dice al agente que difiera trabajo**. Lo que podía confundirse: *«Fijá el alcance»* es qué cuenta y qué período (una cuenta por vez), y *«avanzar igual lo decide una persona»* es no cerrar una diferencia sin explicar. Las dos son buenas reglas de oficio y ninguna manda a abrir otra tarea. Una auditoría interna llegó a afirmar lo contrario leyendo un archivo fuente en otro repo; **lo que vale es el prompt publicado, que es el que viaja y el que tiene hash.**
+
+**Las consecuencias para M27 son tres, y hay que decirlas sin maquillaje:**
+
+1. **El arreglo de H2 es otro, es más barato y es más preciso:** se corrige el presupuesto de tarea — **el número alto, no el 0** (poner 0 puede 400-ear todos los pedidos de los modelos grandes, y contradice de palabra una regla permanente del `CLAUDE.md`). Es un cambio de configuración **en los tres lugares donde vive el número** —el default de C#, `appsettings.json` y el `appsettings.Production.json` del servidor, que no está en git y gana— más una decisión de diseño sobre cómo se dimensiona. No es una reescritura del motor.
+2. **Los otros tres arreglos de H2 pasan de arreglo a prevención.** Sacar el tope de ajustes y no morir ante un 400 por tamaño siguen siendo correctos y siguen en alcance —son los frenos que *van* a aparecer el día que una conciliación de verdad llegue a veinte vueltas—, pero **ninguno de los dos es lo que frenó al cliente**, y dejarlos escritos como si lo fueran habría hecho que M27 cerrara con el problema intacto.
+3. **La lección, que vale más que el módulo:** «el límite de memoria del chat» era, en los hechos, **un presupuesto de tokens mal dimensionado contra una ventana de 1M**, que el modelo convirtió en una negativa anticipada. Y hay una lección adicional que M27 deja escrita: **el presupuesto de tarea es lo único que el modelo sabe sobre su propio espacio, así que ponerlo mal no lo corta: lo vuelve pesimista.** Un agente pesimista no falla —contesta, es amable, deja todo anotado— y por eso no aparece en ninguna métrica de error. La tarea 17 figura como `Completada` con costo USD 0,26. Ni la persona ni el analista funcional podían saberlo mirando la pantalla: el síntoma («me pide otra tarea») era idéntico en los cinco caminos posibles, y por eso D-M27-9 —cuatro cortes, cuatro frases distintas— **dejó de ser una mejora de texto y pasó a ser lo que hace diagnosticable el producto**. Un sistema donde cinco causas distintas dicen la misma frase es un sistema que no se puede depurar desde afuera.
+
+**H3 — Un `.xls` viejo no entra.** No lo bloquea la extensión: `TiposArchivoDocumento.OfficeViejo` acepta `.doc` y `.xls` **y decide por el contenido** (PA-35), porque varios sistemas contables argentinos exportan una tabla HTML con nombre `.xls`. El cliente subió un `.xls` que **era un binario de Excel de verdad**, y ahí el validador contesta `MensajesDocumentos.FormatoViejo`. La decisión de PA-35 fue correcta y está incompleta: resolvió el `.xls` que miente y dejó afuera el `.xls` que no miente.
+
+**H4 — El caso real ya está cargado en producción, y tiene número.** La conciliación que no se pudo terminar es la **tarea 17** de `agentes.olvidata.com.ar` (`/Tareas/Detalle/17`), con sus pasos y sus archivos (Joaquín, 2026-10-01). **No es un frente de trabajo: es el criterio de aceptación de H2 y H3.** M27 no se da por terminado con tests verdes: se da por terminado cuando **esa** conciliación, con **esos** archivos, llega a un resultado.
+
+**H5 — El menú no se lee de menos a más.** 25 opciones en tres secciones (`Trabajo diario`, `Cómo trabaja el estudio`, `Control y cuenta`). Dos problemas concretos, no de gusto: **(a)** *Primeros pasos* —que es literalmente por dónde se empieza— está en la **última** sección, debajo de *Resultados* y *Plano de control*; **(b)** la sección del medio mezcla seis cosas que la persona configura sola (Reglas, Instructivos, Memoria, los tres agentes de plataforma) con cinco de administración (Miembros, Áreas, Portal de clientes, Conexiones, Pedidos) y dos de control (Pruebas, Programaciones). Para alguien que entra el primer día, las trece se ven iguales.
+
+**H6 — El cuadro para escribir le come la pantalla a la conversación** (Joaquín, 2026-10-01, agregado durante la implementación). En el detalle de una tarea, seguir conversando ocupa demasiado alto: el compositor del ajuste se lleva espacio que le corresponde al contenido del hilo. Es el mismo problema que la instrucción 38 §2 ya nombra —*«cada renglón que ocupa es un renglón de conversación que tapa»*— y es **especialmente caro justo acá**: el frente H2 existe para que las conversaciones sean largas, y una conversación larga es exactamente donde el alto del compositor se paga en cada scroll. Lo pedido: **más espacio para el contenido, y el mensaje expandible cuando haga falta.**
+
+- **RF-M27-25.** El compositor del ajuste arranca en su alto mínimo (un renglón) y **crece solo** mientras se escribe, hasta un tope; pasado el tope, scrollea adentro en vez de seguir empujando la conversación.
+- **RF-M27-26.** Se puede **expandir a propósito** cuando el ajuste es largo, y volver. La elección de expandido no se pierde mientras se escribe.
+- **RF-M27-27.** Lo que no cambia nunca —avisos fijos, frases de encuadre, el contador que D-M27-11 ya saca— **no vive abajo**: sube al rótulo o se va. El espacio de abajo es para lo que se escribe.
+
+#### Decisiones de Discovery (Joaquín, 2026-10-01)
+
+- **D-M27-a — El analista es la única puerta de creación.** Se saca «Crear agente» del catálogo y «Crear mi versión» de la ficha. Todo agente de la organización **nace de una propuesta del analista**, que releva el trabajo y arma nombre, descripción, instrucciones, herramientas **y pasos** en una sola tarjeta. El formulario que existe **no se borra**: deja de ser puerta de entrada y pasa a ser **la pantalla de edición** de lo que ya está creado, a la que se llega desde el agente, nunca desde el catálogo. Se descartó dejar el formulario como atajo «avanzado»: un atajo visible es una segunda puerta con otro nombre, y el problema que se está arreglando es tener dos.
+- **D-M27-b — Los pasos son del agente, quedan establecidos y se editan.** La propuesta del analista crea, además del agente, **su instructivo** (M14) y los deja vinculados. «Establecidos» significa que la persona no tiene que escribirlos después para que el agente funcione; «editables» significa que se corrigen sin volver a hablar con el analista y sin rehacer el agente.
+- **D-M27-c — La tarea se usa todo lo que haga falta; el freno es la plata, no el largo.** Se saca el tope de ajustes. Cuando el pedido no entra, el motor **compacta, poda y reintenta** en vez de marcar la tarea `Fallida`. El único corte que queda en pie es el **tope de gasto de M6**, que es el que corresponde: es el que la persona entiende, el que el Director administra y el que protege de verdad.
+- **D-M27-d — Nada se rechaza en la puerta por su formato.** `.xls` y `.doc` binarios **se leen**; cualquier otro formato **entra y se guarda**, marcado «no legible» con el motivo en palabras. Un archivo guardado que el agente no puede leer es un problema que la persona puede resolver (convertirlo, pedirlo de otra forma); un archivo rechazado al subir es una pared. Se mantienen intactas las defensas que no son de formato: tamaño, cuota, bomba de descompresión, macros y el nunca-servir-HTML-como-HTML de PA-35.
+- **D-M27-e — El menú se reordena de menos a más y no pierde ninguna opción.** Cuatro secciones en orden de madurez de uso. No se esconde nada detrás de un «Más» plegado: una opción que la persona ya vio y que después no encuentra es peor que una lista larga.
+
+#### Casos de uso
+
+CU-M27-01 Una persona entra por primera vez, cuenta qué trabajo repite y sale con un agente propio **con sus pasos**, sin pasar por ningún formulario · CU-M27-02 Esa persona corrige un paso del agente una semana después, desde el agente · CU-M27-03 Un Empleado llega a una propuesta de agente para toda la empresa y el sistema le explica que la aplica el Director · CU-M27-04 Una conciliación de dos planillas aguanta ocho idas y vueltas y termina en un resultado · CU-M27-05 Una conversación larguísima se compacta sola y la persona no se entera · CU-M27-06 Una conversación que no entra ni compactada avisa qué pasó **sin perder la tarea** · CU-M27-07 El tope de gasto corta una conversación y lo dice con esas palabras · CU-M27-08 Se sube un `.xls` binario de un sistema contable y el agente lo lee · CU-M27-09 Se sube un `.xls` que es una tabla HTML y sigue entrando como antes (no se rompió PA-35) · CU-M27-10 Se sube un formato que nadie puede leer y queda guardado, con el motivo · CU-M27-11 Alguien que entra el primer día encuentra «Primeros pasos» arriba · CU-M27-12 Un Director sigue llegando a Conexiones y a Miembros, que cambiaron de lugar pero no desaparecieron.
+
+#### Requisitos funcionales
+
+**Una sola puerta (D-M27-a, D-M27-b)**
+
+- **RF-M27-01.** El catálogo de Agentes no ofrece «Crear agente». En su lugar ofrece **armarlo conversando**, que abre el analista.
+- **RF-M27-02.** La ficha de un agente de Olvidata no ofrece «Crear mi versión». Ofrece **armar mi versión conversando**, que abre el analista **con ese agente base ya elegido**: el analista no vuelve a preguntar de qué agente se parte.
+- **RF-M27-03.** La pantalla que hoy es `Agentes/Crear` sigue existiendo como **edición**. Se llega desde el agente de la organización. Un agente nuevo ya no se crea desde ahí; lo que se crea desde ahí es el paso siguiente de una propuesta aplicada, nunca el primero.
+- **RF-M27-04.** `proponer_agente_empresa` acepta, además de lo de hoy, **qué herramientas usa** (del conjunto del agente base, nunca más) y **los pasos** del trabajo.
+- **RF-M27-05.** Al aplicar una propuesta de agente se crea, en **una** operación: el agente de la organización, su instructivo con los pasos, y el vínculo entre los dos. Si algo de eso falla, no queda nada a medias.
+- **RF-M27-06.** El agente queda **listo para usar**, no en borrador que haya que completar en otra pantalla. Lo que la propuesta no definió se resuelve con el default del agente base, no con un campo vacío.
+- **RF-M27-07.** Los pasos del agente se editan desde el agente y desde Instructivos, y la edición **versiona** como cualquier instructivo (M14 ya lo hace; no se agrega un camino nuevo de edición).
+- **RF-M27-08.** El rol se chequea **al aplicar**, según el alcance de la propuesta, igual que hoy: un agente para toda la empresa lo aplica el Director; uno personal, cualquier miembro. **No cambia nada de esto**; se dice porque es la invariante que la unificación no puede aflojar.
+- **RF-M27-09.** El analista le dice a la persona, en palabras, que el agente quedó armado y **dónde están sus pasos** para cambiarlos.
+
+**La tarea no se corta (D-M27-c)**
+
+- **RF-M27-10.** ~~Reproducir el corte~~ **HECHO (2026-10-01):** ver «H2 resuelto» arriba. La causa es `Anthropic:TaskBudgetTokens = 64000`; ningún tope del sistema actuó.
+- **RF-M27-10bis.** El presupuesto de tarea deja de ser un número fijo que compite con el tamaño del contexto. Un agente que lee dos planillas y cruza movimientos tiene que poder terminar **el trabajo que se le pidió**, no el trabajo que entra en 64.000 tokens. El presupuesto se dimensiona —o se saca— de modo que el freno vuelva a ser el **tope de gasto**, que es el único que la persona entiende y el único que el Director administra.
+- **RF-M27-10ter.** Un agente **nunca** termina una tarea de trabajo pidiéndole a la persona que abra otra para seguir lo mismo. Si no puede terminar, dice qué le falta y **se queda en la tarea**. Que esto no vuelva a pasar se verifica sobre la tarea 17. Es el primer requisito a propósito — tres de los cuatro arreglos son distintos y no se eligen por descarte.
+- **RF-M27-11.** Se saca el tope de ajustes por tarea. `MotivoNoPuedeSeguir.Limite` deja de poder ocurrir por largo de conversación.
+- **RF-M27-12.** Cuando la API rechaza el pedido por tamaño, la tarea **no queda `Fallida`**: el motor poda la conversación (resultados de herramienta viejos primero, que es lo más gordo y lo menos necesario) y reintenta. Recién si el pedido no entra ni podado se le avisa a la persona, y **la tarea queda usable**, con lo hecho hasta ahí.
+- **RF-M27-13.** Verificar que los bloques de compactación que devuelve la API se **guardan y se reenvían** en la reconstrucción del contexto. Si no, corregirlo: sin eso la compactación se paga en cada pedido y no hace nada.
+- **RF-M27-14.** Lo que el motor hizo para que la conversación entre se **ve en «Ver pasos»**, en palabras («se resumió lo viejo de la conversación»). Una conversación que se acorta sola sin decirlo es un agente que parece olvidarse de cosas.
+- **RF-M27-15.** El tope de gasto sigue cortando y su cartel sigue diciendo que es por gasto. No se confunde con el largo.
+
+**Todo archivo entra (D-M27-d)**
+
+- **RF-M27-16.** Un `.xls` binario (BIFF8, Excel 97-2003) se lee como planilla: hojas, encabezado y bloques de filas, **con la misma salida** que hoy produce un `.xlsx`.
+- **RF-M27-17.** Un `.xls` que es una tabla HTML sigue entrando como `TablaHtml`. El orden de decisión no cambia: **primero el contenido**, nunca la extensión.
+- **RF-M27-18.** Un `.doc` binario se intenta leer; lo que no se puede, queda «no legible» con el motivo, **no rechazado**.
+- **RF-M27-19.** Cualquier otra extensión **se acepta y se guarda** con su motivo de no-legible en palabras. El rechazo por formato desaparece como respuesta de la subida.
+- **RF-M27-20.** Siguen rechazando, sin cambio: tamaño por archivo, cuota de la organización, máximo por cliente, archivos con macros, bomba de descompresión y el tope de extracción. Lo que se saca es **el rechazo por formato**, no las defensas.
+- **RF-M27-21.** El texto que enumera los formatos (`TiposArchivoDocumento.TextoPermitidos`) deja de ser una lista blanca y pasa a decir **qué se lee bien**, que es la pregunta que la persona realmente tiene.
+
+**El menú (D-M27-e)**
+
+- **RF-M27-22.** Cuatro secciones, en este orden: **Empezar acá** (Primeros pasos · Automatizar lo que repetís) · **Trabajo diario** (Tablero · Agentes · Tareas · Cartera de clientes · Asignaciones · Aprobaciones) · **Tu forma de trabajar** (Reglas · Instructivos · Memoria del agente · Configurar conversando · Repartir trabajo conversando · Pruebas · Programaciones · Resultados) · **Administración y cuenta** (Miembros · Áreas · Portal de clientes · Conexiones · Pedidos · Plano de control · Consumo · Material de Olvidata · Notificaciones).
+- **RF-M27-23.** Ninguna opción se saca ni se esconde. Los permisos por rol que filtran cada ítem (`Permisos.VeEnMenu`) **no cambian**: se mueven de sección, no de condición.
+- **RF-M27-24.** El menú del portal del cliente (`_LayoutCliente.cshtml`) **no se toca**: es otra audiencia y otro problema.
+
+#### Criterios de aceptación
+
+- **CA-M27-01.** No existe ninguna forma de llegar a un formulario de agente en blanco desde el catálogo ni desde la ficha de un agente de Olvidata.
+- **CA-M27-02.** Una propuesta de agente aplicada deja un agente **usable en el momento**, con sus pasos cargados, sin pasar por ninguna otra pantalla.
+- **CA-M27-03.** Los pasos de ese agente se editan y la edición queda versionada.
+- **CA-M27-04.** La conciliación de H4 —**la tarea 17 de producción**— con sus archivos reales llega a un resultado después de al menos **ocho** idas y vueltas. La prueba final la hace Joaquín sobre esa misma tarea.
+- **CA-M27-05.** Ninguna tarea termina `Fallida` por largo de conversación.
+- **CA-M27-06.** Un `.xls` binario real sube y el agente lee su contenido.
+- **CA-M27-07.** Un `.xls` que es tabla HTML sigue funcionando igual que antes (regresión de PA-35).
+- **CA-M27-08.** Ninguna subida se rechaza por formato.
+- **CA-M27-09.** El menú arranca con «Empezar acá» y conserva las **25** opciones con sus mismos permisos. (Eran 25, no 20: el conteo original del análisis estaba mal y lo corrigió QA al armar el plan.)
+- **CA-M27-10.** Nada de lo anterior cambió el hash del contexto de las tareas viejas ni el prompt de ningún agente del núcleo que no se haya tocado a propósito.
+
+#### Alcance incluido / excluido
+
+**Incluido:** las cinco cosas de la demo, con el caso de producción como criterio de cierre.
+
+**Excluido, dicho para que no se cuele:** (1) **rediseñar el analista** — se le agregan dos campos a una herramienta y se le da un punto de entrada con contexto; su prompt y su método no se reescriben; (2) **tocar los precios o el tope de gasto por defecto** — sacar el tope de ajustes deja al tope de gasto como único freno y eso **sube la exposición de una conversación larga**, pero cuánto vale ese tope es una decisión comercial aparte; (3) **lector universal de formatos** — «todo entra» no es «todo se lee», y prometer lo segundo es prometer OCR de cualquier cosa; (4) **el menú del portal del cliente**; (5) **esconder opciones por etapa** — se evaluó y se descartó en D-M27-e.
+
+#### Riesgos
+
+- **R-M27-01 — Sacar el tope de ajustes deja la plata como único freno.** Es el riesgo deliberado de D-M27-c y la contrapartida de que el cliente pueda trabajar. Lo que lo hace tolerable es que el tope de gasto **ya existe, ya avisa al 80 % y ya corta**; lo que lo haría intolerable es que alguien bajara el aviso de gasto creyendo que es ruido. **Mitigación: ningún valor de M6 se toca en M27.**
+- **R-M27-02 — Podar la conversación cambia lo que el agente recuerda dentro de la tarea.** Borrar resultados de herramienta viejos no es resumirlos: se pierde el detalle. En una conciliación eso puede significar perder de vista una fila. **Mitigación:** compactar (que resume) antes de podar (que borra), y decirlo en «Ver pasos» (RF-M27-14), para que el agente que «no se acuerda» sea legible y no mágico.
+- **R-M27-03 — El analista se vuelve el cuello de botella de todo agente.** Si se cae, si se queda sin publicar o si su prompt sale mal evaluado, **no hay forma de crear un agente**. Hoy el formulario es la vía alternativa que D-M27-a saca. **Mitigación:** el formulario sigue existiendo y sigue alcanzable por URL para administración; la regla de «nunca se publica un prompt sin evaluación aprobada» pasa a ser **crítica** para el prompt del analista, no solo deseable.
+- **R-M27-04 — «Todo entra» convierte el almacén en un depósito.** Aceptar cualquier formato significa guardar archivos que nadie va a leer, contra la cuota de la organización. **Mitigación:** la cuota y el tope por archivo no se tocan, y el estado «no legible» se ve en la grilla, así que el espacio gastado en lo ilegible es visible.
+- **R-M27-05 — Mover el menú rompe la memoria muscular de quien ya lo usa.** Son pocos usuarios hoy, y es exactamente el momento de hacerlo. **Mitigación:** no se saca ninguna opción (RF-M27-23); el costo es buscar una vez, no perder algo.
+- **R-M27-06 — La lectura de `.xls` binario entra con una dependencia nueva.** Un parser de un formato viejo y binario es superficie de ataque sobre un archivo que sube un tercero. **Mitigación:** se corre dentro del tope de tiempo de extracción que ya existe, con los límites de filas y columnas que ya existen, y una excepción del parser es «no legible», nunca una tarea caída.
+- **R-M27-07 — El corte de la demo puede no ser ninguno de los cuatro sospechosos.** De ahí que RF-M27-10 sea reproducir primero. **Si la reproducción muestra una quinta causa, el análisis se corrige antes de implementar**, no después.
 
 **M20 — Coprocesador aritmético (el agente calcula en vez de adivinar)** y **M21 — Ojos, segunda mitad (el agente mira un PDF escaneado)** (Discovery + Análisis, 2026-09-24). Estado: **Análisis cerrado**; presupuesto omitido (proyecto personal). Los dos salen del concepto rector `docs/el-sistema-como-computadora.md` y los eligió Joaquín de una lista de tres, después de M19 (la impresora).
 

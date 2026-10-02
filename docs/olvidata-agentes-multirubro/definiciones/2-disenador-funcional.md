@@ -1,9 +1,171 @@
 # Memoria - Disenador funcional
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-09-24
+## Ultima actualizacion: 2026-10-01 (M27)
 
 ## Definiciones vigentes
+
+## Diseño M27 — Una sola puerta, una tarea que no se corta (2026-10-01)
+
+Entrada: Análisis M27 cerrado (`1-analista-funcional.md`). Origen: primera demo con cliente. Instrucción **38** aplicada.
+
+### Escaneo de reutilización (instrucción 39 §3)
+
+`docs/patrones/cat_resumen.txt` dio cuatro coincidencias, **todas de este mismo proyecto**: M27 no diseña nada nuevo, **cierra** patrones que quedaron a mitad de camino.
+
+| Patrón | Qué reusa M27 |
+|---|---|
+| **PAT-030** — prompts derivados configurables sobre un prompt base protegido, con propuesta y aprobación | El agente propio sigue siendo una derivación del base. Lo que cambia es **de dónde sale la derivación**: antes de un formulario, ahora de una tarjeta. La anatomía «lo que queda fijo / lo que podés cambiar» no se tira: **se muda** de la ficha a la tarjeta del analista. |
+| **PAT-032** — agente que propone cambios como tarjetas confirmables, ejecutados por el servicio de negocio | El camino entero de la unificación. No se escribe ninguna aplicación de propuesta nueva: se le agregan dos campos a la que existe. |
+| **PAT-033** — workspace de documentos legible por agentes (validación de contenido, texto por partes) | «Todo archivo entra» es una **relajación** de la validación de contenido de PAT-033, con sus defensas intactas. El patrón se actualiza: *decide el contenido, y lo que no se entiende se guarda ilegible en vez de rechazarse*. |
+| **PAT-029** — conversación multi-turno reanudable con contexto congelado | El arreglo de H2 vive acá. El patrón gana una cláusula que le faltaba: **qué hacer cuando el contexto congelado ya no entra en la ventana**. |
+
+Nada que traer de otro proyecto: ningún otro repo del estudio tiene conversación con un modelo ni almacén de documentos para IA.
+
+### Idea rectora del diseño
+
+> **Lo que el cliente no pudo hacer en la demo no fue configurar: fue *terminar*.** Las cinco pantallas que toca M27 se diseñan con la misma pregunta: ¿qué de lo que hay acá le hizo creer que se había quedado sin camino? Todo lo que contesta «esto» se saca o se mueve. Nada se agrega.
+
+Tres reglas que ordenan las decisiones de abajo:
+
+1. **Una sola puerta visible por cosa.** Si hay dos formas de empezar lo mismo, la segunda no es una comodidad: es la duda de si eligió mal.
+2. **Un tope que corta tiene que decir de qué es.** «Empezá una tarea nueva» no dice nada: no distingue «se te acabó el espacio» de «se te acabó la plata» de «falló algo nuestro». Las tres se arreglan distinto y la persona no puede hacer nada con ninguna si no sabe cuál es.
+3. **Rechazar en la puerta es la peor forma de decir que algo no se puede.** Guardar y avisar deja a la persona con opciones; rechazar la deja sin ninguna.
+
+### Decisiones de diseño M27
+
+- **D-M27-1 — El catálogo cambia su acción principal, no su maqueta.** `Agentes/Index` pasa de «**+** Crear agente» a «**Armalo conversando**» (ícono de charla), que va al analista. La bajada de la pantalla deja de decir *«…o creá tu propia versión de uno de Olvidata»* y dice qué pasa de verdad: *«Si ninguno hace lo que necesitás, contale al analista qué trabajo querés sacarte de encima y te lo arma.»* El resto de la pantalla (secciones por rubro, buscador, tarjetas) **no se toca**.
+- **D-M27-2 — La anatomía se mantiene y cambia de lugar y de momento.** Las dos columnas de `_FichaCrearVersion.cshtml` —«Lo que queda fijo (Olvidata)» y «Lo que podés cambiar»— son lo mejor de esa pantalla: es lo único que le explica a la persona qué está comprando. **No se borran.** El botón «Crear mi versión» se reemplaza por «**Armar mi versión conversando**» (lleva al analista con `baseId`), y las dos columnas quedan como lo que son: la explicación de qué es un agente propio. Se descartó mandarlas al analista como mensaje de apertura: en la ficha están al lado del agente del que se habla, y en una charla serían un párrafo que nadie lee.
+- **D-M27-3 — El analista arranca sabiendo de qué agente se habla.** Entrando desde la ficha, la conversación abre con el agente base ya fijado y **se ve en pantalla** (chip con el nombre del agente y su rubro, arriba del cuadro de escribir). No se le pide a la persona que lo repita, y el analista no puede proponer una derivación de otro. Entrando desde el catálogo o desde el menú, el analista elige el base como hoy.
+- **D-M27-4 — La tarjeta de agente propuesto muestra los pasos, y los pasos se editan ahí mismo, antes de aplicar.** Es la decisión que convierte «los pasos quedan establecidos» en algo real. La tarjeta pasa a tener cuatro bloques: **nombre**, **para qué sirve**, **las instrucciones** (plegadas) y **los pasos** (lista numerada, plegada). Los pasos se pueden corregir en la tarjeta antes de aplicar, con el mismo cuadro de texto con el que se corrige cualquier propuesta. Se descartó aplicar primero y editar después: la persona recién salió de contar su trabajo, es **el único momento** en que tiene fresco si el paso 3 está bien.
+- **D-M27-5 — Al aplicar, un solo mensaje que dice las tres cosas que pasaron.** *«Listo: «Conciliación de banco» ya está entre tus agentes, con 6 pasos cargados. Los pasos los cambiás cuando quieras desde el agente.»* Y dos botones: **Usarlo ahora** (nueva tarea con ese agente) y **Ver sus pasos**. Hoy el mensaje dice que se aplicó y deja a la persona sin saber qué sigue, que es la mitad del problema de H1.
+- **D-M27-6 — El agente nace usable, y eso se dice en la tarjeta antes de aplicar.** Nada de «borrador». La tarjeta dice qué herramientas va a tener y para quién va a estar (solo vos / toda la empresa) **antes** del botón, porque son las dos cosas que no se pueden deshacer sin volver a configurar.
+- **D-M27-7 — Los pasos del agente se ven en el agente.** El detalle del agente de la organización gana un bloque **«Sus pasos»** con la lista y un enlace a editar, que es la misma pantalla de edición de instructivos de M14 (no se diseña una nueva). Si el instructivo lo comparten varios agentes o lo editó alguien más, se dice.
+- **D-M27-8 — «Editar» deja de parecer «Crear».** La misma pantalla con título y verbo distintos según si hay agente o no. Hoy `Agentes/Crear` es el mismo formulario para las dos cosas y el título engaña. Se llega solo desde el agente.
+- **D-M27-9 — Los cuatro cortes de una conversación se dicen con cuatro frases distintas.** Es la decisión de diseño con más impacto de M27, y es sólo texto:
+
+  | Qué pasó | Qué dice hoy | Qué dice en M27 |
+  |---|---|---|
+  | El pedido no entra ni compactado | «La conversación es demasiado larga. Empezá una tarea nueva.» + tarea **Fallida** | «Esta conversación se hizo tan larga que ya no entra completa. Resumí lo que necesitás que el agente tenga presente y seguí acá.» + tarea **usable** |
+  | Se llegó al tope de gasto | (ya distinto) | sin cambio |
+  | Espera una aprobación / unas partes | (ya distinto) | sin cambio |
+  | Falló algo del sistema | «No se pudo completar la tarea: …» | sin cambio |
+
+  La diferencia que importa no es el texto: es que **la tarea sigue viva**. Un cartel que pide empezar de nuevo sobre una conversación de ocho vueltas le está pidiendo a la persona que tire el trabajo.
+- **D-M27-10 — Lo que el motor hizo para que la conversación entre se cuenta en «Ver pasos», en una línea, en el lugar donde pasó.** *«Se resumió la parte vieja de la conversación para que siguiera entrando.»* No va como aviso arriba ni como notificación: va **en la línea de tiempo**, porque es un hecho de la conversación y tiene un cuándo. Un agente que de golpe no se acuerda de algo que se dijo al principio, sin que nada lo explique, parece roto.
+- **D-M27-11 — Se saca el contador de ajustes restantes.** `AjustesRestantes` / «te quedan N ajustes» desaparece de la pantalla: contar algo que ya no se agota es peor que no contarlo. Lo que ocupa su lugar es lo que sí importa en una conversación larga, que ya está: el costo acumulado en la barra de contexto.
+- **D-M27-12 — La subida nunca más contesta «ese formato no».** El resultado de subir pasa de dos salidas (entró / se rechazó) a dos distintas: **entró y se lee** / **entró y no se puede leer, por esto**. El mensaje de PA-35 (`FormatoViejo`) desaparece como rechazo y sobrevive como motivo: *«Es un Excel 97-2003 y no se pudo leer su contenido. Está guardado: si lo guardás de nuevo como .xlsx el agente lo lee.»* — el motivo **y la salida**, que es lo que hoy falta.
+- **D-M27-13 — El texto de formatos pasa de lista blanca a expectativa.** Hoy: *«PDF, Word (.docx), Excel (.xlsx), CSV, …»* leído como *lo demás no entra*. En M27: *«Entra cualquier archivo. El agente lee bien PDF, Word, Excel, CSV, texto y tablas exportadas en HTML, y mira fotos y PDF escaneados. Lo que no pueda leer queda guardado igual, y te decimos por qué.»*
+- **D-M27-14 — El menú se ordena por el momento en que cada cosa se usa, no por lo que cada cosa es.** Cuatro secciones; el nombre de cada una contesta *cuándo entro acá*:
+
+  | Sección | Opciones | Por qué acá |
+  |---|---|---|
+  | **Empezar acá** | Primeros pasos · Automatizar lo que repetís | Las dos únicas que sirven el primer día. «Primeros pasos» estaba en la **última** sección: el camino de arranque de M26 no se encontraba. |
+  | **Trabajo diario** | Tablero · Agentes · Tareas · Cartera de clientes · Asignaciones · Aprobaciones | Lo que se abre todos los días. Sin cambios internos. |
+  | **Tu forma de trabajar** | Reglas · Instructivos · Memoria del agente · Configurar conversando · Repartir trabajo conversando · Pruebas · Programaciones · Resultados | Lo que se toca cuando ya se trabaja y se quiere que el sistema trabaje parecido. *Resultados* se muda acá desde «Control y cuenta»: es el resultado de las programaciones, y estaba a tres secciones de ellas. |
+  | **Administración y cuenta** | Miembros · Áreas · Portal de clientes · Conexiones · Pedidos · Plano de control · Consumo · Material de Olvidata · Notificaciones | Lo del Director y lo de la cuenta. Que esté al final es la decisión: antes compartía sección con Reglas e Instructivos y las trece se veían iguales. |
+
+  «Cómo trabaja el estudio» se renombra a «**Tu forma de trabajar**»: la persona no está mirando cómo trabaja el estudio, está escribiendo cómo trabaja ella.
+- **D-M27-15 — El menú no pliega nada.** Se evaluó un «Más» cerrado sobre Administración y se descartó: con 25 ítems el menú entra en una pantalla de 1000 px, y plegar lo administrativo esconde Conexiones y Miembros justo de quien sí los necesita. La sección al final ya ordena sin esconder.
+
+- **D-M27-16 — El compositor del ajuste arranca chico, crece solo y se puede abrir del todo.** Tres estados, no dos: **mínimo** (un renglón, como arranca), **crecido** (crece con el texto hasta ~6 renglones y después scrollea adentro) y **expandido** (lo abre la persona con un botón, ocupa el alto cómodo de redacción y se cierra igual). La conversación nunca se corre por un compositor que se agrandó solo más allá del tope. Es instrucción 38 §2 aplicada al caso donde más duele: M27 existe, entre otras cosas, para que estas conversaciones sean largas.
+- **D-M27-17 — Lo que no cambia no vive abajo.** Todo lo fijo del pie —encuadres, avisos permanentes y el contador de ajustes restantes que D-M27-11 ya saca— sube al rótulo del campo o desaparece. Lo único que puede ocupar alto abajo es lo que varía: lo que la persona escribe, los adjuntos que suma y el botón de enviar.
+
+### Addenda M27 (2026-10-01) — lo que salió de cruzar frentes
+
+Dos defectos que **ningún frente ve solo** y cinco decisiones de documentos que estaban abiertas. Salieron de la auditoría de pre-implementación y se cierran acá porque son de producto, no de implementación.
+
+- **D-M27-18 — El analista no puede estar detrás de una etapa de entrega. `OpcionMenu.Automatizar` pasa a `EtapaEntrega.PrimerosPasos`.** Es el defecto más grave que encontró la auditoría y sale de cruzar el frente 1 con el frente 4: hoy *«Automatizar lo que repetís»* recién aparece en la etapa `TuFormaDeTrabajar`, y el frente 1 saca «Crear agente» del catálogo —que sí se ve en `PrimerosPasos`—. Combinados, **una organización nueva quedaría sin ninguna forma visible de armar un agente**, exactamente en la etapa donde el camino de arranque de M26 le pide que consiga su primer agente propio. La etapa oculta el menú y no bloquea acciones, así que la pantalla seguiría existiendo por URL: eso no es una respuesta, es el síntoma de que el gate está mal puesto. **Si el analista es la única puerta, no puede ser una puerta que aparece después.** Como efecto colateral, esto arregla que la sección «Empezar acá» tuviera un solo ítem el primer día.
+- **D-M27-19 — Un encabezado de sección del menú no se dibuja si no tiene ningún ítem visible.** Con las cuatro secciones nuevas, en etapa `PrimerosPasos` la sección «Tu forma de trabajar» queda con sus ocho ítems detrás de la etapa y **el título se dibujaría solo, sin un solo enlace debajo**. Hoy no pasa porque la sección equivalente arrastra ítems de administración que sí se ven. Se resuelve **una vez, en el layout**, calculando la visibilidad de la sección a partir de sus ítems — nunca repitiendo las condiciones en el encabezado, que es la versión que se desincroniza al mes siguiente.
+- **D-M27-20 — Un archivo sin extensión entra.** Es el caso más común de un export de un sistema viejo, y «todo archivo entra» no lo cubría: hoy se rechaza. Entra como tipo desconocido, `NoSePudoLeer`, con el motivo y la salida en palabras.
+- **D-M27-21 — Un `.xls` que no es ni tabla HTML ni binario de Excel queda como tipo desconocido.** A-M27-11 decía el estado (`NoSePudoLeer`) y no decía el tipo, y como `.xls` no es una clave de las extensiones permitidas, sin esto el guardado no tiene con qué grabarlo.
+- **D-M27-22 — El camino que sirve un documento *inline* funciona por lista blanca, no por descarte.** El `Content-Type` se puede fijar en un solo lugar —donde se guarda—, pero el `attachment` lo deciden los controllers y hay un tercer camino que sirve inline, cerrado hoy por una sola condición. Con «todo entra», una condición de descarte es un agujero que se abre solo cada vez que se agrega un tipo: **inline solo lo que está explícitamente permitido.**
+- **D-M27-23 — El tope de tiempo de extracción no protege de un parser que no coopera, así que al binario viejo lo acota el tamaño.** La cancelación del sistema es cooperativa y el parseo de una planilla binaria es **una sola llamada opaca** que no mira el token: al vencer el tope, la persona recibe «no se pudo leer» pero el hilo del pool sigue parseando. En un pool compartido eso es el problema de otro sistema, no de este documento. Por eso el `.xls` binario **solo se parsea por debajo de un tope de tamaño propio**, más bajo que el de subida: el archivo entra igual, pero si es demasiado grande queda sin leer en vez de quedarse con un hilo.
+- **D-M27-24 — «El mismo formato de partes» es un criterio de aceptación, no una promesa de código compartido.** El extractor de `.xlsx` se apoya en dos cosas que el de binario no tiene equivalente directo (el rango usado y el formateo de valores de la biblioteca), así que el binario los calcula por su cuenta. Lo que tiene que ser idéntico es **la salida**, y se verifica con un test que compara una planilla `.xls` contra su gemela `.xlsx` con los mismos datos. Los topes que hoy son privados se extraen a un lugar común.
+
+### Pantallas
+
+| Id | Pantalla | Qué cambia |
+|---|---|---|
+| **P-M27-01** | `Agentes/Index` (catálogo) | Acción principal → «Armalo conversando». Bajada reescrita. Nada más. |
+| **P-M27-02** | `Agentes/Ficha` → `_FichaCrearVersion` | Las dos columnas quedan. Botón → «Armar mi versión conversando» (al analista con `baseId`). |
+| **P-M27-03** | Analista (`Analista/Nueva`, `Analista/Index`) | Chip del agente base cuando se entró desde una ficha. |
+| **P-M27-04** | Tarjeta de propuesta de agente | Cuatro bloques (nombre · para qué sirve · instrucciones · pasos), pasos editables antes de aplicar, herramientas y alcance a la vista. |
+| **P-M27-05** | Resultado de aplicar | Mensaje de tres hechos + «Usarlo ahora» / «Ver sus pasos». |
+| **P-M27-06** | `Agentes/Detalle` (agente de la organización) | Bloque «Sus pasos» + enlace a editar. |
+| **P-M27-07** | `Agentes/Crear` → **edición** | Título y verbo por contexto; se llega solo desde el agente. |
+| **P-M27-08** | `Tareas/Detalle` | Sin contador de ajustes. Cuatro mensajes de corte distintos. Nota de compactación en la línea de tiempo. **Compositor en tres estados (D-M27-16) y pie sin nada fijo (D-M27-17).** |
+| **P-M27-09** | Subida de documentos (`_ZonaSubida` + grilla) | Sin rechazo por formato. Motivo con salida. Texto de formatos reescrito. |
+| **P-M27-10** | `_Layout.cshtml` (barra lateral) | Cuatro secciones nuevas, mismas 20 opciones, mismos permisos. |
+
+### Estados
+
+**Documento subido** — se saca una salida y se parte otra:
+
+```
+            ┌─ Legible            (texto extraído)
+            ├─ LegibleEnParte     (texto extraído, recortado)
+  Subido ───┼─ SeMira             (imagen o PDF escaneado)
+            └─ NoSePudoLeer       (entró y no se entiende — AHORA incluye Office viejo
+                                   binario y cualquier formato desconocido, con motivo)
+
+  ✗ Rechazado por formato  ← SE ELIMINA como estado alcanzable
+  ✓ Rechazado por tamaño / cuota / macros / bomba de compresión  ← SE MANTIENE
+```
+
+**Conversación de una tarea** — un camino se invierte:
+
+```
+  Terminada ──┬─ PuedeSeguir                      (lo normal)
+              ├─ LimiteGasto      → corta, lo dice
+              ├─ EsperandoAprobacion / Subtareas  → espera
+              └─ Limite           ← SE ELIMINA (ya no hay tope de ajustes)
+
+  No entra el pedido ──  antes: Fallida + «empezá otra»
+                         ahora: compacta → poda → reintenta → si no entra,
+                                sigue PuedeSeguir con el aviso de D-M27-9
+```
+
+### Historias de usuario
+
+- **HU-M27-01.** *Como persona que entra por primera vez*, quiero contar qué trabajo repito y salir con un agente propio, **para** no tener que escribir un método de trabajo en un campo vacío. **CA:** desde el catálogo no hay ningún camino a un formulario en blanco; al terminar la charla hay una tarjeta con nombre, para qué sirve, instrucciones y pasos; al aplicarla el agente está usable y el mensaje dice dónde están los pasos.
+- **HU-M27-02.** *Como persona que ya habló con el analista*, quiero corregir un paso antes de aplicar, **para** no crear un agente con un paso que ya sé que está mal. **CA:** los pasos se editan en la tarjeta; lo editado es lo que se guarda.
+- **HU-M27-03.** *Como persona que usa un agente desde hace una semana*, quiero cambiarle un paso, **para** no tener que rehacerlo ni volver a conversar. **CA:** «Sus pasos» en el detalle del agente; editar versiona; la próxima tarea usa la versión nueva.
+- **HU-M27-04.** *Como Empleado*, quiero que me digan quién aplica una propuesta de agente para toda la empresa, **para** no quedarme trabado sin entender por qué. **CA:** el rol se chequea al aplicar y el mensaje nombra al Director.
+- **HU-M27-05.** *Como persona haciendo una conciliación*, quiero ir y venir todo lo que haga falta, **para** terminarla. **CA:** el caso real de producción llega a un resultado con ocho o más idas y vueltas; ninguna tarea queda `Fallida` por largo.
+- **HU-M27-06.** *Como persona en una conversación muy larga*, quiero saber si el agente dejó de tener presente algo, **para** volver a decírselo si hace falta. **CA:** la línea de tiempo muestra que se resumió lo viejo, en el punto donde pasó.
+- **HU-M27-07.** *Como persona que gastó el tope del mes*, quiero que me lo digan con esas palabras, **para** pedirle al Director que lo suba en vez de abrir otra tarea al vacío. **CA:** el mensaje de gasto no se confunde con el de largo.
+- **HU-M27-08.** *Como contador con un sistema que exporta `.xls`*, quiero subir ese archivo y que el agente lo lea, **para** no convertirlo a mano todos los meses. **CA:** un `.xls` binario sube y se lee como planilla; un `.xls` que es tabla HTML sigue entrando igual que antes.
+- **HU-M27-09.** *Como persona con un archivo raro*, quiero que quede guardado y me digan qué hacer, **para** tener una salida. **CA:** ninguna subida se rechaza por formato; el motivo trae la salida.
+- **HU-M27-10.** *Como persona del primer día*, quiero que el menú me diga por dónde empezar, **para** no elegir entre veinte opciones iguales. **CA:** «Empezar acá» es la primera sección y contiene Primeros pasos; las 20 opciones siguen estando con sus mismos permisos.
+
+### Validaciones
+
+- Los pasos editados en la tarjeta: mismos topes que un instructivo de M14 (nada nuevo).
+- Las herramientas propuestas: **subconjunto estricto** de las del agente base. Una herramienta de más es una propuesta inválida, no una propuesta recortada en silencio — y se dice cuál.
+- El alcance («solo yo» / «toda la empresa») se vuelve a verificar al aplicar, contra el rol de quien aplica, no contra el de quien conversó.
+- Editar los pasos no reabre la propuesta ya aplicada: una propuesta aplicada es historia.
+- Un `.xls` ambiguo: **primero se prueba tabla HTML, después binario**. El orden importa y es el de PA-35 — invertirlo rompe a los sistemas contables que exportan HTML con nombre `.xls`.
+
+### Textos que importan
+
+- Catálogo: *«Elegí un agente para pedirle una tarea. Si ninguno hace lo que necesitás, contale al analista qué trabajo querés sacarte de encima y te lo arma.»*
+- Botón, en los dos lugares: **«Armalo conversando»** / **«Armar mi versión conversando»**. Nunca «Crear».
+- Al aplicar: *«Listo: «{nombre}» ya está entre tus agentes, con {n} pasos cargados. Los pasos los cambiás cuando quieras desde el agente.»*
+- Conversación que no entra: *«Esta conversación se hizo tan larga que ya no entra completa. Resumí lo que necesitás que el agente tenga presente y seguí acá.»*
+- Compactación en la línea de tiempo: *«Se resumió la parte vieja de la conversación para que siguiera entrando.»*
+- Office viejo: *«Es un Excel 97-2003 y no se pudo leer su contenido. Está guardado: si lo guardás de nuevo como .xlsx, el agente lo lee.»*
+- Formato desconocido: *«No sabemos leer este tipo de archivo. Está guardado y lo podés descargar; para que el agente lo lea, subilo como PDF, Excel o texto.»*
+- Formatos, en la zona de subida: *«Entra cualquier archivo. El agente lee bien PDF, Word, Excel, CSV, texto y tablas exportadas en HTML, y mira fotos y PDF escaneados. Lo que no pueda leer queda guardado igual, y te decimos por qué.»*
+
+### Riesgos de diseño
+
+- **RD-M27-01 — La tarjeta con cuatro bloques puede quedar enorme.** Instrucción 38 §3: una tarjeta que no se puede comparar de un vistazo no sirve. **Mitigación:** nombre y para-qué-sirve siempre visibles; instrucciones y pasos plegados, con el conteo en el rótulo («6 pasos»). Es la única forma de que `TopePropuestas` = 10 configurando siga siendo legible.
+- **RD-M27-02 — Sacar el contador de ajustes saca la única señal de «esto se va a terminar».** En una conversación larga, nada avisa que se está yendo de largo hasta que la plata corta. **Mitigación:** el costo acumulado ya está en la barra pegajosa; es la señal correcta, porque es la que efectivamente corta.
+- **RD-M27-03 — Mover «Resultados» de sección lo aleja de «Consumo».** Las dos se miran juntas a fin de mes. **Mitigación:** se acepta: *Resultados* se mira todas las semanas junto a Programaciones, y *Consumo* una vez por mes. Gana la frecuencia.
+- **RD-M27-04 — «Armalo conversando» puede leerse como un chat de soporte.** **Mitigación:** el ícono es de charla pero el texto dice *armalo*, y la bajada nombra el resultado («y te lo arma»).
+
+---
 
 # M14 — Criterio de programación Claude: proyectos, skills, búsqueda web y control de gasto
 
