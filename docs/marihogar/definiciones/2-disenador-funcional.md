@@ -1,7 +1,7 @@
 # Memoria - Disenador funcional
 
 ## Proyecto: marihogar
-## Ultima actualizacion: 2026-08-16
+## Ultima actualizacion: 2026-10-02 (CR-86 Diseno CERRADO. Hallazgo que define el frente B: contra el extracto real, `FechaAcreditacion` acierta 8 de 13 y `FechaVencimiento` 1 de 13 -- el arreglo de CR-85 es 8x mejor pero falla 5 veces porque la fecha es el dia del click, asi que la acreditacion pasa a **pedir la fecha** (D-86.1). La alicuota entra como fila del catalogo de tasas que ya existe (D-86.2), sin pantalla nueva. Reutiliza PAT-016/008/020/023)
 
 ## Definiciones vigentes
 
@@ -727,6 +727,156 @@ Sobre análisis v13. Extiende `Ventas/Create.cshtml`/`Ventas/Details.cshtml` (si
 **Impacto por capa**: ver detalle técnico completo en `3-arquitecto-mvc.md`, sección CR-62.
 
 **Riesgos de implementación**: el script de corrección retroactiva de `Descripcion` toca texto ya escrito en un ledger financiero histórico — dry-run obligatorio antes de aplicar, y verificación puntual contra algunos movimientos conocidos antes de confiar el resultado masivo. La migración de `UsuarioId` es sobre una tabla de producción con volumen real (movimientos ya cargados).
+
+## CR-86 - Comision cobrada por periodo + impuesto al cheque (con CR-85 absorbido)
+
+**Estado:** Diseno CERRADO 2026-10-02. Presupuesto **salteado por pedido del cliente**. Pasa a Arquitectura y de ahi directo a Implementacion.
+
+### Escaneo de reutilizacion (instruccion 39 seccion 3)
+`docs/patrones/cat_resumen.txt` dio **4 coincidencias duras**. Nada de esto se disena de nuevo:
+
+| Patron | Que aporta | Donde se aplica |
+|---|---|---|
+| **PAT-016** (delicias-naturales) | Filtros persistidos en `Session`, una key por filtro prefijada por entidad; "Limpiar filtros" borra la sesion, no solo los controles | Filtro de periodo del frente A |
+| **PAT-008** (transversal) | DataTables server-side + filtro por columna visible | Grilla de tasas |
+| **PAT-020** (marihogar, CR-64/CR-82) | Ledger inmutable: lo posteado **nunca** se edita ni borra, se reversa con contramovimiento que comparte `OrigenTipo`/`OrigenId` | Anulacion del gasto del impuesto al revertir la acreditacion |
+| **PAT-023** (delicias-naturales) | Corregir un pago ya posteado sin UPDATE: reversion + alta enlazada por self-FK, motivo obligatorio, todo bajo la misma transaccion. **Precondicion: el movimiento de caja tiene FK directa al pago, no busqueda por OrigenId+Monto** | Correccion de fecha para todos los metodos (punto 8) |
+
+La precondicion de PAT-023 **ya se cumple** en marihogar: `MovimientosCCLocal` referencia el pago por `OrigenTipo='PagoOC'` + `OrigenId = PagoOrdenCompra.Id`, que es un unico pago, no una busqueda por monto.
+
+---
+
+### El hallazgo que define el diseno del frente B
+
+CR-85 se enuncio como "usar `FechaAcreditacion` en vez de `FechaVencimiento`". **Medido contra el extracto real del banco, eso es necesario pero no suficiente.**
+
+Cruce del extracto del Banco Provincia (17 `CHEQUE DE CAMARA`) contra los 29 cheques acreditados del sistema, matcheando por monto (13 pares con match inequivoco):
+
+| Fecha del sistema | Coincide con el dia real del debito en el banco |
+|---|---|
+| `FechaVencimiento` (la que usa el codigo hoy) | **1 de 13** |
+| `FechaAcreditacion` (la del arreglo propuesto) | **8 de 13** |
+
+**El arreglo es 8x mejor, y sigue fallando 5 de 13.** La razon esta en una linea de `AcreditarAsync`: `cheque.FechaAcreditacion = DateTime.UtcNow`. O sea **el dia en que el Administrador hizo click**, no el dia en que el banco debito. Es exactamente la objecion que QA le hizo al vencimiento ("no el momento en que el Administrador hace click") y la heredariamos intacta si solo cambiamos de campo.
+
+> **Decision de diseno D-86.1: la acreditacion pide la fecha.** El dialogo de "Acreditar cheque" incorpora un campo de fecha, default hoy, rotulado **"Fecha en que el banco lo debito"** con la ayuda *"la que figura en el extracto, no la de hoy si lo estas cargando despues"*. Sin esto, CA-86.7 es inverificable y CR-85 cambia un proxy por otro.
+
+Consecuencia para el backfill (punto 9): para los 29 cheques historicos **no hay mejor dato disponible** que la `FechaAcreditacion` ya guardada. Se usa, se declara que es un proxy que acierta 8 de 13 contra el extracto, y **no se inventa precision**: el resumen de entrega lo dice. Los cheques nuevos, con D-86.1, van a tener la fecha real.
+
+---
+
+### Frente A - `ConfiguracionCostosCobranza/Index`
+
+La pantalla pasa de **catalogo** ("cuanto me cobran") a **catalogo + hecho consumado** ("cuanto me cobraron"). El riesgo es de lectura, no de calculo (R-CR86.5), y se resuelve con rotulos, no con mas numeros.
+
+**Encabezado.** Chip de ventana con el rango activo, al lado del titulo (instruccion 38 seccion 5: chips, no subtitulo corrido).
+
+**Filtros.** La tarjeta actual es un `card` plano siempre abierto. Pasa a **`ov-filtros`** (instruccion 38 seccion 1): plegada si no hay filtros puestos, abierta si hay, con el contador a la vista. Se le agrega el **rango de fechas** (`daterangepicker`, default mes actual) junto a los 4 filtros que ya tiene. Persistencia por PAT-016 en `Filtros:ConfiguracionCostosCobranza:Index`; "Limpiar filtros" borra tambien la sesion.
+
+**Tarjetas por plataforma (D2).** Fila de tarjetas arriba de la grilla, una por plataforma **con costo en el periodo**. Reglas:
+- Se muestran **solo las plataformas con movimiento** en el periodo. Instruccion 38 seccion 3: una sola tarjeta en una grilla de tres columnas se ve rota -> con una sola plataforma con datos, la fila se renderiza como **una linea de totales**, no como grilla de tarjetas.
+- Cada tarjeta: nombre de la plataforma, monto (`ov-monto`), y debajo en chico la cantidad de pagos. Con el universo de hoy y el mes 2026-09: **Mercado Pago $768.568,20 (11 pagos) / Payway $517.869,27 (8) / Banco Directo $14.639,96 (4)**.
+- Si no hay ningun movimiento en el periodo: **estado vacio**, no tres tarjetas en $0. Instruccion 38 seccion 4: una linea de que va a aparecer aca y la accion que lo llena (el enlace a "Recalcular un periodo", que ya existe). Y el aviso de la ventana de tiempo: el default es el mes actual y hoy **solo 2026-09 tiene costo posteado**, asi que en octubre la pantalla arranca vacia -> el estado vacio tiene que decir "no hay costo posteado en este periodo", no parecer roto.
+
+**Grilla.** Una columna nueva, **"Cobrado en el periodo"**, alineada a la derecha, al lado de "% Comision" (el monto pegado al porcentaje que lo genera, no al final de la fila). Pasa de 10 a 11 columnas: se mide `scrollWidth` vs `clientWidth` (instruccion 38 seccion 1) y si no entra, **"Vigente hasta" se va al detalle**, que es la columna menos consultada. No se achica la fuente.
+- Un **$0** va tenue (`ov-vacio` / `ov-estado-tenue`): lo normal se susurra. 19 filas en $0 con un solo monto cargado tienen que dejar ver el monto.
+- La columna **no es ordenable por SQL** sobre la tasa (el monto es un agregado): se ordena en el servidor por el agregado ya calculado, o no se ordena. **Decision: se ordena**, porque "cual me cobro mas" es la pregunta de la pantalla.
+
+**Rotulo del residuo (CA-86.5).** Debajo de las tarjetas, una linea apagada: *"N pagos del periodo no tienen tasa atribuida y no estan representados en esta tabla"*. Con el universo de hoy, un periodo que abarque todo el historial tiene que decir **730**. Es el corolario de MH-033: el numero dice de que universo habla. **Sin esta linea la pantalla afirma que el negocio pago $1,3M de comision en toda su historia.**
+
+**Rotulo de imputacion.** Chip "por fecha de acreditacion", igual que Rentabilidad (CA-86.3 exige que los dos numeros coincidan; si los rotulos no coinciden, el que se equivoco es el rotulo).
+
+---
+
+### Frente B - flujo de acreditacion y del impuesto
+
+**Pantalla "Acreditar cheque".** Hoy es un boton que acredita en un click. Pasa a un dialogo con:
+1. **Fecha en que el banco lo debito** (D-86.1), default hoy, obligatoria, no futura.
+2. Vista previa del **impuesto que se va a generar**: *"Se va a registrar un gasto de $X (0,600% de $Monto) con fecha DD/MM/AAAA"*. El numero antes de confirmar, no despues: es plata que aparece en la caja sin que nadie la cargue.
+3. Confirmacion.
+
+**Reversion (CR-82 + PAT-020).** Al volver un cheque Acreditado -> Pendiente: el gasto del impuesto se **anula** (`Anulado=1`, que es el camino que ya tiene `Gasto` y que ya genera el contramovimiento en el ledger), **no se borra**. Re-acreditar **no** genera un segundo gasto: la idempotencia se resuelve por la FK del punto 12 (un cheque tiene a lo sumo un gasto de impuesto vigente). CA-86.11.
+
+**Fecha de corte (punto 14).** Un parametro de configuracion, no una constante. Los cheques acreditados **antes** de la fecha de corte no generan impuesto: es lo que impide que el automatismo se apile sobre los $5.691.530,00 de cargas manuales. En la pantalla de tasas, una linea que diga desde cuando el impuesto se calcula solo.
+
+**Pantalla de la alicuota.** No se hace una pantalla nueva: la alicuota de la Ley 25.413 para cheques entra como **una fila mas del catalogo de tasas que ya existe** (`ConfiguracionCostosCobranza`), con su vigencia. Reutiliza la semantica ya construida ("una tasa no se borra, se le cierra la vigencia") y el CRUD completo. **Decision de diseno D-86.2.** Alternativa descartada: tabla y pantalla propias -> dos lugares donde buscar una alicuota.
+
+**Totalizado del impuesto (punto 15).** En la misma pantalla de tasas, la fila de la alicuota de cheques muestra su "Cobrado en el periodo" como cualquier otra: **el mismo filtro, la misma columna, sin pantalla nueva.** Con los 16 cheques pendientes, cuando se acrediten, esa celda va a decir $41.522,55.
+
+**Reporte de saneamiento (punto 16).** Pantalla de solo lectura, listado simple, agrupado por subcategoria: **80 gastos / $9.113.426,00**. **No tiene accion de anular**: lista, y el cliente decide gasto por gasto desde la pantalla de Gastos que ya existe. Excluye la subcategoria `cheque` de compras en conjunto (CA-86.16). Encabezado que diga que es un reporte de revision, no un error.
+
+---
+
+### Permisos
+Sin cambios. Todo el alcance es `RequireAdministracion`, igual que las pantallas que toca (`ConfiguracionCostosCobranza`, `Cheques`, `CCLocal`, `Gastos`). El Vendedor no ve ninguna de las dos.
+
+### Maquina de estados del cheque
+Sin estados nuevos. `Pendiente -> Acreditado` (ahora con fecha capturada + gasto de impuesto), `Acreditado -> Pendiente` (CR-82, ahora anulando el gasto), `Pendiente -> Rechazado` (sin cambios: no postea nada, no genera impuesto).
+
+### Riesgos de diseno
+- **RD-86.1** - El dialogo de acreditacion agrega un paso a una accion que hoy es un click. Es el precio de tener la fecha real; sin el, CR-85 no se puede verificar. Mitigacion: default hoy, un solo campo, Enter confirma.
+- **RD-86.2** - 11 columnas en la grilla de tasas es el limite. Si el cliente pide una doceava, hay que mandar algo al detalle.
+- **RD-86.3** - La pantalla va a estar vacia la mayor parte de octubre (solo 2026-09 tiene costo). El estado vacio tiene que explicar la ventana, no parecer un error.
+
+## CR-83 — Costo de cobranza por venta (comisión de plataforma + IVA + impuestos bancarios)
+
+**Cerrado 2026-09-30.** Análisis de referencia: `1-analista-funcional.md`, sección "CR-83", criterios CA-83.1 a CA-83.9.
+
+### Decisión de diseño que gobierna todo lo demás
+El costo de cobranza es una propiedad de la **línea de pago**, no de la venta ni de la línea de producto. Una venta pagada mitad en efectivo y mitad en 12 cuotas por Mercado Pago tiene costo 0 en la primera línea y 23,58% en la segunda. Todo el diseño cuelga de `PagoVenta`, igual que el IVA cuelga de `VentaItem` en PAT-003.
+
+### Historias de usuario
+
+**HU-83.1 — Configurar las tasas (Administrador).**
+Pantalla nueva **Configuración > Costos de cobranza**, hermana de la ya existente Configuración > Cuotas de tarjeta (`ConfiguracionCuotas`, CR-40). Listado DataTables server-side con filtro por columna visible (PAT-008): Plataforma, Medio de pago, Cuotas, % Comisión, % IVA, % IIBB, % Ley 25413, Vigente desde, Vigente hasta. Alta y edición; **sin baja** — una tasa no se borra, se le cierra la vigencia, porque el costo ya calculado de las ventas viejas tiene que seguir siendo explicable.
+Al dar de alta una tasa para una combinación que ya tiene una vigente, el formulario propone cerrar la anterior con `VigenteHasta` = el día anterior a la nueva (sugerido y editable, mismo criterio "sugerido pero editable" que ya usan los impuestos de Orden de Compra). Nunca deja dos tasas vigentes para la misma combinación en la misma fecha.
+
+**HU-83.2 — Elegir la plataforma al cobrar (Vendedor).**
+En el bloque Formas de pago de `Ventas/Create` y `Ventas/Details`, cada línea de pago gana un select **Plataforma** (Select2, con foco en el buscador al abrir). Es un campo condicional del select de medio de pago (REG-002):
+
+| Medio de pago | Plataforma |
+|---|---|
+| Efectivo | oculta, queda `Ninguno` |
+| TarjetaCredito · TarjetaDebito · MercadoPago · BancoCarrefour · Transferencia | visible y **obligatoria**, sin valor preseleccionado |
+
+Elegida la plataforma (y las cuotas, si aplica), la fila muestra el costo estimado en texto chico: *"Comisión 14,38% → $309.256,28 + IVA $64.943,82"*. Es informativo, se recalcula sin destruir el DOM de la fila (REG-008: actualizar sólo el elemento afectado, nunca re-renderizar el `tbody` en cada `input`).
+Si para esa combinación no hay tasa vigente, la fila avisa *"Sin tasa configurada para esta plataforma: el pago se registra con costo 0"* y **deja guardar igual** (CRM-020: una función opcional no puede romper el flujo que la hospeda). Nunca se inventa una tasa por defecto.
+
+**HU-83.3 — Ver el costo y completar los pagos viejos (Administrador).**
+La pantalla **Ingresos** (`PagosTarjeta/Index`, renombrada en CR-73) gana las columnas Plataforma, Comisión, IVA, Imp. bancarios y Costo total, cada una con su filtro. La Plataforma se edita **inline por AJAX** sobre la fila, con el mismo patrón on-demand de la nota de pago de CR-69, y al guardar recalcula y repinta el costo de esa fila sola, con `tabla.ajax.reload(null, false)` para no perder la página.
+Filtro adicional **"Sin plataforma asignada"**, que es la cola de trabajo real: todos los pagos anteriores a este CR nacen sin plataforma y son los que hay que completar para que el retroactivo funcione.
+
+**HU-83.4 — Recalcular un período y postear lo que falta (Administrador).**
+Pantalla **Recalcular costos de cobranza**, con el patrón previsualizar → confirmar de PAT-012 (el mismo de la importación de archivos y del aumento masivo de precios de CR-40/M16):
+1. El Administrador elige un rango de fechas.
+2. La previsualización informa, sin escribir nada: pagos acreditados en el rango, cuántos ya tienen egreso posteado, cuántos lo van a recibir y por qué monto, y **cuántos quedan afuera por no tener plataforma asignada** (con link al listado de Ingresos filtrado por esos).
+3. Confirmar postea sólo los egresos faltantes. Correrla dos veces no duplica nada.
+El resumen de la confirmación dice exactamente lo que pasó: *"Posteados 23 egresos por $1.127.540,12. Quedaron 4 pagos sin plataforma asignada, sin costo calculado."*
+
+**HU-83.5 — Rentabilidad con el costo de cobranza descontado (Administrador).**
+`Rentabilidad/Index` gana **Costo de cobranza** y **Margen neto** (Ventas − Costo de mercadería − Costo de cobranza) al lado del margen bruto que ya muestra. El margen bruto no se toca: son dos números distintos que responden preguntas distintas, y cada uno dice sobre qué se calcula (KOI-017: dos números dibujados juntos para compararse, la ventana de cada uno es un dato, no una convención).
+
+### Validaciones
+- Plataforma obligatoria según el medio: bloqueo en JS (`preventDefault` en el submit) **y** en el Service antes de persistir (REG-004, nunca sólo en la UI).
+- Porcentajes: 0 a 100, hasta 2 decimales, renderizados al servidor en cultura invariante (LP-003).
+- `VigenteDesde` obligatoria; `VigenteHasta` opcional y, si viene, posterior a `VigenteDesde`.
+- El costo se calcula sobre `PagoVenta.Monto`, nunca sobre `MontoBase` (CA-83.3). Con tarjeta de crédito `Monto` ya incluye el recargo al cliente, y es ese el importe que la plataforma liquida y sobre el que cobra.
+
+### Máquina de estados del egreso de costo
+No hay estado nuevo: el egreso sigue al estado de acreditación del pago que ya existe.
+
+| Evento | Qué pasa con el costo |
+|---|---|
+| Pago registrado y `Acreditado` (Efectivo/Transferencia/MP/Débito/Carrefour) | se calcula y se postea el egreso, con la fecha del Ingreso |
+| Pago registrado y `Pendiente` (TarjetaCredito) | se calcula y se **persiste** en el pago, pero **no se postea** egreso |
+| `AcreditarPagoAsync` | se postea el egreso, con `FechaAcreditacionEfectiva` (la misma del Ingreso, MH-021) |
+| Venta cancelada | contramovimiento por lo efectivamente posteado de ese pago (PAT-020) |
+| Pago eliminado | ídem, acotado a ese `PagoVentaId` |
+| Plataforma cambiada desde Ingresos | recalcula el costo; si ya había egreso posteado, lo revierte y postea el nuevo (PAT-023: reversión + alta enlazada, nunca UPDATE del movimiento) |
+
+### Fuera del diseño
+Los impuestos bancarios que no nacen de una cobranza (Ley 25413 sobre los débitos, contracargos, intereses por descubierto, clearing, sellos) siguen siendo Gasto manual: no son atribuibles a una venta (CA-83.9).
+
 
 ## Historial de ajustes
 - 2026-08-31 — CR-62 (Diseño): ver sección completa "CR-62 (Diseño) — Gastos (categoría/forma de pago/recurrentes) + Cuenta Corriente Local (usuario/origen clickeable/saldo filtrado)" más arriba. 6 puntos, 5 historias de usuario nuevas (HU-18.5/18.6/11.5/11.6/11.7). Plantillas de gasto recurrente solo prellenan el formulario (confirmado con el cliente, sin automatizar la creación ni recordar). Pendiente Arquitectura y Presupuesto antes de habilitar implementación.

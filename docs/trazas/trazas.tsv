@@ -1,2 +1,33 @@
 fecha	proyecto	etapa	lote	reintentos	criterios_fallados	reglas_releidas	arranque_kb	nota
 2026-09-25	agentes-ia-sistema	implementacion	-	0	-	29 30 33 39	-	gaps 1-6 del research de ingenieria de agentes; doctor.py sin errores
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-09-30	marihogar	qa	1	0	-	-	-	-
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-09-30	marihogar	qa	1	0	-	-	-	-
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-09-30	marihogar	qa	1	0	-	-	-	-
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-09-30	marihogar	qa	2	0	-	-	-	-
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-09-30	marihogar	qa	3	0	-	-	-	-
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-09-30	marihogar	qa	4	0	-	-	-	-
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-09-30	marihogar	qa	1	0	-	-	-	-
+2026-09-30	marihogar	implementacion	-	0	-	-	-	-
+2026-10-01	eleven-la-plata	implementacion	-	0	-	-	-	-
+2026-10-01	eleven-la-plata	qa	2	2	CA-F5.6	qa/cat_resumen memoria#metodo-qa-datos-reales	-	Lote B F5 contadores: 6 CA ejercitados con datos reales (runner + HTTP, Playwright MCP no disponible). GO condicionado. 2 items nuevos al catalogo: ELV-003 (mensaje truncado en pantalla) y ELV-004 (AjustarContadores sin piso). Reintentos: 2 por build del runner (API de UseMySQL y enum TipoContrato).
+2026-10-01	eleven-la-plata	qa	1	0	-	-	-	-
+2026-10-01	eleven-la-plata	qa	3	0	-	-	-	-
+2026-10-01	eleven-la-plata	implementacion	bis	1	-	regresiones-manuales#MH-015 regresiones-manuales#MH-018 regresiones-manuales#CRM-003	-	ELV-004 (piso en 0 en AjustarContadoresAsync) + causa de fondo de ELV-006 (mapeo de sortColumn con desempate por Id en todas las ramas). Build -t:Compile 0 errores. Los 2 items quedan aplicado/pendiente de re-verificacion por QA. Sin commitear, sin deployar.
+2026-10-01	eleven-la-plata	qa	4	0	-	-	-	-
+2026-10-01	eleven-la-plata	qa	5	0	-	-	-	-
+2026-10-01	olvidata-agentes-multirubro	implementacion	-	0	-	-	-	-
+2026-10-02	marihogar	implementacion	-	0	-	-	-	-
+2026-10-02	marihogar	qa	1	0	-	-	-	-
+2026-10-02	marihogar	qa	3	0	-	-	-	-
+2026-10-02	marihogar	qa	2	1	CA-86.8	32#MH-036 30-qa-regresiones	55	CR-86 frente B (CR-85 absorbido). NO-GO. Las dos afirmaciones del implementador confirmadas al peso (32/8 vs 27/3 por saldo neto; la caja ya esta fechada con la acreditacion en 24 de 24). 2 defectos major nuevos: MH-044 (ActualizarFechaPagoAsync corrige una sola fila de CC Proveedor, elegida sin orden; en vivo hoy sobre el pago 339) y MH-048 (el guard mov.Cantidad>1 de CR-84 se evalua antes de la idempotencia, asi que el backfill infla la lista de excluidos de 5/2.224.700 a 28/10.278.712,98). MH-048 arranco como MH-045 y hubo que renumerarlo por colision con el lote 3, que corria en paralelo.

@@ -12,3 +12,4 @@ Como usar este archivo (limite duro: 200 lineas o 25KB — lo que llegue antes; 
 ## Aprendizajes
 
 - [Metodo de QA con datos reales](project_metodo_qa_datos_reales.md) — runner de solo lectura contra produccion + SQL cruzado: el camino que encuentra los defectos, y las trampas de levantar la app en Windows.
+- [Lotes en paralelo](project_lotes_en_paralelo.md) — colision de ids del catalogo, `keys/` de Data Protection y la app que se cae sola cuando dos lotes corren juntos.

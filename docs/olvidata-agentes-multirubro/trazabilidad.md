@@ -568,6 +568,129 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
   que no existía, y lo único que impidió implementarlos igual fue que «reproducir primero» era el requisito número uno y
   no una verificación al final.
 
+## 2026-10-02 - Discovery (analista funcional) - M28: el chat libre
+
+- **Pedido.** Pantalla nueva de chat libre "como Claude web": consultas sueltas, arrobar agentes para pedirles tareas,
+  crear reglas y automatizaciones por menciones, con buen diseno grafico y motion 3D.
+- **Decision de encuadre (concepto rector).** El chat libre es **la CPU sin un programa cargado**: las cuatro
+  conversaciones actuales arrancan con la RAM ya escrita por el sistema, y esta arranca vacia y **la persona carga la RAM
+  mencionando**. Lo mencionado entra **como datos**: una mencion de configuracion **propone una tarjeta**, nunca crea
+  (RF-05). Motivo: es la unica lectura del pedido que no rompe "una preferencia la aplica una persona".
+- **Reutilizacion (instruccion 39 seccion 3).** Match en `docs/patrones/cat_resumen.txt`: **PAT-029** (conversacion
+  multi-turno reanudable con contexto congelado), origen este mismo proyecto M3b. El motor entero se reutiliza; la
+  tarea sin cliente ya existe (`ClienteCarteraId` es `int?`) y la vista de conversacion ya la comparten las cuatro
+  conversaciones. **El pedido es una puerta nueva a un motor que ya esta entero**, no un modulo nuevo.
+- **Lo que no existe y es el trabajo real (tres cosas).** (a) **Menciones**: cero, ni parser de `@` ni autocomplete;
+  (b) **delegar en vivo a cualquier agente de la organizacion**: `delegar_subagente` solo corre en `TipoTarea.Trabajo`
+  y solo admite **hijos publicados del agente base** (`SubtareasService.cs:68-92`); (c) **motion 3D**: el front es
+  vanilla + jQuery + Bootstrap, **sin npm, sin bundler y sin ninguna libreria de animacion o 3D**.
+- **Tension declarada, no resuelta.** "Motion 3D" contra la instruccion `38` del estudio, cuya regla 0 es *lo que la
+  persona vino a hacer entra en la primera pantalla; todo lo demas se pliega*. Se abre como P4 con tres niveles en vez
+  de decidirlo por cuenta propia: el fondo 3D de ambiente es el que mas choca y el que mas pesa.
+- **Impacto en capas (preliminar).** *Domain:* valor nuevo de `TipoTarea`, y una tabla de menciones solo si se persisten.
+  *Application:* `ResolvedorHerramientas` (que ve el tipo nuevo), resolucion de menciones. *Infrastructure:*
+  `ServicioTareas` (arranque del chat libre), `SubtareasService` si P2 resuelve delegacion en vivo. *Web:* pantalla
+  nueva, autocomplete en el compositor, assets de motion. *Nucleo:* prompt nuevo solo si P1 resuelve (b).
+- **Estado: Discovery cerrado con 4 preguntas abiertas bloqueantes.** P1 quien atiende sin mencion (agente en blanco ya
+  existente / cuarto agente de plataforma con prompt nuevo / ninguno) - P2 mencion de agente en vivo o tarea aparte -
+  P3 confirmar que la mencion de configuracion propone y no crea - P4 alcance del motion (sin 3D / 3D acotado /
+  3D de ambiente). **Analisis no arranca hasta que esten respondidas**: las cuatro cambian criterios de aceptacion,
+  arquitectura y tamanio. Presupuesto omitido (proyecto personal).
+- **Entrada de definiciones afectada:** `definiciones/1-analista-funcional.md` -> `M28` (nueva, no supera ninguna).
+
+## 2026-10-02 - Analisis (analista funcional) - M28: el chat libre
+
+- **Las cuatro preguntas se cerraron con decision de Joaquin.** P1 -> **cuarto agente de plataforma** con prompt propio
+  (se acepta que arrastra evaluacion aprobada y publicacion; sin version publicada la pantalla no se ofrece). Se descarto
+  el agente en blanco de `general` con un motivo: ese es el que **el cliente** escribe entero, y el chat libre tiene que
+  saber de la plataforma para poder derivar. P2 -> **tarea aparte y el hilo espera** (`EsperandoSubtareas`), no delegacion
+  en vivo: el costo queda **visible y contable por tarea** en vez de escondido dentro de un turno. P3 -> **la mencion
+  propone, no crea**. P4 -> **3D acotado a una pieza**, diferida y apagada por `prefers-reduced-motion`.
+- **6 casos de uso, 30 criterios de aceptacion.** Los que importan: la pantalla **no se ofrece** sin version publicada
+  (CA-01.2); el autocomplete ofrece **solo** lo que esa persona ya podia usar y una mencion forzada por texto **no
+  resuelve** (CA-02.2/02.3); el hilo **se despierta igual si la tarea del agente falla** (CA-02.5, que es el defecto de
+  `CierreTurno` que M27 encontro, escrito como criterio antes de implementar); despues de una mencion de configuracion
+  hay **cero filas nuevas** en base (CA-03.1); el 3D **degrada en silencio sin WebGL** (CA-07.5).
+- **Riesgo nuevo que no estaba en Discovery: R-03, la mencion como canal de escalada.** Una mencion es texto que escribe
+  la persona y **el modelo no puede ser el que decida si corresponde**. Se cierra por los dos lados que el sistema ya
+  usa: la mencion solo resuelve contra lo que esa persona ya podia usar, y el rol se chequea **al aplicar**.
+- **Banderas cerradas.** Migracion EF: **si** (valor nuevo de `TipoTarea`). Prompt nuevo del nucleo: **si**, con suite
+  propia mas la suite comun de seguridad. **Formato de contexto nuevo: el 6**, reutilizando el armado de plataforma
+  (`ArmarPlataformaAsync`) - y con criterio explicito de que **no cambia el hash de ninguna tarea vieja** (CA-T.3).
+- **Estado: Analisis cerrado.** Presupuesto **omitido** (producto propio, proyecto personal). Siguiente: Diseno.
+- **Entrada de definiciones afectada:** `definiciones/1-analista-funcional.md` -> `M28` (ampliada con el Analisis).
+
+## 2026-10-02 - Diseno (disenador funcional) - M28: el chat libre
+
+- **Idea rectora: la pantalla de arranque es la pieza de diseno; la conversacion ya esta disenada.** El pedido traia dos
+  cosas que parecian una (*un chat como Claude web* + *motion 3D*) y separarlas es lo que resolvio la tension con la
+  instruccion `38`, cuya regla 0 es *lo que la persona vino a hacer entra en la primera pantalla*.
+- **D-01, la decision que ordena todo: el 3D vive en el estado vacio y se retira con el primer mensaje.** Un chat recien
+  abierto **no tiene contenido que el adorno pueda tapar** — es el unico momento del producto donde una pieza 3D no
+  compite con nada. Al primer mensaje **se desmonta** (no `display:none`: se destruye el contexto WebGL). Asi se cumple
+  el pedido y la regla 0 **sin negociar ninguna de las dos**, y el costo de rendimiento se paga una sola vez.
+- **D-02: dos momentos, una sola maqueta.** `ChatLibre/Index` es propia; la conversacion es la **compartida**
+  (`Tareas/Detalle`), como ya hacen las otras tres de plataforma. Duplicarla costaba 270 lineas de `_Conversacion` mas
+  405 de scripts de `Detalle`, y cada arreglo futuro dos veces. **Lo que hace propio al chat libre es su arranque y sus
+  menciones, no una copia del hilo** (`38` seccion 6, sistemico antes que por pantalla).
+- **D-04: la mencion en el texto es texto.** `@slug` en plano, **el servidor la vuelve a resolver**; sin token opaco ni
+  id embebido. Lo que inserta el cliente es comodidad de tipeo, **nunca una autorizacion**. Una mencion que no resuelve
+  queda literal y no confirma si eso existe. Es R-03 resuelto en la maqueta.
+- **D-05: una sola mencion de agente por mensaje**; con dos se pide elegir. Es el freno de costo de P2 puesto en la
+  pantalla, y ademas es honesto: un mensaje con dos agentes no dice cual hace que. Las de **configuracion** si pueden
+  ser varias: no cuestan una tarea, cuestan una tarjeta.
+- **D-06: el autocomplete viene en dos grupos y el de abajo es el que enseña.** Arriba Agentes, abajo Configurar con las
+  cuatro cosas que se cargan. La persona escribe `@` por un agente y **se entera de que tambien puede configurar**: es lo
+  que convierte *crear reglas por menciones* en algo que se descubre sin manual.
+- **RD-01, el riesgo que cambio un diseno:** si las pastillas del arranque son preguntas, la gente aprende a usar el chat
+  como buscador y nunca descubre las menciones, que son el 80 % del valor. Por eso D-08: las pastillas **escriben
+  menciones**, no preguntas.
+- **Estado: Diseno cerrado.** 4 pantallas (una sola nueva), 10 estados, 8 historias. Siguiente: Arquitectura.
+- **Entrada afectada:** `definiciones/2-disenador-funcional.md` -> `Diseno M28` (nueva).
+
+## 2026-10-02 - Arquitectura (arquitecto MVC) - M28: el chat libre
+
+- **A-00: la bandera del Analisis era incorrecta y se corrige. M28 NO lleva migracion.** `TareaAgente.Tipo` no tiene
+  ninguna linea en `TareaAgenteConfiguration` (`AgentesConfigurations.cs:181-215`): cae en la convencion de EF y el
+  snapshot lo confirma como `int`. El repo ya tenia el precedente escrito (`EnumsAgentes.cs:128-131`, `NotaDelMotor`)
+  **junto con la advertencia que si importa**: lo que un valor nuevo rompe no es la base, son **los switches con
+  `default`**, que lo aceptan en silencio y lo mapean mal. Si al implementar aparece una migracion, es señal de que se
+  agrego una entidad que el diseño no pedia.
+- **A-01: la palanca es `EsDePlataforma`** (`NotaSubtarea.cs:35-36`). Una linea hace que cinco familias de herramientas
+  acepten el tipo nuevo sin tocarlas una por una. Por eso es **lo primero que se prueba, no lo ultimo**.
+- **A-02: `ArmarPlataformaAsync` no se toca** — ya es generica (recibe formato, tipo y declaracion por parametro). El
+  cuarto agente es el molde del analista repetido: ~10 switches, un wrapper, un permiso, un controller, un item de menu.
+  Y hereda las **instrucciones compartidas de plataforma sin una cuarta copia**, que es lo que hace viable derivar.
+- **A-03b: deuda que se paga aca y no despues.** Los dos `IQueryable` de "los agentes que esta persona puede usar" estan
+  **duplicados en tres lugares** y M28 seria la cuarta copia. Se extraen a `IAgentesDisponiblesQuery`. No es cosmetico:
+  es la unica forma de que el autocomplete de la pantalla y la autorizacion de la herramienta **no puedan divergir** — y
+  si divergen, el autocomplete ofrece algo que la herramienta despues rechaza, el peor resultado para la persona (R-A2).
+- **A-04: no se relaja el gate de subagentes, se le da un segundo modo con nombre.** `SubagentesPermitidosAsync` queda con
+  **modo jerarquia** (lo de hoy, sin un solo cambio de comportamiento) y **modo abierto** (chat libre, exactamente lo que
+  devuelve la query compartida). Dos ramas y dos tests en vez de un `if` adentro de un predicado, porque **los dos modos
+  tienen reglas de seguridad distintas y mezclarlos es como se cuela una fuga**. El gate sigue siendo lista blanca de
+  `TipoTarea`, nunca un `!=` negado.
+- **CA-02.5 se verifica, no se implementa.** `AvisarFinAsync:211-213` ya cuenta como pendiente solo lo que no esta en
+  `Completada | Fallida | Cancelada`: el padre se despierta **tambien cuando la parte falla o se cancela**. R-04 cerrado
+  sin codigo nuevo.
+- **A-05: M28 establece la primera carga diferida del proyecto** (hoy no hay ni un `defer` ni un `import()` dinamico).
+  `three` por CDN con **version fija** e `import()` dinamico, detras de **tres compuertas** (`prefers-reduced-motion`,
+  WebGL disponible, pantalla montada): si alguna falla **la libreria no se descarga**. Fallo del CDN = `try/catch`
+  silencioso y version plana. La pieza **no recibe ni muestra datos**, asi que ningun dato de la organizacion llega a un
+  script de CDN.
+- **Bug preexistente que M28 destapa (R-A6):** el switch de `ArmarEvaluacionAsync` (`ConstructorContexto.cs:505-506`)
+  **hoy solo cubre los formatos 3 y 4 — al 5 ya le falta**. Se agrega el 5 junto con el 6: construir el 6 sobre un
+  agujero conocido seria peor que el agujero.
+- **Impacto en capas.** *Domain:* un valor de enum, sin migracion. *Application:* constante de formato, `IChatLibre`,
+  `IAgentesDisponiblesQuery`, `OpcionMenu`, flag de DTO, mensajes. *Infrastructure:* wrapper de contexto, arranque de
+  tarea, ~10 switches, dos modos de subagentes, permiso, tres llamadores migrados a la query. *Web:* controller, vista de
+  arranque, item de menu, `<option>` de filtro, `site.js` (autocomplete), `chat-libre-3d.js`, CSS. *Nucleo:* prompt,
+  manifiesto, suite de evaluacion.
+- **Estado: Arquitectura cerrada**, con orden de implementacion de 8 pasos donde el 3D va **ultimo y aislado**: es la
+  unica parte que se puede sacar sin que M28 deje de funcionar. **Presupuesto omitido** (producto propio). Siguiente:
+  Implementacion.
+- **Entrada afectada:** `definiciones/3-arquitecto-mvc.md` -> `Arquitectura M28` (nueva).
+
 ## Historial de ajustes
 
 ### Bloques archivados (2026-09-25)

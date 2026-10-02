@@ -1,7 +1,7 @@
 # Memoria - Arquitecto MVC
 
 ## Proyecto: marihogar
-## Ultima actualizacion: 2026-08-16
+## Ultima actualizacion: 2026-10-02 (CR-86 Arquitectura CERRADA, con 4 correcciones al Analisis/Diseno: el frente A se deriva del LEDGER y no de `PagoVenta` (hoy coinciden por casualidad del estado de la base, divergen con la primera venta cancelada); H-CR86.12 se disuelve; la alicuota va en tabla propia y no como fila de `TasaCostoCobranza`; y la fecha de corte desaparece como parametro porque es la `VigenteDesde` de la alicuota. Defecto latente encontrado: `GastoService.CrearAsync` no pasa `fecha` al ledger -- 3 de 534 hoy, bloqueante para CA-86.7)
 
 ## Definiciones vigentes
 
@@ -638,6 +638,270 @@ El bloque `PagosVentaPorAcreditar` (ya agregado por CR-29, hoy filtra solo `Fech
 | El script de corrección retroactiva reemplaza mal un texto en un ledger financiero ya cerrado (ej. un GUID que en realidad no correspondía a un usuario, o un falso positivo del regex) | Medio | Dry-run obligatorio primero (listar cambios propuestos sin escribir), verificación manual de una muestra antes de `--apply`. El texto reemplazado es solo el fragmento "por {GUID}"/", {GUID}" — el resto de `Descripcion` (monto, tipo, Venta #N) no se toca, así que un error de reemplazo en el peor caso deja un nombre incorrecto en el texto, nunca corrompe Monto/Fecha/Tipo/OrigenId (esos campos estructurados no los toca el script). |
 | Confundir `ObtenerSaldoActualAsync()` (saldo real completo) con `ObtenerSaldoFiltradoAsync()` (total del filtro) en algún consumo futuro | Bajo | Nombres de método explícitamente distintos, doc-comment en la interfaz aclarando el propósito de cada uno — ver también la nota de Diseño sobre por qué la columna "Saldo" por fila (CR-14) no cambia. |
 | `Gastos/Details` nueva sin acción `Anular` embebida (se sigue disparando desde `Index`) podría generar la expectativa de que se puede anular desde ahí | Bajo | Fuera de alcance de este pedido — `Details` es de solo lectura. Si el cliente lo pide después, es una ampliación menor sobre una pantalla ya creada, no un cambio de arquitectura. |
+
+## CR-86 - Comision cobrada por periodo + impuesto al cheque: mapa por capa
+
+**Estado:** Arquitectura CERRADA 2026-10-02. Presupuesto **salteado por pedido del cliente** -> pasa directo a Implementacion.
+
+### Tres correcciones al Analisis y al Diseno, con el dato que las fuerza
+
+**AC-86.1 - El frente A se deriva del LEDGER, no de `PagoVenta`.** El Analisis dijo `SUM(PagoVenta.CostoTotalCobranza)`. Es incorrecto como arquitectura, aunque hoy de el mismo numero. Ya existe `ICostoCobranzaService.ObtenerCostoPeriodoAsync(desde, hasta)`, documentado como **"un unico origen del numero"**, que consume `IRentabilidadService` para el margen neto (CA-83.6) y que calcula *Σ Egreso no-reversion − Σ Ingreso reversion* sobre `MovimientosCCLocal` **excluyendo ventas canceladas** (MH-029). Medicion de hoy:
+
+| Origen | Filas | Neto |
+|---|---|---|
+| `SUM(PagoVenta.CostoTotalCobranza)` | 23 | $1.301.077,43 |
+| Ledger, sin excluir canceladas | 23 | $1.301.077,43 |
+| Ledger, excluyendo canceladas (lo que usa Rentabilidad) | 23 | $1.301.077,43 |
+| Pagos con costo calculado pero sin postear | **0** | -- |
+
+**Los tres coinciden hoy por casualidad del estado de la base**, no por construccion: divergen en cuanto se cancele una venta con costo posteado (hay 4 ventas canceladas) o un pago quede pendiente de acreditacion. Si el frente A suma `PagoVenta`, **CA-86.3 falla el dia que eso pase** y tendriamos dos verdades para el mismo periodo, que es exactamente lo que CR-80 fijo como criterio a evitar y lo que QA ya corrigio en la card del Dashboard. **Se deriva del ledger, por el mismo metodo, con los mismos parametros: identicos por construccion.**
+
+**AC-86.2 - H-CR86.12 se disuelve.** El Analisis pedia `COALESCE(FechaAcreditacionEfectiva, Fecha)` para no perder 11 pagos por $85.742,36. Derivando del ledger el problema no existe: el movimiento de `CostoCobranza` **ya se postea con la fecha del Ingreso hermano** (CA-83.4), que es la de acreditacion. La fecha de imputacion es `MovimientosCCLocal.Fecha`. **No hay COALESCE ni caso especial.** CA-86.4 se verifica igual, pero por el ledger.
+
+**AC-86.3 - La alicuota NO entra como fila de `TasaCostoCobranza` (corrige D-86.2 en el como, no en el que).** La clave de esa tabla es `(Procesador, Metodo, Cuotas)` y su semantica es **cobranza**: dinero que entra por una plataforma de pago. El impuesto de un cheque **emitido a un proveedor** no tiene procesador ni cuotas, y meterlo ahi obliga a valores centinela que despues hay que excluir en cada consulta (incluido el frente A, que agrupa por tasa). **Tabla nueva propia, `AlicuotasImpuestoCheque`**, con la misma semantica de vigencia. Lo que se mantiene de D-86.2 es la **promesa de UI**: se administra desde la misma pantalla `ConfiguracionCostosCobranza`, en una seccion aparte. Un solo lugar donde buscar una alicuota, dos tablas detras.
+
+**AC-86.4 - La fecha de corte desaparece como parametro.** El punto 14 del Analisis pedia una fecha de corte configurable para no apilarse sobre los $5.691.530,00 de cargas manuales. **Es la `VigenteDesde` de la primera alicuota.** Un cheque acreditado antes no encuentra alicuota vigente -> no genera impuesto, por el mismo camino que ya usa `CostoCobranzaService.CalcularAsync` cuando no hay tasa (`SinTasaConfigurada`, CRM-020: nunca lanza). **Un concepto menos, cero codigo nuevo, y el porque queda explicado en la propia fila.**
+
+---
+
+### Capa de dominio (`MariHogar.Domain`)
+
+**Entidad nueva** `AlicuotaImpuestoCheque`: `Id`, `Porcentaje` (decimal(9,6) -- 0,600000), `VigenteDesde`, `VigenteHasta?`, auditoria estandar. Sembrada con **0,600000 desde la fecha del deploy** (= fecha de corte, AC-86.4).
+
+**`Gasto`**: campo nuevo `ChequeId?` (FK nullable a `Cheques`). Es la trazabilidad que hace al impuesto anulable e idempotente (punto 12 del alcance). Indice no unico sobre `ChequeId` (MySQL no tiene indices unicos filtrados; la unicidad "un gasto de impuesto vigente por cheque" se verifica en el servicio, mismo criterio que `ChequeService.RevertirEstadoAsync`).
+
+**`CategoriaGasto`**: valor nuevo **`ImpuestosBancarios = 8`**, agregado puro al final -- el enum ya documenta que esto no necesita el remapeo que si requirio CR-5. **No se reutiliza `ComisionesBancarias = 7`**: mezclar el impuesto automatico con las cargas manuales de comisiones es precisamente la confusion que R-CR86.1 tiene que evitar. Con categoria propia, los gastos automaticos son filtrables y auditables de un filtro.
+
+**`Cheque`**: sin campos nuevos. `FechaAcreditacion` ya existe; lo que cambia es **quien la escribe** (el usuario, no `DateTime.UtcNow`).
+
+### Migracion
+Una sola: `AddImpuestoChequeCR86` -- tabla `AlicuotasImpuestoCheque`, columna `Gastos.ChequeId` + FK + indice, y el seed de la alicuota 0,600000. **Reversible.** El frente A no migra nada.
+
+---
+
+### Capa de aplicacion (`MariHogar.Application`)
+
+`ICostoCobranzaService` -- **dos metodos nuevos**, ambos derivados del mismo WHERE que `ObtenerCostoPeriodoAsync` (se extrae a un `IQueryable` privado compartido; si se duplica el WHERE, los numeros se van a separar solos en el primer cambio):
+```
+Task<IReadOnlyList<CostoCobranzaPorTasaDto>> ObtenerCostoPeriodoPorTasaAsync(DateTime desde, DateTime hasta);
+Task<IReadOnlyList<CostoCobranzaPorProcesadorDto>> ObtenerCostoPeriodoPorProcesadorAsync(DateTime desde, DateTime hasta);
+```
+El agrupamiento por tasa sale del join `MovimientosCCLocal.PagoVentaId -> PagosVenta.TasaCostoCobranzaId`. El DTO por tasa lleva `TasaCostoCobranzaId`, `Monto`, `CantidadPagos`. El de procesador, `Procesador`, `Monto`, `CantidadPagos`.
+
+**Invariante de diseno, verificable:** `Σ ObtenerCostoPeriodoPorTasaAsync == Σ ObtenerCostoPeriodoPorProcesadorAsync == ObtenerCostoPeriodoAsync`, para cualquier rango. Es CA-86.3 convertido en propiedad del codigo. **Mas el residuo:** los movimientos cuyo `PagoVentaId` no resuelve a una tasa van a un grupo "sin tasa atribuida" que alimenta el rotulo de CA-86.5; si se los descarta en silencio, la invariante se rompe y la pantalla miente.
+
+**`IImpuestoChequeService` (nuevo)** -- unico punto que calcula, postea y revierte el impuesto (CRM-001, mismo encuadre que `ICostoCobranzaService`):
+```
+Task<AlicuotaVigenteDto?> ObtenerAlicuotaVigenteAsync(DateTime fecha);
+Task<ImpuestoChequePreviewDto> PrevisualizarAsync(int chequeId, DateTime fechaAcreditacion);
+Task PostearAsync(Cheque cheque, decimal montoCheque, DateTime fecha, string? usuarioId);
+Task AnularAsync(int chequeId, string motivo, string? usuarioId);
+Task<decimal> ObtenerImpuestoPeriodoAsync(DateTime desde, DateTime hasta);
+```
+`PostearAsync` **no hace SaveChanges**: el caller controla la transaccion unica, igual que `ICCLocalService` y `ICostoCobranzaService`. Si no hay alicuota vigente a esa fecha, no postea nada y no lanza.
+
+`IGastoService` -- `CrearAsync` gana un parametro opcional para el `ChequeId` y el origen automatico.
+
+`IPagoOrdenCompraService` -- `ActualizarFechaPagoTransferenciaAsync` se **generaliza** a `ActualizarFechaPagoAsync` (punto 8). El nombre actual es la descripcion del bug: cubria un solo metodo y dejo al pago 441 de Mercado Pago sin camino de correccion.
+
+---
+
+### Capa de infraestructura (`MariHogar.Infrastructure`)
+
+**`GastoService.CrearAsync` -- defecto latente a corregir en el camino.** Hoy postea el egreso con `_ccLocalService.RegistrarMovimientoAsync(..., descripcion)` **sin pasar `fecha`**, aunque el parametro existe (`DateTime? fecha = null`). O sea: el `Gasto` lleva la fecha que cargo el usuario y su movimiento de ledger lleva **hoy**. Medido en produccion: **3 de 534 gastos difieren de dia, 0 de mes, impacto $0** -- hoy es inocuo porque el cliente carga el gasto el mismo dia.
+**Para CR-86 deja de ser inocuo:** el impuesto de un cheque acreditado con fecha del extracto (dias atras) quedaria con el gasto en una fecha y el egreso en otra, y **CA-86.7 falla**. Se corrige pasando `input.Fecha`. Es una linea, cierra la clase de defecto MH-038 en Gastos, y hay que decirlo en el resumen de entrega porque **mueve de dia 3 movimientos historicos** si se corre algun recalculo.
+
+**`ChequeService.AcreditarAsync(int chequeId, DateTime fechaDebito, string? usuarioId)`** -- firma nueva:
+1. `cheque.FechaAcreditacion = fechaDebito` (D-86.1), validada no futura y no anterior a `FechaEmision`.
+2. Movimiento de CC Proveedor con **`fechaDebito`**, no `cheque.FechaVencimiento` (CR-85).
+3. `_egresoPagoProveedorService.PostearEgresoAsync(pago, pago.Monto, fechaDebito, ...)` -- misma fecha (CA-86.7: los dos ledgers con la misma fecha).
+4. `_impuestoChequeService.PostearAsync(cheque, pago.Monto, fechaDebito, usuarioId)`.
+Todo en **la transaccion que ya existe**. Los 4 pasos caen juntos o ninguno.
+
+**`ChequeService.RevertirEstadoAsync`** (CR-82) -- agrega `_impuestoChequeService.AnularAsync(...)`. Por PAT-020, el gasto se **anula** (`Anulado=1` + contramovimiento de `GastoService.AnularAsync`), **nunca se borra**, y el movimiento original queda. Re-acreditar busca un gasto vigente por `ChequeId` antes de postear: si existe, no duplica (CA-86.11).
+
+**`PagoOrdenCompraService.ActualizarFechaPagoAsync`** -- mismo cuerpo, sin el guard de `Metodo == Transferencia`. Cascadea a los dos ledgers, que es lo que CR-84 ya construyo. Para un pago con cheque, mover la fecha tiene que mover tambien la fecha del gasto de impuesto y de su movimiento: **es el caso que PAT-023 llama "correccion de dato historico"**, no un hecho de hoy, asi que la reversion va al periodo original (MH-028).
+
+**Backfill de los 29 cheques (punto 9)** -- comando de administracion con **PAT-012 (preview -> confirmar)**, reutilizando la pantalla `Recalcular` que ya implementa ese patron. Reasienta por reversion + alta (PAT-020/PAT-023), **nunca `UPDATE` sobre una fila del ledger**. Afecta 27 filas de dia y 3 de mes por $1.452.133,30. **No genera impuesto** para esos cheques: su `FechaAcreditacion` es anterior a la `VigenteDesde` de la alicuota (AC-86.4), asi que los $63.472,28 historicos quedan afuera por construccion, sin un `if` de fecha de corte. CA-86.13 se cumple solo.
+
+**Honestidad del backfill, para el resumen de entrega:** para los 29 historicos la unica fecha disponible es la `FechaAcreditacion` ya guardada, que es **el dia del click**. Cruzada contra el extracto acierta **8 de 13** (contra 1 de 13 del vencimiento). Es una mejora de 8x, **no es exacta**, y el entregable lo dice en vez de prometer precision.
+
+---
+
+### Capa web (`MariHogar.Web`)
+
+- `ConfiguracionCostosCobranzaController.GetData` -- suma el rango al filtro, lo persiste en sesion (`Filtros:ConfiguracionCostosCobranza:Index`, PAT-016) y adjunta el monto por tasa. `Index` arma las tarjetas por procesador y el rotulo del residuo. **La columna nueva no se calcula en la vista ni en el controller**: viene del servicio.
+- `ChequesController` -- la accion de acreditar pasa de `POST` directo a dialogo con fecha; endpoint de previsualizacion del impuesto (`PrevisualizarAsync`) para mostrar el monto antes de confirmar.
+- `ConfiguracionCostosCobranzaController` -- CRUD de la alicuota en la misma pantalla (AC-86.3).
+- Reporte de saneamiento -- accion de solo lectura, **sin ninguna accion de escritura** (CA-86.15).
+- Permisos sin cambios: `RequireAdministracion` en todo.
+
+### Riesgos de arquitectura
+- **RA-86.1** - El WHERE del costo de cobranza queda en **tres** metodos (total, por tasa, por procesador). Si se duplica en vez de compartir el `IQueryable`, se separan en el primer cambio y vuelve el problema de las dos verdades. **Es la decision tecnica mas importante del frente A.**
+- **RA-86.2** - El backfill reescribe fechas por reversion + alta: duplica la cantidad de filas del ledger para 29 cheques. Es el costo de la inmutabilidad y es correcto, pero el saldo acumulado se recalcula sobre mas filas.
+- **RA-86.3** - `AcreditarAsync` cambia de firma y es llamada desde la UI y (posiblemente) desde el flujo de notificaciones. Hay que barrer todos los call sites.
+- **RA-86.4** - Cambiar la firma de `ActualizarFechaPagoTransferenciaAsync` toca el camino en vivo de correccion de fechas, que es el que QA uso para cerrar MH-037. Regresion obligatoria ahi.
+
+## CR-83 — Costo de cobranza por venta: mapa por capa
+
+**Cerrado 2026-09-30.** Diseño de referencia: `2-disenador-funcional.md`, sección "CR-83". Criterios: `1-analista-funcional.md`, CA-83.1 a CA-83.9.
+
+### Reutilización (escaneo de la instrucción 39)
+`docs/patrones/cat_resumen.txt` no tiene ningún patrón de costo de cobranza / comisión de plataforma: es construcción nueva. Se reutilizan tres patrones existentes y un precedente interno:
+- **PAT-020** (marihogar, CR-64/65/67): reversión acotada a lo efectivamente posteado. Aplica tal cual al egreso nuevo.
+- **PAT-023** (delicias-naturales): editar un pago ya posteado = reversión + alta, nunca UPDATE del movimiento. Aplica al cambio de plataforma desde Ingresos.
+- **PAT-012**: previsualizar → confirmar. Aplica al recálculo retroactivo.
+- **Precedente interno `ConfiguracionCuotaTarjeta` (CR-40)**: configuración de porcentajes en base de datos, editable en pantalla, para no redeployar cuando la procesadora cambia los valores. `TasaCostoCobranza` es su generalización con vigencia por fecha.
+
+### Domain
+**`Enums/ProcesadorPago.cs`** (nuevo). Agregado puro, sin remapeo de datos:
+```
+Ninguno = 1, MercadoPago = 2, Payway = 3, BancoCarrefour = 4
+```
+`Ninguno` es el default para que los ~700 `PagoVenta` históricos y todo pago en efectivo queden con costo 0 y comportamiento idéntico al actual.
+
+**`Entities/TasaCostoCobranza.cs`** (nuevo). **No** hereda `SoftDestroyable`: es configuración con vigencia, se cierra con `VigenteHasta`, nunca se borra (una tasa borrada dejaría un costo ya calculado sin explicación).
+```
+int Id
+ProcesadorPago Procesador
+MetodoPago Metodo
+int? Cuotas                      // null = no aplica (débito, transferencia, MP)
+decimal PorcentajeComision
+decimal PorcentajeIva            // 21 por defecto
+decimal PorcentajeRetencionIIBB  // ARBA, solo si la acreditación entra al banco
+decimal PorcentajeLey25413       // impuesto al crédito, ídem
+DateTime VigenteDesde
+DateTime? VigenteHasta           // null = vigente
+```
+
+**`Entities/PagoVenta.cs`** (+6 columnas). Todas con default 0 / `Ninguno`, así que los pagos históricos no cambian de comportamiento (mismo criterio que CR-32/34 al agregar `MontoBase`/`EstadoAcreditacion`):
+```
+ProcesadorPago Procesador = ProcesadorPago.Ninguno
+decimal CostoComision
+decimal CostoIva
+decimal CostoImpuestosBancarios
+decimal CostoTotalCobranza
+int? TasaCostoCobranzaId         // qué tasa se aplicó, para auditar el cálculo
+```
+
+### Application
+**`Interfaces/ICostoCobranzaService.cs`** (nuevo) — único punto que calcula y postea. Los tres puntos de alta de pago delegan acá (CRM-001: un campo nuevo con varios puntos de alta se escribe desde un solo método de dominio):
+```
+Task<CostoCobranzaDto> CalcularAsync(MetodoPago metodo, ProcesadorPago procesador, int? cuotas, decimal monto, DateTime fecha)
+Task AplicarCostoAsync(PagoVenta pago, DateTime fecha)        // calcula y persiste en el pago, SIN postear
+Task PostearEgresoAsync(PagoVenta pago, DateTime fecha, string? usuarioId)
+Task RevertirEgresoAsync(int pagoVentaId, string motivo)
+Task<RecalculoCostoCobranzaPreviewDto> PrevisualizarRecalculoAsync(DateTime desde, DateTime hasta)
+Task<ServiceResult> AplicarRecalculoAsync(DateTime desde, DateTime hasta, string usuarioId)
+```
+**`Interfaces/ITasaCostoCobranzaService.cs`** (nuevo) — CRUD de configuración, listado DataTables, cierre de vigencia al dar de alta una tasa que solapa.
+**DTOs nuevos** en `CostoCobranzaDtos.cs`: `CostoCobranzaDto` (desglose + `TasaAplicadaId` + `SinTasaConfigurada`), `TasaCostoCobranzaListItemDto`, `TasaCostoCobranzaInput`, `RecalculoCostoCobranzaPreviewDto`.
+
+### Infrastructure
+**`Services/CostoCobranzaService.cs`** (nuevo). Reglas del cálculo:
+- Resolución de tasa: `Procesador + Metodo + Cuotas` con `VigenteDesde <= fecha && (VigenteHasta == null || VigenteHasta >= fecha)`. Si no hay fila, devuelve costo 0 con `SinTasaConfigurada = true` — nunca lanza (CRM-020).
+- Fórmula (**corregida 2026-09-30 contra el extracto real**, ver nota de abajo):
+```
+Comision           = Monto × %Comision / 100
+Iva                = Comision × %Iva / 100
+NetoAcreditado     = Monto − Comision                              // base de los impuestos bancarios
+ImpuestosBancarios = NetoAcreditado × (%IIBB + %Ley25413) / 100
+Total              = Comision + Iva + ImpuestosBancarios
+```
+  Redondeo a 2 decimales en cada componente, y `Total` como suma de los redondeados (para que el desglose sume exactamente el total que se postea).
+- **La base de los impuestos bancarios es el neto acreditado, no el bruto del pago.** En el extracto, la retención ARBA y el impuesto Ley 25413 se cobran en líneas separadas *después* de cada liquidación, calculadas sobre lo que efectivamente se acreditó. Verificado sobre la liquidación del 29/09/2026 de $292.428,59: ARBA $5.263,70 = 1,80% de 292.428,59 · impuesto al crédito $1.754,57 = 0,60% de 292.428,59. Sobre el bruto del pago ($366.000) no dan. Es el tipo de detalle que en seis meses nadie puede reconstruir: va documentado en el XML doc del método con ese ejemplo.
+- **Los impuestos bancarios sólo se configuran donde la acreditación entra a la cuenta bancaria.** Payway acredita directo al Banco Provincia y sufre ARBA 1,8% + Ley 25413 0,6% (verificado línea por línea contra el extracto de septiembre). Mercado Pago acredita a la cuenta de MP: el impuesto recién se devenga cuando el cliente transfiere ese saldo al banco, así que sus filas de seed llevan 0 y ese costo queda del lado de los gastos bancarios manuales. Es una decisión de negocio, no un olvido: está en los porcentajes de la tabla, editable en pantalla.
+- Posteo: `ICCLocalService.RegistrarMovimientoAsync(TipoMovimientoCC.Egreso, pago.CostoTotalCobranza, "CostoCobranza", pago.VentaId, false, "Costo de cobranza - Venta #N (Plataforma, Medio)", fecha, pagoVentaId: pago.Id, usuarioId)`. Sin `SaveChanges` propio: el caller controla la transacción única, igual que hacen hoy `ICCLocalService`/`ICCProveedorService`.
+- Reversión y recálculo: monto a revertir = `Σ Egreso no-reversión − Σ Ingreso reversión` de los movimientos con `OrigenTipo="CostoCobranza"` y ese `PagoVentaId` (MH-020 punto 3, mismo criterio que ya usa `ChequeService.RevertirEstadoAsync`). El recálculo es idempotente por construcción: postea sólo si ese neto es 0 y el costo calculado es > 0.
+
+**`Services/TasaCostoCobranzaService.cs`** (nuevo).
+
+**`Data/AppDbContext.cs`**: `DbSet<TasaCostoCobranza>`, configuración (decimales `18,2`, índice compuesto `Procesador+Metodo+Cuotas+VigenteDesde`), y **seed** de las tasas de la memoria del proyecto `project-costos-mercadopago` con `VigenteDesde = 2026-09-01` (para que el retroactivo de septiembre encuentre tasa):
+
+| Plataforma | Medio | Cuotas | % Com. | % IVA | % IIBB | % L.25413 |
+|---|---|---|---|---|---|---|
+| Payway | TarjetaCredito | 1 | **3,92** | 0 | 1,80 | 0,60 |
+| Payway | TarjetaCredito | 3 | **4,00** | 0 | 1,80 | 0,60 |
+| Payway | TarjetaCredito | 6 | **20,2714** | 0 | 1,80 | 0,60 |
+| Payway | TarjetaCredito | 9 | 0,00 | 0 | 1,80 | 0,60 |
+| Payway | TarjetaCredito | 12 | 0,00 | 0 | 1,80 | 0,60 |
+| Payway | TarjetaDebito | null | 1,30 | 0 | 1,80 | 0,60 |
+| Payway | Transferencia | null | 0,80 | 0 | 1,80 | 0,60 |
+| MercadoPago | TarjetaCredito | 1 | 4,08 | 0 | 0 | 0 |
+| MercadoPago | TarjetaCredito | 2 | 8,48 | 0 | 0 | 0 |
+| MercadoPago | TarjetaCredito | 3 | 10,28 | 0 | 0 | 0 |
+| MercadoPago | TarjetaCredito | 6 | 14,38 | 0 | 0 | 0 |
+| MercadoPago | TarjetaCredito | 9 | 19,38 | 0 | 0 | 0 |
+| MercadoPago | TarjetaCredito | 12 | 23,58 | 0 | 0 | 0 |
+| MercadoPago | TarjetaCredito | 18 | 30,18 | 0 | 0 | 0 |
+| MercadoPago | TarjetaDebito | null | 2,88 | 0 | 0 | 0 |
+| MercadoPago | MercadoPago | null | 4,08 | 0 | 0 | 0 |
+| BancoCarrefour | BancoCarrefour | null | 0,00 | 0 | 0 | 0 |
+
+**De dónde sale cada número, y por qué varios están en 0:**
+
+Las tres tasas de Payway en negrita **no son las publicadas: están despejadas del extracto de septiembre 2026**, cruzando cada liquidación "PAGOS A COMERCIOS VISA/MASTERCARD" contra el pago de tarjeta acreditado el mismo día. Salen exactas a seis decimales:
+
+| Plan | Bruto del pago | Neto acreditado | Coeficiente | Quita |
+|---|---|---|---|---|
+| 1 pago | 33.000,00 | 31.706,40 | 0,960800 | 3,9200% |
+| 3 cuotas | 614.000,00 | 589.440,00 | 0,960000 | 4,0000% |
+| 6 cuotas | 670.600,00 | 534.659,95 | 0,797286 | 20,2714% |
+| 6 cuotas | 536.000,00 | 427.345,26 | 0,797286 | 20,2714% |
+| 6 cuotas | 410.000,00 (dos pagos juntos) | 326.887,27 | 0,797286 | 20,2714% |
+| 6 cuotas | 168.000,00 | 133.944,03 | 0,797286 | 20,2714% |
+| 6 cuotas | 366.000,00 | 292.428,59 | 0,798985 | 20,1015% |
+
+Cuatro liquidaciones independientes dan el coeficiente 0,797286 clavado, así que 20,2714% no es una estimación. Esto **resuelve** lo que la memoria del proyecto daba por no averiguable ("las cuotas se liquidan en 1 pago a 48 h hábiles descontando un costo financiero cuyo coeficiente sólo se publica dentro de Mi Payway"): el coeficiente es ese, y queda medido. Dato de negocio que sale de ahí: el sistema le cobra al comprador 25% de recargo en 6 cuotas (`ConfiguracionCuotaTarjeta`) y la plataforma se queda con 20,27%, así que el margen financiero real de vender en 6 cuotas es ~4,7 puntos, no 25.
+
+**Payway 9 y 12 cuotas en 0,00**: los tres pagos de septiembre con esos planes (565.000 y 948.000 a 12 cuotas, 900.000 a 9) no aparecen en ninguna liquidación del Provincia — esos planes se cobran por Mercado Pago. Inventar un número ahí sería peor que dejarlo en 0, que hace que el cálculo devuelva `SinTasaConfigurada` y el aviso visible en pantalla.
+
+**`PorcentajeIva = 0` en todas las filas**: las quitas de Payway son bruto menos neto, o sea que ya traen el IVA adentro; sumarle 21% encima lo duplicaría. Y de las tasas de Mercado Pago la memoria dice "costo total resultante" sin aclarar si incluyen IVA, y no hay ninguna liquidación de MP en el proyecto contra la que despejarlo. La columna se mantiene para el día que el cliente traiga una liquidación y se pueda desglosar arancel + IVA de verdad; sembrar 21% a ciegas habría inventado ~$111.000 de costo sobre septiembre.
+
+**BancoCarrefour en 0,00**: no hay fuente del arancel en ninguna memoria del proyecto, y es el segundo volumen del mes ($3.245.002,09 en 9 pagos). Queda pendiente de que el cliente lo cargue.
+
+**Payway débito 1,30** es el punto medio del rango 1,2–1,4% informado, y **Payway transferencia 0,80** viene de la memoria: ninguno de los dos pudo verificarse contra el extracto (no hay una liquidación aislada de débito, y las transferencias recibidas del mes son todas aportes de los socios, no cobros de clientes).
+
+### Validación del modelo contra la realidad
+Aplicadas estas tasas a los 31 pagos no-efectivo de septiembre 2026, el costo de cobranza calculado da **$1.112.666,96**, contra **$1.561.000** que el cliente cargó a mano en 14 gastos. Abierto por plataforma:
+
+| | Cargado a mano | Calculado | Desvío |
+|---|---|---|---|
+| "gastos payway pcia" | 521.000,00 | **517.262,36** | −3.737,64 (−0,7%) |
+| "gastos y comisiones mp" | 1.040.000,00 | **595.404,60** | −444.595,40 (−42,8%) |
+
+La coincidencia de 0,7% del lado de Payway valida el modelo y las tasas despejadas. La desviación grande del lado de Mercado Pago queda como pendiente de investigación con el cliente: o las tasas "especiales" de la memoria ya no son las vigentes, o esos $1.040.000 incluyen conceptos de MP que no son comisión de cobranza (retiros, financiación). No se toca el seed por esa diferencia sin evidencia.
+
+**Migración `AddCostoCobranzaPorVenta`**: crea `TasasCostoCobranza`, agrega las 6 columnas a `PagosVenta` con sus defaults, siembra las filas de arriba. Sin remapeo de datos existentes.
+
+### Integración — los 5 puntos que se tocan
+Alta (delegan en `AplicarCostoAsync` + `PostearEgresoAsync`):
+1. `VentaService.ConfirmarAsync` (~línea 529, donde hoy postea el Ingreso de cada pago) — postea el egreso sólo si el pago nace `Acreditado`.
+2. `VentaService.AcreditarPagoAsync` (~línea 839) — postea el egreso con `pago.FechaAcreditacionEfectiva`, la misma fecha del Ingreso.
+3. `PagoVentaService.RegistrarPagoAsync` (~línea 153) — ídem punto 1, para el pago agregado a una venta ya confirmada.
+
+Reversión (delegan en `RevertirEgresoAsync`):
+4. `VentaService.CancelarAsync` (~línea 609) — acotado a lo posteado por cada pago.
+5. `VentaService.EliminarPagoAsync` (~línea 906).
+
+### Web
+- **`ConfiguracionCostosCobranzaController`** + `Views/ConfiguracionCostosCobranza/` (Index con DataTables y filtro por columna, Create, Edit). Link en el sidebar bajo Configuración, al lado de Cuotas de tarjeta, con `[Authorize(Policy = "RequireAdministracion")]` — y verificado por revisión de código que la ruta del link coincide con el controller y la policy es la esperada (REG-010, pre-merge obligatorio).
+- **`RecalculoCostoCobranzaController`** (o acción dentro del anterior): `Previsualizar` (GET/AJAX) y `Aplicar` (POST con antiforgery).
+- **`PagosTarjetaController`**: columnas nuevas en `GetData`, filtros por plataforma y por "sin plataforma", y `ActualizarProcesador` (POST AJAX, devuelve JSON con el costo recalculado de la fila).
+- **`VentasController` / `VentaViewModels` / `Ventas/Create.cshtml` / `Ventas/Details.cshtml`**: `Procesador` por línea de pago, select condicional por medio, costo estimado en la fila.
+- **`RentabilidadController` / vista**: costo de cobranza y margen neto.
+
+### Impacto en lo ya construido — `OrigenTipo = "CostoCobranza"` es nuevo en `MovimientoCCLocal`
+Hay que revisar todo lo que hoy interpreta `OrigenTipo` (LP-002: al extender un campo existente se actualizan TODOS los lugares que ya lo leen, no sólo el que motivó el pedido):
+- `CajaService.ObtenerTotalesAsync` — suma todo Egreso sin filtrar por origen: el costo entra solo en `EgresosPeriodo`, que es lo buscado. Sin cambios.
+- `CajaService.ObtenerDesgloseFacturadoAsync` — parte de los Ingresos. El egreso nuevo no lo afecta, pero **verificar explícitamente** que se mantiene la invariante de MH-004 (facturados + no facturados = total de Ingresos del período).
+- `CCLocalService.ListarMovimientosAsync` — el Origen es clickeable desde CR-62 y hoy resuelve "Venta" y "Gasto". Agregar el caso `CostoCobranza` → link a la Venta. Sin este cambio la columna queda con un origen sin link.
+- `ProyeccionFinancieraService` — revisar si agrega egresos por `OrigenTipo` y, si lo hace, decidir si el costo de cobranza proyectado entra.
+- `DashboardService` — KPIs de caja y margen: el margen sale de `IRentabilidadService`, que cambia; confirmar que no haya un segundo cálculo propio.
+
+### Riesgo técnico
+El punto delicado es el **doble conteo con los gastos manuales**. En septiembre hay $1.561.000 de gastos de categoría `ComisionesBancarias` cargados a mano que representan lo mismo que este CR va a postear automáticamente. La secuencia del retroactivo tiene que ser: asignar plataformas → previsualizar → **anular los 14 gastos manuales** → aplicar el recálculo. Si se aplica el recálculo sin anular los gastos, la caja de septiembre queda con el costo de cobranza contado dos veces. La pantalla de previsualización tiene que mostrar, para el rango elegido, los gastos de categoría `ComisionesBancarias` existentes, justamente para que ese paso no se olvide.
+
 
 ## Historial de ajustes
 - 2026-08-31 — CR-62 (Arquitectura): ver sección completa "CR-62 (Arquitectura) — Gastos (categoría/forma de pago/recurrentes) + Cuenta Corriente Local (usuario/origen clickeable/saldo filtrado)" más arriba. 2 enums ampliados (agregado puro), `GastoRecurrente` nueva entidad + CRUD clon de Marca, `MovimientoCCLocal.UsuarioId` + resolución de nombre (patrón `StockService`) + script de corrección retroactiva de `Descripcion`, `Gastos/Details` nueva, Origen clickeable condicional por tipo, `ObtenerSaldoFiltradoAsync` nuevo (sin tocar `ObtenerSaldoActualAsync`, que sigue siendo el saldo real usado por el Dashboard). 2 migraciones EF. Pendiente Presupuesto (gate cliente) antes de habilitar implementación.

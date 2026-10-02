@@ -1,9 +1,100 @@
 # Memoria - Disenador funcional
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-10-01 (M27)
+## Ultima actualizacion: 2026-10-02 (M28: chat libre -- arranque con 3D que se retira, menciones compartidas) | 2026-10-01 (M27)
 
 ## Definiciones vigentes
+
+## Diseño M28 — El chat libre: la pantalla que no pide decidir nada antes de escribir (2026-10-02)
+
+Entrada: Análisis M28 cerrado (`1-analista-funcional.md`, 6 CU, 30 CA) con las cuatro decisiones de Joaquín: cuarto agente de plataforma · mención = tarea aparte y el hilo espera · la mención propone, no crea · 3D acotado a una pieza. Instrucciones de diseño aplicadas: **`38-diseno-pantallas-portal`** (completa) y `25-frontend-design-system` §149.
+
+### Escaneo de reutilización (instrucción 39 §3)
+
+`docs/patrones/cat_resumen.txt` → match **PAT-029** (conversación multi-turno reanudable con contexto congelado, origen este proyecto, M3b). Se reutiliza **toda** la maqueta de conversación: `Views/Tareas/_Conversacion.cshtml` (barra de contexto pegajosa, hilo de turnos, `_PasosTurno`, tarjetas, entregables), `_CuadroSeguimiento.cshtml` (el compositor, que M27 ya dejó en un renglón que crece hasta seis), `_TarjetasPropuesta` / `_TarjetasPropuestaTrabajo`, `_TarjetaParte`, `_AdjuntarEnConversacion`, y el turno en vivo de `Detalle.cshtml` (SignalR + respaldo de polling + burbuja optimista). **Sin antecedente en el historial** para: autocomplete de menciones y pieza 3D — son lo único que se diseña desde cero, y el patrón nuevo se agrega al catálogo antes de cerrar la etapa.
+
+### Idea rectora del diseño
+
+> **La pantalla de arranque es la pieza de diseño; la conversación ya está diseñada.**
+
+El pedido trae dos cosas que parecen una sola: *«un chat libre como Claude web»* y *«buen diseño gráfico y motion 3D»*. Separarlas es lo que resuelve la tensión con la instrucción `38`, cuya regla 0 es **lo que la persona vino a hacer entra en la primera pantalla; todo lo demás se pliega**.
+
+Un chat libre recién abierto **no tiene contenido que el adorno pueda tapar**: es un estado vacío, y la `38` §4 dice que un estado vacío es *una pantalla de arranque, no un cartel de error*. Ese es el único momento de todo el producto donde una pieza 3D no compite con nada — porque todavía no hay nada. Y en cuanto hay contenido, se retira.
+
+De ahí sale **D-01**, que es la decisión que ordena a todas las demás.
+
+### Decisiones de diseño M28
+
+- **D-01 — El 3D vive en el estado vacío y se retira con el primer mensaje.** La pieza 3D ocupa el arranque, grande, detrás y arriba del compositor. Al enviarse el primer mensaje **se desmonta** (no se oculta: se destruye el contexto WebGL y se libera) y la pantalla pasa a ser la conversación de siempre. Así se cumple el pedido de motion 3D **y** la regla 0 de la `38` sin negociar ninguna de las dos: el adorno existe exactamente mientras no haya contenido que tapar. Consecuencia buena y no buscada: el costo de rendimiento del 3D es de una sola pantalla y de una sola vez por sesión.
+- **D-02 — Dos momentos, una sola maqueta de conversación.** `ChatLibre/Index` es la pantalla de arranque (propia, con el 3D). Enviado el primer mensaje, se va a la **conversación compartida** (`Tareas/Detalle`), igual que hacen hoy las otras tres conversaciones de plataforma. Motivo (`38` §6, *sistémico antes que por pantalla*): duplicar la maqueta de conversación para que el chat libre «se sienta propio» cuesta las 270 líneas de `_Conversacion` más los 405 de scripts de `Detalle`, y cada arreglo futuro habría que hacerlo dos veces. Lo que hace propio al chat libre es su arranque y sus menciones, no una copia del hilo.
+- **D-03 — El autocomplete de menciones es un comportamiento compartido, no una pantalla.** Vive **una sola vez** en `site.js` y se enciende con un atributo en el `<textarea>`. Consecuencia deliberada: queda disponible en las cinco conversaciones, no solo en el chat libre. Mismo criterio con el que la `38` §1 resolvió los filtros plegados: el comportamiento una vez, una clase por vista.
+- **D-04 — La mención en el texto es texto.** Se escribe `@slug` en plano, legible, y **el servidor la vuelve a resolver** contra lo que esa persona puede usar. No hay token opaco ni id embebido: lo que el cliente inserta es una comodidad de tipeo, nunca una autorización. Una mención que no resuelve **queda como texto literal** y el turno lo dice en una línea; no revienta, no abre nada y no confirma si eso existe (CA-02.3). Esto es R-03 resuelto en la maqueta: **la mención entra como dato**.
+- **D-05 — Una sola mención de agente por mensaje.** Si hay dos, no se elige por el agente: se le pide a la persona que elija, con las dos opciones a la vista. Motivo: es el freno de costo que P2 eligió (una delegación visible y contable por vez) puesto en la pantalla, y además es lo honesto — un mensaje que menciona dos agentes no dice cuál de los dos tiene que hacer qué. Las menciones **de configuración** sí pueden ser varias: no cuestan una tarea, cuestan una tarjeta.
+- **D-06 — El menú del autocomplete viene en dos grupos, y el de abajo es el que enseña.** Arriba **Agentes** (los que esa persona puede usar, con su rubro como dato secundario debajo del nombre, `38` §1). Abajo **Configurar**, con las cuatro cosas que se cargan: `@regla`, `@instructivo`, `@tarea-programada`, `@agente-nuevo`. Ese segundo grupo es el que convierte el pedido *«crear reglas y automatizaciones haciendo menciones»* en algo que se descubre sin manual: la persona escribe `@` por un agente y **se entera de que también puede configurar**.
+- **D-07 — Lo que el agente mencionado devuelve entra al hilo como una parte, no como un mensaje más.** Se reutiliza `_TarjetaParte` tal cual: se ve de qué agente vino, en qué estado está y cuánto costó. Motivo: una respuesta que viene de otro agente **con otro prompt y otras reglas** no puede parecer la voz del chat libre. La trazabilidad es un diferencial del producto (`38` §2), no una nota al pie.
+- **D-08 — Las sugerencias del arranque son ejemplos de mención, no de pregunta.** Tres o cuatro pastillas que al tocarse **escriben una mención en el compositor** y dejan el cursor listo para seguir. Una sugerencia que manda una pregunta entera enseña a hacer esa pregunta; una que escribe `@` enseña **el mecanismo**, que es lo que la persona no va a descubrir sola.
+- **D-09 — El estado «el agente está trabajando» es el otro lugar del movimiento, y es plano.** No es 3D: es el indicador del turno en curso que ya existe, y el de la parte esperando. El 3D ya cumplió su función en D-01 y no vuelve.
+
+### Pantallas
+
+| # | Pantalla | Ruta | Qué tiene |
+|---|---|---|---|
+| P1 | **Arranque del chat libre** | `ChatLibre/Index` | Encabezado de pantalla (`.ov-page-head`: título + una línea de para qué sirve). **Pieza 3D** centrada. Compositor grande con `autofocus`, casilla de internet y adjuntar. Pastillas de sugerencia (D-08). Acceso a *Mis chats* (P3). |
+| P2 | **Conversación** | `Tareas/Detalle` (compartida) | Sin cambios de maqueta. Suma: el autocomplete en el compositor (D-03) y, si hubo mención, la `_TarjetaParte` del agente (D-07). |
+| P3 | **Mis chats libres** | el listado de Tareas ya existente, filtrado | Sin pantalla nueva: un filtro por tipo en el listado que ya cumple la regla de listados del estudio. |
+| P4 | **Menú** | `MenuOrganizacion` | Una opción nueva, con `VeEnMenu` chequeando **etapa y rol** en una sola condición — como lo dejó M27. Oculta sin versión publicada del agente (CA-01.2). |
+
+**Estado vacío de P3:** pantalla de arranque con la acción que lo llena («Abrí tu primer chat»), **sin repetir** la acción del encabezado (`38` §4).
+
+### Estados
+
+| Estado | Qué se ve | De dónde sale |
+|---|---|---|
+| Arranque | 3D + compositor + sugerencias | P1, sin tarea todavía |
+| Pensando | turno en curso, compositor deshabilitado | `EstadoTarea` en curso (ya existe) |
+| Esperando a un agente | `_TarjetaParte` con su estado + aviso de que no se envían ajustes | `EsperandoSubtareas` (ya existe) |
+| Con tarjetas | propuestas alineadas con la respuesta que las pidió, encabezado que dice cuántas son | `38` §2, ya existe |
+| Mención que no resolvió | el texto queda literal y una línea lo explica | D-04 |
+| Dos menciones de agente | se pide elegir, con las dos a la vista | D-05 |
+| Sin versión publicada | la opción no está en el menú; por URL, «Todavía no está disponible.» | CA-01.2 |
+| Tope de gasto | no arranca y dice por qué | CA-01.5, M6 sin tocar |
+| Sin WebGL / 3D que no carga | el arranque se ve completo, en su versión plana | CA-07.5 |
+| `prefers-reduced-motion` | sin 3D y sin transiciones, pantalla entera y usable | CA-07.3 |
+
+### Historias de usuario
+
+- **HU-01** Como miembro, abro el chat libre y escribo una pregunta cualquiera sin elegir agente ni cliente, y me responde. *(CU-01)*
+- **HU-02** Como miembro, escribo `@`, veo solo los agentes que puedo usar y le paso el pedido a uno; el hilo me muestra en qué anda y me trae el resultado. *(CU-02)*
+- **HU-03** Como miembro, escribo `@` y **descubro** que también puedo pedir una regla, un instructivo, una tarea programada o un agente propio. *(CU-02/CU-03, D-06)*
+- **HU-04** Como Director, menciono la configuración, reviso las tarjetas y aplico la que quiero; nada cambió hasta que toqué el botón. *(CU-03)*
+- **HU-05** Como Empleado, veo la tarjeta de una propuesta de alcance de empresa y al aplicarla me dicen que no me corresponde; nada se guardó. *(CA-03.2)*
+- **HU-06** Como miembro, adjunto un archivo al chat sin elegir cliente y el agente lo lee. *(CU-04)*
+- **HU-07** Como miembro, vuelvo a un chat de ayer y sigo donde estaba, con el mismo contexto y el costo a la vista. *(CU-05)*
+- **HU-08** Como miembro con mareo por movimiento, abro el chat libre con `prefers-reduced-motion` y la pantalla está completa, quieta y usable. *(CA-07.3)*
+
+### Validaciones
+
+- Texto vacío o solo espacios: no se envía. Largo máximo: el mismo de la conversación, con el contador que aparece **recién al acercarse al tope** (como lo dejó M27).
+- Mención de agente: **cero o una** (D-05). Resuelta **en el servidor**, contra lo visible para esa persona; si no resuelve, texto literal.
+- Mención de configuración: varias permitidas; cada una **propone**, ninguna crea (CA-03.1).
+- Adjuntos: tope por mensaje ya existente; universo por inclusión de esa conversación (CA-04.2).
+- Al **aplicar** una tarjeta: rol según el alcance de la propuesta, no según quién abrió el chat (CA-03.2).
+
+### Textos que importan
+
+- Encabezado P1: **«Escribí lo que necesités»** · bajada: *«Una conversación para cualquier cosa. Escribí `@` para pedirle algo a un agente, o para dejar armada una regla o una automatización.»* — la bajada enseña el mecanismo, que es lo que no se descubre solo.
+- Rótulo del compositor en el chat libre (lo fijo va al rótulo, `38` §2): *«El chat libre no cambia nada por su cuenta: lo que propone se aplica con sus botones.»*
+- Mención sin resolver: *«No encontré a `@xxx` entre los agentes que podés usar, así que lo dejé como texto.»* — no confirma ni niega que exista.
+- Dos menciones de agente: *«Mencionaste dos agentes. ¿A cuál le paso el pedido?»*
+- Grupo del autocomplete: **Agentes** / **Configurar**.
+
+### Riesgos de diseño
+
+- **RD-01 — La sugerencia del arranque enseña lo que no queremos.** Si las pastillas son preguntas, la gente aprende a usar el chat libre como buscador y nunca descubre las menciones, que es el 80 % del valor. Mitigado por D-08: las pastillas **escriben menciones**.
+- **RD-02 — El 3D que no se va.** Si el 3D se oculta con CSS en vez de desmontarse, sigue consumiendo en cada frame de una conversación larga. D-01 exige **desmontar**, y es lo primero que QA tiene que verificar con el monitor de rendimiento, no mirando la pantalla.
+- **RD-03 — La `_TarjetaParte` se lee como voz del chat libre.** Si la respuesta del agente mencionado se maqueta como un mensaje más, la persona le atribuye al chat libre algo que dijo otro agente con otras reglas. D-07 lo evita reutilizando la tarjeta de parte tal cual.
+- **RD-04 — El autocomplete tapa el compositor en móvil.** A 390 px, un menú que se abre hacia abajo queda debajo del teclado. Se abre **hacia arriba** cuando no hay lugar abajo, y se verifica en navegador real a 390, que es donde la `38` §6 dice que se encontraron tres de los cambios que en el código se veían bien.
+- **RD-05 — Un chat libre que se usa para todo deja de tener historial útil.** El listado de P3 sin filtro por fecha ni búsqueda se vuelve inservible al mes. Se reutiliza el listado de Tareas, que ya tiene DataTables server-side, filtros persistentes y búsqueda: por eso P3 no es una pantalla nueva.
 
 ## Diseño M27 — Una sola puerta, una tarea que no se corta (2026-10-01)
 

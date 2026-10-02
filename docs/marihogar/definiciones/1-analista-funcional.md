@@ -1,7 +1,7 @@
 # Memoria - Analista funcional
 
 ## Proyecto: marihogar *(nombre provisional — confirmar con cliente)*
-## Ultima actualizacion: 2026-09-25
+## Ultima actualizacion: 2026-10-02 (CR-86 **Analisis CERRADO y corregido**: el gasto de $617.687 NO era un error -- carga deliberada de una compra en conjunto (procedimiento de CR-81), verificado contra la base (un solo egreso, ningun `Cheque`); se retiran el punto 17 y R-CR86.7. **Presupuesto salteado por pedido del cliente.**, gate pasado con las 4 decisiones del cliente; CR-85 absorbido por decision D4. La medicion contra produccion destapo $5.691.530,00 en 58 gastos bancarios cargados a mano que se solapan con lo que el sistema ya calcula, y el cheque de $617.687 cargado como gasto operativo **sigue vivo**. Entrada previa: Discovery CERRADO, Analisis BLOQUEADO: 4 preguntas al cliente + dependencia de CR-85. Alicuota Ley 25.413 medida sobre el extracto: 0,600% exacto en los 17 cheques de septiembre)
 
 ## Definiciones vigentes
 
@@ -364,6 +364,535 @@ Se reagrupa por **la pregunta que responde cada número**, no por el orden en qu
 - **R-CR80.4** — El IVA de ventas se deriva del total del comprobante porque `ComprobanteAfip` no persiste neto ni IVA desglosados (solo `Total`). Si el día de mañana cambia la tasa configurada en `Afip:PorcentajeIva`, los comprobantes viejos se recalcularían con la tasa nueva. Aceptado por ahora (una sola tasa vigente en todo el historial); si el negocio pasa a manejar varias alícuotas, el desglose hay que persistirlo al emitir.
 - **S-CR80.1** — Todas las métricas son de **solo lectura** sobre datos existentes: ninguna columna nueva, ninguna migración EF.
 - **S-CR80.2** — El `PrecioCompra` de `OrdenCompraItem` está cargado sin IVA (Subtotal de la OC es "suma de líneas sin impuestos"), igual que `Producto.PrecioCompra`, así que costo y precio de venta se comparan sobre la misma base.
+
+## CR-86 - Comision de cobranza cobrada por periodo + impuesto al cheque (Ley 25.413) en compras
+
+**Estado:** Discovery CERRADO 2026-10-01. **Analisis BLOQUEADO**: 4 preguntas al cliente (P-CR86.1 a P-CR86.4), ninguna respondible desde el codigo. El frente B ademas **depende de CR-85** (abierto).
+
+Pedido del cliente, textual (01/10/2026), dos frentes:
+1. «la pantalla ConfiguracionCostosCobranza debe poder seleccionar un periodo de dias y se debe mostrar una columna mas en la tabla que calcule el total de comision cobrado en el periodo por plataforma»
+2. «hacer lo mismo pero calculando el impuesto al cheque en compras. revisar el archivo consultaMovimientos para saber cuanto es el impuesto al cheque y que cada vez que se haga una compra con cheque que debite como gasto el valor del impuesto al cheque»
+
+---
+
+### Frente A - Total de comision cobrada por periodo en la pantalla de tasas
+
+**Que hay hoy.** `ConfiguracionCostosCobranza/Index` es un **catalogo de configuracion**: 19 filas de `TasaCostoCobranza` (Procesador x Metodo x Cuotas x vigencia) con los porcentajes, filtros por Plataforma/Medio/Cuotas/Vigencia, y ninguna nocion de periodo ni de montos reales. El buscador nativo de DataTables ya estaba apagado a proposito.
+
+**El dato ya existe, no hay que calcularlo de nuevo.** Desde CR-83, cada `PagoVenta` persiste el costo **congelado** al momento del calculo: `CostoComision`, `CostoIva`, `CostoImpuestosBancarios`, `CostoTotalCobranza`, mas `Procesador` y `TasaCostoCobranzaId` (la fila de tasa que se le aplico). Linea base verificada por QA en produccion: 23 movimientos `CostoCobranza` por **$1.301.077,43**; `SUM(CostoIva) = 0,00` sobre esos 23 pagos (ninguna tasa tiene IVA distinto de 0).
+
+**Lo que convierte esto en una pantalla distinta.** Hoy la pantalla responde "cuanto me cobran?" (configuracion). Con la columna nueva pasa a responder tambien "cuanto me cobraron?" (hecho consumado). Son dos naturalezas en una grilla: una fila de tasa **cerrada** antes del periodo va a mostrar comision $0, y eso se lee como error cuando en realidad significa "esta tasa no estuvo vigente". El rotulo tiene que nombrar lo que el numero mide (corolario de MH-033 / CA-84.10, el mismo problema que origino el cambio de rotulo de la CC Local).
+
+**Hallazgos que condicionan el alcance:**
+- **H-CR86.1 - "por plataforma" no es la granularidad de la tabla.** El pedido dice «por plataforma»; la tabla es por **tasa** (plataforma + medio + cuotas). Son dos entregables distintos: una columna por fila, o un resumen agrupado por plataforma arriba de la grilla. -> **P-CR86.1**.
+- **H-CR86.2 - "comision" es ambiguo y el rango es de ~3x.** `CostoComision` sola no es lo que el banco cobra: `CostoTotalCobranza` = comision + IVA + IIBB + Ley 25413, y en Payway los impuestos bancarios son 1,80% ARBA + 0,60% Ley 25413 sobre una comision de base. Mostrar una u otra cambia el numero que el cliente va a conciliar contra el extracto. -> **P-CR86.2**.
+- **H-CR86.3 - pagos sin tasa atribuida.** Los `PagoVenta` anteriores a CR-83 tienen `TasaCostoCobranzaId` nulo y `CostoComision = 0`: no se atribuyen a ninguna fila. El total por filas **no va a cerrar** contra el total del periodo si se los cuenta aparte. Hay que decidir si la pantalla declara el residuo o lo esconde.
+- **H-CR86.4 - que fecha imputa.** Rentabilidad ya fijo el criterio y lo rotula: "costo de cobranza **por fecha de acreditacion**" (`PagoVenta.FechaAcreditacionEfectiva`), no por fecha de venta. El frente A tiene que usar el mismo criterio o la pantalla nueva va a dar distinto que Rentabilidad para el mismo mes. **Se adopta como supuesto S-CR86.1, no como pregunta.**
+- **H-CR86.5 - ya existe una pantalla con filtro de periodo sobre este mismo dato.** `ConfiguracionCostosCobranza/Recalcular` recorre un periodo y recalcula. El filtro de rango de dias del frente A es el mismo patron de `daterangepicker` + filtro persistido en sesion que ya usan CC Local, Rentabilidad, Gastos y Ordenes de compra. **Reutilizacion directa, no hay diseno nuevo de filtro.**
+
+---
+
+### Frente B - Impuesto al cheque (Ley 25.413) en compras
+
+#### La alicuota, medida (no supuesta)
+
+`docs/consultaMovimientos.xls` es el extracto del **Banco Provincia, cuenta 5020-50461/8, 31/08/2026 al 30/09/2026**, 190 movimientos, emitido 30/09/2026 11:17. El impuesto aparece con dos leyendas: `IMPUESTO DEBITO - LEY 25413` (60 movimientos, **-$46.823,49**) e `IMPUESTO CREDITO -LEY 25413` (25 movimientos, **-$45.064,72**).
+
+**La alicuota es 0,600%, y en los cheques es exacta sin una sola excepcion.** Los 17 `CHEQUE DE CAMARA` del periodo suman **$7.412.930,03** y su impuesto al debito suma **$44.477,57**: tasa efectiva **0,600000**. Cada cheque, uno por uno, da 0,006000 contra su propio impuesto (el movimiento de impuesto aparece inmediatamente antes del cheque en el extracto).
+
+Verificacion cruzada sobre el resto del extracto: de los 85 pares impuesto-movimiento, **73 dan 0,6% exacto** y los 12 restantes se desvian solo por redondeo a 2 decimales sobre importes de centavos (ej.: $11,00 de comision de clearing -> $0,07, que es 0,6364% por el redondeo, no por otra alicuota). **No hay una segunda alicuota en los datos.**
+
+> El sistema ya conoce este impuesto: `TasaCostoCobranza.PorcentajeLey25413` esta en **0,60%** para Payway. Lo que falta no es el concepto, es aplicarlo del lado de las **compras**.
+
+#### Lo que el extracto dice ademas, y que el pedido no cubre
+
+El impuesto al debito del mes es **$46.823,49**, de los cuales solo **$44.477,57 (95%)** son cheques. El resto son otros debitos que tambien pagan 0,6%: `PAGO VISA` ($255.501,70), `RETENCION ARBA` ($135.193,70), una transferencia de $150.000, comision de paquete $65.000. **Y hay $45.064,72 mas de impuesto al credito** (0,6% sobre cada acreditacion: cobros de tarjeta, transferencias de los socios, depositos). Si el objetivo de fondo es que la caja del sistema cuadre contra el extracto, limitar el alcance a cheques deja **$47.410,64 del mes** afuera - mas que lo que entra. -> **R-CR86.3**.
+
+#### Hallazgos que condicionan el alcance
+
+- **H-CR86.6 - "cada vez que se haga una compra con cheque" no es cuando el banco lo cobra.** El banco debita el impuesto el dia del **debito en camara**, que es cuando el cheque se cobra, no cuando se emite. En el sistema eso es `Cheque.FechaAcreditacion` (`ChequeService.AcreditarAsync`), y los cheques de MariHogar son a 30/60/90 dias: entre emitir y cobrar hay hasta **90 dias** y el gasto cambia de mes. Si el gasto se postea al emitir, se le imputa a un periodo en el que el banco todavia no cobro nada. -> **P-CR86.3**, y **S-CR86.2** como recomendacion.
+- **H-CR86.7 - depende de CR-85, que esta abierto.** `AcreditarAsync` hoy postea el movimiento del proveedor **y** el egreso de caja con `cheque.FechaVencimiento`, bajo un supuesto que QA ya refuto con datos: **27 de 29 cheques acreditados ($9.745.379,65, 92% del monto)** tienen vencimiento distinto del dia de acreditacion, y 3 por $1.452.133,30 cruzan de mes. Si el impuesto se cuelga de esa misma fecha, nace con el defecto de CR-85 adentro. Si usa `FechaAcreditacion`, el impuesto y el egreso del cheque que lo origina quedan en fechas distintas. **No hay opcion limpia hasta que CR-85 cierre.** -> bloqueo tecnico, no comercial.
+- **H-CR86.8 - CR-82 permite revertir la acreditacion, asi que el gasto tiene que poder anularse.** Un cheque Acreditado puede volver a Pendiente. Si el impuesto queda posteado, se duplica exactamente como MH-040 (el egreso futuro sobrevive, la reversion se fecha hoy, y el monto se cuenta dos veces). El flujo de reversion es parte del alcance, no un agregado.
+- **H-CR86.9 - "que debite como gasto" tiene un destino ya construido y un riesgo conocido.** `CategoriaGasto.ComisionesBancarias = 7` existe desde CR-62 y un `Gasto` ya postea egreso a la CC Local. Pero MH-039 es exactamente el accidente que esto puede repetir: un gasto cargado a mano **mas** el costo automatico = el mismo costo contado dos veces en Caja, Gastos operativos, CC Local y en el promedio que proyecta los meses futuros. Hoy el cliente carga estos impuestos a mano o no los carga (la conciliacion de septiembre encontro **$222.244,68 de impuestos bancarios sin registrar**). Al automatizar, hay que decidir que pasa con los ya cargados a mano. -> **P-CR86.4**.
+- **H-CR86.10 - alicuota parametrizable o constante?** La Ley 25.413 cambio de alicuota por decreto varias veces. Hardcodear 0,6% obliga a un deploy el dia que cambie; parametrizarla con vigencia (mismo patron que `TasaCostoCobranza`, que ya resuelve "una tasa no se borra, se le cierra la vigencia") hace explicable el costo de los cheques viejos. **Se recomienda parametrizar: S-CR86.3.** No es pregunta al cliente, es decision de diseno.
+- **H-CR86.11 - retroactividad.** Hay **29 cheques acreditados historicos**; ninguno tiene su impuesto registrado. Backfillearlos es un trabajo de la naturaleza de CR-84 (que necesito 4 corridas de QA y 4 defectos para cerrar), no un efecto colateral de este CR. **Fuera del alcance inicial salvo pedido explicito.**
+
+---
+
+### Alcance inicial
+
+**Incluido**
+1. Filtro de rango de dias en `ConfiguracionCostosCobranza/Index`, persistido en sesion (patron ya existente).
+2. Columna nueva en la grilla de tasas con el monto real cobrado en el periodo, atribuido por `PagoVenta.TasaCostoCobranzaId`, imputado por fecha de acreditacion.
+3. Rotulo que diga que mide el numero y que significa un $0.
+4. Calculo y posteo automatico del impuesto Ley 25.413 (0,600%) sobre cada cheque de compra, como gasto, en el momento que defina P-CR86.3.
+5. Anulacion del gasto del impuesto al revertir la acreditacion (CR-82).
+6. Totalizado del impuesto al cheque por periodo, en pantalla.
+
+**No incluido (declarado, no omitido)**
+- Impuesto al **credito** (0,6% sobre acreditaciones): $45.064,72 en septiembre.
+- Impuesto al debito de los **no-cheques** (transferencias, pagos de tarjeta, retenciones): $2.345,92 en septiembre.
+- Retencion ARBA de compras ($135.193,70 en septiembre) e Impuesto de Sellos.
+- Backfill de los 29 cheques acreditados historicos.
+- Computar como credito fiscal el IVA del costo de cobranza (alcance ya declarado y abierto por QA en CR-83).
+- Conciliacion automatica contra el extracto bancario.
+
+### Supuestos
+- **S-CR86.1** - El frente A imputa por `PagoVenta.FechaAcreditacionEfectiva`, mismo criterio y mismo rotulo que Rentabilidad. Si no, las dos pantallas dan distinto para el mismo mes.
+- **S-CR86.2** - El impuesto al cheque se devenga al **acreditarse** el cheque, no al emitirlo, porque es cuando el banco lo cobra. Sujeto a P-CR86.3.
+- **S-CR86.3** - La alicuota se parametriza con vigencia, no se hardcodea.
+- **S-CR86.4** - El impuesto se postea como `Gasto` (no como egreso directo al ledger), para que lo vean Caja, Gastos y la CC Local por el camino ya construido.
+- **S-CR86.5** - El frente A es **solo lectura**: ninguna columna nueva, ninguna migracion. El frente B **si** necesita migracion (alicuota parametrizable + trazabilidad del gasto hacia el cheque que lo origino).
+
+### Riesgos tempranos
+- **R-CR86.1** - **Doble conteo** del impuesto si el cliente ya cargo alguno a mano. Es MH-039 otra vez, y MH-039 paso con el 93% de los casos bien resueltos: alcanzo 1 de 14 para romper 4 pantallas.
+- **R-CR86.2** - El frente B hereda el defecto de CR-85 si se cuelga de `FechaVencimiento`. **Recomendacion: no implementar el frente B antes de CR-85**, o implementarlo con `FechaAcreditacion` y aceptar que el impuesto y el egreso del cheque quedan en fechas distintas hasta que CR-85 cierre.
+- **R-CR86.3** - El cliente puede leer "ya esta cubierto el impuesto al cheque" y esperar que la caja cuadre con el extracto. Con el alcance pedido se cubre el 95% del impuesto al debito y **0%** del impuesto al credito. El rotulo tiene que decirlo.
+- **R-CR86.4** - La columna nueva puede no cerrar contra Rentabilidad por H-CR86.3 (pagos sin tasa atribuida). Hay que medir el residuo en produccion **antes** de disenar, no despues de que el cliente lo encuentre.
+- **R-CR86.5** - Mezclar configuracion y hechos consumados en una grilla es el patron que ya genero CA-84.10. Riesgo de comunicacion, no de calculo.
+
+### Preguntas abiertas (bloquean Analisis)
+- **P-CR86.1** - El total, va como **columna por fila de tasa** (plataforma + medio + cuotas, 19 filas) o como **resumen agrupado por plataforma** (2-3 numeros) arriba de la grilla? El pedido dice «una columna mas» y tambien «por plataforma», que en esta tabla son cosas distintas.
+- **P-CR86.2** - "Total de comision cobrado": solo la **comision** de la plataforma, o el **costo total** (comision + IVA + IIBB + Ley 25413), que es lo que efectivamente sale del bolsillo? Pueden diferir ~3x en Payway.
+- **P-CR86.3** - El impuesto al cheque, se registra cuando se **entrega** el cheque al proveedor, o cuando el cheque se **acredita** (que es cuando el banco lo cobra)? Con cheques a 30/60/90 dias la diferencia es de hasta 3 meses y cambia el mes al que se le imputa el gasto. *(Recomendacion del estudio: al acreditarse.)*
+- **P-CR86.4** - Hay impuestos bancarios ya cargados a mano como gasto en el sistema? Si los hay, se dan de baja, se dejan y el automatico arranca desde una fecha de corte, o se revisan uno por uno? Sin esto, el impuesto se cuenta dos veces.
+
+### Condicion de paso a Analisis
+Las 4 preguntas respondidas, **y** una decision explicita sobre R-CR86.2 (si el frente B espera a CR-85 o arranca con `FechaAcreditacion`). El frente A puede avanzar a Analisis con solo P-CR86.1 y P-CR86.2 respondidas: **los dos frentes se pueden desacoplar y el A no tiene bloqueo tecnico.**
+
+
+### Analisis CR-86 - CERRADO 2026-10-02
+
+**Decisiones del cliente (01/10/2026), gate de Analisis pasado:**
+- **D1** - El monto que se muestra es el **costo total** (comision + IVA + IIBB + Ley 25413), no la comision sola. Resuelve P-CR86.2.
+- **D2** - **Columna por fila de tasa + totales por plataforma** arriba de la grilla. Resuelve P-CR86.1.
+- **D3** - El impuesto al cheque se devenga **al acreditarse el cheque**. Resuelve P-CR86.3 y confirma S-CR86.2.
+- **D4** - **CR-85 entra adentro de este CR.** Resuelve R-CR86.2 por la via mas grande: el sprint arregla la fecha de asiento de los cheques y recien sobre esa base agrega el impuesto. Consecuencia: CR-86 toca codigo en vivo ya deployado (`ChequeService.AcreditarAsync`) y absorbe el alcance de CR-85, que se cierra por fusion.
+
+#### Medicion contra produccion (2026-10-02, solo lectura)
+
+Todo lo que sigue sale de consultas directas a `db_a7251f_marihog`, no de supuestos.
+
+**Frente A - el universo real es chico y hay que decirlo en pantalla**
+
+| Medicion | Valor |
+|---|---|
+| `PagoVenta` **con** tasa atribuida | **26** (costo total $1.301.077,43) |
+| `PagoVenta` **sin** tasa atribuida (`TasaCostoCobranzaId` nulo, costo $0) | **730** |
+| Comision sola vs costo total | $1.230.378,52 vs $1.301.077,43 |
+| Meses con costo posteado | **uno solo: 2026-09** |
+| Pagos con costo pero **sin** `FechaAcreditacionEfectiva` | **11, $85.742,36** (6,6% del total) |
+
+Costo total por plataforma, 2026-09: **Mercado Pago $768.568,20** (11 pagos, impuestos bancarios $0), **Payway $517.869,27** (8 pagos, de los cuales $56.058,95 son impuestos bancarios), **Banco Directo $14.639,96** (4 pagos, comision $0 -- todo su costo son impuestos bancarios).
+
+- **Correccion a H-CR86.2:** el Discovery estimo que comision y costo total podian diferir "~3x en Payway". **Con los datos reales difieren 5,7% en el agregado** ($1.230.378,52 vs $1.301.077,43), porque hoy ninguna tasa tiene IVA cargado y los impuestos bancarios solo pegan en Payway y Banco Directo. El 3x era teorico y los datos lo desmienten. **D1 sigue siendo la decision correcta** (es el numero conciliable contra el banco, y el dia que se cargue IVA la brecha se abre), pero el argumento es otro: no es magnitud, es que el costo total no depende de como esten cargadas las tasas.
+- **H-CR86.3 confirmado y cuantificado:** 730 de 756 pagos no se atribuyen a ninguna fila. La columna nueva describe 26 pagos de un mes. **Sin un rotulo que lo diga, la pantalla parece decir que el negocio pago $1,3M de comision en toda su historia.**
+- **H-CR86.12 (nuevo):** los 11 pagos sin `FechaAcreditacionEfectiva` caen fuera del filtro si se imputa solo por ese campo. Hay que hacer `COALESCE(FechaAcreditacionEfectiva, Fecha)`, que es lo que hace la medicion de arriba, o el periodo pierde $85.742,36.
+
+**Frente B - dimension del impuesto**
+
+| Medicion | Cheques | Monto | Impuesto 0,6% |
+|---|---|---|---|
+| Acreditados (historico, impuesto **nunca** registrado) | 29 | $10.578.712,98 | **$63.472,28** |
+| Pendientes (van a devengar entre 02/10 y 25/11/2026) | 16 | $6.920.424,74 | **$41.522,55** |
+| Rechazados | 2 | -- | no devengan |
+
+**CR-85, revalidado con datos de hoy:** de los 29 cheques acreditados, **27 tienen vencimiento distinto del dia de acreditacion** y **3 cruzan de mes por $1.452.133,30**. El numero no se movio desde que QA lo midio el 30/09.
+
+#### El hallazgo que cambia el alcance: P-CR86.4 se responde SI, y es grande
+
+El Discovery preguntaba si habia impuestos bancarios cargados a mano. **Los hay, y no son un residuo: son el vehiculo de un doble conteo de millones.**
+
+| Subcategoria cargada a mano | Gastos | Monto | Rango | Nota |
+|---|---|---|---|---|
+| `Gastos Bancarios PCIA y payway` | **58** | **$5.691.530,00** | 30/05/2025 - **06/08/2026** | |
+| `cobro cheque` | 14 | $3.076.045,00 | 09/06/2025 - 04/10/2025 | |
+| `COMISIONES BANCO GALICIA` | 6 | $247.851,00 | 14/10/2025 - 22/04/2026 | |
+| `gastos bancarios payway pcia` | 2 | $98.000,00 | 12/08/2026 - 19/08/2026 | |
+| `cheque` | 1 | $617.687,00 | 28/09/2026 | *(carga deliberada, ver correccion abajo)* |
+
+Tres consecuencias:
+
+1. **`Gastos Bancarios PCIA y payway` es exactamente lo que el sistema ahora calcula solo.** 58 gastos por $5.691.530,00 de cargas agregadas que mezclan comision de Payway y gastos del Banco Provincia -- o sea comision de cobranza **e** impuestos bancarios, los dos conceptos que CR-83 automatizo y que CR-86 va a extender a los cheques. Llegan hasta **agosto de 2026**, no son historia vieja. Encender el automatismo sin fecha de corte apila el calculo sobre estas cargas. **Es MH-039 otra vez, pero con dos ordenes de magnitud mas de plata**: MH-039 fue $50.000 en 1 gasto de 14 y alcanzo para romper 4 pantallas.
+2. **CORRECCION (2026-10-02, tras verificacion y respuesta del cliente): el gasto de $617.687,00 NO es un error.** El analisis lo habia reportado como cheque cargado como gasto operativo y contado dos veces. **Es falso, y se verifico contra la base:** no existe ninguna fila en `Cheques` con ese numero ni con ese monto, no existe `PagoOrdenCompra` asociado, y el unico asiento en el ledger es el gasto id 531 (`MovimientosCCLocal` 1274, 28/09/2026, origen `Gasto`, descripcion "Otro - cheque compra factura colomar cannon"). **Un solo egreso, no dos.** El cliente confirmo que la carga es deliberada: fue una **compra en conjunto con un tercero** cuya factura quedo a nombre del tercero, y se quiere registrar asi. Es exactamente el procedimiento de carga que **CR-81 cerro sin desarrollo** el 25/09 (los 7 pasos para el manual). **Queda fuera del alcance de CR-86 por decision del cliente: la logica de este cheque se desestima** y el gasto no se toca ni se reporta.
+3. **MH-039 sigue abierto:** la categoria `ComisionesBancarias` tiene **1 gasto de $50.000 en todo 2026**, que es el "COMISION MP" del 14/09 que QA reporto sin anular.
+
+#### Alcance cerrado
+
+**A. Comision cobrada por periodo (`ConfiguracionCostosCobranza/Index`)**
+1. Filtro de rango de dias persistido en sesion, `daterangepicker`, default **mes actual** -- mismo patron que CC Local, Rentabilidad y Gastos. Reutilizacion directa, sin diseno nuevo.
+2. Columna nueva **"Cobrado en el periodo"** por fila de tasa, con `SUM(PagoVenta.CostoTotalCobranza)` de los pagos cuya `TasaCostoCobranzaId` es esa fila (D1).
+3. Tarjetas de total **por plataforma** arriba de la grilla (D2), sobre el mismo periodo.
+4. Imputacion por `COALESCE(FechaAcreditacionEfectiva, Fecha)` (H-CR86.12), con el rotulo de Rentabilidad: "por fecha de acreditacion".
+5. Rotulo obligatorio del residuo: la pantalla declara cuantos pagos del periodo **no** tienen tasa atribuida y por cuanto, para que el total por filas sea explicable (H-CR86.3).
+6. Solo lectura: ninguna columna nueva, ninguna migracion.
+
+**B. Fecha de asiento de los cheques (CR-85 absorbido, D4) -- va PRIMERO**
+7. `ChequeService.AcreditarAsync` asienta el movimiento de CC Proveedor y el egreso de caja con **`Cheque.FechaAcreditacion`**, no con `FechaVencimiento`. Los dos ledgers con la misma fecha, que es el dia real de salida.
+8. Correccion de fecha de un pago ya registrado extendida a **todos** los metodos, no solo Transferencia (`ActualizarFechaPagoTransferenciaAsync` cubre hoy un solo metodo; el pago 441 de Mercado Pago quedo sin camino de correccion).
+9. Backfill de los 29 cheques acreditados para reasentar las fechas: **27 filas cambian de dia, 3 de mes por $1.452.133,30.**
+
+**C. Impuesto al cheque (Ley 25.413)**
+10. Alicuota **parametrizable con vigencia** (S-CR86.3), sembrada en **0,600%** -- medida sobre el extracto, no supuesta. Misma semantica que `TasaCostoCobranza`: no se borra, se le cierra la vigencia.
+11. Al acreditar un cheque (D3), se postea un `Gasto` por `Monto x alicuota`, fecha = `Cheque.FechaAcreditacion`, en la misma transaccion que el egreso del punto 7.
+12. Trazabilidad del gasto hacia el cheque que lo origino (campo nuevo, migracion), para que sea anulable e idempotente.
+13. Al revertir la acreditacion (CR-82), el gasto del impuesto se **anula**. Sin esto es MH-040.
+14. **Fecha de corte** configurable: el automatismo no postea impuesto para cheques acreditados antes de la fecha de corte, para no apilarse sobre los $5.691.530,00 de cargas manuales (hallazgo 1 de arriba).
+15. Totalizado del impuesto del periodo en pantalla, con el mismo filtro del frente A.
+
+**D. Saneamiento de datos (nuevo, derivado del hallazgo)**
+16. Reporte de los gastos cargados a mano que se solapan con lo que el sistema ya calcula: 4 subcategorias, **$9.113.426,00 en 80 gastos** (sale el de $617.687,00 por la correccion de arriba). **El reporte se entrega; que se anule o no lo decide el cliente, gasto por gasto.** No se anula nada automaticamente.
+17. ~~El cheque de $617.687,00 del 28/09/2026 se corrige antes del backfill.~~ **ELIMINADO 2026-10-02**: la carga es deliberada (compra en conjunto, procedimiento de CR-81) y el cliente pidio desestimar la logica de este cheque. No hay doble conteo que corregir. El backfill del punto 9 **no lo alcanza**, porque no existe como `Cheque` en el sistema.
+
+**Fuera de alcance (declarado)**
+- **El gasto de $617.687,00 del 28/09/2026 y la logica de ese cheque** (decision del cliente, 02/10/2026): compra en conjunto con un tercero, factura a nombre del tercero, procedimiento de CR-81. No se corrige, no se reporta, no entra en el backfill.
+- **Presupuesto (etapa 4): SALTEADO por pedido explicito del cliente** (02/10/2026). Se pasa de Arquitectura directo a Implementacion. Misma excepcion que ya se aplico en kite-punta-lara.
+- Impuesto al **credito** ($45.064,72 en septiembre) e impuesto al debito de no-cheques ($2.345,92).
+- Retencion ARBA de compras ($135.193,70 en septiembre), Impuesto de Sellos, comisiones de clearing.
+- Impuesto sobre los 29 cheques historicos ($63.472,28): el punto 14 los deja fuera por fecha de corte. Si el cliente lo quiere, es un backfill aparte con su propio QA.
+- IVA del costo de cobranza como credito fiscal (abierto desde CR-83).
+- Conciliacion automatica contra el extracto.
+
+#### Criterios de aceptacion
+
+**Frente A**
+- **CA-86.1** - Con un rango de fechas seleccionado, cada fila de tasa muestra el costo total de cobranza imputado a esa tasa en ese rango. Verificable: con 01/09 al 30/09/2026 la suma de la columna da **$1.301.077,43**.
+- **CA-86.2** - Las tarjetas por plataforma dan **Mercado Pago $768.568,20 / Payway $517.869,27 / Banco Directo $14.639,96** para 2026-09, y su suma coincide con la suma de la columna.
+- **CA-86.3** - El total de la pantalla para un mes coincide **exactamente** con el costo de cobranza que informa Rentabilidad para el mismo mes. Si difiere, una de las dos esta mal.
+- **CA-86.4** - Los 11 pagos sin `FechaAcreditacionEfectiva` ($85.742,36) quedan **dentro** del periodo que les corresponde por `Fecha`. Un periodo que los excluya falla el criterio.
+- **CA-86.5** *(ratificado 2026-10-02 en **723**; el 730 original era mio y estaba mal)* - La pantalla declara en texto cuantos pagos del periodo no tienen tasa atribuida. Sobre todo el historial son **723**. Descomposicion cerrada con QA lote 1: **730** crudos **− 6** pagos dados de baja (los agarra el filtro global de EF, `PagoVenta : SoftDestroyable`) **− 1** pago vivo de venta cancelada (el `NOT EXISTS` del servicio, MH-029) **= 723**. Los universos no se solapan: de los 4 pagos sin tasa de ventas canceladas (ids 675, 681, 714, 748), **3 ya estan soft-deleted** por el flujo de cancelacion de MH-020 y estan dentro de los 6; vivo queda solo el **675** ($678.905,78, venta 656). **MH-042 es defecto de criterio solamente: la implementacion cuenta bien.**
+- **CA-86.6** - Una tasa con vigencia cerrada antes del periodo muestra $0 **y** el rotulo explica que significa (no se lee como error).
+
+**Frente B / CR-85**
+- **CA-86.7** - Acreditar un cheque postea el movimiento de CC Proveedor y el egreso de caja con **la misma fecha**, y esa fecha es `FechaAcreditacion`. Es el criterio que CA-84.1 no podia alcanzar.
+- **CA-86.8** *(reenunciado 2026-10-02 por QA lote 2: el enunciado original medi­a la cosa equivocada)* - Despues del backfill, **0** cheques acreditados tienen el movimiento de proveedor imputado a un mes distinto del de su acreditacion. **Son 3 cheques por $1.452.133,30** (pagos 362, 407 y **339**), no los 2 por $918.799,97 del enunciado original.
+  El original medi­a **caja vs proveedor** y el backfill mide **proveedor vs acreditacion**: el pago 339 solo aparece en el segundo, y por eso se habia perdido. Dato que cierra la cuenta: de los 29 cheques acreditados, **24 tienen egreso de caja y los 24 ya lo tienen con `DATE(caja) = DATE(FechaAcreditacion)`** (cero excepciones, es herencia de CR-84); los **5 restantes no tienen egreso en absoluto** ($2.224.700,00, las exclusiones MH-036). O sea **el backfill alinea un solo ledger, el de proveedores**, y la afirmacion del implementador de que "no toca la caja" es **correcta y medida** — para 24 porque ya estan bien, para 5 porque no hay caja que tocar.
+- **CA-86.9** - La fecha de un pago ya registrado se puede corregir desde la UI para **todos** los metodos. Verificable sobre el pago 441 (Mercado Pago), que hoy no tiene camino.
+- **CA-86.10** - Acreditar un cheque de $100.000 genera un gasto de **$600,00** exactos, fechado el dia de la acreditacion.
+- **CA-86.11** *(reenunciado 2026-10-02 por QA lote 3; el enunciado original estaba mal escrito)* - Revertir la acreditacion deja el gasto del impuesto **anulado** y el total del periodo baja $600,00. Re-acreditar deja **a lo sumo un gasto VIGENTE por cheque**: puede existir una fila `Gasto` nueva, con la anterior anulada, porque el ledger es inmutable y PAT-020 prohibe borrar. El enunciado original decia "no genera un segundo gasto", que describe mal el invariante correcto y habria obligado a un `UPDATE` sobre una fila ya posteada. **Lo que no puede pasar es que haya dos gastos de impuesto vigentes para el mismo cheque, ni que el total del periodo los cuente dos veces.**
+- **CA-86.12** - Cambiar la alicuota a 1,2% con vigencia desde una fecha no altera el impuesto ya calculado de los cheques anteriores.
+- **CA-86.13** - Ningun cheque acreditado antes de la fecha de corte genera gasto de impuesto. Verificable: los 29 historicos no generan los $63.472,28.
+- **CA-86.14** *(corregido 2026-10-02: el numero del criterio estaba mal, no la implementacion)* - Los 16 cheques pendientes ($6.920.424,74), al acreditarse, generan **$41.522,56** en total. El criterio original decia $41.522,55 porque **redondeaba el total una sola vez**; el sistema redondea **por cheque**, que es lo que hace el banco (verificado 17 de 17 en el extracto). La diferencia es $0,01 y la razon es la correcta: el impuesto es un hecho por cheque, no un calculo sobre la suma. **Se verifica cheque por cheque, no contra el total.**
+
+**Saneamiento**
+- **CA-86.15** - El reporte lista los **80** gastos solapados por **$9.113.426,00**, agrupados por subcategoria, y **no anula ninguno**.
+- **CA-86.16** - El reporte de saneamiento **excluye** el gasto de $617.687,00 del 28/09/2026 y cualquier otro gasto de la subcategoria `cheque` que corresponda a una compra en conjunto con un tercero. Son cargas deliberadas del procedimiento de CR-81, no solapamientos. Verificable: el gasto id 531 no aparece en el reporte.
+
+#### Hallazgo cross-CR: el aviso de doble conteo de CR-83 es casi ciego (2026-10-02)
+
+Surgio verificando una observacion de QA lote 3 y **es mas grave de lo que ese lote reporto**. No es un defecto de CR-86: es un defecto **ya deployado** de CR-83 que CR-86 destapa.
+
+`CostoCobranzaService.PrevisualizarRecalculoAsync` (linea ~526) incluye los gastos manuales del rango para avisar del riesgo de doble conteo, con este filtro:
+```
+.Where(g => g.Categoria == CategoriaGasto.ComisionesBancarias
+```
+Medido en produccion, los gastos manuales de comisiones/bancarios vigentes:
+
+| Categoria | Gastos | Monto |
+|---|---|---|
+| `Otro = 6` | **120** | **$11.479.487,00** |
+| `ComisionesBancarias = 7` | **1** | $50.000,00 |
+
+**El aviso ve 1 de 121 gastos, el 0,4% del monto.** El cliente nunca cargo estos gastos en la categoria "Comisiones bancarias" que CR-62 creo para ellos: los carga en `Otro` y los distingue por la **subcategoria** de texto libre ("Gastos Bancarios PCIA y payway", "COMISIONES BANCO GALICIA", "cobro cheque"...).
+
+**Esto reinterpreta MH-039.** QA habia escrito que en el recalculo *"la pantalla avisaba en rojo con el monto y se cumplio al 93%"*. El 93% es sobre el universo que la pantalla **podia** ver, que era de 1 gasto. El universo real era de 121. **El aviso no fallo por poco: no estaba mirando.**
+
+Consecuencias:
+- El **reporte de saneamiento de CR-86 agrupa por subcategoria, no por categoria**, y por eso si encuentra los 80 gastos / $9.113.426,00. Esa decision del implementador queda **ratificada**: era la unica forma de ver el universo real.
+- El filtro de `PrevisualizarRecalculoAsync` **hay que corregirlo**, y no es alcance de CR-86. Queda levantado como **CR-87**.
+- Refuerza `AC-86.4` (la fecha de corte por vigencia de alicuota): era la defensa correcta justamente porque la defensa por aviso no funciona.
+
+#### Correcciones de criterio surgidas de QA (2026-10-02)
+Tres criterios de este CR estaban mal **escritos por el analista**, no mal implementados. Se reenuncian arriba y queda registrado para la calibracion del metodo:
+- **CA-86.14** redondeaba el total una vez en vez de por cheque ($0,01). El impuesto es un hecho por cheque.
+- **CA-86.11** pedia "no genera un segundo gasto", que contradice PAT-020 (el ledger no se edita). El invariante correcto es "a lo sumo un gasto **vigente**".
+- **CA-86.5** pedia 730 pagos sin tasa, numero que incluia **6 pagos dados de baja**. **Ratificado en 723** (730 − 6 soft-deleted − 1 de venta cancelada).
+- **CA-86.8** medi­a caja-vs-proveedor cuando el backfill mide proveedor-vs-acreditacion, y por eso se perdia el pago 339: son **3 cheques / $1.452.133,30**, no 2 / $918.799,97.
+
+**Leccion:** un criterio con un numero exacto es la mejor herramienta de QA que tiene este metodo, y por eso un numero mal derivado cuesta una corrida. **Cuatro de los 16 criterios de este CR tenian el numero o el enunciado mal**, y los cuatro por la misma causa: se derivaron midiendo rapido en SQL sin replicar lo que el codigo hace de verdad — el filtro global de soft-delete que EF agrega solo, la exclusion de ventas canceladas, el redondeo por fila en vez de sobre el total, y cual par de ledgers se esta comparando.
+
+**Regla que vale para cualquier proyecto (candidata al catalogo cross-proyecto):** un numero de criterio derivado en SQL crudo sobre una entidad con `HasQueryFilter` **no es el numero que el usuario va a ver**. Hay que sumarle a mano los filtros globales (soft-delete y cualquier otro), o derivarlo por el mismo camino que el codigo. QA lote 1 cayo en el mismo error desde el otro lado (midio 726) y lo reconocio: es un pozo del metodo, no de una persona.
+
+#### Reglas de negocio
+- **RN-86.1** - El impuesto de la Ley 25.413 lo cobra el banco el dia del debito en camara. En el sistema, ese dia es `Cheque.FechaAcreditacion`. Ninguna otra fecha describe el hecho.
+- **RN-86.2** - Un gasto de impuesto no existe sin el cheque que lo origina: se crea con el, se anula con el, y nunca se duplica.
+- **RN-86.3** - La alicuota con la que se calculo un impuesto no se reescribe. El costo de un cheque viejo tiene que seguir siendo explicable con la tasa que estaba vigente ese dia.
+- **RN-86.4** - Una pantalla de configuracion que empieza a mostrar hechos consumados tiene que rotular los dos planos. El numero dice que midio y de que universo (corolario de MH-033 / CA-84.10).
+
+#### Riesgos actualizados
+- **R-CR86.1 (elevado a ALTO, con monto)** - Doble conteo contra $5.691.530,00 en 58 gastos de "Gastos Bancarios PCIA y payway" que llegan hasta agosto 2026. Mitigacion: fecha de corte (punto 14) + reporte de saneamiento (punto 16). **Sin la fecha de corte este CR empeora los numeros del cliente.**
+- **R-CR86.2 - CERRADO por D4.** CR-85 entra adentro; el frente B se construye sobre la fecha corregida.
+- **R-CR86.6 (nuevo)** - El punto 9 (backfill de 29 cheques) reescribe fechas de un ledger que se declaro inmutable. Es la misma naturaleza que CR-84, que necesito **4 corridas de QA y 4 defectos** para cerrar. Es la parte cara del sprint y la que decide el presupuesto, no el frente A.
+- ~~**R-CR86.7**~~ - **RETIRADO 2026-10-02.** Se habia declarado un error de datos activo por el gasto de $617.687; la verificacion contra la base lo desmiente (un solo egreso, ningun `Cheque` asociado) y el cliente confirmo que la carga es intencional. **Leccion para el metodo: un gasto que "parece" un cheque mal cargado puede ser el procedimiento documentado de CR-81. Verificar contra `Cheques` antes de llamarlo doble conteo.**
+- **R-CR86.3** - Se mantiene: el alcance cubre el 95% del impuesto al debito y 0% del impuesto al credito. El rotulo lo tiene que decir.
+
+#### Condicion de paso a Diseno
+Cerrado. Las 4 preguntas estan respondidas, P-CR86.4 se respondio con datos de produccion, y el alcance incorpora lo que esa medicion destapo (puntos 14, 16 y 17). **Diseno arranca por el frente B/CR-85** (es el que condiciona al resto) y debe escanear `docs/patrones/cat_resumen.txt` antes de proponer pantalla nueva: el filtro de periodo y el totalizador por grupo ya existen en cuatro pantallas del propio proyecto.
+
+
+## CR-85 — El ledger asienta los cheques por vencimiento, no por el día en que salió el dinero
+
+**Estado:** Discovery CERRADO 2026-09-30, con impacto medido por QA contra producción y **levantado formalmente** como condición del GO de CR-84. **No entra en el sprint de CR-84**: toca el camino en vivo que ya está deployado. Pendiente de Diseño, Arquitectura y presupuesto.
+
+Evidencia adicional de la verificación independiente de QA (corrida 4): los **2 únicos** pagos que el backfill de CR-84 deja imputados a un mes distinto al del ledger hermano son precisamente los dos que este CR explica — pago **407** ($564.799,96: caja 25/09 por la acreditación, proveedor 23/10 por el vencimiento, acreditado 28 días *antes* de vencer) y pago **362** ($354.000,01: caja 01/09, proveedor 31/08). En los dos, el egreso de caja queda en el mes **correcto** y es el movimiento de proveedor el mal fechado, lo que aísla el problema en este CR y no en CR-84.
+
+### El supuesto que resultó falso
+`ChequeService.AcreditarAsync` postea el movimiento de la cuenta corriente del proveedor con `cheque.FechaVencimiento`, y el comentario del código lo justifica así: *"Fecha = vencimiento del cheque (cuando realmente salio el dinero)"*. El supuesto es falso en la práctica, porque el Administrador acredita el cheque cuando lo ve debitado en el extracto, que no es el día del vencimiento.
+
+### Impacto medido (QA, contra la base de producción, 30/09/2026)
+- **27 de los 29 cheques acreditados** tienen vencimiento distinto al día de acreditación: **$9.745.379,65, el 92% del monto**. Desvío promedio 2,56 días, máximo 17.
+- **3 cheques por $1.452.133,30 cruzan de mes**, así que quedan imputados a un período que no es el suyo.
+- El pago **407** se acreditó **28 días antes** de vencer: el ledger asienta en octubre plata que salió en septiembre.
+- Caso que lo destapó: pago **364**, cheque #30, $495.200,00 — venció el 05/08 y se acreditó el 22/08, doce días después del ajuste de apertura que supuestamente lo contenía.
+
+### Dónde duele
+1. **Conciliación por fecha.** Es el punto 4 del alcance de CR-84 (comparar el flujo mensual del ledger contra el extracto de una cuenta). Con el 92% del monto de cheques asentado en una fecha aproximada, el mes no cierra contra el banco por construcción.
+2. **`ProyeccionFinancieraService`.** Proyecta los cheques por vencimiento y después los asienta por vencimiento, así que el sistema **nunca registra cuándo salió la plata**: no hay forma de medir el desvío entre lo proyectado y lo real, que es justamente para lo que sirve una proyección.
+3. **La regularización de CR-84** tuvo que resolverlo por su cuenta (ver la excepción de CA-84.1 y el defecto MH-038): el egreso de caja va a llevar la fecha correcta, `Cheque.FechaAcreditacion`, y el movimiento de proveedor va a seguir con el vencimiento. El resultado es que los dos ledgers difieren en esos casos — no por un defecto de CR-84, sino como síntoma de este problema.
+
+### Alcance inicial propuesto
+1. El movimiento de proveedor de un cheque se postea con **`Cheque.FechaAcreditacion`** (el dato ya existe y ya se guarda), no con el vencimiento.
+2. Corrección retroactiva de los 27 movimientos ya posteados, con el criterio de inmutabilidad del ledger que corresponda — probablemente corrección en el lugar de la fecha, como ya hace `ActualizarFechaPagoAsync`, y no un par de contramovimientos, porque no cambia ningún importe.
+3. Revisar `ProyeccionFinancieraService` para que el desvío entre el vencimiento proyectado y la acreditación real sea medible.
+4. Revisar el comentario del código que afirma lo contrario, para que no vuelva a inducir el error.
+5. **`GastoService.AnularAsync` no pasa fecha** al contramovimiento, así que usa el default `DateTime.UtcNow`. Encontrado en vivo el 2026-09-30 durante la regularización: la corrida se hizo a las 21:55 de Argentina, que en UTC ya es 00:55 del día siguiente, y los 12 contramovimientos quedaron fechados **01/10/2026** mientras los gastos que revierten eran de septiembre — el mes quedaba con el costo contado dos veces y octubre con un crédito ajeno. Se corrigieron a mano. La reversión de un hecho se fechea con el hecho que revierte, no con el momento de la acción, y el proyecto tiene `HorarioArgentino` (PAT-010) sin usar en este método. Impacto histórico medido: ninguno, porque ventas y gastos se cargan con fecha elegida por el usuario; el riesgo está en todo lo que postea con el default.
+
+### Riesgo
+Toca el ledger financiero en vivo y mueve de mes $1.452.133,30 ya asentados, así que cambia números que el cliente ya vio. Requiere QA sobre la corrección retroactiva con el mismo cuidado que el backfill de CR-84 — que en tres corridas acumuló un defecto crítico y dos de alta severidad, todos de fecha o de alcance de filtro.
+
+### Observaciones declaradas al cerrar el backfill (QA corrida 4, 0 casos en producción hoy)
+Dos asimetrías que no cambian comportamiento hoy pero que conviene tener escritas, porque el día que aparezca un caso van a ser difíciles de encontrar:
+
+1. **Navegación a entidad soft-deletable en el camino del backfill.** Las acreditaciones se traen con `IgnoreQueryFilters` (correcto: `Cheque` hereda `SoftDestroyable` y una navegación habría hecho un INNER JOIN filtrado que saca del backfill los pagos con cheque dado de baja), pero `p.OrdenCompra!.Estado` sigue siendo una navegación con filtro global, así que los pagos de una OC dada de baja **se caen en silencio**. Probablemente deban quedar afuera, pero es una decisión y el código tiene que declararla. Medido: 0 cheques dados de baja, 0 OC dadas de baja con pagos Pagado, 0 proveedores dados de baja — o sea que hoy `IgnoreQueryFilters` rescata 0 pagos y no hay que confiar en la corrida por ese motivo.
+2. **`ActualizarFechaPagoTransferenciaAsync` no mantiene `FechaPagoTentativa`.** Corrige el documento y los dos ledgers, pero no ese campo, que es el que el backfill prefiere para un pago programado confirmado. Con 0 casos hoy, pero si aparece uno el backfill va a usar una fecha vieja. Corolario generalizable, que quedó en el catálogo con MH-038: un campo que *es* la fecha del hecho deja de serlo si otro camino de escritura no lo mantiene.
+
+### Decisión pendiente del cliente antes de correr la regularización
+**El pago 441** (Mercado Pago, $581.358,96, OC 80) es la excepción de MH-037: forma parte de los lotes cargados el 30/09 con fecha del día, y **Mercado Pago no tiene camino de corrección de fecha en la UI** (`ActualizarFechaPagoTransferenciaAsync` sólo cubre Transferencia). Su fecha del 30/09 quedaría congelada en los dos ledgers. Los otros 14 pagos del lote sí son corregibles después, y desde CR-84 la corrección cascadea a los dos ledgers, así que para ellos la advertencia en pantalla alcanza. Para el 441 hay tres caminos: corregirlo a mano antes de correr, aceptar la fecha explícitamente, o que CR-85 extienda la corrección de fecha a los demás métodos de pago.
+
+### Regla cross-proyecto asociada
+**MH-038**, propuesta por QA para `32-estandares-qa-implementador.instructions.md`: la fecha con la que un ledger asienta un hecho no siempre es la fecha del hecho. Chequeo barato antes de elegir el campo: `AVG(DATEDIFF)` de cada fecha candidata contra la que representa el hecho real, más el conteo de los registros que cruzan el fin de mes.
+
+
+## CR-84 — La caja del local pasa a ser tesorería real: pagos a proveedores dentro, saldo agrupado y cuenta como atributo
+
+**Estado:** Discovery CERRADO 2026-09-30. Las dos decisiones de fondo ya las tomó el cliente. Diseño, Arquitectura y Presupuesto pendientes.
+
+### Las dos decisiones del cliente (2026-09-30)
+1. **Los pagos a proveedores impactan en la cuenta corriente del local.** Decisión textual del cliente, pedida además como regla de desarrollo para todos los sistemas del estudio — quedó registrada como **MH-033** en `32-estandares-qa-implementador.instructions.md` y en `docs/qa/regresiones-manuales.yml`.
+2. **Hay que crear las distintas cuentas.** El cliente preguntó si del extracto se podía concluir que todo el dinero termina en la cuenta bancaria principal, y planteó que si no, había que separar cuentas. La verificación con datos dice que **no consolida** (evidencia abajo), así que se crean. Regla derivada: **MH-034**.
+
+### Por qué: el saldo actual no es un saldo de caja
+`MovimientoCCLocal.OrigenTipo` sólo admite `"Venta"` y `"Gasto"`. Los `PagoOrdenCompra` van únicamente a `MovimientoCCProveedor`, así que las compras pagadas no bajan el saldo de la caja. Medido en producción al 30/09/2026:
+
+| | |
+|---|---|
+| Saldo que muestra la CC Local | **$16.250.558,95** |
+| Pagos a proveedores desde el ajuste de apertura del 10/08/2026, ausentes del ledger | **−$23.750.495,09** |
+| Saldo real descontando las compras pagadas | **−$7.499.936,14** |
+
+Desglose de esos pagos: cheque $10.578.712,98 · transferencia $9.797.494,07 · Mercado Pago $2.954.356,72 · efectivo $419.931,32 (74 pagos). El saldo da negativo porque en esas siete semanas el negocio compró más de lo que vendió y lo financió con aportes de los socios y con el capital de trabajo que el ajuste de apertura del 10/08 borró al llevar el saldo a $0.
+
+El riesgo concreto que esto ya produjo: el cliente leyó los $16.250.558,95 como plata disponible y pidió cuadrarlos contra el extracto bancario, lo que habría significado postear un egreso de **$16.201.179,73** sin causa económica, destruyendo la información de la caja en efectivo, de Mercado Pago y de lo que Banco Carrefour todavía no liquidó.
+
+### Por qué: el negocio NO consolida en una cuenta principal
+Antes de modelar la dimensión cuenta se verificó con el extracto real si el negocio barre todo al Banco Provincia. **No lo hace**, con tres evidencias independientes:
+
+1. **La cuenta estuvo 14 de 30 días en descubierto** en septiembre, con un mínimo de **−$148.518,32** y $182,65 de intereses cobrados. Una cuenta que concentrara los cobros de un negocio que mueve $23,7M no opera en descubierto la mitad del mes.
+2. **Brecha de $4.196.000,06.** En septiembre se cobraron **$9.129.000,06** por canales que no son el Provincia (Mercado Pago $1.574.000 · tarjeta a 9 y 12 cuotas que liquida por MP $3.271.000 · Banco Carrefour $3.245.002,09 · transferencias de clientes $609.997,97 · débito $429.000) y sólo entraron **$4.933.000,00** de transferencias y depósitos.
+3. **Saldo máximo del mes: $1.022.746,16.** La cuenta no acumula: se fondea justo para cubrir el cheque que vence y vuelve a cero.
+
+Nota de honestidad sobre la lectura de las entradas: las 19 transferencias y depósitos que entran al Provincia figuran a nombre de Marcos Valentín Mari (CUIT 20331136132) y María Belén Cali (CUIT 27393358705). **Del extracto no se puede distinguir si son aportes de capital o barridos de la cuenta de Mercado Pago del titular** — una transferencia de MP a una cuenta bancaria propia aparece con el nombre del titular, no con el de Mercado Pago. En el análisis previo se las llamó "aportes de socios"; la lectura correcta es "entradas de fondos del titular, de origen no determinable desde el extracto". No cambia la conclusión (no alcanzan a cubrir lo cobrado por fuera), pero sí cambia lo que se puede afirmar. **A confirmar con el cliente**: es el dato que decide si la cuenta de Mercado Pago se fondea y se barre, o acumula.
+
+### Mapa de cuentas (respuestas del cliente, 2026-09-30)
+El cliente confirmó: **cada cuenta acumula su propio saldo y de ahí se pagan los gastos**; no hay barrido automático al banco. Y la cuenta de cada movimiento **se deriva de la forma de pago**, no de una regla fija por tipo de documento — lo confirmó explícitamente para las compras: las pagadas por Mercado Pago ($2.954.356,72 en el período) salen del saldo de MP, no del banco. La frase "las compras siempre salen de la cuenta bancaria" describe el caso mayoritario (cheque $10.578.712,98 + transferencia $9.797.494,07 = 86%), no una invariante.
+
+| Cuenta | Qué entra | Qué sale |
+|---|---|---|
+| **Caja (efectivo)** | cobros en efectivo | gastos y compras en efectivo · depósitos al Provincia |
+| **Mercado Pago** | cobros por MP · tarjeta de crédito procesada por MP (9 y 12 cuotas) | gastos y compras pagados por MP |
+| **Banco Provincia** 5020-50461/8 | liquidaciones de Payway · transferencias de fondeo · depósitos de efectivo | cheques y transferencias a proveedores · débitos automáticos · impuestos y cargos bancarios · pago del resumen de la tarjeta propia |
+| **Banco Carrefour** | liquidaciones de Banco Carrefour (confirmado: liquida a su propia cuenta) | a relevar |
+| **Tarjeta de crédito VISA propia** | — | consumos cargados hoy como gasto con forma de pago "Débito automático" ($347.000 en septiembre); se cancela con el pago del resumen desde el Provincia ($255.501,70 en septiembre, hoy sin cargar) |
+
+### La única pregunta abierta del mapa: dónde entran las transferencias de clientes
+El cliente respondió "Banco Provincia", pero **el extracto lo desmiente**: las 4 transferencias de clientes de septiembre ($119.998,99 · $290.000,00 · $79.999,99 · $119.998,99, total $609.997,97) **no aparecen en ninguna de las 19 entradas del mes**. Y las 19 entradas son todas de importes redondos a nombre de Marcos Valentín Mari o María Belén Cali, mientras dos de esos cobros tienen centavos ($119.998,99, $79.999,99) — la firma de una venta con descuento, no de una transferencia armada a mano.
+
+Hipótesis a confirmar con el cliente: **los clientes transfieren a una cuenta personal** (de Marcos o de María Belén) y desde ahí el dinero se pasa al Provincia en montos redondos consolidados. Eso explicaría de una vez las 19 entradas, el que ninguna coincida con un cobro individual, y el que la cuenta se fondee justo para cubrir el cheque que vence. Si es así, el catálogo necesita una **cuenta de tránsito personal** o la decisión explícita de no modelarla y registrar esos cobros directo en el Provincia, aceptando que no se van a poder conciliar contra su extracto.
+
+Mientras no se resuelva, el saldo por cuenta del Banco Provincia va a quedar sobrestimado en el monto de las transferencias de clientes, y el de la cuenta de tránsito no va a existir.
+
+### Alcance, después de la decisión del cliente (2026-09-30): saldo agrupado, sin cajas separadas
+El cliente descartó partir la caja por cuenta, con este argumento textual: *"no sé si haría división por caja de tipo de cuenta porque después esa plata se mueve para algún lado sin contabilizarla en el sistema, prefiero que esté todo agrupado"*. **Es la decisión correcta y el argumento es más fuerte de lo que él lo planteó:** con un saldo agrupado los traspasos entre cuentas propias se anulan (sale de una, entra a la otra, neto cero), así que el hecho de que nadie los cargue deja de ser un problema. Partirlo en cajas con saldo propio haría que cada traspaso no registrado descuadre dos cajas a la vez. Esto refinó la regla cross-proyecto **MH-034**, escrita unas horas antes en la dirección opuesta.
+
+Consecuencia sobre el alcance: se cae el punto de las cajas separadas y el de los movimientos de traspaso, y el CR queda considerablemente más chico.
+
+1. `MovimientoCCLocal.OrigenTipo` gana **`"PagoOC"`**, y los pagos de orden de compra postean **en los dos ledgers en la misma transacción**: `Pago` en la CC del proveedor (baja la deuda) y `Egreso` en la caja (sale la plata). Es el núcleo del CR y la decisión de negocio ya tomada.
+2. La **cuenta** queda como **atributo del movimiento para filtrar y conciliar**, nunca como caja con saldo propio. Para gastos y compras se deriva de la forma de pago, que ya existe; para las ventas con tarjeta, del procesador que agrega CR-83. El campo nuevo es chico o directamente innecesario: hay que evaluar si conviene persistirlo o derivarlo en la consulta.
+3. **Saldo inicial por cuenta, cargado una vez.** Es el paso que convierte el número en tesorería real y no estaba en el alcance original. El ajuste de apertura del 10/08/2026 llevó el saldo a $0 y borró el capital de trabajo de ese día: con las compras y los gastos faltantes ya cargados el saldo agrupado daría **−$7.846.236,79**, negativo por el punto de partida y no por el negocio.
+4. Conciliación **por flujo, no por saldo**: filtrando el período por una cuenta, comparar el flujo contra el extracto de esa cuenta. Con saldo agrupado el saldo no es comparable contra ningún extracto, y el reflejo de compararlo es el error a evitar.
+5. Backfill de los datos históricos. **Punto delicado**: 655 de los 1.273 movimientos del ledger no tienen `PagoVentaId` (posteo único por el total de la venta, previo a CR-36), así que para esos la cuenta no se puede derivar. Con la decisión de saldo agrupado esto pierde gravedad: afecta el filtro por cuenta, no el saldo.
+
+### Inventario de salidas de dinero — cerrado
+Confirmado con el cliente que **los retiros para uso personal se cargan como gasto**. Con eso el inventario de salidas está completo y no queda ninguna categoría de egreso fuera del sistema: ventas (entrada), compras de mercadería, gastos operativos, retiros personales, costo de cobranza (CR-83) e impuestos y cargos bancarios. La única pieza faltante para que el saldo agrupado sea tesorería real es el saldo inicial del punto 3.
+
+### Criterios de aceptación
+Escritos el 2026-09-30 **después** de la implementación del punto 1, a pedido de QA, que marcó su ausencia como bloqueo de proceso en la primera corrida ("CR-84 no tiene criterios de aceptación escritos"). Tenía razón: el Discovery se cerró y se delegó la implementación sin pasar por acá, apurando el pedido del cliente de "implementar todo". Queda registrado como desvío del flujo, no como olvido silencioso.
+
+**CA-84.1 — Un pago a proveedor postea en los dos ledgers, con la misma fecha y el mismo monto.**
+Todo `PagoOrdenCompra` que represente una salida real de dinero genera, **en la misma transacción**, un `Pago` en `MovimientoCCProveedor` (baja la deuda) y un `Egreso` en `MovimientoCCLocal` (sale la plata), con `OrigenTipo="PagoOC"` y `OrigenId = pago.Id`. Los dos movimientos comparten fecha e importe, y el importe es **el del documento** (`pago.Monto`), nunca la suma de lo que haya en el ledger hermano — que puede tener más de un movimiento por razones históricas. La invariante vale en los cuatro caminos de fecha que existen: pago al contado, pago programado confirmado (fecha real de la acción, MH-021), cheque acreditado (fecha de vencimiento del cheque) y corrección posterior de fecha.
+
+**Excepción acotada, declarada 2026-09-30:** en la regularización retroactiva (CA-84.8) el egreso de un **cheque histórico cuyo vencimiento difiere de la fecha de pago** queda con fecha distinta a la del movimiento de proveedor, porque el piso y la fecha del egreso salen los dos de `PagoOrdenCompra.Fecha`. Se privilegia la coherencia interna del backfill sobre espejar una fecha que en el origen es el vencimiento y no el hecho: con el vencimiento, el egreso quedaría fechado antes del piso que dice contenerlo. El camino en vivo no tiene esta excepción. **Detrás de esto hay un problema de fondo que NO es de este CR:** `ChequeService.AcreditarAsync` postea el movimiento de proveedor con `cheque.FechaVencimiento` bajo el supuesto de que ahí "realmente salió el dinero", y el pago 364 lo desmiente — venció el 05/08 y se acreditó el 22/08, así que el dinero salió doce días después de la fecha con la que quedó asentado. Afecta cualquier conciliación por fecha y la proyección financiera. QA lo midió y **amerita CR propio: es CR-85**, más arriba en este documento. Consecuencia para este criterio: con MH-038 corregido, el egreso de caja va a llevar la fecha **correcta** (`Cheque.FechaAcreditacion`) y el movimiento de proveedor va a seguir con una **aproximada** (el vencimiento), así que CA-84.1 **no es alcanzable en el backfill** mientras CR-85 no se implemente. No es defecto de CR-84: es el síntoma. El criterio se cumple íntegro en el camino en vivo.
+
+**CA-84.2 — Un solo método de dominio escribe el egreso.**
+Los tres puntos de alta (`PagoOrdenCompraService.RegistrarPagosAsync`, `ConfirmarPagoAsync`, `ChequeService.AcreditarAsync`) delegan en un único servicio (CRM-001). Ningún punto arma el movimiento por su cuenta.
+
+**CA-84.3 — Recibir mercadería no mueve la caja.**
+El `Cargo` que se postea al recibir una OC registra una deuda, no una salida de dinero: no genera ningún movimiento en la CC Local. Sólo los pagos lo hacen.
+
+**CA-84.4 — Un pago que nunca salió no postea, y la reversión se acota a lo posteado.**
+Un pago Pendiente (programado a futuro, o con cheque sin acreditar) no genera egreso. Al cancelar una OC o revertir un cheque acreditado (CR-82), el contramovimiento va por `Σ Egreso no-reversión − Σ Ingreso reversión` de los movimientos `PagoOC` de ese `OrigenId` (MH-020), nunca por el monto recalculado, y no se duplica si las dos acciones ocurren en cualquier orden.
+
+**CA-84.5 — Un cheque rechazado no toca la caja.**
+`ChequeService.RechazarAsync` no postea ni revierte nada: un cheque sólo se rechaza desde Pendiente y un cheque Pendiente nunca posteó el pago real (CR-46).
+
+**CA-84.6 — Corregir la fecha de un pago corrige los dos ledgers.**
+La corrección de la fecha real de un pago actualiza el movimiento de CC Proveedor **y** el egreso de caja en la misma operación. El mismo hecho no puede quedar imputado a dos meses distintos según el ledger que se mire.
+
+**CA-84.7 — Un pago de un documento cancelado no aparece en la CC Local.**
+La exclusión de documentos cancelados del listado de CC Local cubre `PagoOC` igual que `Venta` y `CostoCobranza`. Cancelar una OC no puede ocultar el movimiento de un lado y dejarlo visible del otro. Ojo con la diferencia estructural: en `PagoOC` el `OrigenId` es el id del **pago**, no del documento, a diferencia de `"Venta"`.
+
+**CA-84.8 — La regularización es idempotente, acotada, y aplica exactamente lo que muestra.**
+La carga retroactiva de los egresos históricos (a) se acota al período **posterior al ajuste de apertura**, cuyo Egreso ya contiene el neto de todo lo anterior — derivando el piso del propio movimiento `AjusteApertura`, no de una fecha hardcodeada, y aplicándolo sobre **`PagoOrdenCompra.Fecha`, la fecha del documento, nunca la del movimiento del ledger hermano**. Motivo, medido en producción: el movimiento de un pago con cheque lleva la fecha de **vencimiento** del cheque, que puede ser anterior al ajuste aunque el cheque se haya acreditado después (caso real: pago 364, cheque #30, $495.200,00, movimiento fechado 05/08 y acreditación el 22/08). Con el piso sobre el movimiento el backfill da 73 pagos / $23.255.295,09 y no reproduce el rubro cheque; sobre la fecha del documento da los 74 / $23.750.495,09 correctos. Por la misma razón, el egreso de esos pagos se postea con la **fecha de pago** y no con la del movimiento, para que no quede fechado antes del piso que dice contenerlo; (b) es idempotente por saldo neto y no por un flag; y (c) usa **la misma consulta** en la previsualización y en la confirmación, para que el número que se muestra sea el que se aplica por construcción. Objetivo de contraste al 30/09/2026: **74 pagos y $23.750.495,09 del período reconstruido**, que no es el monto a postear — de ahí salen 69 pagos por $21.525.795,09 incorporados más 5 por $2.224.700,00 excluidos por tener el ledger hermano sucio. Por eso el panel "por método" muestra el rubro cheque en $8.354.012,98 y no en $10.578.712,98: los 5 excluidos son todos cheques, y las dos cifras son correctas ($8.354.012,98 + $2.224.700,00 = $10.578.712,98). La identidad que la pantalla debe imprimir y que tiene que cerrar en cualquier momento, incluso tras una corrida parcial, es **ya posteado + pendiente + excluido = total del período**. Saldo resultante esperado −$7.499.936,14.
+
+**CA-84.9 — La previsualización advierte los lotes con fecha dudosa.**
+Antes de confirmar, la pantalla lista los pagos cargados en lote con fecha igual al día de carga (varios con el mismo `CreatedAt` al microsegundo), con su monto, porque la regularización congela esa fecha en los dos ledgers y después corregirla es más caro. Caso que originó el criterio (cifras corregidas por QA en la corrida 2; la primera versión de este criterio decía "14 transferencias por $6.382.868,96", que salía de agrupar por día y método en vez de por sesión de carga): **13 pagos por $6.382.868,84** con `CreatedAt = 2026-09-30 15:02:43.059807` y **2 pagos por $581.359,08** con `CreatedAt = 2026-09-30 15:27:28.346518`, sobre órdenes de compra viejas. El agrupamiento correcto es por sesión de carga (mismo `CreatedAt` al microsegundo), no por día. El sistema no puede inferir la fecha real: es un dato de negocio, así que advierte y no bloquea.
+
+**CA-84.10 — El rótulo del saldo dice lo que el saldo mide.**
+Mientras el saldo inicial no esté cargado (punto 3 del alcance), ninguna pantalla llama "Saldo actual" ni "disponible" a un número que no es la plata que hay. Es el corolario de MH-033: la ambigüedad se resuelve en el rótulo, no en la cabeza del usuario. Se levanta cuando se cargue el saldo inicial.
+
+
+### Dependencias y riesgos
+- **Depende de CR-83**, que aporta el procesador por línea de pago: la cuenta donde cae una venta con tarjeta se deriva de ahí (Payway → Banco Provincia, Mercado Pago → cuenta de MP). Sin eso la cuenta de destino de la mitad de los ingresos es indeterminable.
+- El backfill es el punto delicado: **655 de los 1.273 movimientos históricos del ledger no tienen `PagoVentaId`** (posteo único por el total de la venta, previo a CR-36), así que para esos no hay forma de derivar la cuenta. Hay que decidir si se les asigna una cuenta "sin determinar" o se los deja fuera del saldo por cuenta.
+- Es el CR más grande de la etapa 2 y toca el ledger de caja, que es el núcleo financiero del sistema. No conviene meterlo en el mismo sprint que CR-83.
+
+### Fuera de alcance (propuesto)
+- Importación automática de extractos bancarios.
+- Conciliación automática; este CR habilita la conciliación manual por cuenta, que hoy es imposible.
+
+## CR-83 — Comisiones de plataformas de pago e impuestos bancarios calculados por venta
+
+**Estado:** Discovery + Análisis CERRADOS 2026-09-30 (las 3 decisiones de negocio resueltas por el cliente, ver abajo). Diseño y Arquitectura cerrados. Presupuesto pendiente de aprobación del cliente antes de Implementación.
+
+### Pedido del cliente (2026-09-30)
+Que el sistema calcule, por cada venta, la comisión de la plataforma de pago y los impuestos bancarios que esa cobranza genera, con las tasas reales en vez de un gasto redondo cargado a mano. Recalcular septiembre 2026 con los valores calculados e insertar el ajuste retroactivo si es viable. El objetivo declarado es automatizarlo de ahí en adelante: "la idea es automatizar esto por cada venta que se hace".
+
+### Origen: la conciliación del extracto del Banco Provincia de septiembre 2026
+El pedido sale del cruce del extracto `docs/consultaMovimientos.xls` (cuenta 5020-50461/8, 183 movimientos del 01/09 al 30/09) contra la base de producción. Lo que mostró ese cruce:
+
+- El costo de cobranza **no está en el sistema con importes reales**. Hay 14 gastos de categoría `ComisionesBancarias` en septiembre por **$1.561.000** cargados a mano en montos redondos ($3.000, $138.000, $112.000, $25.000, $85.000, $18.000, $40.000, $100.000 con subcategoría "gastos payway pcia" = $521.000; y $380.000, $333.000, $17.000, $50.000, $260.000 con "gastos y comisiones mp" = $1.040.000).
+- Los **impuestos bancarios reales** del mes no están cargados en ninguna forma: retención ARBA $124.028,60 · Ley 25413 débitos $43.756,50 · Ley 25413 créditos $41.342,99 · contracargos VISA $24.326,84 · intereses $182,65 · clearing $101,00 · sellos $4,24. Menos la compensación de saldos a favor ($11.498,14), **$222.244,68 netos**.
+- La **comisión de la plataforma no es observable en el extracto**: el banco acredita "PAGOS A COMERCIOS VISA/MASTERCARD" ya neto de comisión, IVA y retenciones, sin desglosar. Los $2.553.499,76 acreditados en septiembre son netos. Por eso la comisión hay que *calcularla* con las tasas, que es exactamente lo que pide este CR — no se puede extraer del extracto.
+- La rentabilidad del sistema (`IRentabilidadService`, CR-80) es Ventas − Costo de mercadería. **No descuenta el costo de cobranza**, así que una venta en 12 cuotas por Mercado Pago muestra hoy el mismo margen que una en efectivo, cuando la diferencia real es del 23,58%.
+
+### Tasas de referencia disponibles
+De la memoria del proyecto (`project-costos-mercadopago`, tasas especiales negociadas por el cliente, vigentes al 30/09/2026):
+
+| Medio | Mercado Pago | Payway |
+|---|---|---|
+| Crédito 1 pago | 4,08% (acred. 21 días) | 2,0% presencial/QR · 3,0% e-commerce |
+| Crédito 2 cuotas | 8,48% | 2,0% + costo financiero |
+| Crédito 3 cuotas | 10,28% | 2,0% + costo financiero |
+| Crédito 6 cuotas | 14,38% | 2,0% + costo financiero |
+| Crédito 9 cuotas | 19,38% | 2,0% + costo financiero |
+| Crédito 12 cuotas | 23,58% | 2,0% + costo financiero |
+| Crédito 18 cuotas | 30,18% | 2,0% + costo financiero |
+| Débito | 2,88% (2 días) | 1,2–1,4% |
+| Prepaga | 3,68% (3 días) | — |
+| Pix / transferencia | 3,40% al instante | 0,8% |
+
+Del extracto, los impuestos bancarios sobre cada acreditación, verificados línea por línea (ej. 30/09: transferencia de $130.000 genera ARBA $2.340 + Ley 25413 $780):
+- **Retención ARBA (IIBB): 1,8%** sobre el crédito.
+- **Impuesto Ley 25413: 0,6%** sobre el crédito (y otro 0,6% sobre cada débito).
+
+Nota de la memoria, a respetar: las tasas de MP "cambian seguido" y "el arancel sube si se acorta el plazo de acreditación; los cargos varían por provincia". Implica que los porcentajes van a base de datos configurable, nunca hardcodeados — mismo criterio que ya fijó CR-40 con `ConfiguracionCuotaTarjeta`.
+
+### Hallazgo bloqueante: el sistema no sabe por qué plataforma se cobró
+`PagoVenta.Metodo` distingue el *medio* (TarjetaCredito, TarjetaDebito, MercadoPago, Transferencia, Efectivo, BancoCarrefour) pero **no el procesador**. Un pago con TarjetaCredito puede haber pasado por el Point de Mercado Pago o por la terminal Payway del Banco Provincia, y la tasa difiere en un factor de 8,7x. Calculado sobre los $5.210.600 de tarjeta de crédito de septiembre (11 pagos: 1 cuota $33.000 · 3 cuotas $614.000 · 6 cuotas $2.150.600 · 9 cuotas $900.000 · 12 cuotas $1.513.000):
+
+| Escenario | Comisión calculada |
+|---|---|
+| Todo por Mercado Pago | **$904.907,28** |
+| Todo por Payway | **$104.212,00** (más el costo financiero de cuotas, coeficiente no público) |
+
+Hay evidencia de que en la práctica se usan **las dos**: los $1.040.000 que el cliente cargó a mano como "comisiones mp" se parecen mucho a los $904.907 que da el cálculo de MP para toda la tarjeta de crédito, pero al mismo tiempo el extracto del Provincia muestra 9 liquidaciones "PAGOS A COMERCIOS VISA/MASTERCARD" por $2.553.499,76, que sólo existen si hay volumen real por Payway. Sin el dato del procesador por pago, cualquier cálculo automático es una adivinanza con un error potencial de $800.000 en un mes.
+
+### Alcance inicial propuesto (a confirmar en Análisis)
+1. Catálogo configurable de tasas por procesador/medio/cuotas (pantalla admin, mismo patrón que `ConfiguracionCuotaTarjeta` de CR-40), con vigencia por fecha para no reescribir el pasado cuando MP cambie los aranceles.
+2. Dato de procesador en la línea de pago de la venta, para poder aplicar la tasa correcta.
+3. Cálculo del costo de cobranza por línea de pago: comisión de plataforma + IVA sobre comisión + impuestos bancarios sobre la acreditación.
+4. Registro del costo calculado, con impacto contable a definir (ver pregunta 2).
+5. Recálculo retroactivo de septiembre 2026 y carga del ajuste.
+6. Costo de cobranza descontado en la rentabilidad (`IRentabilidadService`), para que el margen por venta sea el real.
+
+### Supuestos
+- Las tasas de la memoria son las vigentes y las confirma el cliente antes de sembrarlas.
+- El IVA sobre la comisión (21%) es computable como crédito fiscal, así que el costo de caja es la comisión con IVA pero el costo de resultado es la comisión sin IVA. A confirmar con el contador en Análisis.
+- La retención de IIBB de ARBA es a cuenta del impuesto anual, no un costo definitivo. A confirmar: si se computa, el costo real es menor que el flujo de caja.
+
+### Dependencias
+- Tasa de **BancoCarrefour**: **RESUELTA 2026-09-30, es 0%** (respuesta textual del cliente: "el arancel del bco carrefour es 0"). No es un pendiente ni un valor provisorio: ese medio no tiene costo de cobranza, y el 0,00 que ya tenía el seed queda confirmado. Los impuestos bancarios también quedan en 0 porque liquida a su propia cuenta en Banco Carrefour y no se tiene ese extracto para verificar si le retienen ARBA/Ley 25413 sobre la acreditación. Con $3.245.002,09 cobrados en septiembre, es el segundo volumen del mes y no aporta costo.
+- Para conciliar la comisión calculada contra la real hace falta la **liquidación de Payway** (el extracto no la desglosa). Es la única forma de calibrar si las tasas configuradas son las que efectivamente cobran.
+
+### Fuera de alcance (propuesto)
+- Importar automáticamente el extracto bancario o las liquidaciones de las plataformas. Este CR calcula el costo con tasas configuradas; no lee archivos del banco.
+- Conciliación automática venta ↔ acreditación (requiere número de lote/cupón, que el extracto no trae).
+- Retenciones de IVA y Ganancias que practica la plataforma sobre la liquidación: no son costo, son pagos a cuenta. Se mencionan para no confundirlas con la comisión.
+
+### Decisiones del cliente (2026-09-30, cierran el Discovery)
+1. **Procesador: siempre lo elige el vendedor.** Campo obligatorio en cada línea de pago cuyo medio tenga costo de cobranza. Se descartó la regla fija por medio: el cliente confirmó que las dos terminales (Point de Mercado Pago y Payway del Banco Provincia) se usan en paralelo, así que ninguna regla automática acierta.
+2. **El egreso se postea al acreditarse el pago**, con la misma fecha que el ingreso — que es cuando la plataforma efectivamente descuenta la comisión. Para los medios que nacen `Acreditado` (Efectivo, Transferencia, MercadoPago, TarjetaDebito, BancoCarrefour) eso ocurre al confirmar la venta; para `TarjetaCredito`, en `AcreditarPagoAsync`. Los dos caminos usan el mismo método de dominio (CRM-001).
+3. **Retroactivo de septiembre 2026: calcular e insertar.** Anular los 14 gastos manuales de $1.561.000 y cargar el costo calculado más los $222.244,68 de impuestos bancarios reales del extracto.
+
+El arancel de BancoCarrefour deja de ser bloqueante por la decisión 1: es un procesador más del catálogo y su tasa se configura en pantalla. Arranca en 0% hasta que el cliente cargue el valor real, y mientras esté en 0 el medio no genera costo (no se inventa un número).
+
+### Criterios de aceptación
+
+**CA-83.1 — Catálogo de tasas configurable, con vigencia por fecha.**
+El Administrador configura, en Configuración, una tasa por combinación de procesador + medio de pago + cantidad de cuotas, con su % de comisión, su % de IVA sobre la comisión, su % de retención de IIBB y su % de impuesto Ley 25413. Cada fila tiene `VigenteDesde` y `VigenteHasta`: cargar una tasa nueva no reescribe el costo ya calculado de las ventas viejas. Ningún porcentaje queda hardcodeado en el código (la memoria del proyecto advierte que las tasas de MP "cambian seguido").
+
+**CA-83.2 — El vendedor elige el procesador en la línea de pago.**
+Al registrar un pago cuyo medio tiene costo (TarjetaCredito, TarjetaDebito, MercadoPago, BancoCarrefour, Transferencia), el selector de procesador es obligatorio y no tiene valor por defecto que se pueda confirmar sin mirar. Con Efectivo el selector no se muestra y el procesador queda en `Ninguno`. Si para la combinación elegida no hay tasa vigente, la pantalla lo dice antes de guardar y el pago se registra con costo 0 (nunca se bloquea la venta por una tasa sin cargar — CRM-020: una función opcional no rompe el flujo que la hospeda).
+
+**CA-83.3 — El costo se calcula sobre el monto realmente cobrado.**
+Base de cálculo: `PagoVenta.Monto` (el dinero que la plataforma liquida, con recargo de tarjeta incluido), nunca `MontoBase`. Desglose persistido por pago: comisión, IVA sobre la comisión, impuestos bancarios y total. Se guarda también el id de la tasa aplicada, para poder auditar después con qué porcentaje se calculó.
+
+**CA-83.4 — El egreso se postea junto con el ingreso, con la misma fecha.**
+Cuando un pago pasa a Acreditado se postea un `MovimientoCCLocal` de Egreso por el costo total, con `OrigenTipo="CostoCobranza"`, `PagoVentaId` de ese pago y la misma `Fecha` del Ingreso que lo acompaña. Un pago Pendiente (tarjeta de crédito sin acreditar) no postea ningún egreso: el costo todavía no ocurrió. Mismo criterio de MH-021 sobre la fecha real de la acción.
+
+**CA-83.5 — Reversión acotada a lo posteado.**
+Al cancelar una venta o eliminar un pago, el egreso de costo de cobranza se revierte con un contramovimiento (`EsReversion=true`) por lo efectivamente posteado para ese pago, nunca por el costo recalculado ni por el total de la venta (PAT-020 / MH-020). Un pago que nunca se acreditó no genera contramovimiento porque nunca posteó egreso.
+
+**CA-83.6 — La rentabilidad descuenta el costo de cobranza.**
+`IRentabilidadService` informa el costo de cobranza del período y un margen neto (Ventas − Costo de mercadería − Costo de cobranza) además del margen bruto actual. Una venta en 12 cuotas por Mercado Pago deja de mostrar el mismo margen que una en efectivo. El KPI del Dashboard sigue saliendo de este único servicio, sin recalcular nada propio (criterio ya fijado en CR-80).
+
+**CA-83.7 — Asignación del procesador a los pagos históricos.**
+En el listado de Ingresos, el Administrador puede asignar el procesador de un pago ya registrado con edición inline (mismo patrón AJAX de CR-69), y ver el costo calculado de cada línea. Es la vía para los pagos anteriores a este CR, que nacieron sin procesador.
+
+**CA-83.8 — Recálculo retroactivo por período.**
+Una acción de administración recalcula el costo de cobranza de un rango de fechas y postea los egresos faltantes de los pagos ya acreditados que tengan procesador asignado, de forma idempotente: correrla dos veces no duplica movimientos (se verifica contra los egresos ya existentes de ese `PagoVentaId`, mismo criterio de saldo neto que usa `ChequeService.RevertirEstadoAsync`). Los pagos sin procesador quedan listados como pendientes de asignar, no se les inventa uno.
+
+**CA-83.9 — Los impuestos bancarios del extracto que no nacen de una venta se cargan como gasto.**
+El impuesto Ley 25413 sobre los débitos, los contracargos, los intereses por descubierto, la comisión de clearing y los sellos no son atribuibles a una venta: se siguen cargando como Gasto. Este CR no los automatiza. Lo que sí queda automatizado es la parte que cada cobranza genera: comisión, IVA y los impuestos sobre la acreditación.
+
+### Alcance excluido (confirmado)
+- Importar el extracto bancario o las liquidaciones de las plataformas. El costo se calcula con tasas configuradas.
+- Conciliación automática venta ↔ acreditación por número de lote/cupón.
+- Tratar las retenciones de IVA y Ganancias de la plataforma como costo: son pagos a cuenta.
+- Prorratear el costo entre las líneas de producto de la venta. El costo es de la línea de pago, no del producto.
+
+### Riesgo declarado
+El cálculo es tan bueno como las tasas configuradas, y no hay forma de validarlo contra la realidad sin la liquidación de Payway (el extracto acredita neto, sin desglose). Mitigación propuesta: la pantalla de conciliación compara, por período, el costo calculado contra los gastos de comisión realmente cargados, para que la desviación sea visible. La calibración fina queda pendiente de que el cliente consiga una liquidación de Payway.
 
 ## CR-78 — La pantalla de Venta bloqueaba cancelar una venta cuya factura ya estaba anulada por Nota de Crédito
 

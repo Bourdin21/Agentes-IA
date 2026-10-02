@@ -1613,6 +1613,45 @@ regresiones:
       - "Edit sin tocar fechas -> debe guardar."
       - "Regresion: Finalizar alquiler sigue validando igual que antes."
 
+  - id: ELV-003
+    modulo: "Maquinas / Historia de Contadores - alta y edicion (MaquinasController.CreateContador / UpdateContador)"
+    titulo: "El controller descarta ServiceResult.Errors y muestra solo el Message generico: el usuario ve 'Error en la validacion de contadores' y nunca el minimo admitido"
+    severidad: major
+    reproducido_en: "dev, lote 2026-10-01 B (F5) sin commitear - reproducido 2026-10-01 por HTTP contra clon local eleven_qa_b, maquina 60, usuario rol Tecnico"
+    pasos:
+      - "Entrar a Maquinas -> Details de una maquina con historial (ej. ultimo contador B/N 6.259.649)."
+      - "En el tab Contadores, cargar un contador nuevo con B/N = 0 (o cualquier valor menor al ultimo)."
+      - "Guardar y leer el toast de error."
+      - "Comparar con el mismo dato rechazado desde Alquileres -> Nuevo alquiler con Contador B/N inicial = 0 sobre la misma maquina."
+    sintoma: "La carga manual muestra solo 'Error en la validacion de contadores'. El alta de alquiler, para el mismo dato y la misma maquina, muestra 'El contador B/N debe ser mayor o igual a 6.259.649'. El usuario de la carga manual no sabe contra que valor rebota ni que valor cargar."
+    expectativa: "Los dos caminos muestran el mismo detalle: el mensaje en pantalla nombra el minimo (o maximo) admitido con separador de miles."
+    causa_raiz: "ContadorValidator pone el detalle en ServiceResult.Errors y el texto generico en Message. AlquileresController itera result.Errors y los agrega al ModelState, asi que el detalle llega a la pantalla. MaquinasController.CreateContador/UpdateContador hacen solo 'TempData[\"ErrorMessage\"] = result.Message', y el _Layout renderiza unicamente ese TempData: la lista Errors se descarta en el controller. Variante de LIP-001 (errores del Service que no llegan al usuario): aca el error se ve pero truncado, perdiendo justo el dato accionable."
+    capa: Web
+    archivos_fix:
+      - path: Eleven.Web/Controllers/MaquinasController.cs
+        motivo: "En CreateContador y UpdateContador, componer el TempData[\"ErrorMessage\"] con result.Errors cuando la lista no este vacia (mismo criterio que AlquileresController), en vez de usar solo result.Message."
+    migracion_ef: null
+
+  - id: ELV-004
+    modulo: "Maquinas / Ajustar Contadores (MaquinaService.AjustarContadoresAsync)"
+    titulo: "Ajuste masivo de contadores sin validacion ni piso: acepta cantidades negativas arbitrarias y deja todo el historial de la maquina en negativo, saltandose por completo la validacion de contadores"
+    severidad: major
+    reproducido_en: "dev, lote 2026-10-01 B (F5) sin commitear - reproducido 2026-10-01 por HTTP contra clon local eleven_qa_b, maquina 6 (68 contadores), usuario rol Tecnico"
+    pasos:
+      - "Logearse con cualquier usuario autenticado (alcanza rol Tecnico: el controller solo tiene [Authorize] a nivel clase)."
+      - "Ir a Maquinas (Index) y usar el boton Ajustar de una maquina con historial."
+      - "El prompt dice literalmente 'Ingrese la cantidad a ajustar (puede ser negativo)'. Ingresar -99999999."
+      - "Confirmar y revisar el historial de contadores de la maquina."
+    sintoma: "Responde 302 con 'Contadores e insumos ajustados correctamente.' y los 68 contadores de la maquina quedan en negativo (minimo -99.462.104, maximo -94.084.187). Tambien se ajustan Durabilidad y ContadorAsignacion de todos los repuestos. Ningun contador pasa por ContadorValidator."
+    expectativa: "El ajuste valida el resultado antes de persistir: rechaza si algun contador quedaria negativo o si el ajuste rompe la monotonia del historial, con un mensaje que nombre la maquina y el valor ofensor. Idealmente tambien restringir el endpoint a un rol administrativo."
+    causa_raiz: "AjustarContadoresAsync hace 'contador.ContadorBN += cantidadAAjustar' sobre todo el historial sin ningun chequeo de signo ni de resultado, y el controller pasa el int crudo del form. Es un camino de escritura preexistente que la validacion del lote F5 no cubre: F5 blinda los dos caminos de INSERCION (MaquinaService.CreateContadorAsync y AlquilerService.AgregarHistoriaContadorSiCorresponde) pero no los de MUTACION masiva. Un ajuste negativo deja contadores en 0 o negativos y por lo tanto retrocesos, que es exactamente lo que F5 vino a impedir."
+    capa: Infrastructure
+    archivos_fix:
+      - path: Eleven.Infrastructure/Services/AjustarContadoresAsync (Eleven.Infrastructure/Services/MaquinaService.cs)
+        motivo: "Antes del SaveChanges, verificar que ningun contador (ni ContadorAsignacion de repuesto) quede por debajo de 0 y devolver ServiceResult.CreateError con el detalle; evaluar ademas si el ajuste debe exigir rol administrativo."
+      - path: Eleven.Web/Controllers/MaquinasController.cs
+        motivo: "Exponer el detalle del error del ajuste (ver ELV-003) y, si se decide, restringir la accion AjustarContadores por rol."
+    migracion_ef: null
   - id: LP-003
     modulo: "Ventas / Editar borrador (grilla de Items y Pagos con <input type=\"number\"> y valores decimales de Razor)"
     titulo: "Reabrir un borrador guardado deja TODOS los inputs numericos vacios: Razor renderiza el decimal con la cultura es-AR ('3,000') y el navegador descarta el value por invalido en un <input type=\"number\">"
@@ -3700,3 +3739,554 @@ regresiones:
       - "Anotar el margen de un mes cerrado, dar de baja un producto que vendio en ese mes, recalcular: el margen no cambia."
       - "Comparar por SQL SUM(Venta.Total) contra SUM(VentaItem.Subtotal) con join a Productos vivos para cada mes del ultimo anio: toda diferencia distinta de 0 es un mes afectado."
     nota_generalizacion: "Aplica a todo reporte historico construido sobre las lineas hijas de un documento cuando la proyeccion navega a una entidad de CATALOGO con soft-delete. El catalogo describe lo que se puede vender hoy; el historico describe lo que ya se vendio. Si el reporte navega al catalogo para traer un nombre, hereda su filtro de vigencia y empieza a perder historia en silencio, sin error y sin que se vea en el codigo. Regla: en un reporte historico, los datos de catalogo se resuelven en una consulta aparte que ignora los filtros de vigencia; la consulta del hecho nunca navega al catalogo."
+
+  - id: MH-027
+    modulo: "Ventas / Eliminar pago (VentaService.EliminarPagoAsync) + CC Local (MovimientosCCLocal)"
+    titulo: "Un OrigenTipo nuevo en el ledger vuelve no-unica la FK al documento hijo y desarma el guard que buscaba 'el' movimiento de ese hijo: el contramovimiento sale por el importe equivocado"
+    severidad: critical
+    reproducido_en: "marihogar - CR-83 (costo de cobranza por venta), 2026-09-30. Detectado por QA antes del merge, sobre codigo + SQL de solo lectura contra la base REAL de produccion. Corregido por el implementador y re-verificado el mismo dia (ver fix_aplicado)."
+    pasos:
+      - "Agregar al ledger un OrigenTipo nuevo cuyas filas lleven poblada la misma FK al documento hijo que ya usaba el OrigenTipo original (aca: el Egreso 'CostoCobranza' lleva PagoVentaId, igual que el Ingreso 'Venta')."
+      - "Aplicar la migracion y correr el recalculo retroactivo, para que un pago LEGADO (sin movimiento propio hasta ahora) reciba su primera fila con esa FK."
+      - "Eliminar ese pago legado desde Ventas/Details."
+    sintoma: "El guard 'este pago es de datos anteriores a la mejora de agosto de 2026' deja de dispararse porque ahora encuentra una fila, y el sistema postea un Egreso OrigenTipo='Venta' por el importe del COSTO para reversar un Ingreso de venta que nunca existio. La CC Local queda descuadrada por ese importe, y el costo sale dos veces (el contramovimiento propio del costo se postea unas lineas mas abajo). Para un pago no legado, sin ORDER BY el monto del contramovimiento depende del orden que devuelva MySQL: medido sobre un pago real, ~81.197 en lugar de 366.000."
+    expectativa: "Un lookup de 'la' fila del ledger por la FK del documento hijo esta acotado por OrigenTipo explicito y ordenado de forma determinista. El guard de datos legados sigue bloqueando exactamente los mismos registros despues de que el feature nuevo les haya posteado su primera fila."
+    causa_raiz: "`.Where(m => m.PagoVentaId == pagoVentaId && !m.EsReversion).FirstOrDefaultAsync()` dependia de una unicidad DE HECHO, nunca declarada en el esquema: hasta el CR nuevo, esa FK identificaba una sola fila no-reversion. El OrigenTipo nuevo la vuelve no-unica. El relevamiento de LP-002 se hizo recorriendo los lugares que LEEN OrigenTipo (y encontro uno real que faltaba), pero no los que buscan una fila por la otra clave que el cambio vuelve ambigua."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/VentaService.cs
+        motivo: "APLICADO. EliminarPagoAsync: agregar `&& m.OrigenTipo == \"Venta\"` al Where y un `.OrderBy(m => m.Id)` explicito. El filtro restituye la unicidad de hecho; el OrderBy la hace determinista en vez de depender del orden de MySQL."
+    migracion_ef: null
+    fix_aplicado:
+      fecha: "2026-09-30"
+      por: "Implementador, sobre el parte de defecto de QA"
+      resultado: "aplicado y re-verificado"
+      verificacion: "Barrido independiente de QA en la re-verificacion: `grep -rn PagoVentaId` sobre las 4 capas devuelve un unico lookup de tipo 'buscar la fila' (el corregido); los demas son escrituras o agregaciones ya filtradas por OrigenTipo. Barrido de las claves hermanas: ningun lookup del ledger por OrigenId sin OrigenTipo, y el unico lookup del ledger de proveedores (PagoOrdenCompraService, OrigenTipo='PagoOC') ya estaba acotado. SQL contra produccion: los pagos acreditados no-efectivo sin movimiento OrigenTipo='Venta' propio siguen siendo 388 (identico al conteo sin filtrar OrigenTipo, porque produccion todavia no conoce el OrigenTipo nuevo) - el filtro por el literal 'Venta' mantiene ese conteo por construccion cuando el retroactivo postee los egresos de costo, asi que el guard sigue bloqueando los mismos 388."
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "grep -rn '<NombreFk> ==' Infrastructure/Services/ y clasificar cada hit en agregacion (safe) vs busqueda de 'la' fila (hay que acotarla)"
+      condicion_falla: "Existe un FirstOrDefault/Single sobre el ledger por la FK del documento hijo sin filtro explicito de OrigenTipo, o sin OrderBy"
+    criterio_aceptacion:
+      - "Con el feature nuevo posteando su fila, eliminar un registro legado sigue devolviendo el mensaje de bloqueo original."
+      - "Eliminar un registro no legado postea el contramovimiento por el importe del documento hijo, nunca por el importe de la fila nueva."
+    pruebas_minimas:
+      - "SQL de invariante antes del cambio: SELECT n, COUNT(*) FROM (SELECT <fk>, COUNT(*) n FROM <ledger> WHERE <fk> IS NOT NULL AND EsReversion=0 GROUP BY 1) t GROUP BY n. Si solo aparece n=1, hay codigo que depende de esa unicidad sin declararla."
+      - "Eliminar/reversar un registro LEGADO despues de que el feature nuevo le haya posteado su primera fila."
+    nota_generalizacion: "Emparentado con DN-003 (lookup heuristico no acotado sobre el ledger) y con LP-002 (relevamiento de una capacidad nueva que no cubre todos sus usos). La generalizacion: al agregar un discriminador nuevo a un ledger existente, el relevamiento no alcanza con recorrer los lugares que leen ese discriminador; hay que recorrer los que buscan una fila por cualquier otra clave que hasta ahora era unica de hecho -tipicamente la FK al documento hijo-. El peligro maximo es cuando esa busqueda alimenta un guard de 'no puedo identificar el movimiento de este dato legado': la fila nueva hace que el guard encuentre algo y deje pasar exactamente lo que bloqueaba."
+
+  - id: MH-033
+    modulo: "Cuenta Corriente del Local / Caja (MovimientoCCLocal) + Pagos de Orden de Compra (PagoOrdenCompra)"
+    titulo: "El ledger de caja solo registraba Ventas y Gastos: los pagos a proveedores no bajaban el saldo, que se leia como plata disponible"
+    severidad: high
+    reproducido_en: "marihogar, 2026-09-30. Encontrado al conciliar el extracto del Banco Provincia de septiembre 2026 contra la base REAL de produccion, a partir de un pedido del cliente de 'ajustar el saldo de la cuenta corriente para que coincida con el extracto bancario'. Decision del cliente sobre la regla: los pagos a proveedores SI deben impactar la cuenta corriente del local."
+    pasos:
+      - "Cargar una Orden de Compra y pagarla (cualquier metodo: efectivo, transferencia, Mercado Pago o cheque acreditado)."
+      - "Abrir la Cuenta Corriente del Local (o la pantalla de Caja) del periodo en que se hizo ese pago."
+      - "Comparar el saldo que muestra contra la plata que realmente hay entre todas las cuentas del negocio."
+    sintoma: "El pago aparece en la cuenta corriente del proveedor (baja la deuda) pero NO genera ningun Egreso en la caja del local: el saldo no se mueve. Medido en produccion: $23.750.495,09 de pagos a proveedores en 7 semanas ausentes del ledger, con una pantalla que mostraba $16.250.558,95 de saldo cuando el numero real, descontando las compras pagadas, era -$7.499.936,14. El cliente leyo ese saldo como disponible y pidio cuadrarlo contra el extracto, lo que habria significado postear un ajuste de $16.201.179,73 sin causa economica."
+    expectativa: "Un pago de orden de compra postea en los DOS ledgers en la misma transaccion: Pago en la CC del proveedor y Egreso en la caja del local. El saldo de la caja es la plata que hay; si por alcance el sistema deja algun origen afuera, la pantalla nombra lo que el saldo mide ('Resultado operativo del periodo') en vez de llamarlo saldo disponible."
+    causa_raiz: "`MovimientoCCLocal.OrigenTipo` se definio en el primer sprint con los dos origenes que existian entonces ('Venta' y 'Gasto') y nunca se amplio al agregar el modulo de Compras, que resolvio su trazabilidad con un ledger propio (MovimientoCCProveedor) y no volvio sobre el de caja. El enum de origen del ledger hay que definirlo desde el inventario completo de documentos que mueven dinero, no desde los primeros implementados."
+    capa: Infrastructure
+    regla_catalogo: "MH-033 en 32-estandares-qa-implementador.instructions.md"
+
+  - id: MH-034
+    modulo: "Cuenta Corriente del Local / Caja (MovimientoCCLocal) - conciliacion bancaria"
+    titulo: "Un unico ledger de caja para un negocio que opera con varias cuentas reales no se puede conciliar contra ningun extracto"
+    severidad: medium
+    reproducido_en: "marihogar, 2026-09-30, mismo analisis que MH-033."
+    pasos:
+      - "Tomar un negocio que cobra por efectivo, Mercado Pago, dos bancos y una tarjeta propia, con un solo ledger de caja agregado."
+      - "Pedir el saldo de una cuenta puntual, o intentar conciliar el ledger contra el extracto de uno de los bancos."
+    sintoma: "No hay ningun extracto que represente el saldo del ledger. En el caso real, de $7.912.995,96 de resultado del mes solo $1.718.724,01 pasaron por el banco conciliado y mas de la mitad de los movimientos quedaron con canal indeterminado. El intento de forzar el cuadre termina en un ajuste manual que destruye la informacion."
+    expectativa: "La cuenta es una dimension del movimiento y cada cobro/pago la declara, de forma que el sistema pueda dar saldo POR cuenta. El medio de pago no sirve como sustituto: dice como pago el cliente, no donde quedo la plata (una venta con tarjeta de credito liquida en el banco o en Mercado Pago segun la terminal usada)."
+    causa_raiz: "Se asumio que el negocio consolida todos sus cobros en una cuenta principal, sin verificarlo. Chequeo barato que lo desmiente: la cuenta estuvo 14 de 30 dias en descubierto (minimo -$148.518,32, con intereses cobrados), imposible en una cuenta que concentrara los cobros de un negocio que mueve $23,7M; y de los $9.129.000,06 cobrados por fuera solo entraron $4.933.000,00 por transferencia o deposito, dejando $4.196.000,06 que nunca llegaron."
+    capa: Domain
+    regla_catalogo: "MH-034 en 32-estandares-qa-implementador.instructions.md"
+
+
+  - id: MH-035
+    modulo: "Backfill/regularizacion de un ledger (EgresoPagoProveedorService.ArmarLineasBackfillAsync) + Ajuste de apertura"
+    titulo: "Un backfill de ledger sin piso de fecha vuelve a postear el pasado que un ajuste de apertura ya habia cerrado"
+    severidad: critical
+    reproducido_en: "marihogar, 2026-09-30, CR-84 punto 5. Detectado por QA en revision de codigo + SQL de solo lectura contra la base REAL de produccion, ANTES de que el cliente corriera la accion."
+    pasos:
+      - "Tener un ledger de caja con un movimiento de 'Ajuste de apertura' que llevo el saldo a 0 en una fecha de corte (en el caso real: Egreso de $96.986.104,22 al 2026-08-10, descripcion 'saldo migrado a $0 para inicio de operacion real')."
+      - "Escribir un backfill que incorpore al ledger los documentos historicos de un origen que faltaba, seleccionandolos solo por Estado (Pagado) y por el Estado del documento padre."
+      - "Correr la previsualizacion y comparar la cantidad y el monto contra el objetivo declarado en el analisis funcional, que estaba acotado 'desde el ajuste de apertura'."
+    sintoma: "La previsualizacion propone 404 pagos por $120.186.982,10 contra un objetivo declarado de 74 pagos por $23.750.495,09. El exceso son 331 pagos por $94.706.987,01 anteriores al corte, que el ajuste de apertura ya habia absorbido al forzar el saldo a 0. Aplicado, el saldo de la caja quedaria en -$103.936.423,15 en vez de los -$7.499.936,14 anunciados en la propia pantalla: un error de $96.436.487,01, 13 veces el numero que el cliente iba a confirmar."
+    expectativa: "Todo backfill de un ledger que tiene un ajuste de apertura arranca EN la fecha de ese ajuste: el ajuste es, por definicion, el saldo neto de todo lo anterior, asi que reincorporar documentos previos cuenta el mismo dinero dos veces. El piso de fecha se deriva del movimiento de apertura (o se pide como parametro), nunca se omite. Y la previsualizacion tiene que reproducir el objetivo del analisis funcional al peso: si no lo reproduce, el backfill no se corre."
+    causa_raiz: "El backfill se escribio como 'todos los documentos pagados que todavia no tienen su contrapartida', que es la definicion correcta de idempotencia pero no la del alcance. El objetivo del analisis estaba acotado por fecha ('desde el ajuste de apertura del 10/08/2026') y ese recorte no viajo al codigo: el filtro por Estado no lo implica. La pantalla ademas mostraba como saldo resultante esperado un numero que su propia consulta no producia."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: sql
+      consulta: "Comparar el COUNT y el SUM de la consulta del backfill contra el objetivo del analisis, y volver a correrlos con el piso de fecha del movimiento de apertura. Si los dos numeros no coinciden con el analisis, el backfill esta mal acotado."
+    archivos_fix:
+      - "Services/<Origen>Service.cs — metodo que arma las lineas del backfill: agregar el piso de fecha derivado del movimiento de apertura del ledger, aplicado sobre la fecha del DOCUMENTO."
+      - "Views/<Regularizacion>/Index.cshtml — mostrar en la previsualizacion la fecha desde la que se incorpora, para que el recorte sea visible antes de confirmar."
+    reverificacion_2026_09_30: "SIGUE FAIL en la corrida 2. El piso se agrego pero aplicado sobre la fecha del MOVIMIENTO del ledger hermano, no del documento: un pago con cheque lleva en el movimiento la fecha de VENCIMIENTO, asi que un cheque acreditado despues del ajuste de apertura pero con vencimiento anterior cae del lado equivocado del corte y se pierde (caso real: pago 364, cheque #30, $495.200,00, movimiento al 2026-08-05 y acreditacion al 2026-08-22). Leccion generalizable: el piso de un backfill se aplica sobre la fecha del DOCUMENTO que decide el alcance, nunca sobre una fecha derivada que el ledger puede llevar por otra regla de negocio (vencimiento, acreditacion estimada, liquidacion). Y el documento se postea con esa misma fecha, para no dejar filas fechadas antes del piso que dice contenerlas. Verificacion: probar los discriminadores candidatos en SQL y quedarse con el que reproduce el objetivo del analisis en TODOS sus rubros — aca solo el piso por fecha del documento reprodujo el rubro cheque."
+    migracion_ef: no
+    regla_catalogo: "MH-035 en 32-estandares-qa-implementador.instructions.md"
+
+  - id: MH-036
+    modulo: "Backfill de un ledger espejando un ledger hermano (EgresoPagoProveedorService.ArmarLineasBackfillAsync)"
+    titulo: "Espejar 'la suma de los movimientos del ledger hermano' en vez del monto del documento importa al ledger nuevo los duplicados que el hermano ya tenia"
+    severidad: high
+    reproducido_en: "marihogar, 2026-09-30, CR-84 punto 5. Detectado por QA con SQL de solo lectura contra la base REAL de produccion."
+    pasos:
+      - "Buscar en el ledger hermano los documentos con MAS de un movimiento no-reversion del mismo tipo: SELECT OrigenId, COUNT(*), SUM(Monto) ... GROUP BY OrigenId HAVING COUNT(*)>1."
+      - "En el caso real aparecen 5 pagos con cheque (ids 339, 340, 341, 344, 345) con dos movimientos Pago cada uno, secuela del cambio de criterio de CR-46 (el pago se posteaba al entregar el cheque y volvio a postearse al acreditarlo)."
+      - "Ver que el backfill agrupa por OrigenId y toma Sum(Monto) y Min(Fecha)."
+    sintoma: "El egreso que el backfill postea para esos 5 pagos es el DOBLE del monto del pago ($2.224.700,00 de exceso) y su fecha (la del primer movimiento) no es la de ninguno de los dos montos que suma. Rompe la invariante central del CR — misma fecha y mismo monto en los dos ledgers — exactamente en las filas donde el ledger hermano ya estaba inconsistente."
+    expectativa: "El monto del movimiento espejo se acota al monto del DOCUMENTO (min de la suma de movimientos y documento.Monto), no a la suma del ledger hermano; y un documento cuyo ledger hermano tiene mas de un movimiento no-reversion se EXCLUYE del backfill y se lista como 'a revisar a mano', porque su estado de partida ya es inconsistente. Espejar un ledger sucio propaga la suciedad con apariencia de dato nuevo."
+    causa_raiz: "La decision de diseño 'la fecha y el monto no se recalculan, se leen del ledger hermano' es correcta para garantizar la paridad, pero asume que el ledger hermano tiene exactamente un movimiento por documento. El propio comentario del codigo reconoce el caso ('no deberia, pero el ledger no lo impide') y elige sumarlos en vez de excluirlos: convierte una anomalia conocida y acotada en un posteo nuevo, en el ledger que el CR viene a hacer confiable."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: sql
+      consulta: "GROUP BY OrigenId HAVING COUNT(*)>1 sobre el ledger hermano, filtrando EsReversion=0 y el Tipo que corresponda, antes de correr cualquier backfill que lo espeje."
+    archivos_fix:
+      - "Services/<Origen>Service.cs — metodo que arma las lineas: excluir los documentos con mas de un movimiento no-reversion y devolverlos en una lista aparte de excepciones."
+      - "Views/<Regularizacion>/Index.cshtml — seccion 'quedan afuera y por que', igual que la de los documentos sin movimiento identificable."
+    migracion_ef: no
+    regla_catalogo: "MH-036 en 32-estandares-qa-implementador.instructions.md"
+
+  - id: MH-037
+    modulo: "Carga retroactiva de pagos + backfill que espeja la fecha del ledger (PagoOrdenCompraService.RegistrarPagosAsync)"
+    titulo: "Una carga retroactiva masiva se guarda con la fecha de hoy, y el backfill que espeja esa fecha imputa meses enteros al mes equivocado"
+    severidad: medium
+    reproducido_en: "marihogar, 2026-09-30, CR-84. Confirmado por QA con SQL contra produccion y contra el extracto real del Banco Provincia del mes."
+    pasos:
+      - "Buscar cargas en lote: SELECT Fecha, COUNT(*), SUM(Monto) FROM <pagos> GROUP BY CreatedAt HAVING COUNT(*)>5 — filas con el CreatedAt identico al microsegundo son una sola sesion de carga."
+      - "En el caso real: 14 pagos por transferencia, $6.382.868,96, todos con CreatedAt = Fecha = 2026-09-30 15:02:43.059807 (12:02 hora Argentina), sobre 13 ordenes de compra viejas (20, 31, 47, 48, 55, 58, 63, 65, 119, 129, 130, 131, 132)."
+      - "Cruzar contra el extracto de la cuenta: el Banco Provincia cierra ese dia con $49.379,22 de saldo y no muestra ninguna salida de ese orden."
+    sintoma: "Esa plata no pudo salir ese dia: es la puesta al dia de pagos viejos, guardada con la fecha del momento de la carga. El sistema OFRECE backdatear la transferencia (CR-54 usa FechaPagoTentativa para eso) pero no lo exige, asi que la fecha real se pierde en silencio. Al espejar esa fecha en el segundo ledger, el backfill imputa los $6.382.868,96 enteros al mes de la carga y descuadra el flujo de ese mes contra el extracto — el uso mismo que el CR venia a habilitar."
+    expectativa: "Dos cosas: (a) la fecha del pago es un dato del hecho, no del momento de la carga — para los metodos backdateables la pantalla la pide o al menos advierte cuando se cargan varios pagos juntos sobre documentos viejos; (b) antes de correr un backfill que espeja fechas, se listan los lotes de carga sospechosos (mismo CreatedAt, muchas filas, documentos viejos) y se corrigen o se declaran, porque el backfill los congela en el ledger nuevo."
+    causa_raiz: "La fecha por defecto de un pago es DateTime.UtcNow, que es correcta cuando el pago se carga en el momento en que ocurre y falsa cuando se carga al dia siguiente o al mes siguiente. El riesgo era invisible mientras el dato vivia en un solo ledger usado para saldos acumulados; se vuelve visible al usarlo para conciliar flujo contra un extracto mensual."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: sql
+      consulta: "GROUP BY CreatedAt HAVING COUNT(*) > 5 sobre la tabla de pagos, cruzado contra la antiguedad del documento padre y contra el extracto de la cuenta del periodo."
+    archivos_fix:
+      - "Views/<Pagos>/*.cshtml — hacer visible/obligatoria la fecha real para los metodos backdateables."
+      - "Services/<Regularizacion>Service.cs — listar los lotes de carga sospechosos en la previsualizacion del backfill."
+    migracion_ef: no
+    regla_catalogo: "MH-037 en 32-estandares-qa-implementador.instructions.md"
+
+  - id: MH-038
+    modulo: "Backfill de ledger con fechas derivadas (EgresoPagoProveedorService.ArmarBackfillAsync) + Cheques a proveedor"
+    titulo: "La fecha con la que un ledger asienta un hecho no es la fecha del hecho: un cheque tiene tres fechas y el backfill eligio la mas lejana de la salida real de dinero"
+    severidad: medium
+    reproducido_en: "marihogar, 2026-09-30, CR-84 punto 5, corrida 3 de QA. Medido con SQL de solo lectura contra la base REAL de produccion."
+    pasos:
+      - "Tomar un pago con cheque y enumerar TODAS sus fechas: la del documento de pago (cuando se entrego el cheque), la del vencimiento y la de acreditacion."
+      - "Ver con cual de las tres quedo asentado el movimiento en cada ledger."
+      - "Medir la distancia de cada candidata contra la fecha en que el dinero realmente salio (la acreditacion): SELECT AVG(DATEDIFF(FechaAcreditacion, <candidata>))."
+    sintoma: "El backfill fechaba el egreso con la fecha del documento de pago, que para un cheque es el dia en que se ENTREGO. Medido sobre los 24 cheques del periodo: 19 tienen esa fecha distinta de la acreditacion, con un desfasaje promedio de 10,75 dias y maximo de 32. El vencimiento, que es lo que usa el ledger hermano, se desvia en promedio solo 2,38 dias. O sea que la correccion cambio un error de 2,4 dias por uno de 10,75, cuando la fecha correcta (FechaAcreditacion) ya estaba guardada en la base. Efecto material: 9 pagos por $3.197.940,56 quedan imputados a un MES distinto que el ledger hermano, sobre un backfill de $23.750.495,09 — el 13% del monto en el mes equivocado, en un sistema cuyo proximo paso declarado es conciliar flujo mensual contra el extracto."
+    expectativa: "Antes de elegir con que fecha se asienta un hecho en un ledger, enumerar TODAS las fechas que el hecho tiene y elegir la que representa el evento economico (para un cheque: la acreditacion, cuando el banco lo cobro), no la primera que este a mano en la entidad que se esta recorriendo. Si la fecha correcta ya existe en el modelo, no se acepta ninguna aproximacion: el trade-off entre dos fechas equivocadas es una falsa disyuntiva. Y si un backfill de una sola corrida escribe filas con una fecha aproximada, corregirlo despues cuesta otra migracion de datos, asi que se decide antes."
+    causa_raiz: "El razonamiento fue de coherencia interna — 'que el mismo campo decida la inclusion y la fecha' — que es correcto como restriccion pero no elige el campo. El campo se eligio por estar disponible en la proyeccion que ya se estaba leyendo, no por representar el hecho. Debajo hay un problema de modelo mas viejo: el movimiento de CC Proveedor de un cheque se postea con `cheque.FechaVencimiento` bajo el supuesto de que ahi salio el dinero, y en produccion 27 de los 29 cheques acreditados ($9.745.379,65, el 92% del monto) tienen vencimiento distinto al dia de acreditacion, con un caso acreditado 28 dias ANTES del vencimiento."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: sql
+      consulta: "Para cada candidata a fecha del movimiento, AVG y MAX de DATEDIFF contra la fecha del evento economico real, y COUNT/SUM de los casos que cambian de mes (DATE_FORMAT '%Y-%m' distinto). La candidata con menor desfasaje gana; si alguna da 0, es la unica aceptable."
+    archivos_fix:
+      - "Services/<Origen>Service.cs — usar la fecha del evento economico (para cheques, FechaAcreditacion, con fallback a la del documento) tanto en el piso como en el posteo."
+      - "Services/<Cheque>Service.cs — el camino en vivo postea con el vencimiento; corregirlo es un CR propio, no parte del backfill."
+    migracion_ef: no
+    regla_catalogo: "MH-038 en 32-estandares-qa-implementador.instructions.md"
+    fix_aplicado: "marihogar CR-84, corrida 4 de QA (2026-09-30): la fecha del egreso y el piso salen de una FECHA EFECTIVA DE SALIDA DE DINERO resuelta por tipo de pago — cheque acreditado -> Cheque.FechaAcreditacion; pago programado y confirmado -> PagoOrdenCompra.FechaPagoTentativa (que ConfirmarPagoAsync pisa con la fecha real de la accion, asi que es el hecho y no un proxy); resto -> PagoOrdenCompra.Fecha. Se mantiene el campo unico: el mismo valor decide la inclusion y fechea el egreso, asi que un egreso anterior al piso es imposible por construccion. Verificado en produccion: el total del periodo no cambia (74 pagos / $23.750.495,09) y los pagos imputados a un mes distinto que el ledger hermano bajan de 9 ($3.197.940,56) a 2 ($918.799,97), y esos 2 quedan con la caja BIEN y el ledger hermano mal — el residuo es el problema de modelo de fondo, no el backfill."
+    leccion_adicional: "Dos corolarios que aparecieron al cerrarlo. (1) Un campo que ES la fecha del hecho puede dejar de serlo si otro camino del sistema no lo mantiene: la correccion de fecha del pago actualiza el documento y los dos ledgers pero NO el campo de la confirmacion, que es el que el backfill prefiere — antes de confiar en un campo, revisar TODOS los caminos que lo escriben, no solo el que lo puebla. (2) Al evitar una navegacion a una entidad soft-deletable con IgnoreQueryFilters, auditar las navegaciones RESTANTES del mismo metodo: en este caso se corrigio la del cheque y quedo viva la del documento padre, que sigue cayendo en el mismo INNER JOIN filtrado. Y medir el beneficio: aca el arreglo era correcto pero rescataba 0 filas en produccion, asi que no es un motivo para confiar mas en la corrida."
+
+  - id: MH-039
+    modulo: "Retroactivo que reemplaza una carga manual (CostoCobranzaService.PrevisualizarRecalculoAsync + Gastos categoria 'Comisiones bancarias')"
+    titulo: "Un retroactivo que reemplaza datos cargados a mano deja el doble conteo vivo si la anulacion de los manuales es una decision humana y nadie la verifica fila por fila"
+    severidad: medium
+    reproducido_en: "marihogar, 2026-09-30, auditoria de consistencia cross-pantalla de CR-83/CR-84. Medido con SQL de solo lectura contra la base REAL de produccion."
+    pasos:
+      - "Identificar la categoria/entidad con la que el usuario venia registrando a mano el hecho que el retroactivo ahora postea solo (aca: Gasto con Categoria=ComisionesBancarias vs movimiento de ledger con OrigenTipo='CostoCobranza')."
+      - "SELECT Categoria, Anulado, COUNT(*), SUM(Monto) FROM gastos WHERE Categoria=<la del hecho> GROUP BY 1,2 — confirmar que NO queda ninguna fila con Anulado=0 en el periodo que el retroactivo cubrio."
+      - "Si queda alguna, medir su peso contra los egresos del periodo y contra el promedio que proyecta los meses futuros."
+    sintoma: "La pantalla del retroactivo avisa en rojo y con el monto exacto que hay N gastos manuales que representan lo mismo, y aclara que el sistema no los anula por su cuenta. En produccion se anularon 13 de 14: sobrevivio el gasto id 520, 'COMISION MP', $50.000,00 del 14/09/2026, Anulado=0, conviviendo con los $1.301.077,43 de CostoCobranza que el retroactivo posteo. Resultado: el costo de cobranza queda contado dos veces por $50.000 en Caja mensual (Egresos), en el card Gastos operativos del Dashboard, en el saldo de CC Local y — el peor — en el promedio de gasto operativo que ProyeccionFinancieraService usa para proyectar los meses futuros, asi que un residuo puntual se vuelve gasto recurrente proyectado."
+    expectativa: "Cuando un retroactivo pasa a postear solo un hecho que el usuario venia cargando a mano, el aviso de doble conteo no alcanza: la corrida tiene que terminar con una VERIFICACION de cierre que cuente las filas manuales todavia activas en el periodo cubierto y las muestre en 0, o enumere las que quedan. Un aviso previo que depende de que el operador complete una accion manual en otra pantalla se cumple parcialmente, y el residuo no deja rastro en ninguna pantalla."
+    causa_raiz: "El guard se diseño como advertencia PRE-corrida (correcto) pero no hay chequeo POST-corrida. La anulacion es correctamente una decision humana, pero una decision humana sobre 14 filas en otra pantalla se ejecuta al 93%, no al 100%, y el sistema no vuelve a mirar."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: sql
+      consulta: "SELECT Categoria, Anulado, COUNT(*) n, SUM(Monto) t FROM gastos WHERE Categoria=<categoria espejo> GROUP BY 1,2 — cualquier fila con Anulado=0 dentro del periodo del retroactivo es doble conteo en vivo. Cruzar contra SUM(Monto) de los movimientos del OrigenTipo nuevo en el mismo periodo."
+    archivos_fix:
+      - "Services/<Retroactivo>Service.cs — agregar al resultado de la corrida el conteo de filas manuales todavia activas en el periodo, y mostrarlo en la pantalla de resultado."
+      - "Views/<Retroactivo>/<Pantalla>.cshtml — convertir el aviso previo en un bloque de cierre que persista mientras queden filas sin anular."
+    migracion_ef: no
+    regla_catalogo: "MH-039 en 32-estandares-qa-implementador.instructions.md"
+    leccion_adicional: "El efecto mas caro no es el del periodo (0,5% de los egresos del mes) sino el de la proyeccion: cualquier residuo que caiga en la base de un PROMEDIO se multiplica por la cantidad de meses proyectados. Al auditar un retroactivo, preguntar siempre que promedios leen la tabla que el retroactivo toco."
+
+  - id: MH-040
+    modulo: "Proyeccion financiera / ledger inmutable con estado de documento reversible (ProyeccionFinancieraService + ChequeService.RevertirEstadoAsync)"
+    titulo: "'Los dos conjuntos son disjuntos por construccion' deja de ser cierto cuando el ledger es inmutable y el estado del documento puede volver atras: la fila vieja sobrevive y el documento vuelve a contarse"
+    severidad: medium
+    reproducido_en: "marihogar, 2026-09-30, auditoria de consistencia cross-pantalla de CR-83/CR-84. Confirmado estructuralmente en el codigo + SQL de produccion (0 casos hoy, camino en vivo alcanzable)."
+    pasos:
+      - "Encontrar en la proyeccion dos sumandos que se declaren disjuntos por el ESTADO de un documento (aca: ChequesPendientes cuenta Estado=Pendiente; EgresosPosteadosFuturos cuenta filas de ledger con fecha futura, que solo nacen al acreditar)."
+      - "Buscar el camino que devuelve el documento al estado anterior (aca: ChequeService.RevertirEstadoAsync, volver un cheque Acreditado a Pendiente)."
+      - "Ver con que FECHA se postea el contramovimiento de reversion. Si se fecha HOY (criterio correcto para el ledger) y el movimiento original quedo fechado en el FUTURO, la reversion cae en un mes distinto del que tiene que compensar."
+      - "Reconstruir el neto del mes futuro: -ChequesPendientes -EgresosPosteadosFuturos = -2x el monto del cheque."
+    sintoma: "Un cheque acreditado con vencimiento futuro postea su egreso con la fecha de vencimiento (futura), asi que entra en EgresosPosteadosFuturos del mes del vencimiento. Si despues se revierte la acreditacion, el ledger es inmutable: la fila futura queda, la reversion se postea con fecha HOY (mes pasado o en curso, criterio MH-021, correcto) y el cheque vuelve a Estado=Pendiente, asi que tambien entra en ChequesPendientes del mismo mes futuro. El saldo proyectado de ese mes descuenta el cheque DOS VECES. En produccion hoy hay 0 filas de ledger con fecha futura (el unico cheque acreditado con vencimiento futuro quedo fechado por un backfill con la fecha de acreditacion), asi que es latente — pero el camino en vivo lo produce desde el proximo cheque que se acredite con vencimiento futuro y se revierta."
+    expectativa: "Una declaracion de disjuncion entre dos sumandos de un reporte es una invariante, y una invariante se verifica contra TODAS las transiciones de estado del documento, incluidas las que vuelven atras, no solo contra el camino feliz. Si el ledger es inmutable y el estado es reversible, la disjuncion por estado no se sostiene sola: hay que netear el sumando que sale del ledger por EsReversion y por OrigenId, o excluir del tramo futuro las filas cuyo documento ya no esta en el estado que las genero."
+    causa_raiz: "El razonamiento fue correcto para la transicion que crea la fila (Pendiente -> Acreditado postea el egreso) y no se extendio a la inversa (Acreditado -> Pendiente, agregada en un CR anterior, que no puede borrar la fila). La consulta del tramo futuro ni siquiera trae EsReversion, asi que no tiene con que compensar."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: sql
+      consulta: "SELECT OrigenTipo, COUNT(*), SUM(Monto) FROM <ledger> WHERE Fecha > CURDATE() GROUP BY OrigenTipo — si hay filas futuras, cruzarlas contra el estado ACTUAL de su documento origen: cualquier fila futura cuyo documento volvio al estado previo al posteo es doble conteo."
+    archivos_fix:
+      - "Services/ProyeccionFinancieraService.cs — traer EsReversion en la proyeccion del tramo futuro y netear por OrigenTipo/OrigenId, o excluir las filas cuyo documento ya no justifica el posteo."
+      - "DTOs/ProyeccionFinancieraDtos.cs — el doc-comment que declara la disjuncion tiene que nombrar la transicion inversa y por que no la rompe."
+    migracion_ef: no
+    regla_catalogo: "MH-040 en 32-estandares-qa-implementador.instructions.md"
+    leccion_adicional: "El patron general: 'inmutabilidad del ledger' + 'fecha del contramovimiento = hoy' + 'fila original fechada en el futuro' = la reversion NO compensa a la fila original en ningun reporte agrupado por mes. Cada vez que un sistema postea una fila con fecha futura, hay que preguntar que pasa si el hecho se deshace. Corolario de lectura: un Ingreso de reversion con un OrigenTipo que no es el de ventas tambien cae en el bucket de 'cobros comprometidos' si queda fechado en el futuro, porque el tramo futuro ramifica por Tipo y no por OrigenTipo."
+
+  - id: MH-041
+    modulo: "Auditoria de consistencia cross-pantalla (inventario de lectores de una fuente de datos)"
+    titulo: "Un inventario de pantallas enumerado a mano siempre omite pantallas; el inventario se cierra por la lista de LECTORES de la fuente, no por recorrido de cards"
+    severidad: low
+    reproducido_en: "marihogar, 2026-09-30, auditoria de consistencia cross-pantalla de CR-83/CR-84."
+    pasos:
+      - "Tomar el inventario de pantallas que declara el implementador y NO verificarlo pantalla por pantalla."
+      - "En su lugar, grep de la ENTIDAD fuente (aca: MovimientosCCLocal) sobre toda la solucion, excluyendo migraciones. La lista de archivos que la referencian es cerrada y chequeable."
+      - "Para cada numero que el inventario declara 'ajeno', confirmar con grep -c que el servicio que lo calcula tiene 0 referencias a la fuente. Un 'deliberadamente ajeno' con 0 referencias es una decision verificada; con >0 hay que leerlo."
+      - "Despues barrer vistas por patrones de monto para encontrar las pantallas que el inventario no enumero."
+    sintoma: "Un inventario declarado 'completo' de 16 pantallas dejo afuera, entre otras: el card hero 'Ventas del periodo' del propio Dashboard (con 4 numeros derivados), la pantalla de recalculo retroactivo (que LEE el ledger y filtra por el OrigenTipo nuevo), el grafico de serie de 12 meses del mismo KPI que el card ya auditado (metodo y ventana distintos, pueden divergir), las 4 cards secundarias de la propia pantalla de proyeccion (una de ellas un cuarto calculo de la deuda a proveedores), el export a Excel del reporte financiero (que arma sus filas en el controller, no en la vista), 3 generadores de PDF con montos y las notificaciones que imprimen importes en el texto."
+    expectativa: "El inventario de un cambio de consistencia cross-pantalla se cierra por la fuente, no por la UI: la lista de lectores de la entidad es finita y verificable con una herramienta, la lista de cards no. Enumerar las cards sirve para explicar la decision de cada una, no para demostrar que no falta ninguna. Y los 'deliberadamente ajeno' se justifican con la evidencia de 0 referencias a la fuente, que es barata y no admite interpretacion."
+    causa_raiz: "El inventario se armo recorriendo las pantallas que el CR venia tocando, que es el conjunto que ya estaba en la cabeza del que implemento. Las omisiones caen justo donde el recorrido no pasa: exports, PDFs, notificaciones, pantallas de configuracion que postean al ledger, y las cards secundarias de una pantalla cuyo elemento principal ya se reviso."
+    capa: Transversal
+    deteccion_qa:
+      tipo: manual
+      consulta: "grep -rln '<EntidadFuente>' --include=*.cs <capas> | grep -v Migrations  -> lista cerrada de lectores. Luego grep -c por cada servicio declarado ajeno. Luego barrido de vistas por patron de monto para los item 17+."
+    archivos_fix: []
+    migracion_ef: no
+    regla_catalogo: "MH-041 en 32-estandares-qa-implementador.instructions.md"
+    leccion_adicional: "Corolario para QA: cuando el pedido del cliente es 'que este replicado en TODO el sistema', el entregable de QA no es 'revise los 16 que me dijeron' sino 'la fuente tiene N lectores y estos son'. La diferencia entre las dos listas ES el hallazgo."
+
+
+  - id: MH-044
+    modulo: "Correccion de la fecha de un pago a proveedor (PagoOrdenCompraService.ActualizarFechaPagoAsync + EgresoPagoProveedorService.ActualizarFechaEgresoAsync)"
+    titulo: "Generalizar 'corregir la fecha del pago' a todos los metodos expone un UPDATE asimetrico: la caja corrige TODAS sus filas y la CC del proveedor solo la PRIMERA, que en un pago con cheque es la fila ya reversada"
+    severidad: major
+    reproducido_en: "marihogar, commit 0e80ff5 (CR-86 punto 8, frente B), verificado por codigo + SQL contra produccion el 2026-10-02."
+    pasos:
+      - "Tener un PagoOrdenCompra con MAS DE UN movimiento 'Pago' no-reversion en MovimientosCCProveedor. Se produce solo con (a) el cambio de criterio de CR-46 (Pago al entregar el cheque + reversion + Pago al acreditar) o (b) cualquier backfill que reasiente fechas por reversion + alta."
+      - "Abrir OrdenesCompra / Details de la OC de ese pago y usar el lapiz 'Editar fecha de pago' (habilitado para todos los metodos desde CR-86 punto 8; antes estaba acotado a Transferencia y por eso el caso no disparaba)."
+      - "Guardar una fecha nueva y leer las dos tablas de ledger por OrigenTipo='PagoOC' y OrigenId=<pago>."
+    sintoma: "La fecha se corrige en pago.Fecha, en Cheque.FechaAcreditacion, en el gasto del impuesto y en TODAS las filas de egreso de MovimientosCCLocal, pero en MovimientosCCProveedor solo en UNA fila elegida sin orden explicito. En produccion, pago 339 (cheque #0, OC 20, $533.333,33): las filas no-reversion son la id 593 (19/08/2026, ya compensada por la reversion id 601) y la id 625 (28/08/2026, la viva). FirstOrDefaultAsync sin OrderBy devuelve la 593, asi que se corrige una fila muerta y la viva queda en 28/08 mientras la caja se mueve: los dos ledgers del mismo hecho quedan en meses distintos, que es exactamente la inconsistencia que CR-84 cerro. Mismo cuadro en los pagos 340, 341, 344 y 345; y en los 27 pagos / $9.745.379,65 que el backfill de CR-86 reasienta, en cuanto se corra."
+    expectativa: "Corregir la fecha de un pago deja los dos ledgers en la misma fecha, sin importar cuantas filas historicas tenga cada uno. La fila a mover es la que tiene saldo neto vigente (Pago no-reversion menos Cargo reversion de esa fecha), no la primera que devuelve la base; y las filas ya reversadas no se tocan, porque son historia cerrada."
+    causa_raiz: "El metodo venia de CR-53 con un guard Metodo == Transferencia. Bajo ese guard el pago tenia siempre exactamente un movimiento de proveedor, asi que FirstOrDefaultAsync era suficiente y nadie lo noto. CR-86 punto 8 elimina el guard para habilitar CA-86.9 (el pago 441 de Mercado Pago) y con eso el metodo alcanza los pagos con cheque, que son precisamente los que tienen el ledger con mas de una fila. El metodo hermano del lado de la caja (ActualizarFechaEgresoAsync) ya usa ToListAsync + foreach, asi que la asimetria esta escrita en el propio par de metodos."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/PagoOrdenCompraService.cs
+        motivo: "Hipotesis, no instruccion: identificar la fila con saldo neto vigente (el mismo criterio por fecha que ChequeService.SaldoPorFechaProveedor ya usa para el backfill) en vez de FirstOrDefaultAsync. La opcion mas consistente con PAT-023 es reemplazar el UPDATE en el lugar por reversion + alta en los DOS ledgers, pero eso cambia tambien el camino de caja (CR-52/CR-84 lo dejaron declarado como excepcion consciente) y es una decision de arquitectura, no del fix."
+      - path: MariHogar.Infrastructure/Services/EgresoPagoProveedorService.cs
+        motivo: "Hipotesis: el foreach que mueve TODAS las filas de egreso tiene el problema simetrico en cuanto el ledger de caja tenga mas de una fila por pago (lo tendra si alguna vez se corre el backfill de fechas con staleCaja no vacio). Acotar al neto vigente, con el mismo criterio."
+    migracion_ef: no
+    deteccion_qa:
+      tipo: manual
+      consulta: "SELECT OrigenId, COUNT(*) FROM MovimientosCCProveedor WHERE OrigenTipo='PagoOC' AND EsReversion=0 AND Tipo=2 GROUP BY OrigenId HAVING COUNT(*)>1 -> cualquier pago de esa lista es un caso. Corregirle la fecha desde la UI y comparar DATE(Fecha) de la fila con saldo neto vigente contra DATE(Fecha) del egreso de caja."
+      condicion_falla: "Despues de corregir la fecha, la fila de MovimientosCCProveedor con saldo neto vigente y la de MovimientosCCLocal del mismo pago tienen fechas distintas."
+    criterio_aceptacion:
+      - "Sobre el pago 339 (o cualquiera con mas de una fila no-reversion), corregir la fecha desde OrdenesCompra/Details deja la fila de CC Proveedor con saldo neto vigente y el egreso de caja en la MISMA fecha, y no modifica ninguna fila ya reversada."
+      - "El caso de un solo movimiento (una transferencia comun) sigue funcionando igual que antes del fix."
+    pruebas_minimas:
+      - "Pago con cheque acreditado y ledger de una sola fila: la correccion mueve las dos puntas (hoy PASA, no debe romperse)."
+      - "Pago 441 (Mercado Pago, $581.358,96, OC 80): CA-86.9, la correccion tiene que seguir funcionando."
+      - "Pago 339: el caso del defecto."
+
+  - id: MH-048
+    modulo: "Interaccion entre dos backfills del mismo ledger (ChequeService.AplicarBackfillFechasAsync vs EgresoPagoProveedorService.ArmarBackfillAsync)"
+    titulo: "Un backfill por reversion + alta deja a cada pago con dos filas no-reversion, y eso dispara el guard de 'ledger sucio' de OTRO backfill: la pantalla de regularizacion pasa a pedir revision manual de 28 pagos sanos por $10.278.712,98"
+    severidad: major
+    reproducido_en: "marihogar, commit 0e80ff5 (CR-86 punto 9), verificado por codigo + SQL contra produccion el 2026-10-02. El defecto se materializa al correr el backfill de fechas; la condicion que lo produce esta medida."
+    pasos:
+      - "Leer el guard MH-036 de EgresoPagoProveedorService.ArmarBackfillAsync: if (mov.Cantidad > 1) { excluidos.Add(...); continue; }, donde Cantidad es el numero de movimientos 'Pago' no-reversion del pago en CC Proveedor."
+      - "Comprobar que ese guard se evalua ANTES del chequeo de idempotencia var yaPosteado = netosCaja.GetValueOrDefault(p.Id), o sea que un pago cuyo egreso YA esta correctamente posteado igual cae en la lista de excluidos."
+      - "Correr el backfill de fechas de cheques (Cheques / Reasentar fechas historicas). Cada pago reasentado suma una fila Pago no-reversion nueva."
+      - "Volver a abrir la pantalla de regularizacion de caja de CR-84 y leer el bloque de excluidos."
+    sintoma: "La pantalla de regularizacion de caja pasa de listar 5 pagos / $2.224.700,00 como 'hay que revisarlo a mano' a listar 28 pagos / $10.278.712,98 (los 27 reasentados por $9.745.379,65 mas el pago 341 por $533.333,33), con el motivo 'El pago tiene N movimientos en la cuenta corriente del proveedor: no se puede determinar la fecha del egreso sin revisarlo'. Los 27 nuevos NO tienen nada que revisar: su egreso de caja esta posteado y correctamente fechado (verificado: los 24 cheques con egreso tienen DATE(caja)=DATE(FechaAcreditacion) en los 24 casos). Es una falsa alarma de $10,2M sobre la pantalla que decide una escritura financiera de una sola corrida."
+    expectativa: "Un guard de 'el ledger hermano esta sucio' tiene que mirar el saldo NETO por fecha, no la cantidad de filas: con reversion + alta la cantidad de filas crece por diseno y no significa suciedad. Y el chequeo de idempotencia tiene que evaluarse PRIMERO: un pago cuyo egreso ya esta posteado y bien fechado no es candidato a nada, ni a postear ni a excluir, asi que no tiene por que aparecer en ninguna de las dos listas."
+    causa_raiz: "Dos backfills del mismo ledger escritos en CRs distintos con criterios distintos sobre la misma senal. El de CR-84 interpreta 'mas de una fila no-reversion' como suciedad irrecuperable (y en su momento lo era: era el rastro del cambio de criterio de CR-46). El de CR-86 produce esa misma senal deliberadamente, porque PAT-023 le prohibe el UPDATE y lo obliga a reversion + alta. Ninguno de los dos es incorrecto por separado; lo que falta es que el guard del primero use el mismo criterio de saldo neto por fecha que el segundo ya implemento (SaldoPorFechaProveedor)."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/EgresoPagoProveedorService.cs
+        motivo: "Hipotesis, no instruccion: mover el chequeo de yaPosteado por delante de los dos guards de exclusion, y reemplazar mov.Cantidad > 1 por un criterio de saldo neto por fecha (una sola fecha con neto > 0 = ledger limpio), reutilizando el mismo calculo que ChequeService.SaldoPorFechaProveedor. La alternativa de dejarlo como esta y documentarlo NO alcanza: el texto que ve el cliente le pide una revision manual que no corresponde."
+    migracion_ef: no
+    deteccion_qa:
+      tipo: manual
+      consulta: "Previsualizar la regularizacion de caja ANTES y DESPUES de correr el backfill de fechas, y comparar la cantidad y el monto del bloque de excluidos."
+      condicion_falla: "El bloque de excluidos crece al correr un backfill que solo reasienta fechas, o incluye algun pago cuyo neto de caja ya es > 0."
+    criterio_aceptacion:
+      - "Correr el backfill de fechas de cheques NO cambia la lista de excluidos de la regularizacion de caja: sigue en 5 pagos / $2.224.700,00."
+      - "Ningun pago con neto de caja > 0 aparece en el bloque de excluidos."
+    pruebas_minimas:
+      - "Previsualizacion de la regularizacion de caja antes del backfill de fechas: 5 / $2.224.700,00."
+      - "Previsualizacion despues del backfill de fechas: el mismo numero."
+      - "El objetivo de CA-84.8 (74 pagos / $23.750.495,09) no cambia por el reordenamiento de los guards."
+  - id: ELV-005
+    modulo: "Cuentas / Details - grilla de movimientos (MovimientoService.GetDataTableAsync + GetSaldosAcumuladosAsync)"
+    titulo: "Una fila ANULADA en la grilla muestra Saldo Acumulado 0,00 y, si es el ultimo movimiento de la cuenta, el acumulado de la primera fila deja de coincidir con el saldo del encabezado"
+    severidad: major
+    reproducido_en: "eleven-la-plata, dev + lote F1-F4 sin commitear - reproducido 2026-10-01 contra clon local eleven_qa_a (cuenta 12, movimiento 10401 marcado Anulado=1)"
+    pasos:
+      - "Entrar al detalle de una cuenta propia con movimientos."
+      - "Anular el movimiento mas reciente de esa cuenta (Movimientos -> Anular)."
+      - "Volver a Cuentas -> Details de esa cuenta y mirar la grilla en orden descendente por fecha."
+    sintoma: "La fila anulada aparece en la grilla (no se oculta) con Saldo Acumulado 0,00. Al ser la primera fila en orden descendente, el acumulado que se lee arriba (0,00) no coincide con el Saldo del encabezado. Evidencia observada: header 59.417.138,47 vs primera fila (id 10401, anulado=true) saldoAcumulado=0."
+    expectativa: "O la fila anulada no se lista, o se lista mostrando el acumulado vigente a esa fecha (el mismo de la fila anterior) y nunca 0; en cualquiera de los dos casos el acumulado de la primera fila en orden descendente sin filtros debe seguir igual al saldo del encabezado."
+    causa_raiz: "GetDataTableAsync NO filtra Anulado (el unico query filter global es DeletedAt == null), mientras GetSaldosAcumuladosAsync si excluye Anulado. El diccionario de acumulados no tiene la clave de los anulados, y el mapeo usa saldosAcumulados?.GetValueOrDefault(m.Id), que para una clave ausente devuelve 0m en vez de null: ese 0 se renderiza como un saldo real. Cuenta.Saldo tambien excluye anulados, por eso el encabezado y la grilla divergen."
+    capa: Infrastructure
+    archivos_fix:
+      - path: Eleven.Infrastructure/Services/MovimientoService.cs
+        motivo: "Decidir y unificar el conjunto: o GetDataTableAsync excluye !Anulado como lo hacen Cuenta.Saldo y GetSaldosAcumuladosAsync, o el mapeo distingue 'sin acumulado' de 'acumulado 0' (TryGetValue y pasar null cuando la clave no esta) para que la vista muestre vacio y no 0,00."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: dynamic
+      selector_o_endpoint: "POST /Movimientos/GetDataTable?cuentaId=<id> con sortDirection=desc; comparar data[0].saldoAcumulado contra el Saldo del encabezado de /Cuentas/Details/<id>, con al menos un movimiento anulado en la cuenta."
+      condicion_falla: "Alguna fila con anulado=true devuelve saldoAcumulado=0, o data[0].saldoAcumulado distinto del saldo del encabezado."
+    criterio_aceptacion:
+      - "Con el ultimo movimiento de la cuenta anulado, el acumulado de la primera fila en orden descendente sin filtros sigue siendo exactamente igual al saldo del encabezado."
+      - "Ninguna fila anulada muestra Saldo Acumulado 0,00 como si fuera un saldo real."
+    pruebas_minimas:
+      - "Anular el ultimo movimiento de una cuenta y comparar acumulado de la primera fila vs saldo del encabezado."
+      - "Anular un movimiento del medio y verificar que los acumulados de las filas posteriores no se corren."
+      - "Cuenta sin anulados: sin cambios respecto del comportamiento actual (regresion)."
+
+  - id: ELV-006
+    modulo: "Cuentas / Details y Movimientos / Index - grilla de movimientos (columna Nro. Comprobante)"
+    titulo: "Recurrencia de MH-015/MH-018/CRM-003 en superficie nueva: la columna 'Nro. Comprobante' se renderiza ordenable (default de DataTables) pero GetDataTableAsync ignora sortColumn y siempre ordena por Fecha"
+    severidad: minor
+    reproducido_en: "eleven-la-plata, dev + lote F1-F4 sin commitear - reproducido 2026-10-01 contra clon local eleven_qa_a (cuenta 12)"
+    pasos:
+      - "Abrir Cuentas -> Details de una cuenta con movimientos (o Movimientos / Index)."
+      - "Clickear el encabezado de la columna 'Nro. Comprobante'."
+    sintoma: "La flecha de orden se mueve al encabezado 'Nro. Comprobante' pero las filas se reordenan por Fecha. Evidencia observada: POST /Movimientos/GetDataTable con sortColumn=numeroComprobante y sortDirection=asc devuelve 2828 (0007-05-07), 7105 (0053-06-03), 3360 (2023-01-17), 63/66/73 (2023-01-27) - todos con comprobante null: es el orden por Fecha ascendente, no por comprobante."
+    expectativa: "O la columna declara orderable: false, o GetDataTableAsync honra request.SortColumn con un switch que incluya numeroComprobante."
+    causa_raiz: "GetDataTableAsync solo lee request.SortDirection; no existe switch sobre request.SortColumn, asi que el orden es siempre (Fecha, Id). La vista envia sortColumn desde d.columns[d.order[0].column].data y deja la columna nueva ordenable por default. Afecta a todas las columnas ordenables de esas dos grillas (Tipo, Motivo, Notas, Importe, Cuenta), pero 'Nro. Comprobante' es la que se agrega en este lote."
+    capa: Web
+    archivos_fix:
+      - path: Eleven.Web/Views/Cuentas/Details.cshtml
+        motivo: "Agregar orderable: false a la columna numeroComprobante (y a las demas que el servicio no sabe ordenar), o mantenerla ordenable solo si se implementa el switch de SortColumn."
+      - path: Eleven.Web/Views/Movimientos/Index.cshtml
+        motivo: "Mismo cambio en la grilla global."
+      - path: Eleven.Infrastructure/Services/MovimientoService.cs
+        motivo: "Alternativa de fondo: switch sobre request.SortColumn con desempate por Id en TODAS las ramas (el ThenBy(Id) de F1 debe conservarse en cada rama, no solo en la de Fecha, o vuelve el riesgo de Skip/Take sin orden total)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: dynamic
+      selector_o_endpoint: "POST al endpoint de la grilla con sortColumn=<cada columna ordenable> y comparar el orden devuelto contra el orden esperado por esa columna."
+      condicion_falla: "Una columna ordenable en el cliente devuelve un orden que no corresponde a esa columna."
+    criterio_aceptacion:
+      - "Clickear 'Nro. Comprobante' ordena por comprobante, o la columna no es clickeable."
+    pruebas_minimas:
+      - "sortColumn=numeroComprobante asc/desc contra una cuenta con comprobantes mezclados y nulos."
+      - "Regresion: sortColumn=fecha sigue ordenando por (Fecha, Id) con el desempate de F1."
+
+  - id: ELV-007
+    modulo: "Cuentas / Details y Movimientos / Index - render de la columna Nro. Comprobante"
+    titulo: "El render 'data || guion' trata el comprobante 0 como ausente: un movimiento con NumeroComprobante=0 se muestra como guion gris igual que uno sin comprobante"
+    severidad: trivial
+    reproducido_en: "eleven-la-plata, dev + lote F1-F4 sin commitear - verificado 2026-10-01: hay 2 filas reales con NumeroComprobante=0 (movimientos 1706 y 1707, cuenta 120)"
+    pasos:
+      - "Abrir la grilla de movimientos de una cuenta que tenga un movimiento con NumeroComprobante = 0."
+    sintoma: "La celda muestra el guion gris de 'sin comprobante'. Ejecutado el render real del view con node: f(null) -> guion, f(0) -> guion, f(99001) -> 99001. El 0 es indistinguible del nulo."
+    expectativa: "Solo null/undefined muestran el guion; el 0 se muestra como 0, o se decide explicitamente que 0 no es un comprobante valido y se normaliza en los datos."
+    causa_raiz: "El render usa el operador || de JavaScript, falsy para 0 y para cadena vacia, en vez de comparar contra null/undefined."
+    capa: Web
+    archivos_fix:
+      - path: Eleven.Web/Views/Cuentas/Details.cshtml
+        motivo: "Cambiar 'data || guion' por una comparacion explicita: (data === null || data === undefined) ? guion : data."
+      - path: Eleven.Web/Views/Movimientos/Index.cshtml
+        motivo: "Mismo cambio."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: static
+      selector_o_endpoint: "grep de 'data ||' en los render de columnas DataTables cuyo dato es numerico."
+      condicion_falla: "Una columna numerica usa 'data ||' para decidir el placeholder de vacio."
+    criterio_aceptacion:
+      - "Un movimiento con NumeroComprobante=0 muestra 0; uno sin comprobante muestra el guion gris."
+    pruebas_minimas:
+      - "Fila con comprobante 0, fila con comprobante null, fila con comprobante mayor a 0."
+  - id: ELV-008
+    modulo: "Maquinas / Ajustar Contadores - piso de validacion del ajuste masivo (ELV-004)"
+    titulo: "El piso en 0 del ajuste masivo incluye Durabilidad de los repuestos, que legitimamente es negativa (vida util excedida): el clamp Math.Min(0, -min) bloquea TODO ajuste negativo en el 46% de las maquinas con repuestos"
+    severidad: medium
+    reproducido_en: "eleven-la-plata, dev + lote F1-F5 + lote bis sin commitear - reproducido 2026-10-01 contra clon local eleven_qa_d (maquina 6). Dato cruzado contra produccion (db_a7251f_eleven2, solo lectura): 350 de 1314 repuestos vivos tienen Durabilidad < 0, repartidos en 90 maquinas."
+    pasos:
+      - "Elegir una maquina que tenga al menos un RepuestoMaquina vivo con Durabilidad < 0 (en produccion hay 90; en el clon, la maquina 6, con minimo -751.234)."
+      - "Maquinas / Index -> boton de llave inglesa 'Ajustar Contadores'."
+      - "Ingresar un ajuste negativo chico y legitimo, por ejemplo -100 (los contadores de esa maquina van de 537.895 a 5.915.812: ninguno quedaria en negativo)."
+    sintoma: "El ajuste se rechaza entero con 'El ajuste no puede ser menor a 0: dejaria contadores en negativo.' Evidencia observada: POST /Maquinas/AjustarContadores id=6 cantidadAjustar=-100 -> 302, snapshot de base identico antes y despues (sum ContadorBN 192.275.215, sum Durabilidad -99.561, sum ContadorAsignacion 45.026.935), SweetAlert de error con ese texto. El mensaje es ademas enganoso: nada quedaria en negativo que no lo este ya."
+    expectativa: "Un ajuste negativo que no empuja ningun valor por debajo de su piso legitimo debe aplicarse. Durabilidad es vida util RESTANTE y su propio dominio admite valores <= 0 (RepuestoMaquina.DurabilidadPorcentaje devuelve 0 explicitamente para Durabilidad <= 0), asi que no corresponde tratarla como magnitud acumulativa con piso en 0. El piso debe calcularse sobre los valores que de verdad no pueden ser negativos (ContadorBN, ContadorColor si la maquina es color, y ContadorAsignacion), y para Durabilidad el criterio lo tiene que fijar el analista, no el implementador."
+    causa_raiz: "MaquinaService.AjustarContadoresAsync mete Durabilidad en la lista valoresAfectados y calcula ajusteMinimoAdmitido = Math.Min(0, -valoresAfectados.Min()). El clamp Math.Min(0, ...) se agrego para cubrir datos 'corruptos' asumiendo que ningun valor negativo es valido; con una Durabilidad negativa preexistente y legitima, -min da un numero positivo, el clamp lo lleva a 0 y entonces cualquier cantidadAAjustar < 0 cae en el rechazo. El premiso del comentario del codigo ('no existe un valor negativo valido') es falso para Durabilidad."
+    capa: Infrastructure
+    archivos_fix:
+      - path: Eleven.Infrastructure/Services/MaquinaService.cs
+        motivo: "Hipotesis, no instruccion: separar los valores con piso real en 0 (ContadorBN, ContadorColor condicional, ContadorAsignacion) de Durabilidad, y para Durabilidad usar un piso relativo (no empeorar el valor actual) o excluirla del calculo, segun lo que defina el analista. Si se la excluye, CA-3 del lote bis queda invalidado y hay que reescribirlo."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: dynamic
+      selector_o_endpoint: "POST /Maquinas/AjustarContadores con cantidadAjustar=-1 sobre una maquina con min(Durabilidad) < 0 y min(ContadorBN) alto."
+      condicion_falla: "El ajuste se rechaza aunque ningun contador ni ContadorAsignacion quedaria por debajo de 0."
+    criterio_aceptacion:
+      - "Sobre una maquina con al menos un repuesto de Durabilidad negativa y contadores altos, un ajuste de -100 se APLICA (snapshot de base cambia en -100 por fila) y la pantalla muestra el toast de exito."
+      - "El mismo ajuste sigue rechazandose si empuja un ContadorBN, un ContadorColor (solo si Color=true) o un ContadorAsignacion por debajo de 0."
+    pruebas_minimas:
+      - "Maquina con min(Durabilidad)<0 y min(ContadorBN) alto: ajuste -100 debe aplicar."
+      - "Maquina con todos los valores positivos: borde -min aplica, -min-1 rechaza (hoy PASA, no debe romperse)."
+      - "Maquina B/N con ContadorColor=0: el ajuste negativo no debe bloquearse por ContadorColor (hoy PASA, no debe romperse)."
+
+  - id: ELV-009
+    modulo: "Movimientos / Index y Cuentas / Details - grilla de movimientos (conteo vs filas servidas)"
+    titulo: "recordsTotal/recordsFiltered cuentan movimientos cuya Cuenta esta soft-deleted, pero el INNER JOIN del Include los descarta: la grilla global declara 9.748 filas y nunca sirve mas de 9.307"
+    severidad: minor
+    reproducido_en: "eleven-la-plata, dev + lote F1-F5 + lote bis sin commitear - reproducido 2026-10-01 contra clon local eleven_qa_d. PREEXISTENTE: se reproduce igual con sortColumn=fecha, o sea no lo introdujo el lote bis."
+    pasos:
+      - "Abrir Movimientos / Index sin filtro de cuenta."
+      - "Paginar hasta el final con cualquier orden."
+    sintoma: "DataTables anuncia 9.748 registros; un barrido completo de paginacion devuelve 9.307 filas unicas, 0 duplicadas y 441 faltantes. Las ultimas paginas vienen vacias o cortas. Evidencia observada: barrido de 20 paginas de 500 con sortColumn=fecha|importeConSigno, asc y desc -> total=9748, rows=9307 en los cuatro casos. SQL de contraste: 441 movimientos vivos cuya CuentaId apunta a una Cuenta con DeletedAt no nulo."
+    expectativa: "El conteo y las filas servidas tienen que salir del mismo conjunto: o el filtro de cuenta borrada se aplica tambien al CountAsync, o la navegacion a Cuenta se proyecta con LEFT JOIN para que el movimiento se liste con 'Sin cuenta'."
+    causa_raiz: "MovimientoService.GetDataTableAsync hace Include(m => m.Cuenta) sobre una navegacion requerida (CuentaId es int no nullable), asi que EF genera INNER JOIN contra Cuentas, y el filtro global de consulta de SoftDestroyable excluye las cuentas borradas. CountAsync se traduce sin el Include y por eso no pierde esas filas. MapToDto ya contempla el caso ('Sin cuenta'), lo que confirma que la intencion era listarlos."
+    capa: Infrastructure
+    archivos_fix:
+      - path: Eleven.Infrastructure/Services/MovimientoService.cs
+        motivo: "Hipotesis: forzar la navegacion opcional en la proyeccion o filtrar explicitamente por cuenta viva en el query base (antes de los dos CountAsync) para que conteo y filas coincidan. La decision de si esos 441 movimientos deben verse o no es funcional, no tecnica."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: dynamic
+      selector_o_endpoint: "Barrido completo de paginacion del endpoint de la grilla comparando recordsFiltered contra la cantidad de ids unicos recibidos."
+      condicion_falla: "recordsFiltered != cantidad de ids unicos servidos por el barrido completo."
+    criterio_aceptacion:
+      - "Un barrido completo de Movimientos / Index sin filtros devuelve exactamente recordsFiltered ids unicos, con cualquier orden."
+    pruebas_minimas:
+      - "Barrido con sortColumn=fecha y con sortColumn=importeConSigno, asc y desc."
+      - "Con cuentaId de una cuenta viva (hoy ya coincide: 2.039 = 2.039) para no romper ese caso."
+
+  - id: MH-045
+    modulo: "Gastos generados por el sistema / anulacion manual sin guard de origen (GastoService.AnularAsync + ImpuestoChequeService)"
+    titulo: "Un gasto que el sistema postea automaticamente desde un documento se puede anular a mano desde el CRUD generico, dejando el documento en el estado que lo genero y sin forma de regenerarlo"
+    severidad: medium
+    reproducido_en: "marihogar, 2026-10-02, QA de CR-86 lote 3 (impuesto al cheque Ley 25.413). Confirmado en codigo; 0 casos en produccion porque la migracion AddImpuestoChequeCR86 aun no esta aplicada."
+    pasos:
+      - "Identificar un Gasto que el sistema postea solo, trazado a un documento por FK (aca: Gasto.ChequeId, posteado por ImpuestoChequeService.PostearAsync al acreditar el cheque)."
+      - "Abrir el CRUD generico de Gastos y anular ese gasto (GastoService.AnularAsync solo valida 'gasto no encontrado' y 'ya anulado')."
+      - "Verificar el estado del documento origen: el cheque sigue Acreditado."
+      - "Intentar regenerar el gasto: AcreditarAsync exige Estado=Pendiente, asi que el unico camino es revertir la acreditacion completa (CC Proveedor + egreso de caja) y volver a acreditarla."
+    sintoma: "El cheque queda Acreditado sin su impuesto: el gasto desaparece del total del periodo (ObtenerImpuestoPeriodoAsync y la columna 'Cobrado en el periodo' filtran !Anulado) y de la caja (contramovimiento de reversion). El gasto operativo queda SUBESTIMADO y el unico rastro es una fila anulada en Gastos. Si despues se revierte el cheque, ImpuestoChequeService.AnularAsync no encuentra gasto vigente, devuelve 0 y la reversion no menciona el impuesto: el operador no se entera de que falta."
+    expectativa: "Cuando un CRUD generico pasa a contener filas que el sistema postea solo desde un documento, la accion destructiva del CRUD tiene que mirar la FK de origen: o se bloquea con un mensaje que nombre el camino correcto (que el gasto lo genero el cheque N y se anula revirtiendo la acreditacion), o se propaga al documento. La FK existe justamente para poder preguntar."
+    causa_raiz: "La FK Gasto.ChequeId se agrego para trazabilidad y para el guard de idempotencia de PostearAsync, pero no se la consulto en el camino de anulacion del CRUD preexistente. El CR verifico la transicion que crea la fila y la que la deshace POR EL DOCUMENTO, no la que la deshace POR LA FILA."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: codigo
+      consulta: "Por cada FK nueva de un documento a una fila de un CRUD generico, buscar AnularAsync/EliminarAsync/ActualizarAsync de ese CRUD y verificar que la FK aparezca en el guard. 0 referencias = el agujero existe."
+    archivos_fix:
+      - "Services/GastoService.cs - AnularAsync: si gasto.ChequeId != null, devolver error nombrando el cheque y el camino de reversion."
+      - "Views/Gastos/Index.cshtml - ocultar o deshabilitar el boton Anular en las filas con ChequeId, y rotular el origen (REG-004: la UI no es la unica defensa, pero tampoco ofrece una accion que el servicio va a rechazar)."
+    migracion_ef: no
+    regla_catalogo: "MH-045 en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "Anular desde Gastos/Index el gasto de impuesto de un cheque acreditado devuelve error y el gasto sigue con Anulado=0."
+      - "Revertir la acreditacion del cheque si lo anula, y el mensaje de la reversion nombra el monto del impuesto anulado."
+    leccion_adicional: "Un gasto automatico viviendo en la misma tabla que los gastos manuales hereda TODAS las acciones del CRUD manual, no solo las que el CR penso. El inventario no es que hace mi servicio nuevo sino que puede hacerle el sistema viejo a las filas que mi servicio nuevo escribe."
+
+  - id: MH-046
+    modulo: "Gastos / correccion de la fecha de un pago posteado (PagoOrdenCompraService.ActualizarFechaPagoAsync + ImpuestoChequeService.ActualizarFechaImpuestoAsync)"
+    titulo: "Una fecha de corte implementada como VigenteDesde de un parametro se respeta al postear y se puede violar despues, porque el camino de correccion de fecha no revalida la vigencia"
+    severidad: medium
+    reproducido_en: "marihogar, 2026-10-02, QA de CR-86 lote 3. Confirmado en codigo; 0 casos en produccion (migracion no aplicada)."
+    pasos:
+      - "Tener un parametro con vigencia cuya VigenteDesde ES la fecha de corte del automatismo (aca: AlicuotasImpuestoCheque, sembrada con VigenteDesde = dia del deploy; AC-86.4)."
+      - "Acreditar un cheque con una fecha POSTERIOR a esa VigenteDesde: se postea el gasto del impuesto correctamente."
+      - "Ir a la pantalla de correccion de fecha del pago de la OC y poner una fecha ANTERIOR a VigenteDesde (p. ej. agosto 2026). ActualizarFechaPagoAsync solo valida que no sea futura."
+      - "Verificar: el Gasto de ImpuestosBancarios y su movimiento de caja quedan fechados antes de la vigencia de la unica alicuota que existe."
+    sintoma: "Queda un gasto de impuesto automatico fechado en un periodo que la fecha de corte declaraba vacio. En marihogar eso cae exactamente encima de los 58 gastos manuales de la subcategoria 'Gastos Bancarios PCIA y payway' ($5.691.530,00, categoria Otro, hasta el 06/08/2026) que el CR vino a NO duplicar: el doble conteo R-CR86.1 entra por la puerta de atras. La invariante ningun impuesto fechado antes de VigenteDesde se cumple al postear y no se sostiene en el tiempo. Ademas ActualizarFechaPagoAsync no valida contra cheque.FechaEmision, que AcreditarAsync si valida: el mismo dato admite por un camino lo que el otro rechaza."
+    expectativa: "Si una fecha de corte se implementa como la vigencia de un parametro, TODO camino que pueda mover la fecha de un asiento ya posteado tiene que revalidar esa vigencia: o se rechaza la correccion cuando deja el asiento fuera de vigencia, o se recalcula/anula el asiento. Y los dos caminos que escriben la misma fecha (alta y correccion) tienen que compartir las mismas validaciones, no solo una de las dos."
+    causa_raiz: "La defensa se diseno en el punto de posteo (sin alicuota vigente no postea) y se razono como estructural (sin un solo if de fecha de corte). Pero la fecha del asiento es un dato editable por otra pantalla, asi que la defensa es del INSTANTE del posteo, no de la fila. ActualizarFechaImpuestoAsync mueve gasto.Fecha y el movimiento de ledger sin volver a consultar la alicuota."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: sql
+      consulta: "SELECT COUNT(*) FROM Gastos g WHERE g.Categoria=8 AND g.ChequeId IS NOT NULL AND g.Anulado=0 AND g.Fecha < (SELECT MIN(VigenteDesde) FROM AlicuotasImpuestoCheque) - tiene que dar 0 siempre."
+    archivos_fix:
+      - "Services/ImpuestoChequeService.cs - ActualizarFechaImpuestoAsync: consultar ObtenerAlicuotaVigenteAsync(fechaNueva) y devolver un resultado que el caller pueda rechazar si no hay alicuota vigente a esa fecha."
+      - "Services/PagoOrdenCompraService.cs - ActualizarFechaPagoAsync: propagar ese rechazo como ServiceResult de error, y agregar el guard de fechaNueva >= cheque.FechaEmision que ya tiene AcreditarAsync."
+    migracion_ef: no
+    regla_catalogo: "MH-046 en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "Corregir la fecha de pago de un cheque acreditado a una fecha anterior a la VigenteDesde de la alicuota devuelve error y no mueve ni el Gasto ni el movimiento de caja."
+      - "La consulta SQL de deteccion_qa devuelve 0 despues de ejercitar el camino."
+    leccion_adicional: "Sin un solo if es una virtud de diseno y no una garantia: la defensa estructural protege el camino que la invoca, no la fila que escribio. Cuando el corte vive en un dato (VigenteDesde) y la fecha del asiento tambien vive en un dato editable, la invariante hay que afirmarla sobre los dos y verificarla con un SELECT, no con el argumento."
+
+  - id: MH-047
+    modulo: "Enums de catalogo / valor reservado al sistema ofrecido en el alta manual (CategoriaGasto.ImpuestosBancarios en Gastos y GastosRecurrentes)"
+    titulo: "Un valor de enum creado para aislar lo que postea el sistema aparece solo en todos los combos que iteran el enum completo, y la garantia de aislamiento desaparece en el alta manual"
+    severidad: low
+    reproducido_en: "marihogar, 2026-10-02, QA de CR-86 lote 3. Confirmado en codigo (4 vistas con Enum.GetValues<CategoriaGasto>())."
+    pasos:
+      - "Agregar un valor de enum cuyo proposito declarado sea solo lo que postea el sistema, filtrable y auditable de un filtro."
+      - "Buscar las vistas que pueblan el combo con Enum.GetValues del enum (aca Gastos/Create, Gastos/Index, GastosRecurrentes/Create, GastosRecurrentes/Edit)."
+      - "Confirmar que el valor nuevo aparece en el combo de ALTA y que ni la vista ni el servicio lo rechazan."
+    sintoma: "El usuario puede cargar a mano un gasto de ImpuestosBancarios (sin ChequeId) o, peor, una PLANTILLA de gasto recurrente de esa categoria, que va a generar impuesto fantasma todos los meses. El filtro por categoria deja de identificar lo que postea el sistema, que es la unica justificacion de que la categoria exista aparte de ComisionesBancarias. Es el inverso de OLV-019: ahi la baja del valor estaba solo en el combo y el POST la burlaba; aca el combo no la implementa en absoluto."
+    expectativa: "Un valor de enum reservado al sistema se excluye del combo de ALTA (no del de filtro, donde es exactamente lo que se quiere poder filtrar) y se rechaza en el servicio, que es la defensa real (REG-004). Si hay varias vistas que iteran el enum, la exclusion va en un helper unico, no copiada en cada vista."
+    causa_raiz: "El valor se agrego al enum con un doc-comment que explica por que es una categoria propia y para que sirve, pero las 4 vistas que arman el combo lo hacen por Enum.GetValues y nadie las toco: el valor nuevo se filtra solo a las pantallas de alta por el mismo mecanismo que lo hace aparecer, deseablemente, en el filtro."
+    capa: Web
+    deteccion_qa:
+      tipo: codigo
+      consulta: "grep -rn 'Enum.GetValues<TEnum>()' en Views/ despues de agregar un valor a TEnum: cada hit es un combo que ahora ofrece el valor nuevo. Separar los de filtro (correcto) de los de alta (a revisar)."
+    archivos_fix:
+      - "Domain/Enums/CategoriaGasto.cs o un helper de Domain - exponer el set de categorias cargables a mano."
+      - "Views/Gastos/Create.cshtml, Views/GastosRecurrentes/Create.cshtml, Views/GastosRecurrentes/Edit.cshtml - usar ese set en vez de Enum.GetValues."
+      - "Services/GastoService.cs y GastoRecurrenteService.cs - rechazar Categoria=ImpuestosBancarios en el alta/edicion manual."
+    migracion_ef: no
+    regla_catalogo: "MH-047 en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "El combo de Gastos/Create y de GastosRecurrentes/Create no ofrece ImpuestosBancarios; el filtro de Gastos/Index si lo ofrece."
+      - "Un POST a mano con Categoria=8 al alta de Gasto devuelve error de validacion."
+    leccion_adicional: "Agregar un valor a un enum de catalogo es, sin escribir una linea de UI, agregar una opcion a todos los combos del sistema que iteran ese enum. Cuando el valor nuevo es del sistema en vez de del negocio, la pregunta de QA es cuantos combos lo ofrecen ahora y cuantos deberian: la respuesta es un grep, no una interpretacion."
+
+  - id: MH-042
+    modulo: "Rotulo del universo de un agregado (Configuracion > Costos de cobranza - rotulo del residuo 'N pagos sin tasa atribuida')"
+    titulo: "El criterio de aceptacion y la implementacion del rotulo del residuo miden universos distintos: el numero del criterio se conto SIN el filtro de documentos cancelados que el agregado si aplica"
+    severidad: low
+    reproducido_en: "marihogar, 2026-10-02, QA de CR-86 frente A (commit 0e80ff5), contra produccion db_a7251f_marihog."
+    pasos:
+      - "Tomar el numero que el criterio de aceptacion promete para el rotulo del residuo (aca: 730 pagos sin tasa en todo el historial)."
+      - "Replicar en SQL la consulta del servicio que alimenta el rotulo, CON todos sus filtros."
+      - "Replicarla de nuevo SIN el filtro de documentos cancelados."
+      - "Comparar los dos numeros contra el del criterio. Aca: 726 con filtro, 730 sin filtro, y la diferencia son exactamente los 4 pagos sin tasa de ventas canceladas."
+    sintoma: "El rotulo declara 726 donde el criterio pide 730. Los dos numeros son defendibles y ninguno es un bug de calculo, pero el criterio es inverificable como esta escrito y QA no puede adjudicar cual universo quiso el negocio."
+    expectativa: "Cuando un criterio de aceptacion fija un numero medido, tiene que fijar tambien el universo (con o sin documentos cancelados / dados de baja / anulados). Si el agregado del que el rotulo habla excluye los cancelados, el rotulo tiene que excluirlos igual y el criterio tiene que decir el numero de ESE universo: dos numeros contiguos no pueden medir universos distintos."
+    causa_raiz: "El numero del criterio se midio en la etapa de Analisis con un SELECT directo sobre la tabla de detalle, antes de que Arquitectura decidiera derivar el agregado del ledger con exclusion de cancelados. La implementacion aplico el filtro por coherencia con el agregado (correcto) y el criterio quedo congelado con el numero viejo."
+    capa: Transversal
+    deteccion_qa:
+      tipo: manual
+      consulta: "Para cada numero prometido por un criterio, correr la consulta del servicio CON y SIN el filtro de cancelados/anulados/soft-deleted. Si uno de los dos coincide con el criterio y el otro con la pantalla, el defecto es de criterio y vuelve al analista, no al implementador."
+    archivos_fix: []
+    migracion_ef: no
+    leccion_adicional: "Es la cara de proceso del corolario de MH-033: el numero dice de que universo habla, y eso aplica tambien al numero que escribe el analista en el criterio. Un criterio con un monto o un conteo pero sin el universo produce un FAIL que nadie puede cerrar sin volver a Analisis."
+
+  - id: MH-043
+    modulo: "Reportes de revision / saneamiento construidos sobre un whitelist de categorias (Gastos > 'Gastos que el sistema ya calcula solo')"
+    titulo: "Un reporte de saneamiento que lista un SUBCONJUNTO del universo sin declararlo se lee como exhaustivo, y deja afuera justo el caso que ya estaba confirmado como defecto en vivo"
+    severidad: medium
+    reproducido_en: "marihogar, 2026-10-02, QA de CR-86 frente A (commit 0e80ff5), contra produccion db_a7251f_marihog."
+    pasos:
+      - "Abrir el reporte de saneamiento y anotar el total que declara (aca: 80 gastos / $9.113.426,00)."
+      - "Leer en el servicio la lista literal de categorias/subcategorias del whitelist."
+      - "En SQL, buscar las categorias VECINAS por nombre (las que el propio codigo menciona en un comentario como 'misma pinta, fuera de alcance') y sumarlas."
+      - "Cruzar los defectos ABIERTOS de las corridas anteriores sobre el mismo concepto contra el whitelist: si el registro del defecto no cae en ninguna categoria del whitelist, el reporte no lo va a mostrar nunca."
+    sintoma: "El reporte declara 80 gastos / $9.113.426,00 como 'los gastos que el sistema ya calcula solo', sin ninguna linea que diga que es un subconjunto. Afuera quedan $4.801.222,00 vigentes en 3 subcategorias vecinas y, sobre todo, el gasto 520 'COMISION PERCEPCION MP' de $50.000,00, que una corrida anterior de QA ya habia confirmado como doble conteo EN VIVO (MH-039)."
+    expectativa: "Un reporte de revision declara su propio alcance en pantalla: cuantos registros y cuanta plata quedan AFUERA del criterio, con el motivo. Si el proposito del reporte es que el cliente cierre una revision, un total que se lee como el universo entero hace que la cierre con la plata que falta sin mirar. Y cualquier defecto abierto sobre el mismo concepto tiene que caer dentro del reporte, o el reporte no sirve para lo que se construyo."
+    causa_raiz: "El whitelist se cerro sobre las categorias de nombre exacto que el analisis habia medido, y las variantes de tipeo del mismo concepto cargadas a mano por el cliente ('comision mp', 'COMISION PERCEPCION MP', 'gastos payway pcia') quedaron afuera. El implementador las declaro en un comentario del codigo, que el cliente no lee, en vez de en la pantalla."
+    capa: Web
+    deteccion_qa:
+      tipo: manual
+      consulta: "SELECT Subcategoria, COUNT(*), SUM(Monto) FROM <tabla> GROUP BY 1 ORDER BY 2 DESC sobre la categoria padre, y comparar la lista completa contra el whitelist del servicio. Toda fila fuera del whitelist cuyo nombre describa el mismo concepto es parte del universo no declarado."
+    archivos_fix:
+      - path: MariHogar.Web/Views/Gastos/Solapados.cshtml
+        motivo: "Declarar en pantalla cuantos gastos y cuanta plata quedan afuera del criterio, con el motivo, igual que ya se declara el caso del gasto excluido a proposito."
+      - path: MariHogar.Infrastructure/Services/GastoService.cs
+        motivo: "Alternativa (o complemento): incorporar al whitelist las variantes de tipeo del mismo concepto y ratificar el total nuevo con el cliente."
+    migracion_ef: no
+    leccion_adicional: "Regla de cierre para QA: un reporte nuevo de saneamiento se prueba cruzandolo contra los defectos ABIERTOS del mismo concepto. Si un defecto confirmado en vivo no aparece en el reporte que se construyo para encontrarlo, eso es el hallazgo, aunque el total del reporte coincida al peso con el criterio."

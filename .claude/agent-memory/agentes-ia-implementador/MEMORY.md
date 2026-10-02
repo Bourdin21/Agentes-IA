@@ -12,4 +12,5 @@ Como usar este archivo (limite duro: 200 lineas o 25KB — lo que llegue antes; 
 ## Aprendizajes
 
 - [Verificar una vista Razor sin levantar la app](verificacion-vistas-razor.md) — `node --check` sobre el JS embebido, y el object initializer que no parsea en un atributo de tag helper.
+- [Verificar los criterios con numero exacto contra produccion](verificar-criterios-contra-produccion.md) — consulta de solo lectura antes de cerrar la etapa; destapa el agregado mal contado que QA devolveria.
 - [El warning CRLF de git es normal](git-crlf-repos-dotnet.md) — copia de trabajo en LF + `autocrlf=true`: no indica que se haya reescrito el archivo.

@@ -1,7 +1,7 @@
 # Memoria - Analista funcional
 
 ## Proyecto: eleven-la-plata
-## Ultima actualizacion: 2026-08-20
+## Ultima actualizacion: 2026-10-01
 
 ## Definiciones vigentes
 
@@ -98,3 +98,135 @@ Bloqueado hasta que el cliente confirme cuáles de H1–H7 quiere llevar adelant
 
 ## Historial de ajustes
 - 2026-08-20: Barrido de Discovery inicial (primera vez que este proyecto pasa por el flujo formal de agentes pese a estar registrado como "cerrado" en el índice — se corrige el estado).
+
+---
+
+## Discovery — Lote 2026-10-01 (5 reportes del cliente: Finanzas + Contadores)
+
+**Origen:** reporte directo del owner tras uso en producción, 5 ítems. Captura adjunta para el ítem 5 (Alquiler #372, Ricoh aficio 7500).
+
+### F1 — Saldo acumulado del último movimiento != saldo de la cuenta (defecto, severidad major)
+**Síntoma reportado:** en el detalle de una cuenta los movimientos se agrupan por fecha, pero dentro de la misma fecha el orden es el inverso al cronológico, y entonces la fila "última" muestra un acumulado que no coincide con el saldo actual de la cuenta.
+
+**Causa raíz confirmada en código (no es un problema de cálculo):**
+- `MovimientoService.GetSaldosAcumuladosAsync` (`Eleven.Infrastructure/Services/MovimientoService.cs:461`) calcula bien: ordena `OrderBy(Fecha).ThenBy(Id)` y filtra `DeletedAt == null && !Anulado`.
+- `Cuenta.Saldo` (`Eleven.Domain/Entities/Cuenta.cs:17`) suma `ImporteConSigno` sobre **exactamente el mismo conjunto**. Por lo tanto el último acumulado **sí** es igual al saldo; no hay discrepancia de números.
+- El defecto está en el orden de la **grilla**: `MovimientoService.GetDataTableAsync:72-73` ordena solo `OrderBy(m => m.Fecha)` / `OrderByDescending(m => m.Fecha)`, **sin desempate por `Id`**. Con varios movimientos en la misma fecha, MySQL devuelve el empate en orden arbitrario (en la práctica ascendente por Id), así que en vista descendente la fila de arriba de ese día no es el último movimiento del día. El usuario lee un acumulado intermedio y lo compara contra el saldo total.
+
+**Conclusión:** es un bug de presentación, de una línea. No hay dato corrupto ni saldo mal calculado. Confirmado por lectura de código, sin necesidad de tocar producción.
+
+### F2 — "Egreso" como tipo por defecto en nuevo movimiento de cuenta propia (mejora de UX)
+**Pedido:** Cuentas propias -> cuenta X -> Nuevo movimiento debe venir con `Egreso` preseleccionado (99% de los casos). Los ingresos nacen de la cuenta corriente del cliente, por otro flujo.
+**Estado actual:** `MovimientosController.Create` (GET) (`Eleven.Web/Controllers/MovimientosController.cs:56`) instancia `new MovimientoCreateViewModel()` sin fijar `TipoMovimiento`, así que queda en el default del enum (`Ingreso`, valor 0).
+**Alcance:** solo el alta desde cuentas propias (`Movimientos/Create`). **No** toca `CreateUnificado` (cuentas corrientes de clientes/proveedores), que tiene su propia semántica.
+
+### F3 — Tras cargar un movimiento vuelve a la pantalla "Movimientos" genérica (defecto de navegación)
+**Pedido:** que vuelva a la cuenta de donde se partió (ej. cargué un gasto en Efectivo -> volver a Efectivo).
+**Estado actual:** `MovimientosController.Create` (POST) termina en `RedirectToAction(nameof(Index))` (`MovimientosController.cs:104`), que lleva al listado global de Movimientos — pantalla sin entrada por menú, que ofrece cargar movimientos obligando a elegir cuenta entre todas (propias + CC proveedores + CC clientes), que es justo la confusión reportada.
+**Precedente ya existente en el propio proyecto (patrón a reutilizar, no inventar):** `MovimientosController.CreateUnificado` (POST) ya hace `RedirectToAction("Details", "Cuentas", new { id = ... })` (`MovimientosController.cs:235`). El fix es alinear `Create` con ese mismo criterio cuando el alta vino con `cuentaId`.
+**Nota de alcance:** el cliente además insinúa que la pantalla `Movimientos/Index` sobra. **No se propone eliminarla en este ciclo** — es decisión funcional aparte; alcanza con dejar de aterrizar ahí.
+
+### F4 — El número de comprobante no se muestra en ningún listado de movimientos (gap funcional)
+**Pedido:** mostrar el Nro. de comprobante en todos los listados de movimientos, de todas las cuentas; especialmente útil en cuentas corrientes de clientes.
+**Estado actual:** el dato existe y viaja (`Movimiento.NumeroComprobante`, está en el DTO, se carga en Create/Edit y se ve en Details). Incluso **ya hay filtro por comprobante** en `Views/Cuentas/Details.cshtml:139-140`, pero **no hay columna** en la grilla (`columns:` en `Cuentas/Details.cshtml:233`). Lo mismo en los otros listados.
+**Superficie a tocar (3 vistas con grilla de movimientos):** `Views/Cuentas/Details.cshtml`, `Views/Clientes/Details.cshtml`, `Views/Movimientos/Index.cshtml`. Sin cambio de backend ni de datos — el campo ya está en el DTO.
+
+### F5 — Contadores de máquinas en 0 cuando no corresponde (defecto, severidad major — **causa raíz NO cerrada**)
+**Síntoma (captura):** Alquiler #372, máquina Ricoh aficio 7500. La Historia de Contadores tiene filas 09/04/2026 y 06/05/2026 con B/N Digital = 0, entre valores reales de ~4.018.041. Eso produce una diferencia de -4.018.041 y un "Total B/N: -230.536" sin sentido.
+
+**Lo que se descartó (verificado, no supuesto):**
+- *No* es el colapso de las 4 columnas legacy (`ContadorBNAnalogico`/`BNDigital`/`ColorAnalogico`/`ColorDigital`) a 2 que hace `ReMigrateContadoresScript.cs:33,36`. Se analizó el dump legacy `Eleven.Migration/db_a7251f_eleven.sql` (6.154 filas): solo 44 tienen `ContadorBNDigital = 0` y **las 44 tienen también `ContadorBNAnalogico = 0`**; ninguna fila pierde información por quedarse con la columna Digital. Idem Color. La migración no inventó ceros.
+- El dump es del 2026-03-19, y las filas del caso son de abril y mayo de 2026 -> **no están en el dump**, se crearon después (el sistema legacy siguió operando hasta ~2026-07).
+
+**Causas candidatas, las dos reales y vigentes en el código nuevo:**
+1. **Carga manual sin validación.** `MaquinaService.CreateContadorAsync` (`Eleven.Infrastructure/Services/MaquinaService.cs:268`) inserta el contador **sin ninguna validación**: no exige > 0 ni monotonicidad contra el contador anterior/siguiente de la máquina. El ViewModel incluso lo habilita explícitamente: `HistoriaContadorFormViewModel` usa `[Range(0, int.MaxValue)]` (`Eleven.Web/Models/Maquinas/MaquinaDetailViewModels.cs:84,88`), y un campo dejado vacío bindea a 0 y se guarda en silencio. `UpdateContadorAsync` tiene el mismo hueco.
+2. **Alta de alquiler con contador inicial vacío.** `AlquilerService.AgregarHistoriaContadorSiCorresponde` (`AlquilerService.cs:317-335`) inserta un `HistoriaContador` con el `ContadorBNInicial`/`ContadorColorInicial` del alquiler. Su primera cláusula (`contadorAnterior == null && contadorSiguiente == null`) inserta **sin comparar contra nada**, así que un 0 entra derecho. La regla legacy es idéntica (`Migration-Legacy/Controllers/AlquileresController.cs:142-157`), o sea que el sistema viejo generaba el mismo tipo de fila. Y ya está registrado en trazabilidad (2026-08-20) que **la mayoría de los alquileres activos tiene `ContadorBNInicial`/`Color` en 0**.
+
+**Lo que falta para cerrar la causa raíz:** una consulta de solo lectura a producción sobre `Contadores` para (a) contar cuántas filas en 0 hay y desde cuándo, (b) cruzar su `Fecha` contra `Alquiler.Fecha` de la misma máquina — si coinciden, el origen es el alta de alquiler (candidata 2); si no, es carga manual (candidata 1). **Requiere autorización del owner** (toda consulta a producción en este proyecto la requiere). Sin ese dato no se puede decidir si además de blindar el alta hay que corregir datos históricos.
+
+### Alcance propuesto para este ciclo
+**Incluido:** F1, F2, F3, F4 (los cuatro acotados, de causa raíz confirmada y sin migración EF) + el **blindaje preventivo** de F5 (validar contadores en alta/edición manual y en alta de alquiler).
+**No incluido:** la **corrección de datos históricos** de F5 (depende de la consulta a producción), y la eventual eliminación de la pantalla `Movimientos/Index` (decisión funcional del cliente, F3).
+
+### Preguntas abiertas
+1. **(F5, bloqueante para la parte de datos)** ¿Autorizás la consulta de solo lectura a producción sobre `Contadores` para dimensionar cuántas filas en 0 hay y de dónde salieron?
+2. **(F5)** Una vez identificadas: ¿las filas en 0 se corrigen con el valor real (lo aporta el cliente), se borran, o se dejan y solo se blinda hacia adelante?
+3. **(F5)** ¿Un contador en 0 es *siempre* inválido, o existe la máquina recién instalada que legítimamente arranca en 0? De esto depende si la validación es "debe ser > 0" o "debe ser >= al contador anterior" (esta segunda cubre los dos casos y es la recomendada).
+4. **(F4)** ¿La columna de comprobante va en las 3 grillas por igual, o alcanza con cuentas propias y CC de clientes?
+5. **(F3)** ¿Querés que además se saque del sistema la pantalla `Movimientos/Index`, o la dejamos accesible aunque ya no se aterrice ahí?
+
+### Condición de paso a Análisis
+F1-F4 pueden pasar a Análisis sin bloqueos (causa raíz confirmada en código). F5 pasa **solo en su parte de blindaje preventivo**; la parte de corrección de datos queda bloqueada por las preguntas 1-3.
+
+## Análisis — Lote 2026-10-01 (F1-F5)
+
+**Aprobado por:** Joaquín (owner), 2026-10-01. Respondió las 3 preguntas bloqueantes: (1) autoriza la consulta de solo lectura a producción; (2) la validación de contadores es **">= al contador anterior"**; (3) la columna de comprobante va en **las 3 grillas**.
+
+### F5 — Causa raíz CERRADA con datos de producción (consulta de solo lectura, autorizada 2026-10-01)
+
+Resultado sobre la tabla `Contadores` de producción (`db_a7251f_eleven2`):
+
+| Medición | Valor |
+|---|---|
+| Filas totales | 6.280 |
+| Filas con `ContadorBN = 0` (incluye borradas) | 126 |
+| Filas con `ContadorBN = 0` **activas** (`DeletedAt IS NULL`) | **110** |
+| De esas, con `ContadorBN = 0` **y** `ContadorColor = 0` | 117 de 126 |
+| **Ceros regresivos** (existe un contador anterior > 0 en la misma máquina) | **69** |
+| Máquinas afectadas | **58** |
+| Ceros cuya `Fecha` coincide con la de un Alquiler de esa máquina | 15 |
+| Concentración temporal (`CreatedAt`) | 2026-03: 10, **2026-04: 34, 2026-05: 21**, 2026-06: 3, 2026-07: 2 |
+
+**Conclusión:** la causa dominante es la **carga manual del contador con los campos vacíos** (se bindean a 0 y se guardan sin validación), no el alta de alquiler — solo 15 de 110 coinciden con la fecha de un alquiler, y 117 de 126 tienen **ambos** contadores en 0, que es la firma de un formulario enviado en blanco. El pico de abril-mayo 2026 coincide con el caso de la captura.
+
+**Caso de la captura verificado:** máquina del Alquiler #372 — filas `Id 6179` (09/04/2026) y `Id 6216` (06/05/2026), ambas con `ContadorBN = 0` y `ContadorColor = 0`, `CreatedAt` a segundos de la `Fecha` (carga manual en el momento), intercaladas después de `Id 6039` con `ContadorBN = 4.018.041`. Caso regresivo de manual, confirmado.
+
+**Universo a corregir:** 69 filas activas regresivas (las inequívocamente inválidas). Las 41 restantes son primer contador de su máquina o sin anterior > 0 — se revisan aparte, pueden ser legítimas.
+
+### Criterios de aceptación
+
+**F1 — Orden de la grilla de movimientos**
+- **CA-F1.1** Con dos o más movimientos en la misma fecha en una cuenta, la grilla en orden descendente muestra arriba el movimiento de `Id` más alto de ese día, y en orden ascendente el de `Id` más bajo.
+- **CA-F1.2** En orden descendente, el saldo acumulado de la **primera** fila de la grilla (sin filtros aplicados) es exactamente igual al saldo de la cuenta que muestra el encabezado.
+- **CA-F1.3** El cambio no altera ningún importe, saldo ni acumulado ya existente — solo el orden de presentación.
+
+**F2 — Egreso por defecto**
+- **CA-F2.1** Cuentas propias → cuenta X → Nuevo movimiento abre con **Egreso** seleccionado.
+- **CA-F2.2** El usuario puede cambiarlo a Ingreso o Transferencia sin restricción; no se agrega ninguna validación nueva.
+- **CA-F2.3** El alta desde cuentas corrientes (`CreateUnificado`) **no cambia** su comportamiento actual.
+
+**F3 — Volver a la cuenta de origen**
+- **CA-F3.1** Al guardar un movimiento iniciado desde una cuenta, el sistema redirige al **detalle de esa cuenta**, no al listado global de Movimientos.
+- **CA-F3.2** El movimiento recién cargado se ve en la grilla de esa cuenta y el mensaje de éxito se muestra ahí.
+- **CA-F3.3** Si el alta se inició sin cuenta de contexto, el comportamiento actual (ir al listado) se conserva — no se rompe esa ruta.
+- **CA-F3.4** En una transferencia, se vuelve a la cuenta **origen** (desde donde se partió).
+
+**F4 — Número de comprobante en las grillas**
+- **CA-F4.1** Las 3 grillas de movimientos (cuenta propia, cuenta corriente de cliente, listado global) muestran una columna **Nro. Comprobante**.
+- **CA-F4.2** Un movimiento sin comprobante muestra el guion largo (—) en gris, igual que el resto de las columnas opcionales de esas grillas.
+- **CA-F4.3** El filtro por comprobante que ya existe en el detalle de cuenta sigue funcionando y queda alineado con la columna nueva (coherencia con **PAT-008**: toda columna visible tiene su filtro).
+
+**F5 — Blindaje de contadores (hacia adelante)**
+- **CA-F5.1** Al cargar un contador nuevo para una máquina, el sistema **rechaza** con mensaje claro si el valor es **menor** al último contador registrado antes de esa fecha. Igual o mayor se acepta.
+- **CA-F5.2** Misma validación al **editar** un contador existente, y además contra el contador **siguiente** (no puede quedar mayor al posterior).
+- **CA-F5.3** La misma regla aplica al contador inicial que se carga desde el **alta de un alquiler**.
+- **CA-F5.4** Una máquina **sin** contadores previos acepta cualquier valor, 0 incluido (máquina recién instalada) — por eso la regla es ">= al anterior" y no "> 0".
+- **CA-F5.5** El contador Color solo se valida en máquinas con `Color = true`, igual que la regla ya vigente en `AlquilerService`.
+- **CA-F5.6** El mensaje de error nombra el valor mínimo admitido (ej. "El contador B/N debe ser mayor o igual a 4.018.041").
+
+### Alcance incluido / no incluido
+
+**Incluido:** F1, F2, F3, F4 y el **blindaje preventivo** de F5 (CA-F5.1 a CA-F5.6). Sin migración EF en ningún ítem.
+
+**No incluido (explícito):**
+- **Corrección de las 69 filas históricas en 0.** Es un saneamiento de datos sobre producción, con decisión de negocio pendiente (¿valor real aportado por el cliente, o baja lógica de la fila?). Se presupuesta y ejecuta aparte una vez decidido.
+- Eliminar la pantalla `Movimientos/Index` (pregunta 5 del Discovery, sin respuesta — se deja accesible).
+- Cualquier cambio en `CreateUnificado` más allá de no romperlo.
+- Revisión de las 41 filas en 0 no regresivas.
+
+### Reutilización detectada (escaneo instrucción 39 sección 3)
+- **PAT-008** (DataTables server-side + filtro por columna visible) aplica a F4: hoy existe el filtro por comprobante **sin** la columna, que es la violación inversa del patrón.
+- **marihogar CR-14** (`docs/marihogar/definiciones/3-arquitecto-mvc.md:307,315`) resolvió exactamente la clase de bug de F1: saldo acumulado con movimientos de la misma `Fecha`, con **"desempate determinístico por `Id` (orden de creación)"** registrado como mitigación de riesgo. Se reutiliza la decisión de diseño (no hay código portable: acá el cálculo ya es correcto, falta el desempate en la query de listado).
+- F2, F3 y F5 se resuelven con patrones internos del propio proyecto (`CreateUnificado` para el redirect; `AlquilerService.ValidarContadoresAsync` para la validación de contadores).
+
+**Corrección 2026-10-01 (post-QA):** CA-F3.3 queda **anulado** — describía un escenario inalcanzable (`CreateAsync` rechaza antes si la cuenta no existe, así que la rama de fallback es código muerto). La cobertura real de F3 son CA-F3.1, CA-F3.2 y CA-F3.4. Ver trazabilidad 2026-10-01.

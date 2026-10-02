@@ -1,9 +1,117 @@
 # Memoria - Arquitecto MVC
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-10-01 (M27)
+## Ultima actualizacion: 2026-10-02 (M28: chat libre -- sin migracion, EsDePlataforma como palanca, dos modos de subagentes) | 2026-10-01 (M27)
 
 ## Definiciones vigentes
+
+## Arquitectura M28 — El chat libre (2026-10-02)
+
+Entrada: Diseño M28 cerrado (`2-disenador-funcional.md`, D-01..D-09, P1..P4, HU-01..HU-08). Reutilización: **PAT-029**. Escaneo de reutilización hecho sobre `cat_resumen.txt` (instrucción 39 §3): el motor entero se reutiliza; **sin antecedente** para autocomplete de menciones y para carga diferida de una pieza 3D.
+
+### A-00 — El hallazgo que corrige al Análisis: no hace falta migración
+
+El Análisis dejó la bandera «Requiere migración EF: **sí**, valor nuevo de `TipoTarea`». **Es incorrecta y se corrige acá.** `TareaAgente.Tipo` **no tiene ninguna línea** en `TareaAgenteConfiguration` (`AgentesConfigurations.cs:181-215`): cae en la convención de EF para enums y el snapshot lo confirma como `b.Property<int>("Tipo").HasColumnType("int")`. Un valor nuevo del enum no cambia el esquema. El propio repo ya dejó el precedente escrito en `EnumsAgentes.cs:128-131` para `TipoPasoTarea.NotaDelMotor`, **junto con la advertencia que sí importa**: lo que un valor nuevo rompe no es la base, son **los switches con `default`**, que lo aceptan en silencio y lo mapean mal. Ahí está el riesgo real de M28, y es R-A1.
+
+**M28 no lleva migración.** Si al implementar aparece una, es señal de que se agregó una entidad que el diseño no pedía.
+
+### A-01 — La palanca: `EsDePlataforma`
+
+`ClasesDeTarea.EsDePlataforma(tipo)` (`Application/Motor/NotaSubtarea.cs:35-36`) es el único punto que hay que tocar para que **todas** las herramientas que ya distinguen plataforma de trabajo acepten el chat libre sin tocarlas una por una: `HerramientasMemoria`, `HerramientasInstructivos`, `HerramientaCalcular`, `HerramientaAdjuntoLeer`, `HerramientasDocumentos`. De él depende además `UsaContextoDeTrabajo` (:42).
+
+Es una línea con mucho alcance, así que es **lo primero que se prueba**, no lo último: un test que afirme, para `TipoTarea.ChatLibre`, exactamente qué herramientas resuelve `ResolvedorHerramientas` y cuáles no.
+
+### A-02 — El cuarto agente de plataforma: qué se agrega, por capa
+
+Lo que sigue es un **molde que ya existe tres veces**. El agente del chat libre se arma copiando el del analista, que es el más parecido (lo usa cualquier miembro, no solo el Director).
+
+| Capa | Qué se agrega |
+|---|---|
+| **Domain** | `TipoTarea.ChatLibre = 6` (`EnumsAgentes.cs:94-107`), con el comentario de por qué no lleva migración. **Nada más.** |
+| **Application** | `IConstructorContexto.FormatoContextoChatLibre = 6` (:141) + `ArmarChatLibreAsync` en la interfaz · `IChatLibre` con `SlugChatLibre = "chat-libre"` y `DisponibleAsync` (al lado de `IAnalistaAutomatizaciones`, `IPropuestaTrabajoService.cs:44-52`) · `ClasesDeTarea.EsDePlataforma` (A-01) · `MensajesChatLibre` (sin permiso / vacío / no disponible) · `EtapasEntrega`: `OpcionMenu.ChatLibre` (y **no** entra en `SoloDirector`) · flag `EsChatLibre` en `TareaDetalleDto` (`IMotorAgentes.cs:471-484`) |
+| **Infrastructure** | `ConstructorContexto`: `DeclaracionPrecedenciaChatLibre` + wrapper `ArmarChatLibreAsync` — **`ArmarPlataformaAsync` no se toca, es genérica** (recibe formato, tipo y declaración por parámetro) · `ServicioTareas`: `IniciarChatLibreAsync` + los switches de `:250` (permiso), `:277-282` (constructor), `:817-819` (flags), `:114-115` (listado del no-Director) · `ProcesadorTareas`: `:1287-1288` (constructor al retomar), `:451-454` (evento de telemetría), `:205-206` (mensaje de autor sin permiso) · `AnatomiaAgenteService`: `:115-118`, `:244-245`, `:292-294` · `EstimadorCorrida:155-158` · `ConsumoService:263-270` · `PermisosOrganizacion.PuedeUsarChatLibre => EsMiembro && !EsStaff` · `ChatLibre : IChatLibre` + DI |
+| **Web** | `ChatLibreController` (`RequireMiembro`, molde de `AnalistaController`) con `Index` (arranque) e `Iniciar` · `Views/ChatLibre/Index.cshtml` · `MenuOrganizacion`: un ítem con `OpcionMenu.ChatLibre` · `Views/Tareas/Index.cshtml:144-147`: el `<option>` del filtro (y **de paso los dos que faltan hoy**, analista y `ConsultaCliente`) |
+| **Núcleo** | `nucleo/plataforma/agentes/chat-libre.md` (prompt + frontmatter `herramientas`) · `nucleo/plataforma/plataforma.yml`: una línea en `agentes:` · `nucleo/plataforma/evaluaciones/13-chat-libre.yml` · **la suite común `00-suite-seguridad-agentes.yml` lo corre automáticamente** |
+
+**Nada se publica solo:** el agente entra en **Borrador**, y sin versión publicada `DisponibleAsync` es `false`, el menú no lo muestra y el controller contesta «Todavía no está disponible.» (CA-01.2). El circuito es `importar` → `evaluar --aprobada` → `publicar`.
+
+**Las instrucciones compartidas de plataforma** (`nucleo/plataforma/instrucciones/`) entran por `instrucciones:` del manifiesto y las toma `ArmarPlataformaAsync` sin cambios: el chat libre hereda *cómo proponen, los cinco conceptos y cuándo derivan* **sin una cuarta copia**. Esto es lo que hace viable D-06 y CU-06.
+
+### A-03 — Menciones: dónde vive la resolución
+
+**La mención se resuelve en el servidor, dos veces y en dos lugares distintos, porque son dos cosas distintas:**
+
+1. **Para el autocomplete** (lectura, pantalla): un endpoint del `ChatLibreController` que devuelve lo mencionable para el usuario actual. **No se escribe una consulta nueva.**
+2. **Para ejecutar** (autorización): la resuelve **el agente con sus herramientas**, no el controller. El chat libre recibe `agentes_disponibles` y `delegar_subagente`; el texto `@slug` es solo lo que el modelo lee para saber a quién llamar, y **la autorización la hace la herramienta** sobre los mismos `IQueryable` del punto siguiente.
+
+Esta separación es la que cierra **R-03**: aunque alguien escriba `@` de un agente ajeno, el id nunca viaja desde el cliente y la herramienta solo encuentra lo que esa persona podía usar. **La mención es texto; la autorización es una consulta.**
+
+**A-03b — Deuda que hay que pagar acá, no después.** Los dos `IQueryable` que definen «los agentes que esta persona puede usar» están hoy **duplicados en tres lugares** (`HerramientasAsistente.cs:86/97`, `HerramientasAnalista.cs:76/87`, `HerramientasConfigurador.cs:286`). M28 sería la cuarta copia. Se **extraen a `IAgentesDisponiblesQuery` en Application** (impl en Infrastructure) y los tres llamadores pasan a usarla. No es refactor cosmético: es la **única** forma de que el autocomplete de la pantalla y la autorización de la herramienta no puedan divergir — y si divergen, el autocomplete ofrece algo que la herramienta después rechaza, que es el peor resultado posible para la persona.
+
+### A-04 — Delegar desde el chat libre: qué se parametriza en M7a
+
+`SubtareasService` corta el chat libre por **dos** razones, y las dos están en `:68` y `:112`:
+
+```
+contexto.TipoTarea != TipoTarea.Trabajo   ||   contexto.ArtefactoBaseId is not int baseId
+```
+
+Un chat libre no es `Trabajo` **y no tiene agente base**. Y después, `:78` y `:89` filtran por `ArtefactoPadreId == baseId`: la jerarquía coordinador→hijos.
+
+**Decisión de arquitectura: no se relaja el gate, se le da un segundo modo explícito.**
+
+`SubagentesPermitidosAsync` pasa a tener dos ramas, nombradas:
+
+- **Modo jerarquía** (lo de hoy, `TipoTarea.Trabajo` con `ArtefactoBaseId`): hijos publicados del agente base. **Sin un solo cambio de comportamiento.**
+- **Modo abierto** (`TipoTarea.ChatLibre`): todo lo que devuelve `IAgentesDisponiblesQuery` (A-03b) — los mismos agentes que el autocomplete ofrece, ni uno más.
+
+Por qué no un solo predicado con un `if` adentro: porque los dos modos tienen **reglas de seguridad distintas** y mezclarlos en una expresión es exactamente cómo se cuela una fuga. Dos ramas, dos tests, y el gate de `TipoTarea` sigue siendo una lista blanca (`Trabajo` o `ChatLibre`), **nunca** un `!=` negado.
+
+Lo que **no** cambia: el filtro de licencia del rubro (`:73-79`), el de visibilidad y creador (`:90`), `ProfundidadMaxima` (así un agente alcanzado por mención no puede volver a entrar — CA-02.6), los topes por paso y por turno (`:119-133`), y el largo del pedido (`:140`).
+
+Mismo gate hay que abrir en `HerramientasSubagentes.cs:39` y en `SubtareasService.PorTareaAsync:277` (el segundo es lo que **dibuja** la tarjeta de parte en la conversación: sin él, D-07 no se ve).
+
+**El despertar ya está resuelto y no hay que tocarlo**, lo cual cierra **R-04** sin código nuevo: `AvisarFinAsync:211-213` cuenta como pendiente solo lo que **no** está en `Completada | Fallida | Cancelada`, así que el padre vuelve a `Pendiente` **también cuando la parte falla o se cancela**, y `ResultadoParaCoordinador:174-191` le entrega el fallo como `ResultadoHerramienta.Fallo(...)`. CA-02.5 se verifica, no se implementa.
+
+### A-05 — La pieza 3D: la primera carga diferida del proyecto
+
+Hoy **no hay ningún patrón de carga diferida** en el repo: cero `defer`, cero `async`, cero `import()` dinámico; los scripts por vista se agregan en `@section Scripts` (`_Layout.cshtml:368`). M28 establece el patrón, y lo establece **acotado a esta pieza**.
+
+- **Librería: `three` por CDN jsdelivr, con `import()` dinámico** desde un módulo propio `wwwroot/js/chat-libre-3d.js`. No entra en `_Layout`, no entra en `site.js`, y **no se descarga nunca** si no se cumplen las tres condiciones de abajo. Se declara la versión fija en la URL (no `latest`): un CDN que cambia de versión sola es un despliegue que no hicimos.
+- **Tres compuertas antes de pedir el script**, en este orden y todas en el cliente: (1) `matchMedia('(prefers-reduced-motion: reduce)')` no coincide; (2) hay contexto WebGL disponible; (3) la pantalla de arranque está efectivamente montada. Si cualquiera falla, **no se pide la librería** y queda la versión plana (CA-07.3, CA-07.5).
+- **Desmontaje obligatorio** al enviar el primer mensaje (D-01): cancelar el `requestAnimationFrame`, `renderer.dispose()`, soltar geometrías y materiales, y quitar el canvas. No `display:none`. RD-02 es el riesgo y se verifica con el monitor de rendimiento, no mirando la pantalla.
+- La pieza **no recibe ni muestra datos**: es decorativa. Así no hay ninguna vía por la que un dato de la organización llegue a un script de CDN.
+
+**A-05b — El autocomplete va en `site.js`, no en la vista** (D-03). Es un comportamiento compartido que se enciende con un atributo en el `<textarea>`, igual que `data-autosize` que M27 ya dejó ahí. Queda disponible en las cinco conversaciones sin tocar sus vistas. Teclado completo (flechas, Enter, Tab, Escape) y apertura hacia arriba si no hay lugar abajo (RD-04).
+
+### A-06 — Impacto por capa (resumen)
+
+- **Domain:** un valor de enum. **Sin migración** (A-00).
+- **Application:** una constante de formato, una interfaz de agente, una query compartida nueva (`IAgentesDisponiblesQuery`), una opción de menú, un flag de DTO, los mensajes.
+- **Infrastructure:** el wrapper de contexto, el arranque de tarea, los ~10 switches de la tabla A-02, los dos modos de `SubagentesPermitidosAsync`, el permiso, y los tres llamadores que pasan a usar la query compartida.
+- **Web:** un controller, una vista de arranque, un ítem de menú, un `<option>` de filtro, `site.js` (autocomplete), `chat-libre-3d.js` (nuevo), CSS del arranque y del menú de menciones con tokens `--ov-*`.
+- **Núcleo:** un prompt, una línea del manifiesto, una suite de evaluación.
+- **Tests:** `ChatLibreTests.cs` nuevo (molde: `AnalistaAutomatizacionesTests.cs`), más extensión de `ConstructorContextoTests` + goldens, `SubagentesTests` (los dos modos), `EtapaEntregaTests`, `MenuLateralTests`, `AnatomiaAgenteTests`, `ConversacionTests`.
+
+### Riesgos técnicos
+
+- **R-A1 (alto) — Los switches con `default` que aceptan el tipo nuevo en silencio.** Es el riesgo central de M28 y el repo ya lo tiene escrito como lección (`EnumsAgentes.cs:128-131`). Un `default` que cae en «configuración» no da error: da un contexto equivocado con un agente equivocado. Mitigación: la tabla de A-02 es la lista de verificación, y **un test por switch de mapeo** que afirme el valor esperado para `ChatLibre` — no un test que pruebe que «funciona».
+- **R-A2 (alto) — Divergencia entre lo que el autocomplete ofrece y lo que la herramienta autoriza.** Mitigación: A-03b, una sola query compartida, y un test que corra **la misma** query por los dos caminos.
+- **R-A3 (medio) — El modo abierto de subagentes se filtra al modo jerarquía.** Mitigación: dos ramas separadas, lista blanca de `TipoTarea` (nunca `!=`), y un test que afirme que una tarea de **trabajo** sigue viendo **solo** los hijos de su base.
+- **R-A4 (medio) — Costo.** Cada turno reenvía la conversación completa (nota de PAT-029) y ahora puede abrir tareas. Mitigación: el tope de gasto de M6 **sin tocar un solo valor**, el costo visible por tarea y por hilo, la cache de prompt sobre el historial, y D-05 (una mención de agente por mensaje).
+- **R-A5 (medio) — El CDN de la librería 3D.** Un CDN caído o bloqueado no puede romper la pantalla. Mitigación: el `import()` va en `try/catch` y su fallo es **silencioso** con degradación a la versión plana (CA-07.5). Versión fija en la URL.
+- **R-A6 (bajo) — El formato 6 y los hashes viejos.** La instantánea guarda formato y versiones por tarea, así que agregar el 6 no toca ninguna tarea existente (CA-T.3). Nota aparte encontrada al revisar: el switch de `ArmarEvaluacionAsync` (`ConstructorContexto.cs:505-506`) **hoy solo cubre los formatos 3 y 4 — al 5 ya le falta**. Se agrega el 5 junto con el 6: es un bug preexistente que M28 destapa, y dejarlo sería construir el 6 sobre un agujero conocido.
+
+### Orden de implementación sugerido
+
+1. `TipoTarea.ChatLibre` + `EsDePlataforma` + **los tests de los switches** (A-01, R-A1). Nada más hasta que estén verdes.
+2. `IAgentesDisponiblesQuery` y migrar los tres llamadores actuales, **sin cambio de comportamiento** (A-03b).
+3. Formato 6, declaración, wrapper, `ArmarEvaluacionAsync` (el 5 y el 6) + goldens.
+4. `IChatLibre`, permiso, `IniciarChatLibreAsync`, controller, menú, filtro.
+5. Los dos modos de `SubagentesPermitidosAsync` + `PorTareaAsync` + `HerramientasSubagentes` (A-04).
+6. Prompt del núcleo + suite de evaluación.
+7. Vista de arranque + CSS + autocomplete en `site.js`.
+8. La pieza 3D, última y aislada: es la única parte que se puede sacar sin que M28 deje de funcionar.
 
 ## Arquitectura M27 (2026-10-01)
 

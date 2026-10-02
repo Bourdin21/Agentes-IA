@@ -1,7 +1,7 @@
 # Memoria - Diseñador funcional
 
 ## Proyecto: eleven-la-plata
-## Ultima actualizacion: 2026-08-20
+## Ultima actualizacion: 2026-10-01
 
 ## Definiciones vigentes
 
@@ -41,3 +41,64 @@ Revisado: ningún otro proyecto en `/docs/*/definiciones/` tiene un flujo de "va
 
 ## Historial de ajustes
 - 2026-08-20: Diseño de H1 (fix de validación en AlquilerService.UpdateAsync). Sin pantallas nuevas, sin migración. H2 (Avisos) y el resto quedan sin diseñar, pendientes de definición con el cliente.
+
+## Diseño — Lote 2026-10-01 (F1-F5)
+
+Sobre Análisis del 2026-10-01 (`1-analista-funcional.md`). **Sin pantallas nuevas, sin ViewModels nuevos, sin migración EF.** Todo el lote son ajustes sobre pantallas existentes.
+
+### Historias de usuario
+
+**HU-F1.** Como Administrador, quiero que los movimientos de una cuenta se ordenen de forma estable dentro de un mismo día, para que el saldo acumulado de la última fila coincida con el saldo de la cuenta y pueda conciliar.
+- CA: CA-F1.1 a CA-F1.3.
+- **Decisión de diseño:** desempate determinístico por `Id` (orden de creación), en la **misma dirección** que el orden de `Fecha` — descendente por fecha ⇒ descendente por `Id`. Es la decisión ya validada en marihogar CR-14. No se agrega un selector de orden ni se cambia la columna por defecto.
+- **Nota:** `Id` es el único desempate confiable. No se usa `CreatedAt` porque las filas migradas lo tienen seteado al momento de la migración, no al de la operación real.
+
+**HU-F2.** Como Administrador, quiero que al cargar un movimiento desde una cuenta propia el tipo venga en "Egreso", para no tener que cambiarlo en el 99% de las cargas.
+- CA: CA-F2.1 a CA-F2.3.
+- **Decisión de diseño:** se preselecciona en el **ViewModel** al abrir el formulario, no en el `enum` ni en la vista. Cambiar el default del `enum TipoMovimiento` afectaría `CreateUnificado`, los filtros y cualquier otro consumidor — queda descartado.
+- **Alcance visual:** el combo sigue mostrando las 3 opciones, sin deshabilitar nada.
+
+**HU-F3.** Como Administrador, quiero volver a la cuenta desde la que cargué el movimiento, para seguir trabajando sobre esa cuenta sin re-navegar.
+- CA: CA-F3.1 a CA-F3.4.
+- **Decisión de diseño:** el `cuentaId` de contexto ya llega al formulario (`Create(int? cuentaId)`) y queda en `vm.CuentaId`. Al guardar, se redirige a `Cuentas/Details` con esa cuenta — **exactamente el patrón que ya usa `CreateUnificado`** en el mismo controller. No se agrega `returnUrl` ni parámetro nuevo: el dato ya está.
+- **Transferencia:** se vuelve a la cuenta **origen** (`vm.CuentaId`), no a la destino. Es desde donde partió el usuario.
+- **Fallback:** si no hubo cuenta de contexto, se conserva el redirect actual al listado — no se rompe esa ruta.
+- **Fuera de alcance:** la pantalla `Movimientos/Index` sigue existiendo y accesible; solo se deja de aterrizar ahí.
+
+**HU-F4.** Como Administrador, quiero ver el número de comprobante en los listados de movimientos, sobre todo en cuentas corrientes de clientes, para identificar el respaldo de cada movimiento sin abrir el detalle.
+- CA: CA-F4.1 a CA-F4.3.
+- **Decisión de diseño:** columna nueva en las 3 grillas, ubicada **después de la fecha** (es un identificador del movimiento, acompaña a la fecha; no al final, donde quedaría lejos en pantallas angostas). Dato sin comprobante ⇒ `—` en gris, igual que `motivoNombre` y `notas` en esas mismas grillas.
+- **Sin cambio de backend:** `NumeroComprobante` ya viaja en `MovimientoDto`. Es cambio de vista puro.
+- Cierra la deuda con **PAT-008**: hoy hay filtro por comprobante sin columna visible.
+
+**HU-F5.** Como Administrador, quiero que el sistema no me deje guardar un contador menor al anterior de esa máquina, para que la facturación por copia no se rompa con un 0 cargado por error.
+- CA: CA-F5.1 a CA-F5.6.
+- **Decisión de diseño (regla única, elegida por el owner):** `contador >= último contador anterior a esa fecha`. Cubre los dos casos de un solo criterio — la máquina nueva sin historial acepta 0, y la máquina con historial no puede retroceder. **No** se valida "> 0" (rompería el alta legítima de máquina nueva).
+- **Simetría obligatoria:** la validación corre en alta **y** en edición de contador, y en el contador inicial del alta de alquiler. Es la misma clase de asimetría Create/Update que ya produjo H1 y ELV-002 en este proyecto — se cierra de una.
+- **En edición**, además del anterior, se valida contra el **siguiente** (no puede quedar por encima del posterior). Es la regla que `AlquilerService.ValidarContadoresAsync` ya aplica — se reutiliza ese criterio, no se inventa uno.
+- **Color:** solo se valida si la máquina tiene `Color = true`, igual que la regla vigente.
+- **Mensaje:** nombra el mínimo admitido, con separador de miles — "El contador B/N debe ser mayor o igual a 4.018.041".
+- **Campos del formulario:** dejan de aceptar vacío-como-0 silencioso. El `[Range(0, int.MaxValue)]` se conserva (0 sigue siendo válido para máquina nueva); lo que agrega la barrera es la validación de servicio, no el atributo.
+
+### Validaciones y mensajes (resumen)
+
+| Caso | Resultado | Mensaje |
+|---|---|---|
+| Contador BN < último anterior | Rechaza | "El contador B/N debe ser mayor o igual a {min}" |
+| Contador Color < último anterior, máquina Color | Rechaza | "El contador color debe ser mayor o igual a {min}" |
+| Contador Color cualquiera, máquina B/N | Acepta | — (no se valida) |
+| Máquina sin contadores previos | Acepta cualquier valor, 0 incluido | — |
+| Edición: contador > siguiente | Rechaza | "El contador B/N debe ser menor o igual a {max}" |
+
+### Impacto en pantallas
+| Pantalla | Cambio |
+|---|---|
+| `Cuentas/Details` | Columna Nro. Comprobante + orden estable de la grilla |
+| `Clientes/Details` | Columna Nro. Comprobante |
+| `Movimientos/Index` | Columna Nro. Comprobante + orden estable |
+| `Movimientos/Create` | Abre en Egreso; al guardar vuelve a la cuenta |
+| `Maquinas/Details` (Historia de Contadores) | Mensaje de rechazo al cargar/editar un contador regresivo |
+| `Alquileres/Create` | Mensaje de rechazo si el contador inicial es regresivo |
+
+### Gate de aprobación
+Diseño cerrado. Sin pantallas nuevas, sin migración. Pasa a Arquitectura.
