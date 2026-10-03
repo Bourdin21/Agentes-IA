@@ -92,8 +92,28 @@ Un programa de referidos efectivo tiene 3 partes: el que recomienda (cliente act
 - Después de la demo: mandar propuesta en texto dentro de WhatsApp + PDF adjunto. No esperar que entren a email.
 - Regla: si el prospecto no respondió en 3 días → follow-up corto ("¿pudiste verla?"). Si no responde en 6 días → "vence mañana". Si no responde → archivar sin presionar.
 
-**Instagram (canal de demanda)**
-- Contenido: pantallas reales del sistema funcionando + resultado del cliente (no testimonios vacíos, sino números concretos: "antes tardaba 2 horas en cerrar el día, ahora 10 minutos").
+**Instagram — NO VENDE: comunica y presenta proyectos** *(regla de negocio, Joaquín 2026-10-01)*
+
+> Palabras suyas: *"quiero contar mi experiencia antes que vender un producto; que vean que soy bueno
+> y que me vengan a pedir lo que hago"*.
+
+- **El embudo real es el bot outbound.** El prospecto recibe el mensaje, **va a mirar el perfil antes
+  de contestar**, y recién ahí responde. Si encuentra un folleto, se cae. Ese es todo el trabajo del
+  canal: que llegue a la conversación con menos objeciones.
+- **Ningún CTA pide la venta.** Dos formas válidas: la **pregunta de oficio** (*"¿cómo lo hacés
+  vos?"*), que abre conversación sin pedir nada y califica solo al que contesta; y el **pedido de
+  volver** (*"la semana que viene muestro cómo quedó"*). "Escribime por WhatsApp" sale del cierre
+  universal.
+- **Los casos cuentan cómo se armó, no el resultado**: el problema como estaba, la decisión que se
+  tomó, lo que no funcionó en el camino. El resultado deja de ser el titular y pasa a ser el final.
+- **El precio no va al feed.** Se dice en la demo o en la propuesta.
+- **El dato que lo sostiene:** persona o cliente real en cámara mide **65,9** de engagement contra
+  **17,5** de las placas de producto. Casi 4×.
+- **Riesgo asumido de antemano:** sin CTA de venta el canal va a *parecer* que no rinde justo cuando
+  empiece a rendir, porque el crédito se lo lleva WhatsApp. Se mide **conversión asistida** —cuántos
+  leads mencionan el perfil y su tasa de cierre contra los fríos—, nunca alcance.
+- Contenido: pantallas reales del sistema funcionando. Si hay un número, tiene que estar verificado
+  contra el proyecto real.
 - No publicar sobre tecnología — publicar sobre la vida del dueño de negocio sin el problema.
 - Stories de proceso: "así armamos el sistema de [rubro]" → genera familiaridad antes del primer contacto.
 - Voz: primera persona de Joaquín contando lo que construyó ("armé", "con [cliente] hicimos..."), no "Olvidata lanza" ni tercera persona — mismo criterio de marca personal que en el resto de los canales.
