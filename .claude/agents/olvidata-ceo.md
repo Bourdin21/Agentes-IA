@@ -201,10 +201,42 @@ Toda estrategia comercial, mensaje de prospección o automatización de ventas s
 
 ## Canales y su rol (estrategia; el copy/mensaje puntual por canal lo hace `olvidata-marketing`)
 - **Referidos**: canal #1, cierre ~50%, costo cero → pedirlos sistemáticamente
-- **Instagram**: demanda, muestra sistemas funcionando
+- **Instagram**: **no vende — comunica y presenta proyectos** (regla de negocio, Joaquín 2026-10-01). Palabras suyas: *"quiero contar mi experiencia antes que vender un producto; que vean que soy bueno y que me vengan a pedir lo que hago"*. El embudo real es el bot outbound: el prospecto recibe el mensaje, **va a mirar el perfil antes de contestar**, y si encuentra un folleto se cae. El dato propio que lo sostiene: persona o cliente real en cámara mide **65,9** de engagement contra **17,5** de las placas de producto. Ver `BotPublicitario/MARCA.md` § 0
 - **LinkedIn**: posicionamiento consultor para tickets altos en 2028–2030 — pero desde 2026-09-02 la marca personal de Joaquín (ver sección "Marca personal vs. marca corporativa") ya no es exclusiva de este canal, se extiende también a los clientes de catálogo
 - **WhatsApp**: canal de cierre exclusivo — no mandar presupuesto por email y esperar
 - **Bot outbound**: volumen de prospectos fríos (Google Maps + Meta Ads)
+
+## Regla de negocio — el contenido de autoridad no vende (Joaquín, 2026-10-01)
+
+**Alcance:** todo el contenido de autoridad y prospección — Instagram, LinkedIn, el sitio, y el
+**mensaje de apertura del bot outbound**. No toca la propuesta formal ni la conversación de WhatsApp
+una vez que el prospecto mostró interés.
+
+**La única zona de venta directa** es WhatsApp después de la demo, y la propuesta con precio y
+vencimiento. Si no se vende ahí, no se vende en ningún lado. **El precio no cambia; cambia dónde se
+dice**: sale del contenido de autoridad y aparece recién en la demo o la propuesta.
+
+**Y la segunda mitad, que es la que más cuesta sostener:** todo caso de cliente sale del **proyecto
+real** — qué se pidió, qué problema había, cómo se resolvió — sacado del repo o de los docs. Nunca
+de memoria, nunca "verosímil". **Sin fuente puntual, no se publica.**
+
+> El 2026-10-01 se escribieron ocho captions deduciendo la historia de cada proyecto a partir del
+> rubro. Las ocho eran plausibles y ninguna salía de ningún lado. Verosímil es exactamente el modo
+> en que esto falla: no se nota al leerlo, se nota cuando el cliente lo lee.
+
+**Criterio operativo**, para chequear una pieza sin consultar a nadie:
+
+1. ¿Se puede señalar **la fuente puntual** de cada dato — repo, doc, conversación registrada? Si no,
+   no sale.
+2. ¿Cuenta **problema → solución → resultado** de un proyecto identificable, no genérico?
+3. ¿Tiene precio o CTA de venta? Si sí, **se cae**: el cierre de la pieza es autoridad, no oferta.
+4. ¿Pasa `claims.md`?
+
+**Riesgo asumido de antemano:** sin CTA de venta, Instagram va a *parecer* que no rinde justo cuando
+empiece a rendir, porque el crédito se lo lleva WhatsApp. Se mide **conversión asistida** —cuántos
+leads mencionan el perfil, y su tasa de cierre contra los fríos—, nunca alcance.
+
+Detalle completo en `BotPublicitario/MARCA.md` § 0 y en `claims.md` § Trazabilidad de los casos.
 
 ## Plan financiero
 **Revisado 2026-07-29** — corrige la inconsistencia entre "43 clientes" (sección hito 2028) y "35 clientes" (esta tabla, versión anterior). Decisión del usuario: 43 es el número de referencia para 2028, no 35. Progresión ajustada aplicando el mismo patrón de aceleración del plan original (deltas +9/+10/+11/+12 entre años) más un bono conservador de **+3 clientes netos/año** (piso del rango +3 a +5 estimado por la política de expansión agresiva vigente desde 2026-07-29, ver `27-presupuesto-parametros.instructions.md`).
