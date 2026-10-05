@@ -2271,3 +2271,78 @@ patrones:
       proceso mientras arranca: la coleccion del portal va sin paralelo. (3) Referenciar el proyecto web desde los tests
       copia sus appsettings (incluido el de Production) a bin: excluirlos en el csproj de tests. (4) La descripcion de
       herramienta que ve el modelo tambien es know-how: al cliente, rotulo y "que hace" en lenguaje llano.
+
+  - id: PAT-048
+    nombre: "Autocomplete de menciones servido por la MISMA consulta que despues autoriza"
+    categoria: agentes-ia
+    descripcion: >
+      Un compositor de conversacion donde la persona escribe "@" y elige de un menu agrupado (entidades que puede
+      usar / acciones que puede pedir). La mencion viaja en el texto como "@slug" en PLANO: sin id embebido y sin
+      token opaco, porque lo que inserta el cliente es comodidad de tipeo y nunca una autorizacion. El servidor la
+      vuelve a resolver, y la resuelve contra la MISMA consulta compartida que usa la herramienta que despues
+      ejecuta. Una mencion que no resuelve queda como texto literal con un mensaje que no confirma ni niega que eso
+      exista. Tope de una mencion "caras" (la que abre trabajo y cuesta) por mensaje; las baratas, varias.
+    cuando_usar: >
+      Chats o compositores donde el usuario dirige el pedido a entidades del sistema (agentes, equipos, acciones) y
+      el menu tiene que coincidir exactamente con lo que la autorizacion va a permitir. Vale tambien fuera de IA.
+    proyecto_origen: olvidata-agentes-multirubro (M28, implementado 2026-10-02)
+    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    archivos_referencia:
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Web/wwwroot/js/site.js (autocomplete de menciones)"
+        motivo: "Comportamiento compartido UNA vez, encendido por atributo en el textarea: queda en las cinco conversaciones sin tocar sus vistas. Teclado completo y apertura hacia arriba si no hay lugar abajo (a 390 px un menu hacia abajo queda debajo del teclado)"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Application/Interfaces (IAgentesDisponiblesQuery) + Services/Subagentes/SubtareasService.cs (SubagentesPermitidosAsync, modo jerarquia / modo abierto)"
+        motivo: "La consulta compartida extraida de TRES copias duplicadas; el menu de la pantalla le pide la lista al mismo metodo que autoriza, no a una consulta paralela"
+        pendiente_verificar: false
+    dependencias: [PAT-029]
+    notas: >
+      LA REGLA QUE LO HACE VALER: el menu y la autorizacion salen de la MISMA consulta. Si se arman por separado
+      divergen, y el sintoma es el peor posible para la persona -- la pantalla ofrece algo que la herramienta
+      despues rechaza. En el proyecto de origen esa consulta estaba duplicada en tres lugares y la pantalla iba a
+      ser la cuarta copia: extraerla no fue refactor cosmetico, fue la unica forma de que no puedan divergir.
+      Gotchas medidos: (1) un gate por tipo de conversacion que se relaja para el caso nuevo se escribe como DOS
+      RAMAS CON NOMBRE y lista blanca, nunca como un "if" dentro del predicado ni como un "!=" negado: los dos modos
+      tienen reglas de seguridad distintas y mezclarlos es como se cuela una fuga. (2) Activar el autocomplete solo
+      en el primer mensaje es un error facil: tambien va en el cuadro de seguimiento de los turnos siguientes.
+      (3) Las sugerencias de arranque tienen que ESCRIBIR UNA MENCION, no mandar una pregunta entera: una sugerencia
+      que pregunta enseña a usar el chat como buscador y la gente nunca descubre el mecanismo, que es el valor.
+
+  - id: PAT-049
+    nombre: "Pieza 3D decorativa de carga diferida que se DESMONTA cuando aparece el contenido"
+    categoria: frontend
+    descripcion: >
+      Una pieza 3D (WebGL) que vive solo en el estado vacio de una pantalla y se desmonta de verdad en cuanto hay
+      contenido: se cancela el requestAnimationFrame, se liberan geometrias y materiales, se llama renderer.dispose()
+      y el canvas sale del DOM. La libreria se trae por CDN con VERSION FIJA e import() dinamico, detras de tres
+      compuertas evaluadas en orden -- prefers-reduced-motion no coincide, hay contexto WebGL, la pantalla esta
+      montada --: si alguna falla, la libreria NO SE DESCARGA. El import va en try/catch y su fallo es silencioso,
+      degradando a una version plana. La pieza no recibe ni muestra ningun dato.
+    cuando_usar: >
+      Portales server-rendered sin bundler (MVC, Razor, PHP, Astro) donde se pide "motion 3D" y hay una memoria de
+      diseño que prioriza el contenido. Tambien para cualquier adorno pesado en un estado vacio.
+    proyecto_origen: olvidata-agentes-multirubro (M28, implementado 2026-10-02)
+    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    archivos_referencia:
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Web/wwwroot/js/chat-libre-3d.js"
+        motivo: "three@0.160.0 por cdn.jsdelivr.net con import() dinamico, tres compuertas en orden, desmontaje real y degradacion silenciosa"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Web/Views/ChatLibre/Index.cshtml"
+        motivo: "El 3D ocupa el estado vacio -- el unico momento en que no hay contenido que pueda tapar -- y se retira con el primer mensaje"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      LA IDEA QUE RESUELVE LA TENSION: un estado vacio no tiene contenido que el adorno pueda tapar, asi que es el
+      unico lugar donde una pieza 3D no compite con nada. Pedir "motion 3D" y tener una regla de diseño que dice
+      "lo que la persona vino a hacer entra en la primera pantalla" no es una contradiccion si el 3D vive donde
+      todavia no hay nada y se va cuando aparece algo. Beneficio no buscado: el costo de rendimiento se paga una
+      sola vez por sesion.
+      Gotchas: (1) ocultar con display:none NO alcanza -- se ve igual y sigue consumiendo en cada frame; hay que
+      desmontar, y se verifica con el monitor de rendimiento o contando contextos WebGL, no mirando la pantalla.
+      (2) Version FIJA en la URL del CDN, nunca "latest": un CDN que cambia de version sola es un despliegue que
+      nadie hizo. (3) El catch silencioso es correcto Y es una trampa: si la URL no existe la pieza nunca aparece y
+      nadie se entera -- abrir la URL una vez antes del primer despliegue es parte del trabajo, no una formalidad.
+      (4) La pieza no recibe datos, y eso es lo que impide que un dato de la organizacion llegue a un script de CDN.

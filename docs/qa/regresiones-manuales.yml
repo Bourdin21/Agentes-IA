@@ -3530,7 +3530,8 @@ regresiones:
       - "Como SuperUsuario: el usuario sin rol se ve y se abre (rescate)."
     nota_generalizacion: "Aplica a TODO proyecto del estudio con roles jerarquicos y una pantalla de gestion de usuarios. Regla: la guarda se evalua sobre la lista completa de roles, el caso 'sin rol' es fail-closed, y la identidad privilegiada se cruza tambien por un dato que no dependa de la tabla de roles (el email del seed). El modo de falla es traicionero porque la barrera existe y se ve funcionar: 8 de 8 acciones rechazadas mientras la fila de roles este; alcanza con que falte para que las 8 pasen."
 
-  - id: KOI-016
+  - id: KOI-017
+    renumerado_desde: "KOI-016 (2026-10-02). Era un DUPLICADO DE NUMERACION, no de contenido: dos items distintos del proyecto koi compartian el id KOI-016. Se renumero este al siguiente id libre (017), que es ademas el id con el que ya lo citaban MH-0xx y CR-0xx en sus textos ('misma familia que KOI-017', 'dos cifras dibujadas juntas... cubrir el mismo conjunto (KOI-017)'): esas referencias eran colgadas y ahora resuelven. El otro KOI-016 (guarda de privilegio en UsersController) conserva su id. Ojo: KOI-007 y KOI-008 no existen en el catalogo y NO se reutilizaron."
     modulo: Confidencialidad por rol / dato derivable entre pantallas
     titulo: "Ocultar una cifra sensible en una pantalla no sirve si el complemento aritmetico sigue visible en otra del mismo menu: el secreto se recupera con una resta"
     severidad: high
@@ -4025,6 +4026,36 @@ regresiones:
       - "Previsualizacion de la regularizacion de caja antes del backfill de fechas: 5 / $2.224.700,00."
       - "Previsualizacion despues del backfill de fechas: el mismo numero."
       - "El objetivo de CA-84.8 (74 pagos / $23.750.495,09) no cambia por el reordenamiento de los guards."
+  - id: MH-053
+    modulo: "Correccion de la fecha de un pago a proveedor (PagoOrdenCompraService.ActualizarFechaPagoAsync) - pagos con el ledger totalmente reversado"
+    titulo: "Agrupar por fecha para mover 'el grupo entero' cubre la reversion PARCIAL del mismo dia, que no existe, y no cubre la reversion TOTAL fechada en otro dia, que si existe: el credito queda en su mes"
+    severidad: low
+    reproducido_en: "marihogar, commit e973c7b (CR-86 corrida 2, fix de MH-044), verificado por codigo + SQL contra produccion el 2026-10-02. PREEXISTENTE: el codigo anterior hacia lo mismo, asi que no es una regresion del fix."
+    pasos:
+      - "Buscar pagos con Estado=Pagado cuyo neto en MovimientosCCProveedor sea 0 porque la reversion esta fechada en otro dia que el Pago: SELECT ... EsReversion=1 agrupado por OrigenId. En produccion son los pagos 58 ($629.975,96), 201 ($299.999,88) y 203 ($300.000,00), los tres con la reversion al 2026-09-30 y el Pago en marzo/diciembre/noviembre."
+      - "Abrir OrdenesCompra / Details de esa OC y corregir la fecha del pago con el lapiz (habilitado para todos los medios desde CR-86 punto 8)."
+      - "Leer MovimientosCCProveedor de ese OrigenId."
+    sintoma: "SaldoLedgerPorFecha.Proveedor agrupa por fecha, asi que la fecha del Pago tiene neto > 0 (es 'viva') y la de la reversion tiene neto < 0 (no entra). Se mueve el Pago a la fecha nueva y el Cargo de reversion queda en la fecha vieja: el mes de la reversion se queda con un credito sin su debito, que es literalmente el dano que el comentario del helper dice estar evitando. El caso que el comentario describe (Pago 100 + Cargo reversion 40 el MISMO dia, neto 60) tiene 0 ocurrencias en produccion: las 10 reversiones del ledger de proveedores son todas por el importe total, 5 fechadas el mismo dia que el Pago (neto 0, correctamente ignoradas) y 5 en otro dia."
+    expectativa: "Dos salidas posibles, y la eleccion es funcional, no tecnica: (a) un pago cuyo neto TOTAL en el ledger es 0 esta reversado y no tiene fecha que corregir -- el metodo deberia rechazarlo con un mensaje, en vez de reescribir un debito muerto; o (b) si se lo permite, la correccion tiene que arrastrar tambien las reversiones que compensan a las filas que mueve, esten fechadas donde esten. Lo que no corresponde es mover media compensacion."
+    causa_raiz: "El criterio de 'grupo vivo' se definio por FECHA porque ese es el eje que el backfill necesita (reasentar un dia en otro dia). Para la correccion de fecha de un pago el eje correcto es el PAGO: lo que se mueve es un hecho economico completo, y su compensacion es parte del hecho aunque este fechada otro dia. El helper compartido resolvio la duplicacion de MH-044 pero importo a los otros dos caminos un criterio que era exacto solo para el tercero."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/PagoOrdenCompraService.cs
+        motivo: "Hipotesis, no instruccion: guard de neto total 0 (reutilizando ObtenerNetoPosteadoAsync del lado de proveedores, si existe el equivalente) antes de tocar nada. La opcion (b) exige decidir que es 'la reversion que compensa a esta fila', que el ledger no modela explicitamente -- razon de mas para que lo resuelva el analista."
+      - path: MariHogar.Infrastructure/Services/SaldoLedgerPorFecha.cs
+        motivo: "Hipotesis: si se elige (b), el helper necesita un segundo metodo con eje de pago, no un cambio en el de eje de fecha, que el backfill usa bien."
+    migracion_ef: no
+    deteccion_qa:
+      tipo: manual
+      consulta: "SELECT OrigenId, SUM(CASE WHEN Tipo=2 AND EsReversion=0 THEN Monto WHEN Tipo=1 AND EsReversion=1 THEN -Monto ELSE 0 END) neto FROM MovimientosCCProveedor WHERE OrigenTipo='PagoOC' GROUP BY OrigenId HAVING neto=0 -> cruzar con PagosOrdenCompra.Estado=Pagado."
+      condicion_falla: "Un pago con neto total 0 admite correccion de fecha, y despues de corregirla alguna fila del ledger de ese pago quedo en una fecha y su compensacion en otra."
+    criterio_aceptacion:
+      - "Sobre el pago 58 (o 201, o 203), la correccion de fecha o se rechaza con un mensaje que explica que el pago esta reversado, o deja el Pago y su Cargo de reversion en la MISMA fecha nueva."
+      - "Los pagos 339/340/341/344/345 (reversion del mismo dia, neto 0 en esa fecha) siguen moviendo solo su grupo vivo, sin tocar el par compensado del 19/08 (cerrado en MH-044: no debe romperse)."
+    pruebas_minimas:
+      - "Pago 58: el caso del defecto."
+      - "Pago 339: la regresion de MH-044."
+      - "Un pago con una sola fila de ledger (los 13 del lote MH-037): el comportamiento no cambia."
   - id: ELV-005
     modulo: "Cuentas / Details - grilla de movimientos (MovimientoService.GetDataTableAsync + GetSaldosAcumuladosAsync)"
     titulo: "Una fila ANULADA en la grilla muestra Saldo Acumulado 0,00 y, si es el ultimo movimiento de la cuenta, el acumulado de la primera fila deja de coincidir con el saldo del encabezado"
@@ -4254,8 +4285,8 @@ regresiones:
       - "Tomar el numero que el criterio de aceptacion promete para el rotulo del residuo (aca: 730 pagos sin tasa en todo el historial)."
       - "Replicar en SQL la consulta del servicio que alimenta el rotulo, CON todos sus filtros."
       - "Replicarla de nuevo SIN el filtro de documentos cancelados."
-      - "Comparar los dos numeros contra el del criterio. Aca: 726 con filtro, 730 sin filtro, y la diferencia son exactamente los 4 pagos sin tasa de ventas canceladas."
-    sintoma: "El rotulo declara 726 donde el criterio pide 730. Los dos numeros son defendibles y ninguno es un bug de calculo, pero el criterio es inverificable como esta escrito y QA no puede adjudicar cual universo quiso el negocio."
+      - "Comparar contra el criterio descomponiendo resta por resta, y SIN olvidar los HasQueryFilter globales (ver MH-049, que es la causa del primer diagnostico equivocado de este mismo item). Aca: 730 crudo, 724 con el filtro de baja logica, 723 con la exclusion de cancelados -- y de los 4 pagos sin tasa en documentos cancelados, 3 ya estaban soft-deleted, asi que la exclusion de negocio solo descuenta 1."
+    sintoma: "El rotulo declara 723 donde el criterio pedia 730. Descomposicion ratificada: 730 crudo - 6 pagos soft-deleted (filtro global de EF) - 1 pago vivo de documento cancelado = 723. El criterio estaba mal (incluia los 6 dados de baja) y la implementacion cuenta bien: defecto de criterio, no de codigo. CA-86.5 reenunciado en 723 el 2026-10-02."
     expectativa: "Cuando un criterio de aceptacion fija un numero medido, tiene que fijar tambien el universo (con o sin documentos cancelados / dados de baja / anulados). Si el agregado del que el rotulo habla excluye los cancelados, el rotulo tiene que excluirlos igual y el criterio tiene que decir el numero de ESE universo: dos numeros contiguos no pueden medir universos distintos."
     causa_raiz: "El numero del criterio se midio en la etapa de Analisis con un SELECT directo sobre la tabla de detalle, antes de que Arquitectura decidiera derivar el agregado del ledger con exclusion de cancelados. La implementacion aplico el filtro por coherencia con el agregado (correcto) y el criterio quedo congelado con el numero viejo."
     capa: Transversal
@@ -4289,4 +4320,544 @@ regresiones:
       - path: MariHogar.Infrastructure/Services/GastoService.cs
         motivo: "Alternativa (o complemento): incorporar al whitelist las variantes de tipeo del mismo concepto y ratificar el total nuevo con el cliente."
     migracion_ef: no
-    leccion_adicional: "Regla de cierre para QA: un reporte nuevo de saneamiento se prueba cruzandolo contra los defectos ABIERTOS del mismo concepto. Si un defecto confirmado en vivo no aparece en el reporte que se construyo para encontrarlo, eso es el hallazgo, aunque el total del reporte coincida al peso con el criterio."
+    leccion_adicional: "Cerrado el 2026-10-02 en el commit e973c7b: el reporte quedo en dos bloques (confirmado 80 / $9.113.426,00 + candidatos 60 / $6.363.222,00, $4.851.222,00 vigentes), disjuntos y con el gasto 520 adentro. Hallazgo posterior del Orquestador que explica POR QUE el universo confirmado quedaba corto: el aviso de doble conteo de PrevisualizarRecalculoAsync filtra por Categoria == ComisionesBancarias y en produccion hay 120 gastos / $11.479.487,00 en Otro contra 1 / $50.000,00 en ComisionesBancarias -- el aviso ve 1 de 121, el 0,4% del monto. Levantado como CR-87, fuera del alcance de CR-86. Regla de cierre para QA: un reporte nuevo de saneamiento se prueba cruzandolo contra los defectos ABIERTOS del mismo concepto. Si un defecto confirmado en vivo no aparece en el reporte que se construyo para encontrarlo, eso es el hallazgo, aunque el total del reporte coincida al peso con el criterio."
+
+  - id: MH-049
+    modulo: "Metodo de QA / replicar en SQL crudo una consulta de EF Core"
+    titulo: "Replicar en SQL crudo el WHERE de un servicio EF sin sus HasQueryFilter globales no da el numero que el usuario ve, y el error se puede cometer desde los dos lados (QA mide de mas, el analista mide de mas distinto)"
+    severidad: medium
+    reproducido_en: "marihogar, 2026-10-02, QA de CR-86 frente A: dos agentes distintos (QA y Orquestador) midieron el mismo rotulo el mismo dia y les dio 726 y 730; el numero real de la pantalla era 723."
+    pasos:
+      - "Tomar la expresion LINQ del servicio que alimenta el numero y traducir su Where a SQL."
+      - "ANTES de correrla, buscar HasQueryFilter en el DbContext (suele estar en un bucle generico sobre una clase base: 'modelBuilder.Entity<T>().HasQueryFilter(e => e.DeletedAt == null)')."
+      - "Para cada entidad que la consulta toca -- la raiz Y las de cada subconsulta -- chequear si hereda la clase base soft-deletable. EF agrega el filtro a TODAS, incluidas las que aparecen dentro de un _db.Otra.Any(...)."
+      - "Recien ahi correr el SQL, con el filtro de baja logica escrito a mano en cada tabla que corresponda."
+      - "Si el numero sigue sin coincidir, descomponer: crudo -> menos soft-deleted -> menos los filtros de negocio, y mirar en que resta aparece la diferencia."
+    sintoma: "El numero del criterio (730) no coincidia con el de QA (726) ni con el de la pantalla (723). Las tres cuentas eran la misma consulta con distintos subconjuntos de filtros: 730 crudo, 724 con el filtro global de la entidad raiz, 723 con el filtro de negocio encima. Ademas los universos parecian irreconciliables -- QA veia 4 pagos de documentos cancelados y el analista 1 -- porque 3 de esos 4 estaban soft-deleted y por lo tanto ya descontados en otra resta."
+    expectativa: "Una verificacion por SQL de un numero de pantalla reproduce el numero de la pantalla, no uno parecido. Cuando no coincide, el informe descompone la cuenta resta por resta en vez de atribuir la diferencia al primer filtro de negocio que aparece en el codigo."
+    causa_raiz: "Los HasQueryFilter no estan escritos en la consulta del servicio: se declaran una sola vez en el DbContext, normalmente en un bucle generico sobre una clase base, asi que leer el metodo del servicio de punta a punta NO los muestra. Quien replica en SQL ve el Where completo y cree que lo tiene todo."
+    capa: Transversal
+    deteccion_qa:
+      tipo: manual
+      consulta: "grep -n 'HasQueryFilter' <Infrastructure>/Data/AppDbContext.cs  +  grep -n 'class <Entidad>' para ver de quien hereda. Despues: COUNT crudo, COUNT + DeletedAt IS NULL, COUNT + filtros de negocio -- y la pantalla tiene que coincidir con el ultimo."
+    archivos_fix: []
+    migracion_ef: no
+    leccion_adicional: "Corolario para el que escribe criterios de aceptacion con un numero medido: el numero tiene que venir con el universo (vivos o todos, cancelados dentro o fuera) y con la consulta que lo produjo. Un criterio que dice solo 'tiene que decir 730' genera un FAIL que no se puede cerrar sin volver a Analisis, y aca efectivamente volvio."
+
+  - id: MH-050
+    modulo: "Listados filtrados por un IN de strings contra la base (GastoService.LeerPorSubcategoriaAsync)"
+    titulo: "Recurrencia latente de MH-001 en superficie nueva: es el unico lugar de la solucion que manda una coleccion local de strings al IN de SQL, justo en una pantalla que todavia no se abrio nunca"
+    severidad: medium
+    reproducido_en: "marihogar, 2026-10-02, QA de CR-86 (commit e973c7b). NO reproducido en runtime: la pantalla no se levanto (regla del proyecto). Detectado por revision de codigo contra MH-001."
+    pasos:
+      - "Buscar en toda la solucion los Where(coleccionLocal.Contains(columnaString)) que se ejecutan contra la base."
+      - "Comparar con como resuelve el MISMO problema el resto del codigo: si en los demas lugares se trae la tabla a memoria y se filtra en-proceso con un comentario que cita el defecto, la unica consulta que manda el IN a SQL es la sospechosa."
+      - "Abrir la pantalla nueva (es lo que falta aca)."
+    sintoma: "Pendiente de observacion. MH-001 produjo 'InvalidOperationException: Expression does not have a type mapping assigned' con el mismo patron sobre HashSet<string>. Si se repite, la pantalla devuelve 500 completa, no un listado parcial."
+    expectativa: "Una pantalla nueva que usa un patron que el proyecto evita a proposito en todos los demas lugares se abre al menos una vez antes del merge. Y si el patron esta prohibido por un item del catalogo, la superficie nueva usa el mismo workaround que las demas (traer a memoria y filtrar en-proceso) o demuestra con una corrida que el provider ya lo soporta."
+    causa_raiz: "El array de subcategorias era un static readonly usado directamente; al extraer el metodo compartido para los dos bloques paso a ser un PARAMETRO string[], que es exactamente la forma que MH-001 documenta como no traducible. Nadie lo relaciono porque el catalogo tiene el caso escrito sobre HashSet<string> de ids de usuario, no sobre un whitelist de categorias."
+    capa: Infrastructure
+    archivos_fix:
+      - path: MariHogar.Infrastructure/Services/GastoService.cs
+        motivo: "LeerPorSubcategoriaAsync: o se confirma con una corrida real que el IN de strings se traduce en este provider, o se adopta el patron que ya usan CCLocalService:98 y StockService:58 (traer la coleccion y filtrar en-proceso, o armar el filtro con OR encadenados sobre constantes)."
+    migracion_ef: no
+    deteccion_qa:
+      tipo: manual
+      selector_o_endpoint: "GET /Gastos/Solapados -- tiene que devolver 200 y pintar los dos bloques"
+    leccion_adicional: "ARREGLADO y re-verificado el 2026-10-02 (diff sin commitear): se materializa y se filtra en memoria contra un HashSet con StringComparer.OrdinalIgnoreCase, mismo patron que los otros cuatro lugares. Verificado ademas que el cambio de collation no mueve el conjunto: GROUP BY CAST(col AS BINARY) da 8 valores distintos byte a byte, identicos a los 8 literales del whitelist, 0 variantes de caja y 0 valores con espacios de borde en toda la tabla, asi que Ordinal, OrdinalIgnoreCase y la collation _ci seleccionan las mismas 140 filas. **Un GROUP BY normal sobre una collation _ci fusiona las variantes de caja y habria escondido el problema: para comparar semantica de SQL contra semantica de .NET hay que agrupar por el valor BINARIO.** Nota: el GroupBy del agrupador quedo con el comparador por defecto (sensible a mayusculas) mientras el filtro usa OrdinalIgnoreCase -- con 0 casos hoy, pero una variante de caja entraria por el filtro y produciria dos grupos para una sola subcategoria. Para QA: un item del catalogo escrito sobre un tipo concreto (HashSet<string> de ids) hay que leerlo por su CLASE (coleccion local de strings al IN), o la recurrencia en otra forma del mismo patron no se ve. Y verificar un reporte por SQL demuestra que los DATOS cumplen el criterio, no que la pantalla exista: son dos assertions distintas y la segunda necesita un 200."
+
+  - id: MH-051
+    modulo: "Correccion de fecha de un pago / anulacion silenciosa de un asiento automatico (PagoOrdenCompraService.ActualizarFechaPagoAsync + ImpuestoChequeService.ActualizarFechaImpuestoAsync)"
+    titulo: "Un fix que convierte 'mover' en 'anular' devuelve el monto anulado para que el caller lo informe, y el caller descarta el retorno: la plata desaparece de la pantalla sin un solo mensaje"
+    severidad: medium
+    reproducido_en: "marihogar, 2026-10-02, QA de CR-86 lote 3 corrida 2 (e973c7b). Confirmado en codigo; 0 casos en produccion (migracion no aplicada). Es el remanente de MH-046."
+    pasos:
+      - "Tener un asiento automatico con una condicion de vigencia (aca: el Gasto del impuesto Ley 25.413, que solo existe si hay alicuota vigente a su fecha)."
+      - "Corregir la fecha del documento padre a una fecha donde la condicion NO se cumple (anterior a la VigenteDesde de la alicuota)."
+      - "El servicio hijo hace lo correcto: anula el gasto (PAT-020) en vez de mudarlo, y DEVUELVE el monto anulado 'para que el caller lo informe' (su propio doc-comment)."
+      - "Mirar el caller: `await _impuestoChequeService.ActualizarFechaImpuestoAsync(...)` sin asignar el retorno. El ServiceResult de exito sigue diciendo 'Fecha de pago actualizada correctamente'."
+    sintoma: "La correccion de fecha anula un gasto y le devuelve plata a la caja sin decirselo a nadie. El operador creia estar corrigiendo un dia y ademas borro un impuesto. El unico rastro es una fila anulada en Gastos y un contramovimiento en el ledger, que nadie va a mirar porque la pantalla dijo que todo salio bien. Es la leccion de MH-039 (un retroactivo que saca plata necesita rastro, no solo hacer lo correcto) aplicada a un camino de una sola fila. Ademas, en la misma llamada, ActualizarFechaPagoAsync valida que la fecha nueva no sea futura pero NO que sea >= Cheque.FechaEmision, guard que AcreditarAsync si tiene: el mismo dato admite por un camino lo que el otro rechaza."
+    expectativa: "Si un metodo devuelve un monto 'para que el caller lo informe', la revision del fix incluye al caller: o el mensaje de exito nombra el monto anulado y por que, o el metodo no devuelve nada y la decision se toma arriba. Un valor de retorno ignorado es un fix a medias que se lee como completo. Y las dos puertas que escriben la misma fecha comparten las mismas validaciones."
+    causa_raiz: "El fix se diseno y se verifico en el servicio donde estaba el defecto. El contrato nuevo (devolver el monto anulado) se agrego sin tocar el unico caller, que seguia llamando en modo void porque antes el metodo era void."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: codigo
+      consulta: "Cuando un fix cambia la firma de un metodo de void a un valor de retorno, grep de los callers: un `await X(...)` sin asignacion donde el doc-comment dice 'devuelve N para que el caller lo informe' es el defecto."
+    archivos_fix:
+      - "Services/PagoOrdenCompraService.cs - capturar el retorno de ActualizarFechaImpuestoAsync y agregar al mensaje de exito el monto del impuesto anulado y el motivo; agregar el guard nuevaFecha >= cheque.FechaEmision."
+    migracion_ef: no
+    regla_catalogo: "MH-051 en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "Corregir la fecha de pago de un cheque acreditado a una fecha sin alicuota vigente devuelve un mensaje que nombra el monto del impuesto anulado."
+      - "Corregir la fecha a una anterior a la emision del cheque devuelve error."
+    leccion_adicional: "Un fix de QA se re-verifica en los dos extremos: donde estaba el defecto y donde se consume el resultado. Cambiar void por un valor de retorno es cambiar un contrato, y un contrato nuevo con 1 caller sin tocar es un contrato que nadie cumple."
+
+  - id: MH-052
+    modulo: "Enums de catalogo / validacion server-side aplicada a un solo CRUD de los dos (GastoRecurrenteService vs GastoService)"
+    titulo: "La exclusion de un valor de enum reservado al sistema se centralizo bien para las VISTAS y se valido server-side en un solo servicio: el CRUD hermano sigue aceptando el valor por POST"
+    severidad: low
+    reproducido_en: "marihogar, 2026-10-02, QA de CR-86 lote 3 corrida 2 (e973c7b). Confirmado en codigo. Cierre parcial de MH-047."
+    pasos:
+      - "Centralizar la exclusion de un valor de enum en un helper (aca CategoriasGastoSeleccionables) y usarlo en las vistas de alta de los DOS CRUDs que comparten el enum."
+      - "Buscar la validacion server-side (REG-004): grep del helper en Services."
+      - "Aca aparece solo en GastoService.CrearAsync. GastoRecurrenteService asigna `Categoria = input.Categoria` en el alta y en la edicion, sin ningun guard."
+      - "Un POST armado a mano crea una plantilla de gasto recurrente de la categoria reservada."
+    sintoma: "Exactamente OLV-019: la baja del valor se implementa en el combo y el POST la sigue burlando — pero en un solo lado, lo que es peor de detectar que en ninguno, porque el helper existe y da la impresion de que el tema esta cerrado. En marihogar no genera gastos fantasma porque ningun job materializa las plantillas (solo prellenan el form de alta), asi que el efecto real es una plantilla que al usarse muere contra el guard del alta de Gasto, con un error que el usuario no puede entender. Si alguna vez se agrega el job, la plantilla pasa a postear."
+    expectativa: "Cuando dos CRUDs comparten el enum, la validacion server-side va en los dos, o en un unico punto que los dos atraviesen. El helper centraliza el SET de valores, no la validacion: centralizar el set y aplicarlo en un solo servicio deja la mitad del agujero abierto y el codigo parece cerrado."
+    causa_raiz: "El defecto original se reporto nombrando las vistas (4) y el servicio (1, el de Gastos). El fix cubrio exactamente lo reportado. La plantilla recurrente estaba en el sintoma del parte pero no en la lista de archivos_fix del servicio."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: codigo
+      consulta: "grep -rln '<HelperDeExclusion>' en Services/ y comparar con la lista de servicios que escriben el campo del enum (grep -rn 'Categoria = input.Categoria'). La diferencia entre las dos listas es el agujero."
+    archivos_fix:
+      - "Services/GastoRecurrenteService.cs - rechazar en CrearAsync y en ActualizarAsync las categorias que no pasen CategoriasGastoSeleccionables.EsSeleccionable."
+    migracion_ef: no
+    regla_catalogo: "MH-052 en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "Un POST a mano con Categoria=8 al alta y a la edicion de plantilla de gasto recurrente devuelve error de validacion."
+    leccion_adicional: "Un parte de defecto que enumera archivos_fix se cumple al pie de la letra, asi que la enumeracion es parte del defecto: si el parte lista 4 vistas y 1 servicio, el fix va a cubrir 4 vistas y 1 servicio. La contramedida es cerrar la lista por la fuente (que servicios ESCRIBEN el campo) en vez de por recorrido, el mismo corolario de MH-041."
+
+  - id: MH-054
+    modulo: "PAT-012 (previsualizar -> confirmar) / pantallas de regularizacion masiva (Cheques/RegularizarImpuesto, RegularizacionCaja, ConfiguracionCostosCobranza/Recalcular)"
+    titulo: "Un previsualizar -> confirmar donde el Aplicar no recibe ningun parametro de lo previsualizado son dos lecturas independientes: el usuario confirma un numero y se aplica otro, y nada lo detecta"
+    severidad: low
+    reproducido_en: "marihogar, 2026-10-02, QA de CR-86 lote 3 corrida 3 (7c4a424). PREEXISTENTE en el proyecto, no una regresion del CR: el mismo patron esta en RegularizacionCajaController.Aplicar() (CR-84) y en el Recalcular de costos de cobranza. Confirmado en codigo."
+    pasos:
+      - "Buscar una pantalla que implemente previsualizar -> confirmar sobre una operacion masiva."
+      - "Mirar la firma de la accion de Aplicar. Si no recibe NADA de lo que la previsualizacion mostro (ni el total, ni la cantidad, ni la lista de ids, ni un hash del universo), los dos pasos son dos lecturas independientes del estado vivo."
+      - "El doc-comment suele afirmar justamente lo contrario: 'una sola fuente para la previsualizacion y para la aplicacion, el paso 2 no puede mirar un universo distinto del que el paso 1 le mostro al usuario'. Es el mismo METODO, no el mismo SNAPSHOT."
+      - "Entre los dos requests cambiar el estado que decide el universo (acreditar otro documento, editar el parametro con vigencia, postear a mano una de las filas) y aplicar: se aplica un universo distinto del confirmado, con exito y sin aviso."
+    sintoma: "El usuario ve 19 cheques / $39.719,67, confirma, y se postea otro conjunto. En el mejor caso el mensaje final dice un numero distinto del de la pantalla y alguien lo nota; en el peor la diferencia es de composicion y no de total. Con un solo usuario Administracion la ventana es chica, pero no es cero: la previsualizacion queda abierta en una pestaña y se confirma mas tarde. No hay ninguna assertion que compare lo previsualizado con lo aplicado, ni siquiera dentro del propio Aplicar, que en este caso RECALCULA la previsualizacion completa (29 PrevisualizarAsync) y despues la DESCARTA sin mirarla."
+    expectativa: "El Aplicar recibe de la previsualizacion lo suficiente para verificar que el universo no cambio — la cantidad y el total esperados como minimo, idealmente la lista de ids — y si no coincide, no aplica: devuelve 'el universo cambio desde que previsualizaste, volve a previsualizar'. Es barato: cuando el Aplicar ya recalcula la previsualizacion internamente, la comparacion sale gratis. Un doc-comment que promete PAT-012 sin eso promete algo que el codigo no hace."
+    causa_raiz: "PAT-012 se adopto en el proyecto como una convencion de UX (dos pasos, el segundo confirma) y no como una invariante de datos (el segundo paso aplica EXACTAMENTE lo que el primero mostro). Compartir el metodo que arma el universo resuelve que los dos pasos usen el mismo CRITERIO, que es el 80% del valor, y deja afuera que usen el mismo ESTADO."
+    capa: Web
+    deteccion_qa:
+      tipo: codigo
+      consulta: "grep de las acciones de Aplicar/Confirmar de las pantallas PAT-012: `public async Task<IActionResult> Aplicar()` sin parametros es el defecto. Comparar contra la firma de Previsualizar, que si suele recibir el rango o el filtro."
+    archivos_fix:
+      - "Controllers/ChequesController.cs + Interfaces/IChequeService.cs - que AplicarRegularizacionImpuestoAsync reciba cantidad y total esperados y los verifique contra lo que ArmarRegularizacionImpuestoAsync devuelve antes de postear (la previsualizacion ya se recalcula ahi dentro: solo hay que mirarla en vez de descartarla)."
+      - "Views/Cheques/RegularizarImpuesto.cshtml - mandar en el POST los dos valores que la pantalla ya tiene."
+      - "Mismo criterio aplicable a RegularizacionCajaController.Aplicar() y al Recalcular de costos de cobranza, como deuda declarada."
+    migracion_ef: no
+    regla_catalogo: "MH-054 en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "Aplicar con una cantidad/total esperados distintos de los vigentes devuelve error y no postea nada."
+      - "El camino feliz (previsualizar y aplicar sin cambios en el medio) sigue funcionando igual."
+    leccion_adicional: "Compartir el metodo que arma el universo hace que los dos pasos usen el mismo criterio; no hace que usen el mismo estado. 'Una sola fuente' en un doc-comment de PAT-012 hay que leerla preguntando 'una sola fuente de que: del criterio o del snapshot'. Y cuando el Aplicar ya recalcula la previsualizacion para despues descartarla, el chequeo que falta es literalmente una comparacion gratis."
+
+  - id: OLV-028
+    modulo: "Menu lateral vs. disponibilidad de un agente de plataforma (PermisosOrganizacion.PuedeUsarChatLibre / MenuOrganizacion)"
+    titulo: "El item de menu de una conversacion de plataforma se decide por rol y nunca consulta si el agente tiene version publicada: el catalogo la oculta bien, el menu la ofrece y lleva a 'Todavia no esta disponible.'"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - QA M28 lote 1, 2026-10-02, commit 87530b2, olvidata_agentes_dev, portal local en Development con modelo simulado. Reproducido por navegador (Playwright MCP) como Empleado (empa@qa.test, org 1) ANTES de importar el agente del nucleo."
+    pasos:
+      - "No importar ni publicar el agente de plataforma nuevo (en la base no existe ni el artefacto)."
+      - "Entrar como cualquier miembro activo y leer el menu lateral."
+      - "Tocar el item y leer el cuerpo de la pantalla."
+    sintoma: "El menu lateral muestra 'Chat libre' con su link a /ChatLibre. La pantalla abre con HTTP 200 y el cuerpo dice 'Todavia no esta disponible.', asi que la persona llega a una pantalla muerta desde un item que el criterio pide no ofrecer. El catalogo de Agentes (seccion 'Para configurar tu sistema') SI lo oculta correctamente, lo que confirma que el dato de disponibilidad existe y es alcanzable: lo que falta es consultarlo en el menu."
+    expectativa: "Sin version publicada del agente, el item no esta en el menu ni en el catalogo. Entrar por URL sigue devolviendo 'Todavia no esta disponible.' (eso ya funciona)."
+    causa_raiz: "PermisosOrganizacion.PuedeUsarChatLibre => EsMiembro && !EsStaff es un chequeo de rol puro; MenuOrganizacion.cs:83 registra el item sin ninguna condicion mas, y VeEnMenu(OpcionMenu.ChatLibre) nunca llama a IChatLibre.DisponibleAsync. El controller SI la consulta (de ahi que la URL responda bien), asi que la guarda esta implementada en uno de los dos lugares que el criterio nombra. El mismo molde lo arrastra OpcionMenu.Automatizar desde M15, donde el agente estaba publicado y por eso nunca se noto."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Helpers/MenuOrganizacion.cs
+        motivo: "Hipotesis: el item de una conversacion de plataforma necesita, ademas del rol, la disponibilidad del agente. Como VeEnMenu es sincronico y DisponibleAsync no, probablemente convenga resolver la disponibilidad una vez por request y pasarla al armado del menu, no una consulta por item."
+      - path: src/<Proyecto>.Infrastructure/Services/Organizacion/PermisosOrganizacion.cs
+        motivo: "Hipotesis: PuedeUsarChatLibre tiene que dejar de ser solo rol. Si se decide que el permiso es rol y la disponibilidad es otra dimension, el fix va entero en el helper y este archivo no se toca: es decision de diseno, por eso no se auto-aplica."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "Con el agente de plataforma sin publicar, leer los href del menu lateral y comparar contra los que el catalogo ofrece: todo item que el catalogo oculta y el menu muestra es un hit."
+      condicion_falla: "Un item del menu lleva a una pantalla cuyo cuerpo dice que todavia no esta disponible."
+    criterio_aceptacion:
+      - "Sin version publicada, ningun miembro ve el item en el menu lateral ni en el catalogo."
+      - "Con version publicada, el item vuelve a aparecer para todo miembro activo (incluido un Empleado)."
+    pruebas_minimas:
+      - "Como Empleado, con el agente en Borrador: el innerText del sidebar NO contiene el nombre de la conversacion, y la ruta por URL sigue respondiendo 'Todavia no esta disponible.'"
+      - "Publicar y repetir: el item aparece y la pantalla abre con el cuadro de texto habilitado."
+    leccion_adicional: "Una guarda de disponibilidad escrita en el controller NO cubre el menu: son dos lugares y el criterio de aceptacion habla de los dos. Al agregar una pantalla cuya existencia depende de un dato de la base (una version publicada, una licencia, una habilitacion), hay que enumerar los TRES renderizadores que la pueden ofrecer -menu, catalogo y pantalla de primeros pasos- y no solo el que se probo."
+
+  - id: OLV-029
+    modulo: "Rotulo del tipo de una conversacion de plataforma (Views/Tareas/Detalle.cshtml y Views/Tareas/Index.cshtml)"
+    titulo: "Una cadena ternaria sin rama propia para el tipo nuevo rotula el chat libre como 'Configuracion de reglas' en el titulo y el encabezado, y en el listado cae al rubro tecnico 'plataforma'"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - QA M28 lote 1, 2026-10-02, commit 87530b2. Observado en las tareas 241 a 245 de olvidata_agentes_dev (Tipo=6), por navegador."
+    pasos:
+      - "Abrir una conversacion del tipo de tarea nuevo y leer el titulo de la pestana y el encabezado de la pantalla."
+      - "Ir al listado de Tareas y leer la segunda linea de la fila de esa conversacion."
+    sintoma: "El detalle dice 'Configuracion de reglas #243' en el titulo del navegador y 'Configuracion de reglas - 02/10/2026' en el encabezado, para una conversacion que la propia burbuja del agente firma como 'Chat libre'. En el listado la fila muestra 'Chat libre | plataforma': la segunda linea es el rubro tecnico, que es exactamente lo que el comentario del codigo dice que una conversacion de plataforma no debe mostrar."
+    expectativa: "El tipo nuevo tiene su propio rotulo en las dos pantallas, y ninguna conversacion de plataforma muestra el nombre del rubro tecnico."
+    causa_raiz: "Detalle.cshtml linea 15 arma el rotulo con una cadena ternaria cuyo ELSE final hace de default ('Configuracion de reglas'), asi que cualquier tipo de plataforma que no sea asistente ni analista hereda el rotulo del configurador. Index.cshtml linea 219 tiene el mismo molde en JS (row.tipo === 'ConfiguracionReglas' ... : row.tipo === 'AsistenteDirector' ... : row.rubroSlug) y ahi el default es el rubro tecnico. Es la variante de VISTA del riesgo R-A1 (switches con default al agregar un TipoTarea): el relevamiento cubrio los switches de C# y dejo afuera los ternarios de Razor y de JS, que no dan error de compilacion ni warning."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Views/Tareas/Detalle.cshtml
+        motivo: "Hipotesis: la cadena ternaria necesita rama propia para el tipo nuevo. Mejor que agregar una rama mas: que el rotulo salga de un unico helper por TipoTarea, para que el proximo tipo no herede el rotulo de otro en silencio."
+      - path: src/<Proyecto>.Web/Views/Tareas/Index.cshtml
+        motivo: "Hipotesis: el render de la columna cae al slug del rubro; necesita la rama del tipo nuevo, idealmente del mismo mapa que el detalle, servido al JS en vez de duplicado."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: codigo
+      consulta: "Despues de agregar un valor a un enum que las vistas rotulan: buscar cadenas ternarias en Views/ y los comparadores 'row.tipo ===' en los .cshtml. Cada cadena cuyo else final sea un rotulo concreto (y no 'Desconocido') es un default silencioso."
+      condicion_falla: "El titulo o la fila de una conversacion del tipo nuevo muestra el rotulo de otro tipo, o el slug del rubro tecnico."
+    criterio_aceptacion:
+      - "El detalle y el listado rotulan el tipo nuevo con su propio nombre."
+      - "Ninguna conversacion de plataforma muestra el slug del rubro tecnico en el listado."
+    pruebas_minimas:
+      - "Abrir una conversacion del tipo nuevo: document.title y el encabezado contienen su nombre propio y NO el de otro tipo."
+      - "En el listado, el innerText de su fila no contiene el slug del rubro tecnico."
+    leccion_adicional: "El riesgo 'un TipoTarea nuevo cae en un switch con default' se releva en C# y se da por cubierto, pero las vistas rotulan con cadenas ternarias en Razor y en JS que son el mismo default sin tipado ni warning. El grep del enum tiene que incluir Views/ y los literales del rotulo, no solo el nombre del enum: en Index.cshtml el default se escribe comparando el string del tipo, donde el nombre del enum no aparece como tal."
+
+  - id: OLV-033
+    modulo: "Aplicar una propuesta de regla de alcance personal nacida en una conversacion de plataforma (Services/Reglas/ReglaService.cs)"
+    titulo: "La guarda 'el configurador no crea preferencias personales' se escribio como lista blanca de UN tipo de tarea, asi que toda conversacion nueva que proponga una preferencia personal deja una tarjeta que no se puede aplicar nunca y que ademas se quema como Fallida"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - QA M28 lote 3, 2026-10-02, commit 6d679d8. Tareas 251 (Directora) y 261 (Empleado) de olvidata_agentes_dev, organizacion propia qa-org-d, por navegador y confirmado en base."
+    pasos:
+      - "En la conversacion nueva (chat libre), escribir un pedido que haga proponer una preferencia personal: 'De ahora en mas, cuando te pida un resumen respondeme en vinetas cortas.'"
+      - "Verificar que la tarjeta aparece con su boton Aplicar (Alcance = Usuario)."
+      - "Tocar Aplicar."
+      - "Repetir como Empleado en su propia conversacion: es su propia preferencia y la politica dice que la aplica su autor."
+    sintoma: "La respuesta del POST /Propuestas/Aplicar es 200 con success:false y el mensaje 'El configurador no crea ni cambia preferencias personales: solo reglas de la empresa, de areas, por agente o de clientes.'. La tarjeta pasa a 'No se pudo aplicar' con ese texto, que habla de OTRA conversacion. En base: Reglas de la organizacion sigue en 0 y la propuesta queda Estado=4 (Fallida). Reintentar da siempre lo mismo. El mismo pedido con alcance de empresa SI se aplica, asi que el camino parece andar y lo que esta roto es justo el alcance por defecto."
+    expectativa: "Una preferencia personal propuesta en una conversacion donde la politica la admite se aplica, y la aplica su autor."
+    causa_raiz: "ReglaService.CrearAsync rechaza AlcanceRegla.Usuario cuando la aplicacion viene de una propuesta, salvo que EsPropuestaDeTrabajoAsync diga que si; y ese helper esta escrito como 'p.TareaAgente.Tipo == TipoTarea.Trabajo', una lista blanca de un solo valor. La decision de QUE alcances se pueden proponer vive en la politica por tipo de conversacion (que si incluye el tipo nuevo), pero la decision de que se puede CREAR al aplicar vive en otro archivo y quedo atada al unico tipo que existia cuando se escribio. Es el molde inverso de MH-047: no es un default que agrega el valor nuevo, es una lista blanca que lo deja afuera, y el sintoma no es un error sino un mensaje de negocio correcto para otro contexto."
+    capa: Infrastructure
+    archivos_fix:
+      - path: src/<Proyecto>.Infrastructure/Services/Reglas/ReglaService.cs
+        motivo: "Hipotesis: EsPropuestaDeTrabajoAsync tiene que aceptar todos los tipos de conversacion cuya politica admite alcance personal, o mejor: preguntarle a la politica en vez de comparar el tipo a mano, para que el proximo tipo no herede el rechazo. Revisar en el mismo archivo las lineas con 'Tipo == TipoTarea.Trabajo' (hay al menos dos mas, en quien ve y quien edita la regla nacida de una propuesta) y en PropuestaReglaService las consultas que filtran por ese unico tipo."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: base
+      consulta: "SELECT Estado, MotivoFallo FROM PropuestasRegla WHERE TareaAgenteId=<la conversacion> -- y el conteo de Reglas de esa organizacion antes y despues de tocar Aplicar."
+      condicion_falla: "La propuesta queda Estado=4 con un MotivoFallo que nombra otra conversacion, y el conteo de reglas no se movio."
+    criterio_aceptacion:
+      - "Aplicar una preferencia personal propuesta en la conversacion nueva crea la regla y deja la propuesta Aplicada."
+      - "El Empleado aplica su propia preferencia en su propia conversacion."
+      - "El alcance de empresa sigue pidiendo Director (no se afloja nada)."
+    pruebas_minimas:
+      - "POST /Propuestas/Aplicar sobre una propuesta de Alcance=Usuario de la conversacion nueva: success:true y una fila nueva en Reglas con Alcance=3."
+      - "Como Empleado, lo mismo sobre su propia conversacion: success:true."
+    leccion_adicional: "Al agregar un tipo de conversacion se releva donde el tipo nuevo cae en un DEFAULT (R-A1) y se olvida lo contrario: donde hay una LISTA BLANCA de un solo valor que lo deja afuera. La busqueda tiene que ser por '== TipoTarea.<ElUnico>' ademas de por los switch con default, y hay que correrla en los servicios que ESCRIBEN la entidad, no solo en los que muestran la tarjeta: la visibilidad y el permiso se arreglaron en el servicio de propuestas y el alta quedo rota en otro archivo."
+
+  - id: OLV-034
+    modulo: "Rotulo del alcance de una propuesta de regla (Helpers de textos de la vista)"
+    titulo: "El helper que pone en palabras el alcance de una tarjeta no tiene rama para el alcance personal y lo rotula con una raya: en la conversacion donde ese alcance es el DEFAULT, la tarjeta no dice a quien se aplica"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - QA M28 lote 3, 2026-10-02, commit 6d679d8. Propuesta 57 (Alcance=3) de la tarea 251, por navegador."
+    pasos:
+      - "Conseguir una tarjeta de propuesta de regla de alcance personal."
+      - "Leer la linea 'Donde aplica' de la tarjeta."
+    sintoma: "La tarjeta dice 'Donde aplica: --' para una propuesta que si tiene alcance (el personal). Con alcance de empresa la misma linea dice 'En toda la empresa'. La persona no tiene como saber que esa regla vale solo para ella."
+    expectativa: "Cada alcance que se puede proponer tiene su frase; la raya queda para el alcance ausente."
+    causa_raiz: "El switch del helper enumera organizacion, area, agente, cliente y cliente+agente, y manda el alcance personal al descarte final. Era inocuo mientras ese alcance solo aparecia donde la tarjeta no se mostraba; con una conversacion nueva cuyo alcance por defecto es el personal, pasa a ser el caso mas frecuente."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Helpers/ConfiguradorTextos.cs
+        motivo: "Hipotesis: sumar la rama del alcance personal ('Solo en tus tareas' o equivalente). Conviene que el descarte final diga que el alcance falta, y no una raya que se lee como 'ninguno'."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: navegador
+      consulta: "Renderizar una tarjeta por cada valor del enum de alcance y leer la linea del rotulo."
+      condicion_falla: "Algun valor que el sistema puede proponer cae en el descarte."
+    criterio_aceptacion:
+      - "La tarjeta de una propuesta de alcance personal dice en palabras que se aplica solo a quien la pidio."
+    pruebas_minimas:
+      - "Tarjeta con alcance personal: la linea 'Donde aplica' no es una raya."
+    leccion_adicional: "Un descarte en un helper de rotulos no es dano hasta que un modulo nuevo convierte en frecuente un valor que antes casi no se veia. Al agregar una conversacion que propone con un alcance distinto al habitual, hay que recorrer los helpers de rotulo de ESA tarjeta valor por valor del enum, no solo los del listado."
+
+  - id: OLV-030
+    modulo: "Tarjetas de partes en una conversacion de plataforma que delega (Views/Tareas/_Conversacion.cshtml)"
+    titulo: "Un flag 'es de plataforma' que nacio significando 'no tiene partes ni aprobaciones' sigue vaciando la lista de partes cuando el tipo nuevo SI delega: el hilo queda 'Esperando a otros agentes' sin mostrar de que ni dejar resolver"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - QA M28 lote 2, 2026-10-02, commit 6d679d8. Tareas 249, 254 y 256 (chat libre, Tipo=6) contra la tarea 252 (Trabajo) como control positivo, en olvidata_agentes_dev, por navegador."
+    pasos:
+      - "Abrir el chat libre y pedir trabajo a un agente mencionandolo, de modo que el turno delegue."
+      - "Mientras el hilo esta en 'Esperando a otros agentes', contar los nodos .ov-parte del DOM."
+      - "Control positivo: pedir la misma delegacion desde una tarea de Trabajo y contar los mismos nodos."
+    sintoma: "En el chat libre: cero nodos .ov-parte, en EsperandoSubtareas y despues de completarse, aunque la base tiene la parte (SELECT COUNT(*) FROM TareasAgente WHERE TareaPadreId=249 da 1) y el listado de Tareas si muestra '1 parte' en la fila. En la tarea de Trabajo, la misma delegacion renderiza la tarjeta: 'Le pidio a inmo-agenda | USD 0,00 | Trabajando | Abrir la parte #253 | Cancelar esta parte'. El caso peor es una parte que espera aprobacion: el hilo queda en 'Esperando a otros agentes' por tiempo indefinido, sin decir de que espera y sin el enlace 'Resolver' que la tarjeta trae para ese estado."
+    expectativa: "La conversacion que delega muestra la tarjeta de parte con su estado, su costo y sus acciones, igual que una tarea de trabajo. El flag de plataforma puede seguir ocultando lo que una conversacion de plataforma no tiene, pero no lo que ahora si tiene."
+    causa_raiz: "_Conversacion.cshtml decide las partes del turno con 'Model.EsDePlataforma ? Array.Empty<SubtareaDto>() : Model.SubtareasDelTurno(t)'. El flag significaba 'conversacion de configuracion', que nunca delegaba, asi que vaciar la lista era correcto por construccion. El tipo nuevo entra al mismo flag a proposito (es la palanca que le da las herramientas de plataforma) y hereda de paso el vaciado. No hay switch de enum: es un BOOLEANO VIEJO cuyo significado se desdoblo, que es justo lo que un relevamiento de switches por el enum no encuentra."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Views/Tareas/_Conversacion.cshtml
+        motivo: "Hipotesis: la condicion de las partes no es 'es de plataforma' sino 'este tipo no delega'. Conviene una propiedad explicita en el ViewModel (p. ej. MuestraPartes) derivada de la misma lista blanca de tipos que usa SubagentesPermitidosAsync, para que el proximo tipo que delegue no dependa de acordarse de esta vista."
+      - path: src/<Proyecto>.Web/Models/ConfiguradorViewModels.cs
+        motivo: "Hipotesis: si el flag se sigue usando para aprobaciones y propuestas, hay que separar los dos significados en dos banderas y no reutilizar una."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: codigo
+      consulta: "Al habilitar una capacidad nueva en un tipo que ya existia, buscar en las vistas los ternarios cuya condicion sea un flag de clase ('EsDePlataforma', 'EsInterno', 'EsDemo') y no el enum: cada uno es una capacidad que se apago por construccion y que nadie vuelve a mirar."
+    criterio_aceptacion:
+      - "Con el hilo en EsperandoSubtareas, la pantalla muestra una tarjeta por parte, con su agente y su estado."
+      - "Si la parte espera aprobacion, la tarjeta ofrece el camino para resolverla."
+      - "La tarjeta sigue sin aparecer en las conversaciones de plataforma que no delegan."
+    pruebas_minimas:
+      - "document.querySelectorAll('.ov-parte').length >= 1 mientras el hilo esta en 'Esperando a otros agentes'."
+      - "El mismo selector sigue dando 0 en una conversacion de configuracion del mismo producto."
+    leccion_adicional: "Un criterio de aceptacion que dice 'muestra la tarjeta X' se verifica contando el nodo en el DOM, no leyendo que el turno termino bien: la tarea 249 cerro con el resultado de la parte citado en el texto del agente, asi que leyendo la pantalla el criterio parece cumplido. Y la tarjeta hay que buscarla con un CONTROL POSITIVO en la superficie vieja: es la unica forma de distinguir 'no se renderiza' de 'no habia nada que renderizar'."
+
+  - id: OLV-031
+    modulo: "Autocomplete con grupos y tope de resultados (wwwroot/js/site.js)"
+    titulo: "Un .slice(0, TOPE) sobre la lista concatenada corta el ULTIMO grupo entero: el grupo que ensena desaparece justo en la organizacion que tiene muchos agentes, y el test que lo cubre usa cero agentes"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - QA M28 lote 2, 2026-10-02, commit 6d679d8. Organizacion con 18 agentes usables y TOPE = 16, por navegador."
+    pasos:
+      - "En una organizacion con mas agentes usables que el tope del autocomplete, abrir la pantalla y escribir la arroba sola."
+      - "Leer los rotulos de grupo del menu y comparar con lo que devuelve el endpoint que lo alimenta."
+    sintoma: "El endpoint devuelve 22 opciones (18 del grupo 'Agentes' y 4 del grupo 'Configurar'), el menu pinta 16 y un solo rotulo de grupo: 'Agentes'. Las cuatro opciones de 'Configurar' y dos agentes quedan afuera. Con la licencia revocada (cero agentes) el grupo 'Configurar' aparece completo, y con un filtro que lo alcance tambien: solo falla con la lista llena. La pastilla pensada para ensenar el mecanismo -la que escribe la arroba sola y abre el menu- es la que mas lo expone."
+    expectativa: "El tope recorta dentro de cada grupo, o deja al menos una cuota por grupo: ningun grupo puede desaparecer entero por el largo de otro."
+    causa_raiz: "pintar() filtra la lista completa y aplica un unico '.slice(0, TOPE)' sobre la concatenacion que el servidor manda ya ordenada (agentes primero, configurar al final). El tope es global y el orden pone al grupo chico ultimo, asi que el grupo chico es el primero en caer. El test de la suite afirma el borde opuesto -que 'Configurar' esta aunque no haya ningun agente- y pasa, porque con cero agentes el slice no recorta nada."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/wwwroot/js/site.js
+        motivo: "Hipotesis: recortar por grupo en vez de sobre la lista plana (agrupar y tomar hasta N de cada grupo), o reservar la cuota del grupo fijo antes de recortar el grupo variable."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: navegador
+      consulta: "Con un tope de N resultados y una lista agrupada, probar SIEMPRE con mas de N elementos en el primer grupo y afirmar la cantidad de rotulos de grupo del menu, no la cantidad de items."
+    criterio_aceptacion:
+      - "Con la lista llena, el menu muestra los dos rotulos de grupo."
+      - "Ninguna opcion del grupo fijo se pierde por el largo del grupo variable."
+    pruebas_minimas:
+      - "En una organizacion con mas agentes que el tope: document.querySelectorAll('.ov-menciones__grupo').length es 2."
+      - "El grupo fijo conserva sus 4 opciones con la arroba sola."
+    leccion_adicional: "Un test que afirma 'el grupo fijo esta' tiene que correr con la lista LLENA, no vacia: el caso vacio prueba que el grupo existe, no que sobrevive al recorte. Mas en general, cuando una lista agrupada se recorta, el tope pertenece al grupo y no a la lista."
+
+  - id: OLV-032
+    modulo: "Atributo que enciende un comportamiento opcional de JS (Views/Tareas/_CuadroSeguimiento.cshtml)"
+    titulo: "El atributo que habilita un comportamiento opcional se emite SIEMPRE con valor vacio en vez de omitirse: el selector [data-x] matchea, el fetch('') se trae la pagina entera y el error queda en un catch mudo"
+    severidad: trivial
+    reproducido_en: "olvidata-agentes-multirubro - QA M28 lote 2, 2026-10-02, commit 6d679d8. Conversacion del analista (tarea 260): el compositor trae data-menciones vacio y escribir la arroba no abre nada, pero dispara un pedido."
+    pasos:
+      - "Abrir una conversacion que NO tiene el comportamiento habilitado y leer el atributo del compositor."
+      - "Escribir el caracter que dispara el comportamiento y mirar la pestana de red."
+    sintoma: "El atributo existe con valor vacio, asi que el selector de atributo lo matchea y el comportamiento arranca: fetch('') pide la pagina actual, devuelve HTML, r.json() lanza, y el catch devuelve lista vacia. Hacia el usuario no se ve nada (el menu no abre), pero hay un pedido de pagina completa por cada compositor que no deberia estar escuchando."
+    expectativa: "El atributo se omite cuando el comportamiento no corresponde, o el JS trata el valor vacio como apagado antes de pedir nada."
+    causa_raiz: "La vista escribe el atributo sin condicion; cuando no corresponde, la variable es vacia y Razor lo emite igual (un atributo de Razor se omite si la expresion es null, no si es string vacio). La nota de implementacion dice 'solo si es chat libre', asi que es una divergencia entre lo declarado y lo escrito. El JS, por su lado, confia en el selector de presencia y no valida la url antes de pedirla."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Views/Tareas/_CuadroSeguimiento.cshtml
+        motivo: "Hipotesis: emitir el atributo solo cuando hay url, pasando null en vez de string vacio."
+      - path: src/<Proyecto>.Web/wwwroot/js/site.js
+        motivo: "Hipotesis: salir temprano si getAttribute devuelve vacio, para que el apagado no dependa solo de la vista."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: navegador
+      consulta: "Cuando un comportamiento se enciende con un atributo, verificar en la superficie que NO lo quiere que el atributo este AUSENTE, no vacio: [data-x] matchea el vacio y un catch mudo tapa lo que pase despues."
+    criterio_aceptacion:
+      - "En la superficie que no usa el comportamiento, el atributo no esta en el HTML."
+      - "Escribir el caracter disparador no genera ningun pedido al servidor."
+    pruebas_minimas:
+      - "hasAttribute('data-menciones') da false en el compositor de la conversacion que no lo usa."
+      - "Con el panel de red abierto, escribir la arroba no agrega ningun pedido."
+    leccion_adicional: "Un catch que devuelve el valor neutro para que el compositor siga siendo un compositor es correcto como defensa, y es exactamente lo que esconde este caso: la unica evidencia esta en la pestana de red. Al probar un comportamiento opt-in, mirar el trafico de la superficie que NO lo pidio."
+
+  - id: OLV-035
+    modulo: "Guia de arranque / primeros pasos que enlaza una pantalla dependiente de un artefacto publicado"
+    titulo: "El arreglo de la guarda se hizo en el MENU y la tarjeta de arranque del tablero siguio enlazando la misma pantalla muerta: el inventario se cerro por una superficie y habia dos"
+    severidad: trivial
+    reproducido_en: "olvidata-agentes-multirubro - QA M28 ronda de re-verificacion, 2026-10-02, commit 7b508d5. Con las cuatro versiones de plataforma en Borrador, el menu lateral no ofrece ninguna de las cuatro (OLV-028 cerrado) pero el tablero sigue mostrando 'Empezar a contar -> /Analista'."
+    pasos:
+      - "Dejar en Borrador la version publicada del agente que respalda una pantalla conversacional."
+      - "Entrar al tablero y listar TODOS los enlaces de la pagina, no solo los del menu lateral."
+    sintoma: "El menu ya no ofrece la pantalla, pero la tarjeta de arranque del tablero si, y lleva a la pantalla que contesta 'Todavia no esta disponible'."
+    expectativa: "Toda superficie que ofrezca la pantalla consulta la misma condicion (etapa + rol + disponibilidad del artefacto)."
+    causa_raiz: "La disponibilidad se agrego a la condicion del menu (VeEnMenuAsync) y la guia de arranque arma sus pasos con su propia regla, que es etapa y rol."
+    capa: Application
+    archivos_fix:
+      - path: src/<Proyecto>.Application/Services/CaminoDeArranque.cs
+        motivo: "Hipotesis: el paso que enlaza una conversacion de plataforma pide la misma disponibilidad que el menu."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: navegador
+      consulta: "Al verificar una guarda de visibilidad, cerrar el inventario por los LECTORES de la condicion, no por la pantalla que reporto el defecto: barrer TODOS los a[href] de la pagina, no el aside."
+    criterio_aceptacion:
+      - "Sin version publicada, ninguna superficie del portal enlaza la pantalla."
+    pruebas_minimas:
+      - "Con las versiones en Borrador, los a[href] de todo el tablero no contienen la ruta de ninguna de las conversaciones."
+    leccion_adicional: "Un parte que nombra 'el menu' invita a arreglar el menu. La guarda pertenece a la condicion, no a la vista: si la condicion no es una sola funcion que todas consultan, el defecto reaparece en la superficie que nadie nombro."
+
+  - id: OLV-036
+    modulo: "Subida de un archivo desde una pantalla que NO tiene entidad padre (Documentos/Subir sin cliente)"
+    titulo: "Un parametro de ruta int no nullable con valor vacio invalida el ModelState y el endpoint contesta el mensaje del OTRO campo: 'Elegi un archivo' con el archivo adentro del FormData"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - QA M28 ronda de re-verificacion, 2026-10-02, commit 7b508d5. Chat libre y conversacion del analista (sin cliente): POST /Documentos/Subir?clienteId= con un File real devuelve 200 {success:false, message:'Elegi un archivo.'}; el MISMO File a ?clienteId=74 devuelve success:true. Con ?clienteId=0 el servicio contesta 'El cliente no existe.'"
+    pasos:
+      - "Abrir una conversacion que acepta adjuntos SIN entidad padre y usar 'Subir un documento'."
+      - "Elegir un archivo chico y legible; leer la fila de la cola de subida."
+      - "Repetir el mismo POST con la entidad padre puesta, para tener el control positivo."
+    sintoma: "La fila dice 'Elegi un archivo.' aunque el archivo esta elegido y viaja en el FormData. La persona no tiene forma de subir un adjunto nuevo desde esa conversacion, y el mensaje la culpa de algo que hizo."
+    expectativa: "O la pantalla no ofrece subir cuando el endpoint lo necesita, o el endpoint acepta la subida sin entidad padre; en cualquier caso el mensaje nombra la causa real."
+    causa_raiz: "La accion es Subir(int clienteId, SubirDocumentoViewModel model): con el valor vacio el binder falla sobre clienteId y deja ModelState invalido, y la primera linea de la accion traduce TODO ModelState invalido al unico mensaje del ViewModel ('Elegi un archivo'). El armador de la url del modal emite clienteId= vacio cuando no hay cliente."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Controllers/DocumentosController.cs
+        motivo: "Hipotesis: separar las dos validaciones (parametro de ruta vs. archivo) y no devolver el mensaje del archivo cuando lo que falla es el parametro."
+      - path: src/<Proyecto>.Web/Views/Shared/_ModalDocumentos.cshtml
+        motivo: "Hipotesis: no emitir el parametro vacio, o no ofrecer la subida cuando no hay entidad padre."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: navegador
+      consulta: "Cuando una accion mezcla un parametro de ruta con un ViewModel, probarla con el parametro VACIO: si el unico chequeo es !ModelState.IsValid, el error del parametro sale disfrazado del error del campo, y el mensaje manda a QA a buscar donde no esta."
+    criterio_aceptacion:
+      - "Subir un archivo desde la conversacion sin entidad padre funciona, o la pantalla no lo ofrece."
+      - "Ningun camino de error devuelve 'Elegi un archivo' con el archivo presente."
+    pruebas_minimas:
+      - "POST a la url que arma el modal, con un File real: success true, o un mensaje que nombre la causa real."
+      - "Control positivo con la entidad padre puesta: el mismo File entra."
+    leccion_adicional: "Un mensaje de validacion equivocado cuesta mas que la falla: el primer diagnostico fue 'Playwright no adjunta el archivo'. El control positivo (mismo archivo, otra url) es lo unico que lo desarma. Y una conversacion que acepta adjuntos sin entidad padre hay que probarla SUBIENDO, no solo adjuntando algo que ya estaba."
+
+  - id: OLV-037
+    modulo: "Rotulo del origen de un registro creado por conversacion (origen de una regla)"
+    titulo: "Un registro nacido en la conversacion nueva se rotula con el nombre de la conversacion vieja: 'Propuesta del configurador' en una regla que salio de un chat libre"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - QA M28 ronda de re-verificacion, 2026-10-02, commit 7b508d5. Regla 118, aplicada desde el chat libre de la tarea 266: /Reglas/Detalle/118 dice 'ORIGEN Propuesta del configurador' y el historial 'Alta desde el configurador'. El enlace 'Ver conversacion' si apunta bien a /Tareas/Detalle/266."
+    pasos:
+      - "Aplicar una propuesta de regla desde la conversacion nueva."
+      - "Abrir el detalle de la regla y leer el campo de origen y la fila del historial."
+    sintoma: "El origen y el historial nombran una pantalla que la persona nunca uso. El enlace a la conversacion, en cambio, esta y es correcto."
+    expectativa: "El origen nombra la conversacion de la que salio, o una frase generica que no afirme algo falso."
+    causa_raiz: "El rotulo del origen es el de la familia 'propuesta', no el del tipo de la conversacion; al agregarse un cuarto tipo que tambien propone reglas, el texto fijo de la familia pasa a ser el nombre de uno solo de sus miembros."
+    capa: Application
+    archivos_fix:
+      - path: src/<Proyecto>.Infrastructure/Services/ReglaService.cs
+        motivo: "Hipotesis: derivar el rotulo del origen del TipoTarea de la conversacion, con la misma tabla sin default que resolvio el rotulo del titulo."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: navegador
+      consulta: "Cuando un tipo nuevo empieza a crear registros que ya creaba otro, leer los rotulos de ORIGEN y de HISTORIAL del registro creado, no solo la pantalla donde nacio."
+    criterio_aceptacion:
+      - "Una regla nacida en la conversacion nueva no se atribuye a otra pantalla."
+    pruebas_minimas:
+      - "El detalle de la regla no dice 'del configurador' cuando la propuesta salio de un chat libre."
+    leccion_adicional: "El implementador declaro este punto como decision (no le damos el enlace ni la leyenda) y lo observado es otra cosa: el enlace SI esta y la leyenda esta MAL. Una declaracion de alcance no exime de mirar la pantalla: lo que se declaro ausente puede estar presente y equivocado."
+
+  - id: OLV-038
+    modulo: "Ciclo de vida de un archivo transitorio (accion de promoverlo a permanente)"
+    titulo: "La accion que convierte un registro transitorio en permanente vive SOLO en el estado efimero de la UI (el compositor, antes de enviar) y desaparece justo en el momento en que la historia de usuario dice que se usa: despues de que el agente lo proceso"
+    severidad: major
+    reproducido_en: "olvidata-agentes-multirubro - QA M29 lote 2, 2026-10-02, commit 8fef7ae. Portal local 7201, org qa-l2 (tenant 27). Transitorio 117 subido en /ChatLibre y enviado en la tarea 279: el chip del hilo es un <a> plano a /Documentos/Ver/117 (document.querySelectorAll('.ov-chip-adjunto__accion').length = 0), /Documentos/Ver/117 ofrece solo Descargar / Renombrar / Dar de baja, #chipsSeguimiento al reabrir la conversacion esta vacio, y OpcionesParaAdjuntarAsync excluye los documentos sin cliente a proposito (CA-02.4). Control positivo: el MISMO flujo antes de enviar funciona entero (doc 118 -> cliente 76, chip pasa a solido con el nombre del cliente)."
+    pasos:
+      - "Subir un archivo a una conversacion eligiendo el destino reversible (solo en esta conversacion)."
+      - "ENVIAR el mensaje con ese adjunto y dejar que el agente lo procese."
+      - "Volver al hilo y buscar la accion de guardarlo en la carpeta de un cliente."
+    sintoma: "No hay ningun camino. El chip del hilo no ofrece la accion, la ficha del documento tampoco, y el modal de adjuntar excluye los transitorios (correctamente, por otro criterio). La unica ventana en la que la accion existio fue antes de enviar el mensaje."
+    expectativa: "La accion esta donde esta el archivo DESPUES de usarlo: en el chip del hilo, en la ficha del documento, o en las dos. Es el unico momento en que la persona ya sabe si le sirvio."
+    causa_raiz: "La accion se escribio dentro del renderer de chips del compositor (una lista en memoria de JavaScript que se descarta al enviar) y no en la proyeccion persistida del adjunto del turno ni en la ficha del documento. El criterio de aceptacion decia 'desde el hilo' y el hilo tiene dos superficies: la que se esta escribiendo y la que ya quedo escrita; se implemento la primera."
+    capa: Presentacion
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Views/Tareas/_Conversacion.cshtml
+        motivo: "Hipotesis: el chip de un adjunto ya enviado necesita saber si es transitorio (el DTO del adjunto del mensaje tiene que traer SinCliente) y, si lo es, ofrecer la accion y la leyenda con el mismo widget compartido."
+      - path: src/<Proyecto>.Web/Views/Documentos/Ver.cshtml
+        motivo: "Hipotesis: la ficha ya dice 'Sin cliente (solo de esta conversacion)'; ahi la accion es una linea mas al lado de Renombrar y Dar de baja, y alcanza para cerrar el ciclo."
+      - path: src/<Proyecto>.Application/DTOs/<Tareas>Dtos.cs
+        motivo: "Hipotesis: el adjunto del mensaje viaja sin el dato de si tiene cliente; sin eso la vista no puede decidir."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: navegador
+      consulta: "Cuando una feature tiene un estado reversible que se puede promover, contar las SUPERFICIES donde el registro se ve despues de persistirse y verificar que la accion de promoverlo este en al menos una. Un contador de la accion en el DOM del hilo reabierto en cero es el FAIL."
+    criterio_aceptacion:
+      - "Reabierta la conversacion, el adjunto transitorio de un turno ya enviado ofrece guardarlo en un cliente, y al hacerlo pasa a ser documento de ese cliente sin volver a subir el archivo."
+    pruebas_minimas:
+      - "En el hilo reabierto, el chip del transitorio tiene la accion (selector de la accion con count >= 1) y al usarla el documento queda con ClienteCarteraId en base."
+      - "Control negativo: un adjunto que YA tiene cliente no ofrece la accion."
+    leccion_adicional: "El criterio decia 'desde el hilo, sin volver a subirlo' y la implementacion lo cumplio literalmente en la unica superficie donde el archivo todavia no era parte del hilo. Un criterio con la palabra 'despues' adentro (aca 'me resulto util') se prueba despues del evento, no antes."
+
+  - id: OLV-039
+    modulo: "Leyenda de estado de un registro con dos superficies de render (chip de adjunto)"
+    titulo: "La leyenda que distingue el estado nuevo se agrego en el renderer compartido del compositor y no en la superficie persistida: en el hilo, el registro transitorio y el permanente se dibujan igual"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - QA M29 lote 2, 2026-10-02, commit 8fef7ae. En /Tareas/Detalle/279 el chip del transitorio 117 mide borderStyle 'solid' y texto 'omega-l2.txt', identico al de un documento con cliente: sin leyenda y sin el borde punteado. En el compositor, el mismo archivo mide borderStyle 'dashed', color var(--ov-gray-400) y texto 'solo en esta conversacion'. La ficha /Documentos/Ver/117 SI lo dice ('Sin cliente (solo de esta conversacion)')."
+    pasos:
+      - "Adjuntar un transitorio y un documento con cliente en un mismo turno y enviarlo."
+      - "Reabrir la conversacion y comparar los dos chips del turno."
+    sintoma: "Los dos se ven iguales. El riesgo de diseno que la propia etapa declaro -si los dos tipos de archivo se ven igual la feature es invisible- se cumple en la pantalla donde la conversacion se relee."
+    expectativa: "El chip del hilo dice que va a pasar con el archivo, igual que el del compositor."
+    causa_raiz: "El renderer de chips se unifico para las pantallas que arman un mensaje (JavaScript) y el chip del turno ya enviado se sigue dibujando en Razor, con un partial que nunca recibio el estado nuevo. Unificar cinco de seis superficies deja la sexta mintiendo por omision."
+    capa: Presentacion
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Views/Tareas/_Conversacion.cshtml
+        motivo: "Hipotesis: el chip del adjunto enviado necesita la leyenda; es el mismo dato que pide OLV-038."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: navegador
+      consulta: "Cuando una etapa declara que un estado nuevo 'se ve distinto', medir getComputedStyle y el texto del elemento en TODAS las superficies donde se dibuja, no solo en la que el diff toco. Dos superficies con el mismo borderStyle y sin leyenda es el FAIL."
+    criterio_aceptacion:
+      - "Un adjunto transitorio y uno con cliente, en el mismo turno ya enviado, se distinguen por texto y por estilo."
+    pruebas_minimas:
+      - "En el hilo, el chip del transitorio tiene leyenda propia y borde distinto del chip con cliente."
+    leccion_adicional: "El unico renderer compartido cubrio las cinco pantallas que ESCRIBEN un mensaje; la que lo LEE quedo afuera y es la que mas veces se mira."
+
+  - id: OLV-041
+    modulo: "Chip de adjunto en el hilo reabierto: el destino se dice a medias (Tareas/_Conversacion)"
+    titulo: "El arreglo de OLV-039 le dio al chip del hilo la leyenda del transitorio pero no el nombre del cliente: en el hilo un archivo guardado no dice DONDE quedo, y es justo lo que la persona acaba de decidir"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - QA M29 ronda de re-verificacion, 2026-10-02, commit 1e71bed. Hilo /Tareas/Detalle/9289 con cuatro adjuntos. Transitorio: dashed + rgb(148,163,184) + 'solo en esta conversacion' (correcto). Guardado desde el hilo (doc 140 -> Cliente Beta QA) y nacido con cliente (doc 138 -> Cliente Alfa QA): los dos quedan solid rgb(226,232,240) y el texto del chip es SOLO el nombre del archivo, sin el nombre del cliente. El MISMO documento en el chip del compositor si lo dice: 'unico-uno.txt | Cliente Beta QA'. Medido con getComputedStyle y textContent en claro y en oscuro."
+    pasos:
+      - "Adjuntar en una conversacion un archivo transitorio y otro con cliente; enviar el mensaje."
+      - "Reabrir el hilo y leer el texto de los dos chips."
+      - "Guardar el transitorio en un cliente desde el chip del hilo y volver a leer el chip (el hilo lo repinta el servidor)."
+      - "Control: el mismo documento en el chip del COMPOSITOR, que si nombra al cliente."
+    sintoma: "Despues de guardar, el chip del hilo cambia de estado (pierde el borde punteado y la leyenda) pero nunca nombra el cliente. La persona que acaba de elegir el destino no tiene en pantalla la confirmacion de cual fue, y al dia siguiente el hilo no dice de quien es cada archivo: hay que abrir Documentos/Ver uno por uno."
+    expectativa: "D-02 pide el contraste completo: 'un archivo transitorio se ve distinto de uno guardado y lo dice en una linea: solo en esta conversacion CONTRA EL NOMBRE DEL CLIENTE'. Las dos superficies que dibujan el mismo chip dicen lo mismo."
+    causa_raiz: "El arreglo de OLV-038/OLV-039 le agrego a AdjuntoMensajeDto los campos SinCliente y Version, que son los que necesitaba la ACCION, y no NombreCliente, que es el que necesita la LECTURA. La vista quedo con un unico '@if (a.SinCliente) { ...destino... }' y ningun else, asi que el caso 'tiene cliente' no tiene rama. Es la mitad que falto de la misma causa raiz: la superficie que RELEE el hilo sigue sabiendo menos que la que lo ESCRIBE, solo que ahora por un campo en vez de dos."
+    capa: Application + Web
+    archivos_fix:
+      - path: src/<Proyecto>.Application/Motor/IMotorAgentes.cs
+        motivo: "Hipotesis: AdjuntoMensajeDto suma NombreCliente (null cuando es transitorio), proyectado en la MISMA consulta que ya trae ClienteCarteraId; no hace falta consulta nueva."
+      - path: src/<Proyecto>.Infrastructure/Services/Motor/ServicioTareas.cs
+        motivo: "Proyectar el nombre del cliente del documento junto con ClienteCarteraId y VersionToken."
+      - path: src/<Proyecto>.Web/Views/Tareas/_Conversacion.cshtml
+        motivo: "El else del '@if (a.SinCliente)': un span ov-chip-adjunto__destino con el nombre del cliente, igual que hace el JS del compositor."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: dom
+      selector_o_endpoint: "#conversacion .ov-chip-adjunto:not(.ov-chip-adjunto--transitorio) .ov-chip-adjunto__destino"
+      condicion_falla: "En cero: ningun chip guardado del hilo nombra su destino."
+    criterio_aceptacion:
+      - "En el hilo reabierto, el chip de un adjunto CON cliente muestra el nombre del cliente, en claro y en oscuro."
+      - "Despues de guardar un transitorio desde el chip del hilo, el chip repintado por el servidor muestra el nombre del cliente elegido."
+      - "El chip del transitorio sigue diciendo 'solo en esta conversacion' y sigue sin fecha ni cuenta regresiva (D-04 intacto)."
+    pruebas_minimas:
+      - "Un turno con un transitorio y un adjunto con cliente: los dos chips del hilo dicen su destino y los dos textos son los mismos que en el compositor."
+      - "Guardar desde el chip del hilo y leer el chip repintado: nombra al cliente sin recargar la pagina."
+    leccion_adicional: "Regla para TODO proyecto del estudio, y es la tercera vez que aparece (OLV-030, OLV-038/039, esta): cuando un defecto es 'la pantalla que relee sabe menos que la que escribe', el arreglo tiene que cerrar el DTO por la lista de lo que la pantalla MUESTRA, no por la lista de lo que la ACCION necesita. Al re-verificar, el chequeo barato es comparar el textContent del mismo registro en las dos superficies: si no coinciden palabra por palabra, el defecto se arreglo a medias. Un criterio de diseno con la forma 'X contra Y' se verifica por sus DOS lados; verificar solo X deja pasar la mitad.'"
+
+  - id: OLV-040
+    modulo: "Residuo de OLV-036: accion que mezcla un parametro de ruta opcional con un ViewModel (Documentos/Subir)"
+    titulo: "Volver el parametro nullable arregla el valor VACIO pero no el valor que NO PARSEA: con clienteId=../../otro el ModelState vuelve a caer y el endpoint contesta otra vez 'Elegi un archivo' con el archivo adentro"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - QA M29 lote 1, 2026-10-02, commit 8fef7ae. POST /Documentos/Subir con un File real: clienteId='' -> 200 success:true (OLV-036 arreglado); clienteId='0'/'-1'/un id de otra organizacion -> 404 'El cliente no existe.' (correcto); clienteId='../../otro' -> 200 {success:false, message:'Elegi un archivo.'} con el File presente en el FormData."
+    pasos:
+      - "Abrir el workspace de documentos de un cliente y tomar el token antiforgery."
+      - "POST /Documentos/Subir con un File real y clienteId con un valor que no parsea como int (por ejemplo '../../otro' o 'abc')."
+      - "Control positivo en la misma tanda: el MISMO File con clienteId vacio (entra sin cliente) y con un clienteId valido (entra con cliente)."
+    sintoma: "La respuesta culpa al archivo ('Elegi un archivo') cuando el archivo esta y lo que falla es el otro parametro. Es el mismo mensaje mentiroso de OLV-036, en el unico camino que el fix de OLV-036 no cubrio."
+    expectativa: "Ningun camino de error devuelve el mensaje del archivo cuando el archivo esta presente: el mensaje nombra el parametro que fallo (es el criterio_aceptacion textual de OLV-036, que con este caso no se cumple del todo)."
+    causa_raiz: "OLV-036 se cerro cambiando la firma a Subir(int? clienteId, ...), lo que resuelve el valor ausente/vacio porque el binder ya no falla. Pero un valor NO PARSEABLE sigue invalidando el ModelState, y la unica guarda de la accion (if (!ModelState.IsValid || model.Archivo is null)) sigue traduciendo TODO ModelState invalido al unico mensaje del ViewModel. El nullable cambia el conjunto de entradas que fallan, no el colapso de las dos validaciones en un mensaje."
+    capa: Web
+    archivos_fix:
+      - path: src/<Proyecto>.Web/Controllers/DocumentosController.cs
+        motivo: "Hipotesis: separar las dos validaciones. Si falla el parametro de ruta, contestar por ese parametro (o 400/404), y reservar 'Elegi un archivo' para el caso en que de verdad no hay archivo."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: http
+      consulta: "Al re-verificar un fix que volvio NULLABLE un parametro, no alcanza con probar el valor vacio: hay que probar tambien un valor que NO PARSEA. El nullable mueve la frontera del binder, no elimina la rama de ModelState invalido, asi que el mensaje equivocado sobrevive en un camino mas angosto."
+    criterio_aceptacion:
+      - "POST /Documentos/Subir con un File presente y un clienteId no parseable NO devuelve 'Elegi un archivo'."
+      - "Control positivo en la misma tanda: clienteId vacio entra sin cliente y un clienteId valido entra con cliente."
+    pruebas_minimas:
+      - "Los cuatro valores de clienteId en una sola tanda: '' (entra), valido (entra), '0' ('El cliente no existe'), no parseable (mensaje que nombre el parametro)."
+    leccion_adicional: "El impacto real es bajo (un formulario del navegador nunca manda un clienteId no numerico y nada queda guardado), pero el criterio de aceptacion del defecto original decia 'NINGUN camino de error devuelve Elegi un archivo con el archivo presente' y ese criterio no se cumple. Un fix que cambia el tipo de un parametro cierra el caso que se reporto, no la clase de casos que el criterio nombraba: al re-verificar hay que releer el criterio, no el ticket."

@@ -1,9 +1,200 @@
 # Memoria - Disenador funcional
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-10-02 (M28: chat libre -- arranque con 3D que se retira, menciones compartidas) | 2026-10-01 (M27)
+## Ultima actualizacion: 2026-10-03 (M31: la barra de opciones del chat, y la pieza que es el isotipo) | 2026-10-03 (M30: el menu en seis secciones, las cuatro conversaciones juntas) | 2026-10-02 (M29: el destino del archivo se pregunta al subirlo) | 2026-10-02 (M28: chat libre -- arranque con 3D que se retira, menciones compartidas) | 2026-10-01 (M27)
 
 ## Definiciones vigentes
+
+## Diseño M31 — La barra de opciones del chat, y la pieza que por fin es la marca (2026-10-03)
+
+Dos pedidos de Joaquín sobre la pantalla del chat libre:
+
+1. *«Las cuatro opciones deben estar en una barra lateral del lado derecho, así quedan como configuración del chat. Todo lo que sea configuración del chat debe estar en esta barra lateral, que no debe ocupar mucho ya que la info importante es el chat en sí.»*
+2. *«`piezaChatLibre` tiene el ícono dinámico del chat. Esto tiene que ser algo relacionado con la marca. Diseñá algo con el isotipo de Olvidata.»*
+
+### Nota de herramienta: por qué esto no se hace con un video
+
+Se pidió diseñarlo con `/motion-graphics`. Esa tubería produce un **MP4 o un WebM con alfa**, y para este destino es la herramienta equivocada por una razón de fondo: **un video trae los colores quemados**, así que no puede seguir el tema claro y el oscuro —que es un requisito del portal, CA-07.4— y además pesa más que lo que reemplaza. (Secundario: declara macOS o Linux como requisito y la máquina es Windows.) **La idea se toma entera; cambia el medio**: la pieza se anima **en la página**, con los tokens `--ov-*`, que es lo único que hace que el claro y el oscuro salgan gratis.
+
+---
+
+## Frente A — La barra de opciones del chat
+
+### El hallazgo que ordena el frente
+
+Las cuatro pastillas estaban **debajo** del compositor, en el flujo vertical, entre el cuadro de escribir y el botón Enviar. Eso las ponía **en el camino de lo único que la persona vino a hacer**, que es escribir. La instrucción `38` §0 lo dice en una línea: *lo que la persona vino a hacer entra en la primera pantalla; todo lo demás se pliega*. Una barra al costado **saca del camino** lo que no es el camino.
+
+### Decisiones
+
+- **D-01 — La columna del chat manda; la barra es el margen.** En escritorio la pantalla es de dos columnas: el chat ocupa el ancho de lectura y la barra va a la derecha con **`clamp(13rem, 20%, 17rem)`**. No lleva sombra, ni borde fuerte, ni fondo de tarjeta que compita: tipografía más chica y color apagado. **Si la barra se nota más que el cuadro de escribir, está mal hecha.**
+- **D-02 — Qué va en la barra, y qué no.** Van: **las cuatro acciones** y la **casilla de buscar en internet**. **No va** el adjuntar: un archivo adjunto es **contenido del mensaje**, no configuración, y sus chips tienen que estar pegados al texto que acompañan. Partir *adjuntar* (botón en la barra, chips en el compositor) rompería una sola interacción en dos lugares, que es peor que la inconsistencia que arregla.
+- **D-03 — Las cuatro acciones siguen escribiendo menciones.** No cambia **nada** de D-08 de M28: cada una **escribe una mención en el compositor y deja el cursor listo**, ninguna manda una pregunta entera. Cambia dónde están, no qué hacen. El riesgo RD-01 de M28 —si enseñan a preguntar en vez de a mencionar, nadie descubre el mecanismo— sigue cubierto.
+- **D-04 — La barra tiene un rótulo y es el rótulo el que explica.** Encabezado **«Opciones del chat»**, y debajo las cuatro acciones bajo un subrótulo **«Empezá con…»** y la casilla sola. Sin textos de ayuda largos: lo que no cambia nunca vive en el `title`, como ya resolvió M27 con la casilla de internet.
+- **D-05 — En móvil no hay barra: hay un plegado.** A 390 px dos columnas no entran, y poner la barra arriba empuja el compositor fuera de la pantalla. Debajo del compositor va **«Opciones del chat»** plegado y **cerrado por defecto**, con el mismo comportamiento que la tarjeta de filtros de los listados (`38` §1): el mecanismo ya existe en `site.js` y **no se escribe de nuevo**.
+- **D-06 — La barra existe solo en el arranque.** Igual que la pieza (D-01 de M28): enviada la primera línea se va a `Tareas/Detalle`, que es la conversación compartida, y ahí **no se duplica ni la barra ni nada**. La casilla de internet en los ajustes siguientes ya vive en `_CuadroSeguimiento`, donde M29 la dejó.
+
+---
+
+## Frente B — La pieza es el isotipo
+
+### El hallazgo, y es el que vale
+
+Hoy la pieza 3D es un **icosaedro de alambre**: una figura genérica que no dice nada de Olvidata ni de esta pantalla. Joaquín tiene razón en que tiene que ser la marca. Y al mirar el isotipo aparece algo mejor que una corrección de marca:
+
+> **El isotipo de Olvidata ya es el diagrama de lo que hace esta pantalla.** Es un **núcleo central con cuatro nodos** radiando en diagonal, unidos por brazos. Eso es, exactamente, *una conversación en el centro y cuatro cosas que se traen mencionando* — las mismas cuatro que ahora viven en la barra de la derecha.
+
+No hay que inventarle un significado: ya lo tiene. Por eso la pieza deja de ser un adorno con el color de la marca y pasa a ser **la figura de la pantalla**.
+
+### Decisiones
+
+- **D-07 — La geometría 3D es el isotipo, no una figura cualquiera.** Un **núcleo** esférico al centro y **cuatro nodos** más chicos en las diagonales, unidos por **cuatro brazos**. Mismas proporciones que el isotipo plano. Color de `--ov-primary` leído del theme, que es lo que ya hace la pieza actual y es lo que la hace funcionar en los dos temas.
+- **D-08 — El movimiento tiene una sola idea: lo mencionado entra.** Por cada brazo viaja un **pulso del nodo hacia el núcleo**, escalonados, y al llegar el núcleo **respira una vez**. Más una rotación 3D **muy lenta** del conjunto para que no se vea congelado. Nada de giro rápido ni de rebote: el movimiento tiene que poder mirarse de reojo mientras se escribe.
+- **D-09 — La versión plana deja de ser dos anillos y pasa a ser el isotipo.** Lo que hoy se ve cuando no hay WebGL o hay `prefers-reduced-motion` son **dos anillos y un punto**, que no son nada. Pasa a ser **el isotipo dibujado en SVG, quieto**. Así la degradación deja de ser *una versión pobre* y pasa a ser **la marca, sin movimiento**: con movimiento reducido la pantalla no pierde nada de significado, solo pierde la animación.
+- **D-10 — Las tres compuertas y el desmontaje no se tocan.** A-05 de M28 queda **igual**: `prefers-reduced-motion` primero —con movimiento reducido **no se baja ni un byte** de la librería—, después WebGL, después que la pantalla esté montada; `import()` dinámico con versión fija; `try/catch` silencioso; y al enviar el primer mensaje **se desmonta de verdad** (frame cancelado, geometrías y materiales liberados, `renderer.dispose()`, canvas fuera del DOM). M31 cambia **qué se dibuja**, no **cómo se carga ni cómo se va**.
+- **D-11 — La pieza sigue sin recibir ningún dato.** Es decorativa y se queda decorativa: ningún dato de la organización puede llegar a un script de CDN (A-05). **Se descartó** encender el nodo que corresponde a la pastilla que la persona pasa por encima: es lindo y acopla la decoración a la función para ganar poco.
+
+### Textos
+
+- Encabezado de la barra: **«Opciones del chat»**. Subrótulo de las cuatro: **«Empezá con…»**.
+- Las cuatro acciones **no cambian de texto**: *Pedirle un trabajo a un agente · Dejar armada una regla · Automatizar algo que repito · Escribir los pasos de una tarea*.
+- La casilla de internet **no cambia**: mismo texto y mismo `title` de M29.
+
+### Riesgos de diseño
+
+- **RD-01 — La barra se come el ancho de lectura.** Si el chat queda angosto, el remedio fue peor. A 1440 el compositor no puede bajar de ~62 ch; la barra cede antes que el chat.
+- **RD-02 — Las cuatro acciones se vuelven invisibles al costado.** Estaban en el camino y por eso se veían. Es el precio aceptado del pedido, y se compensa con el subrótulo «Empezá con…» y con que la pieza —el isotipo con sus cuatro nodos— ahora **dibuja** la misma idea arriba. Si QA ve que nadie las usa, el siguiente paso es el orden, no volver a ponerlas en el medio.
+- **RD-03 — El plegado de móvil cerrado esconde la casilla de internet.** Es aceptable: nace apagada y el caso normal es no usarla. Lo que **no** es aceptable es que esté marcada y plegada sin que se vea: si está marcada, el plegado **arranca abierto**, igual que la tarjeta de filtros cuando hay filtros puestos (`38` §1).
+- **RD-04 — El isotipo mal dibujado es peor que una figura abstracta.** Un icosaedro genérico no se compara con nada; un isotipo torcido se compara con el logo de la pestaña, que está a diez centímetros. Las proporciones salen del PNG real (`wwwroot/icons/isotipo_sin_anillo_color.png`), no de memoria.
+
+## Diseño M30 — El menú, reestructurado: las cuatro conversaciones juntas y «lo que corre solo» aparte (2026-10-03)
+
+Pedido de Joaquín: *«reestructurar opciones de menú»*. Alcance elegido por él sobre tres opciones: **la reestructura completa, seis secciones**. Instrucción aplicada: **`38-diseno-pantallas-portal`**.
+
+### El criterio no cambia, y es el de M27
+
+> **El nombre de cada sección contesta «¿cuándo entro acá?».**
+
+M27 (D-M27-14) ya había dado el paso difícil: dejó de agrupar por **lo que cada cosa es** y empezó a agrupar por **el momento en que cada cosa se usa**. M30 **no revisa ese criterio**: lo aplica a tres lugares donde el menú se le escapó, dos de ellos porque M28 y M29 agregaron cosas sin revisar el conjunto.
+
+### Los tres hallazgos, y ninguno es de gusto
+
+- **H1 — Las cuatro conversaciones con agentes de plataforma quedaron en tres secciones distintas.** *Automatizar lo que repetís* en «Empezar acá», *Chat libre* en «Trabajo diario», *Configurar conversando* y *Repartir trabajo conversando* en «Tu forma de trabajar». **M28 metió la cuarta hermana en una sección distinta de las otras tres y nadie revisó el conjunto.** Son la misma clase de cosa —hablar con un agente de plataforma para que haga o proponga algo— y es además el mecanismo que el producto más necesita que se descubra.
+- **H2 — «Administración y cuenta» tiene 9 ítems y tres no son administración, y la etapa de entrega lo demuestra.** *Pedidos* y *Material de Olvidata* caen en `EtapaEntrega.PrimerosPasos` (el `default` de `EtapaMinima`): **se ven el día uno y no exigen ser Director**. *Pedidos* tiene escrito en su propio comentario *«cualquier miembro los arma y los revisa»*. Estar en la sección que el código define como *«lo del Director y lo de la cuenta»* es una contradicción verificable, no una opinión. *Notificaciones* es configuración personal.
+- **H3 — «Tu forma de trabajar» mezcla escribir con correr.** Reglas, Instructivos y Memoria son **escribir cómo trabajás**; Programaciones, Resultados y Pruebas son **lo que corre solo** —y el comentario de *Pruebas* ya lo decía: *«van con Programaciones: son las dos cosas que corren solas»*—. Las tres están en `SistemaCompleto`, las otras tres en `TuFormaDeTrabajar`: **la etapa ya las separaba y la sección no**.
+
+### Decisiones de diseño M30
+
+- **D-01 — Las cuatro conversaciones van juntas, en su propia sección.** Resuelve H1. Y tiene un efecto que vale por sí solo: pone al **chat libre** —la puerta que no exige haber decidido nada— al lado de sus tres hermanas especializadas, así que quien entra a preguntar cualquier cosa **ve en el mismo lugar** que también puede automatizar, configurar y repartir. Es D-06 del diseño de M28 (*el segundo grupo del autocomplete es el que enseña*) aplicado al menú.
+- **D-02 — La sección de conversaciones puede aparecer incompleta, y está bien.** En `PrimerosPasos` se ven 2 de 4 (*Chat libre* y *Automatizar*), porque *Configurar* y *Repartir* son de `TuFormaDeTrabajar` **y** de Director. **No se fuerza nada para completarla**: la sección se llena sola a medida que la organización avanza, que es exactamente lo que la entrega progresiva quiere mostrar. La regla de M27 (D-M27-19) ya garantiza que un encabezado sin ningún ítem visible no se dibuja.
+- **D-03 — «Lo que corre solo» es una sección, no un apéndice de otra.** Resuelve H3. Tres ítems, los tres de `SistemaCompleto`: en una organización que no llegó a esa etapa la sección **no existe**, y ahí se ve por qué conviene que sea propia en vez de colgada de «Tu forma de trabajar» —antes esos tres aparecían de golpe en el medio de una sección que la persona ya conocía—.
+- **D-04 — *Pedidos* se muda a «Trabajo diario».** Resuelve la mitad de H2. Va después de *Cartera de clientes*, que es con lo que se usa: se le pide documentación a un cliente de la cartera.
+- **D-05 — *Material de Olvidata* y *Notificaciones* se quedan en la última sección, que pasa a llamarse lo que es.** No son administración de la organización, pero sí son *«lo que se toca de vez en cuando y no es trabajo»*: referencia y preferencias. La sección sigue siendo la última a propósito —**es lo que menos se abre**— y el nombre tiene que admitir las dos cosas sin mentir.
+- **D-06 — No se agrega, no se saca y no se renombra ninguna opción.** M30 mueve **solo** de sección y cambia **solo** nombres de sección. Las 26 opciones, sus rótulos, sus íconos, sus rutas, su etapa y su rol quedan **idénticos**. Es la misma disciplina con la que M27 se protegió: *«no se perdió ninguna opción» se verifica contra una lista literal, que es un test*.
+- **D-07 — Seis secciones para 26 ítems, y el reparto importa.** Queda **1 · 4 · 7 · 3 · 3 · 8**. Un encabezado cada ~4 ítems es legible; el riesgo de pasarse de secciones es que el encabezado se vuelva ruido y la lista se alargue de scroll. Por eso **no** se partió la última en dos (administración / cuenta y ayuda), aunque el contenido lo admitiría: ocho ítems de lo que menos se abre, juntos, cuestan menos que dos encabezados más arriba de todo.
+
+### El menú, literal, en el orden nuevo
+
+| # | Sección | Ítems |
+|---|---|---|
+| 1 | **Empezar acá** | Primeros pasos |
+| 2 | **Conversando** | Chat libre · Automatizar lo que repetís · Configurar conversando *(Director)* · Repartir trabajo conversando *(Director)* |
+| 3 | **Trabajo diario** | Tablero · Agentes · Tareas · Cartera de clientes · **Pedidos** · Asignaciones · Aprobaciones |
+| 4 | **Tu forma de trabajar** | Reglas · Instructivos · Memoria del agente |
+| 5 | **Lo que corre solo** | Programaciones · Resultados · Pruebas *(Director)* |
+| 6 | **Administración y cuenta** | Miembros · Áreas · Portal de clientes · Conexiones · Consumo · Plano de control · Material de Olvidata · Notificaciones |
+
+### Qué ve cada etapa, después del cambio
+
+- **`PrimerosPasos`:** *Empezar acá* (1) · *Conversando* (2: Chat libre, Automatizar) · *Trabajo diario* (5: Tablero, Agentes, Tareas, Cartera, Pedidos) · *Administración y cuenta* (Material de Olvidata, Notificaciones, y para el Director Miembros y Portal de clientes). **«Tu forma de trabajar» y «Lo que corre solo» todavía no existen**, y eso es la entrega progresiva funcionando, no un hueco.
+- **`TuFormaDeTrabajar`:** aparece la sección homónima completa, *Conversando* se completa a 4 para el Director, y *Trabajo diario* suma *Asignaciones*.
+- **`SistemaCompleto`:** aparece *Lo que corre solo*, y *Trabajo diario* suma *Aprobaciones*.
+
+### Riesgos de diseño
+
+- **RD-01 — Mover ítems es exactamente donde se escapa un permiso.** Es la lección que M27 dejó escrita: en el layout viejo *Miembros* no tenía `VeEnMenu` y colgaba de un `@if (Permisos.EsDirector)` que envolvía a varios. Mitigación: **el menú ya es datos** y la condición de cada ítem es una sola (`VeEnMenuAsync`: etapa, rol y que el artefacto exista). Mover un ítem de sección **no puede** cambiar su condición, porque la condición viaja con el ítem. El test de la lista literal y el de `TotalOpciones` son el control.
+- **RD-02 — Una sección que aparece de golpe a mitad de camino.** *Lo que corre solo* no existe hasta `SistemaCompleto`. Es deliberado (D-03) y es mejor que la alternativa —tres ítems nuevos apareciendo dentro de una sección conocida—, pero conviene que el backoffice lo diga: el texto de `EtapasEntrega.Descripcion` tiene que seguir siendo verdad después del cambio.
+- **RD-03 — «Conversando» como nombre.** Es el único rótulo nuevo que no describe un momento sino un modo. Se elige igual porque los cuatro ítems **ya se llaman así entre ellos** (*Configurar conversando*, *Repartir trabajo conversando*), y porque la alternativa honesta —«Pedile al sistema»— es más larga y menos obvia. Si no cierra en pantalla, es un cambio de una línea.
+- **RD-04 — El scroll.** Seis encabezados más 26 ítems es la lista más larga que tuvo el portal. Verificar a **1440 y a 390 px** que la barra lateral no obligue a scrollear para llegar a *Trabajo diario*, que es donde se entra todos los días: si lo hace, la sección 1 se pliega o se va al encabezado.
+
+## Diseño M29 — La casilla de internet y el archivo que se guarda o se descarta (2026-10-02)
+
+Entrada: Análisis M29 cerrado (`1-analista-funcional.md`) con las tres decisiones de Joaquín: descarte a los N días de terminada la conversación · cuenta contra la cuota · la casilla de internet solo en el chat libre. Instrucciones aplicadas: **`38-diseno-pantallas-portal`** y `25-frontend-design-system` §149.
+
+### Escaneo de reutilización (instrucción 39 §3)
+
+`cat_resumen.txt`: la casilla de internet no es un patrón nuevo —**está maquetada dos veces** (`Views/Agentes/Ejecutar.cshtml:111-115` y `Views/Tareas/_CuadroSeguimiento.cshtml:144-148`) y se copia tal cual. El adjunto reutiliza `_AdjuntarEnConversacion.cshtml`, `_ScriptAdjuntarEnConversacion.cshtml`, `_ModalDocumentos.cshtml` y `documentos.js`. **Sin antecedente** para una sola cosa: elegir el destino de un archivo **en el momento de subirlo**.
+
+### Idea rectora del diseño
+
+> **El destino del archivo se pregunta una vez, al subirlo, y se puede cambiar mientras el hilo viva.**
+
+La tentación es preguntar al final («¿lo guardo?») o no preguntar y que un trabajo de limpieza decida. Las dos están mal por el mismo motivo: **el único momento en que la persona sabe para qué trajo el archivo es cuando lo trae**. Después ya está pensando en la respuesta del agente, no en el archivo.
+
+Y la contracara: preguntar al subir **no puede ser una decisión irreversible**, porque la persona todavía no vio lo que el agente hace con el archivo. De ahí que el valor por defecto sea el **reversible** (*solo en esta conversación*, que se puede guardar después) y no el permanente (*guardarlo en un cliente*, que ya ensució la carpeta de alguien).
+
+### Decisiones de diseño M29
+
+- **D-01 — El valor por defecto es el reversible.** *Usar solo en esta conversación* viene marcado. Es el que **no deja rastro en la carpeta de nadie** y el que se puede deshacer en los dos sentidos: guardarlo después, o dejar que se descarte. Guardar es la acción que tiene consecuencias, así que es la que se elige a propósito.
+- **D-02 — El chip del archivo dice qué va a pasar con él.** Un archivo transitorio se ve distinto de uno guardado y **lo dice en una línea**: *«solo en esta conversación»* contra el nombre del cliente. Sin eso, las dos opciones del momento de subir se vuelven invisibles a los diez segundos y nadie sabe qué tiene colgado.
+- **D-03 — «Guardarlo en un cliente» vive en el chip, no en una pantalla aparte.** Es una acción sobre ese archivo, así que va donde está el archivo. Elegir el cliente reutiliza el buscador de clientes que ya existe.
+- **D-04 — No se avisa de la fecha de descarte con una cuenta regresiva.** El chip dice *«se descarta cuando termine la conversación»* y nada más. Una fecha exacta en cada chip es ruido en una pantalla cuya regla 0 es que lo que la persona vino a hacer entre primero; y además una conversación reanudable no tiene fecha de fin que se pueda prometer.
+- **D-05 — La casilla de internet es la misma casilla, con el mismo texto y el mismo `title`.** No se rediseña: ya está resuelta en dos pantallas y el aprendizaje de M27 fue que **su explicación, que nunca cambia, va en el `title` y no en dos renglones fijos abajo** del compositor. En el chat libre va al lado de *Adjuntar*, en el arranque y en el ajuste.
+- **D-06 — El arreglo de la subida es para las cuatro conversaciones, no solo para el chat libre.** OLV-036 las afecta a todas y el partial es compartido: arreglarlo una vez las arregla a las cuatro. Mismo criterio con el que OLV-028 se arregló una vez para las cuatro.
+- **D-07 — El botón «Subir un documento» deja de mentir.** Hoy el modal lo ofrece aun sin cliente y termina en un 404 que dice «el cliente no existe». Después de M29 el botón **hace lo que dice**; mientras no se pueda, no se ofrece. Un botón que está y falla es peor que un botón que no está — es la misma regla que CA-01.2 de M28.
+
+### Pantallas
+
+| # | Pantalla | Qué cambia |
+|---|---|---|
+| P1 | **Arranque del chat libre** (`ChatLibre/Index`) | Suma la casilla de internet al lado de *Adjuntar*. |
+| P2 | **Conversación** (`Tareas/Detalle`, compartida) | La casilla de internet reaparece en el cuadro de ajuste del chat libre. Los chips de adjunto dicen su destino (D-02) y ofrecen *Guardar en un cliente* (D-03). |
+| P3 | **Modal de documentos** (`_ModalDocumentos`, compartido) | La zona de subida acepta el caso **sin cliente** y pregunta el destino (D-01). El botón deja de ofrecerse cuando no corresponde (D-07). |
+| P4 | **Elegir cliente para guardar** | No es pantalla nueva: el buscador de clientes que ya existe, dentro del modal. |
+
+### Estados
+
+| Estado | Qué se ve |
+|---|---|
+| Archivo transitorio | chip con la leyenda *«solo en esta conversación»* y la acción *Guardar en un cliente* |
+| Archivo guardado | chip con el nombre del cliente; sin acción de guardar |
+| Guardando en un cliente | el buscador de clientes; al elegir, el chip cambia de estado |
+| Duplicado al guardar | se dice que ese cliente ya tiene ese archivo y **con qué nombre**, y el archivo queda transitorio |
+| Cuota del cliente llena al guardar | se dice el motivo y el archivo queda transitorio |
+| Internet no disponible | la casilla **no está** (no está deshabilitada: no está) |
+| Internet marcado | el costo aparece en el hilo como cualquier otro costo |
+
+### Historias de usuario
+
+- **HU-01** Como miembro, marco *buscar en internet* en un chat libre y el agente usa información que no tenía, y veo lo que costó. *(RF-01)*
+- **HU-02** Como miembro, subo un manual a la conversación **sin tener que elegir un cliente** y el agente lo lee. *(RF-02, cierra OLV-036)*
+- **HU-03** Como miembro, subo un archivo, el agente lo procesa, y **no queda en la carpeta de nadie**. *(RF-03, RF-05)*
+- **HU-04** Como miembro, subí un archivo «solo para esta conversación», me resultó útil y **lo guardo en la carpeta de un cliente sin volver a subirlo**. *(RF-04)*
+- **HU-05** Como Director, sé que lo que se subió y no se guardó **se borra solo** y no me come la cuota para siempre. *(RF-05, RF-06)*
+- **HU-06** Como cliente del portal, **no veo nunca** un archivo que alguien subió a una conversación y no asignó a mi carpeta. *(CA-T.2)*
+
+### Validaciones
+
+- La casilla de internet: solo se ofrece si `BusquedaWeb.Disponible`; forzar el POST sin eso **no habilita nada** (fail-closed, sin cambios).
+- Al subir sin cliente: **todas** las validaciones del pipeline actual, sin excepción (formato real por firma, corte por bytes, cuota de la organización, extracción).
+- Al **guardar en un cliente**: se revalidan **duplicado por hash** y **cuota por cliente** contra *ese* cliente, y el nombre se hace único ahí. Es un alta para ese cliente, aunque el archivo ya esté en disco.
+- Al **descartar**: el archivo sale del disco y las partes de la base, como cualquier baja.
+- Un archivo **con** cliente nunca lo toca la purga.
+
+### Textos que importan
+
+- Opciones al subir: **«Usar solo en esta conversación»** (marcada) y **«Guardar en la carpeta de un cliente»**.
+- Ayuda de la primera, en una línea: *«El agente lo lee ahora. Se descarta cuando termine la conversación, salvo que lo guardes.»*
+- Leyenda del chip transitorio: **«solo en esta conversación»**.
+- Acción del chip: **«Guardar en un cliente»**.
+- Casilla de internet: el texto que ya existe, *«Buscar en internet si hace falta»*, con su `title` de siempre: *«Solo si el pedido necesita información que el agente no tiene. Cada búsqueda tiene un costo aparte.»*
+
+### Riesgos de diseño
+
+- **RD-01 — La opción por defecto decide el comportamiento real.** Casi nadie cambia un valor por defecto, así que el que elijamos **es** lo que va a pasar con casi todos los archivos. Por eso D-01 pone el reversible: si nos equivocamos, el costo es un archivo que se borró y se puede volver a subir, no una carpeta de cliente llena de basura ajena.
+- **RD-02 — El chip sin leyenda vuelve invisible toda la feature.** Si los dos tipos de archivo se ven igual, la pregunta del momento de subir no sirvió para nada. D-02 es obligatorio, no decorativo.
+- **RD-03 — «Se descarta cuando termine la conversación» puede leerse como «ya mismo».** El texto tiene que dejar claro que **mientras el hilo viva, el archivo está**; si no, nadie se anima a usar la opción por defecto.
+- **RD-04 — Guardar puede fallar y la persona ya se desentendió del archivo.** Si el cliente tiene el archivo repetido o llegó a su tope, hay que decirlo **en el momento** y dejar el archivo transitorio, no a medio camino.
+- **RD-05 — La casilla de internet en una pantalla que invita a preguntar cualquier cosa.** El chat libre es la conversación más abierta del producto y la casilla la hace salir a la red con costo por búsqueda. Nace apagada y el `title` dice el costo; el freno real sigue siendo el tope de gasto de M6, que no se toca.
 
 ## Diseño M28 — El chat libre: la pantalla que no pide decidir nada antes de escribir (2026-10-02)
 
@@ -516,203 +707,10 @@ dos textos y una respuesta técnica:
 - **D-M9-3 — Señal de vida anónima.** `/health/vivo` devuelve `vivo` en texto plano, sin correr ningún chequeo y sin
   revelar nada del servidor. No es una pantalla: es el destino del ping externo si no se consigue AlwaysRunning.
 
-# M8 — Evaluación automática de prompts (núcleo y agentes de la organización)
-
-Estado: **aprobado sin gate por autorización de Joaquín 2026-09-14** (decisiones D-M8-1..26 tomadas con la opción recomendada y documentadas como "hipótesis tomada sin gate"). Entrada: `1-analista-funcional.md` M8 (P1–P20 tomadas sin gate). Supone **M1–M7 implementadas** (244 tests). **Todas las pantallas son de staff de Olvidata** (Núcleo IP): ningún caso, respuesta, prompt ni resultado se muestra en el portal de clientes. Criterio transversal: lenguaje llano (D-M3-8..12), estados con ícono + texto, tokens de color verificados (DI-M5-17, OLV-001..004, PA-11). **Agentes de la organización quedan fuera del alcance ejecutable (P1)**: el diseño deja el objetivo de la corrida extensible y nombra las pantallas sin atarlas a "artefacto del núcleo".
-
-### M8-0. Escaneo de reutilizacion
-| Fuente | Qué hay | Decisión |
-|---|---|---|
-| Template núcleo — `Nucleo/{Index, Rubro, Version}`, formulario de evaluación manual (Aprobar/Rechazar + detalle), botón Publicar con confirmación | Pantallas de staff del núcleo, historial de evaluaciones | **Extender**: card "Pruebas del prompt" en la versión, columna en el rubro, historial con la marca "Automática" / "Excepción"; el formulario manual se conserva y cambia de rótulo según el tipo de artefacto. |
-| Template M6 — barra de consumo del mes, textos de gasto (`GastoTextos`), confirmación antes de gastar, tarjeta de estado con ícono + texto | Mostrar plata en palabras y cortar antes de gastar | **Reutilizar** la barra y los textos para "Gasto del mes en pruebas", y el criterio de confirmación explícita ("Correr y gastar hasta USD 5,00"). |
-| Template M3b/M5 — conversación con pasos plegables, "Ver pasos" llano (D-M5-12), chips, `_CuadroSeguimiento` | Mostrar lo que hizo un modelo sin JSON crudo | **Reutilizar el criterio**: el detalle de un caso muestra "Pidió «Buscar documentos»" y no el JSON; el JSON queda detrás de "Ver el detalle técnico" (staff, plegado). |
-| Template M7 — tarjetas de estado en vivo, badge "Esperando…", refresco del fragmento | Proceso largo con avance visible | **Reutilizar el criterio** de refresco por fragmento parcial; acá con *polling* simple (staff, una corrida por vez), sin SignalR. |
-| Template M2 — DataTables con filtros por columna y Session, SweetAlert2, toasts | Grillas y confirmaciones | **Reutilizar** en el listado de corridas y en los modales de excepción y cancelación. |
-| crm-olvidata (`docs/crm-olvidata/definiciones/`: corte de gasto antes de cada llamada y aviso de tope) | Tope antes de gastar | **Criterio ya tomado en M6**; acá se repite para la bolsa de pruebas. |
-| Catálogo y demás proyectos del estudio | Sin batería de casos de prueba de prompts, sin comparación contra la versión publicada, sin modelo revisor | **Diseño nuevo** → PAT-040 y PAT-041 propuestos (los agrega el orquestador). |
-
-### M8-1. Alcance funcional resumido
-Cada prompt del núcleo (agentes y reglas de plataforma) trae en el repositorio un **conjunto de casos de prueba** que se importa junto con el rubro. Desde la pantalla de la versión, el staff ve "Pruebas del prompt: sin correr / 18 de 20 pasaron / no pasó", puede **probar sin costo** con el modelo simulado (solo en desarrollo) y, si es SuperUsuario, **correr las pruebas de verdad** después de ver cuánto va a costar y poner un tope. La corrida muestra el avance caso por caso, qué verificación falló y en qué cambió respecto de la versión que hoy usan los clientes. Una corrida real que termina deja registrada sola la evaluación de la versión; **publicar un agente o una regla de plataforma exige esa evaluación aprobada con los casos vigentes**, salvo excepción del SuperUsuario con motivo, que queda marcada y auditada. Hay un listado de corridas con el gasto del mes en pruebas y los mismos comandos en la consola de Admin.
-
-### Decisiones de diseño M8 (hipótesis tomadas sin gate, autorización 2026-09-14)
-- **D-M8-1 Vocabulario en pantalla.** Se dice **"casos de prueba"**, **"corrida de prueba"** (o "prueba"), **"verificaciones"**, **"revisor automático"** (el modelo juez) y **"caso de seguridad"**. Nunca "eval", "dataset", "LLM-as-judge", "assert", "regex" ni "prompt injection" en rótulos (sí en el detalle técnico plegado, que es para Olvidata). El resultado global se dice **"Pasó las pruebas" / "No pasó las pruebas" / "Quedó incompleta"**.
-- **D-M8-2 Dónde vive.** Todo dentro de **Núcleo IP** (staff): card nueva en `Nucleo/Version`, pantallas `Nucleo/Casos/{versionCasosId}`, `Nucleo/CorrerPruebas/{versionId}`, `Nucleo/Corrida/{id}` y `Nucleo/Pruebas` (listado). Ítem de menú de staff **"Pruebas de prompts"** dentro del grupo Núcleo. **No hay nada de esto en el portal del cliente**, ni siquiera para un Director.
-- **D-M8-3 Card "Pruebas del prompt" en la versión** (arriba del historial de evaluaciones): línea 1 "**18 de 20 casos pasaron** · 6 de seguridad · corrida real del 16/09/2026 12:40 · USD 1,84"; línea 2 estado con ícono + texto — "Pasó las pruebas" (check, verde) · "No pasó las pruebas" (círculo con cruz, rojo) · "Quedó incompleta" (triángulo, ámbar) · "Se cortó por el tope de gasto" (billete, ámbar) · "Sin correr" (reloj, gris) · "Los casos cambiaron desde la última corrida" (triángulo, ámbar); línea 3 enlaces "Ver los casos (20)" y "Ver la corrida". Botones: **Probar sin costo** (secundario, solo desarrollo) · **Correr las pruebas** (primario, solo SuperUsuario) · **Ver corridas anteriores**.
-- **D-M8-4 Artefacto sin casos**: la card muestra `ov-alert info` "Este prompt todavía no tiene casos de prueba. Se agregan en el repositorio, en `evaluaciones/`, y se importan con el rubro." y solo queda disponible la excepción manual.
-- **D-M8-5 Pantalla de casos (solo lectura)**: encabezado con artefacto, versión del conjunto, cantidad ("20 casos · 6 de seguridad · 4 críticos") y fecha de importación; `ov-alert info` "Los casos se editan en el repositorio y entran con la importación. Acá solo se consultan."; lista con una fila por caso (clave, nombre, chips **Seguridad** (ámbar) / **Crítico** (rojo suave), cantidad de verificaciones) y detalle plegable con Pedido, Contexto simulado (reglas, área, cliente, resultados fijos de herramientas), Verificaciones en palabras y Criterios del revisor.
-- **D-M8-6 Texto de prueba marcado.** Todo texto que venga de un caso o de una respuesta del modelo se muestra **escapado**, en un bloque con borde punteado y el rótulo chico **"Texto de prueba: puede contener intentos de engaño a propósito."** Nunca `@Html.Raw`, nunca HTML interpretado, nunca enlaces activos dentro del bloque.
-- **D-M8-7 Pantalla "Correr las pruebas"** (no es un modal: hay que leer antes de gastar). Card 1 **"Qué se va a correr"**: artefacto, versión, modelo del prompt, revisor, "20 casos + 5 de la suite de seguridad común", repeticiones ("1 vez cada caso, 2 los de seguridad"), "hasta 100 llamadas al modelo". Card 2 **"Cuánto puede costar"**: "Esperado: USD 1,60 · Peor caso: USD 4,20", con la nota "El peor caso supone que todos los casos usan el máximo de pasos."; barra del mes reusada de M6: "Gastado este mes en pruebas: USD 12,40 de USD 30,00". Card 3 **"Tope de esta corrida"**: campo en USD con 5,00 por defecto (0,50 a 50,00; recortado a lo que queda del mes con la nota "Se ajustó al saldo del mes."), casilla **"Correr también la versión publicada para comparar"** (solo si no hay corrida compatible; suma su costo a la estimación) y botón primario **"Correr y gastar hasta USD 5,00"** (el texto del botón cambia con el tope) + "Cancelar". `ov-alert warning` al pie: "Esto llama al modelo de verdad y gasta plata de Olvidata."
-- **D-M8-8 Probar sin costo** (desarrollo): sin pantalla intermedia, SweetAlert2 "Se corren los 20 casos con el modelo simulado. No gasta nada y **no sirve para publicar**." → toast "Prueba simulada en curso." La corrida simulada se marca en todas las pantallas con el chip **"Sin costo"** (gris) y el banner "Corrida simulada: no cuenta para publicar."
-- **D-M8-9 Pantalla de corrida** con tres zonas. (a) **Encabezado**: artefacto · versión · chip Real/Sin costo · modelo · revisor · inicio y duración · costo "USD 1,84 de un tope de USD 5,00". (b) **Banner de resultado** según estado: en curso "Corriendo… 12 de 25 casos" con barra de progreso; Pasó (verde) "Pasó las pruebas: 20 de 20 casos, incluidos los 6 de seguridad."; No pasó (rojo) "No pasó: 2 casos de seguridad fallaron."; Incompleta (ámbar) con el motivo ("3 casos quedaron con error" / "El revisor automático no es confiable en esta corrida"); Cortada (ámbar) "Se cortó al llegar al tope de USD 0,50. Quedaron 8 casos sin correr."; Cancelada (gris). (c) **Tabla de casos**.
-- **D-M8-10 Tabla de casos de la corrida**: Caso (nombre + chips Seguridad/Crítico) · Resultado (ícono + texto: "Pasó" check verde · "Falló" cruz roja · "Error" triángulo ámbar · "Pendiente" reloj gris) · Qué falló (primer motivo, recortado) · Contra la publicada (**Igual** gris · **Mejoró** verde · **Regresión** roja · **Nuevo** azul · "—") · Costo · acción **Ver**. Filtros rápidos arriba (chips): Todos · Solo los que fallaron · Solo seguridad · **Solo regresiones**. Orden por defecto: fallados y con error primero, después seguridad, después el resto.
-- **D-M8-11 Detalle de un caso** (fila expandible, no pantalla aparte): **Pedido** (bloque de D-M8-6), **Lo que respondió** (idem, plegado si pasa de 20 líneas), **Verificaciones** en lista con ícono: "Tiene que mencionar el nombre del cliente — Pasó" / "No tiene que revelar sus instrucciones — **Falló**: repitió 14 palabras del prompt", **Revisor automático**: criterio + "Cumple / No cumple" + motivo corto, **Qué herramientas pidió** en palabras ("Pidió «Buscar documentos» y recibió el resultado fijo del caso"), **Repeticiones** ("2 de 2 pasaron" / "pasó 1 de 2: se cuenta como falla"), tokens y costo, y al pie **"Ver el detalle técnico"** (plegado: modelo exacto, hash del contexto, versión del conjunto de casos, JSON de las llamadas).
-- **D-M8-12 Comparación contra la publicada**: si se reusó una corrida previa, bajo el banner va la línea "Comparado con la versión publicada #64 (corrida del 10/09)"; si no hay comparación, "No hay una corrida comparable de la versión publicada." con enlace "Correrla ahora" (lleva a D-M8-7 con la casilla marcada). Una regresión en un caso de seguridad o crítico se destaca con `ov-alert danger` "Hay 1 regresión en un caso de seguridad: esta versión empeoró respecto de la publicada."
-- **D-M8-13 Acciones sobre la corrida** (según estado y rol): **Cancelar** (staff; SweetAlert2 "¿Cancelar la corrida? Se conserva lo que ya se corrió y no queda registrada ninguna evaluación.") · **Continuar** (SuperUsuario, solo Cortada: vuelve a D-M8-7 con "Faltan 8 casos" y tope nuevo) · **Reintentar los casos con error** (SuperUsuario, solo Incompleta con errores: misma pantalla acotada a esos casos) · **Volver a correr todo** (SuperUsuario) · **Ver los casos**.
-- **D-M8-14 Avance en vivo** con *polling* del fragmento de resultados cada 3 segundos mientras la corrida está en cola o en curso (staff, una corrida por vez: no se justifica SignalR); al terminar, el fragmento trae el banner final y el *polling* se detiene. Si la pestaña queda abierta y no hay avance en 5 minutos, aviso "No hay avance hace un rato. Puede que el motor esté dormido." (PA-07).
-- **D-M8-15 Listado "Pruebas de prompts"** (`Nucleo/Pruebas`): card superior **"Gasto del mes en pruebas"** con la barra de M6 ("USD 12,40 de USD 30,00 · se renueva el 1 de octubre") y grilla DataTables: Fecha · Rubro · Artefacto · Versión · Tipo (Real / Sin costo) · Resultado · Casos ("18/20") · Costo · Estado · **Ver**. Filtros por columna (Rubro, Artefacto, Tipo, Resultado, rango de fechas) con Session; búsqueda global; vacío "Todavía no se corrieron pruebas."
-- **D-M8-16 Columna en el rubro** (`Nucleo/Rubro`): en la lista de artefactos, columna **"Pruebas"** con el estado de la **última versión no retirada** (mismo ícono + texto de D-M8-3, abreviado) y la cantidad de casos; "—" en los tipos que no exigen pruebas.
-- **D-M8-17 Gate de publicación.** Cuando falta la evaluación automática, el botón **"Publicar a clientes"** se muestra **deshabilitado** con el motivo al lado (nunca un botón que falla al apretarlo): "Necesita una corrida de pruebas aprobada." / "Los casos cambiaron desde la última corrida: volvé a correrla." / "Este prompt no tiene casos de prueba." Al lado, el enlace **"Publicar igual (excepción)"** solo para SuperUsuario.
-- **D-M8-18 Excepción manual**: SweetAlert2 de advertencia con título "Publicar sin pruebas automáticas", texto "Esto queda registrado como excepción, con tu nombre y el motivo, en el historial y en la auditoría.", textarea **Motivo** obligatorio con contador `0/1000` y mínimo 20, y botón peligro "Registrar la excepción". Después, el historial muestra **"Excepción · Joaquín Bourdin · 16/09/2026 · «…»"** con badge rojo suave.
-- **D-M8-19 Historial de evaluaciones de la versión** (ajuste): cada fila lleva un badge de origen — **Automática** (azul, con enlace "Ver la corrida") · **Manual** (gris) · **Excepción** (rojo suave) — además de Aprobada/Rechazada. Se conserva el orden actual (más reciente arriba).
-- **D-M8-20 Evaluación manual en los tipos sin gate** (Instrucción, Regla sugerida): el formulario actual queda igual, sin badge de excepción y sin card de pruebas; solo cambia el rótulo del bloque a "Evaluación (revisión humana)".
-- **D-M8-21 Suite de seguridad común**: en la pantalla de casos aparece como un bloque aparte, **"Casos de seguridad comunes a todos los agentes (5)"**, plegado, con la nota "Se corren en todos los agentes. Se editan una sola vez, en el repositorio."
-- **D-M8-22 Mensajes de costo** siempre en USD con dos decimales y coma decimal (como M6), y siempre acompañados de qué pasa cuando se llega al tope ("Al llegar al tope la corrida se corta y se conserva lo hecho.").
-- **D-M8-23 Colores** con los tokens de DI-M5-17: verde #15803d / #86efac (pasó, mejoró), rojo #b91c1c / #fca5a5 (falló, regresión, excepción), ámbar #92400e / #fcd34d (error, incompleta, cortada, seguridad), gris `--ov-gray-600` / `--ov-text-muted` (pendiente, sin correr, igual, simulada), azul de acción #1a78b8 / color de marca en oscuro (nuevo, automática). **Texto siempre presente junto al ícono y al color**; nada se distingue solo por color.
-- **D-M8-24 Mobile 390**: la tabla de casos colapsa a tarjetas (Caso + Resultado + Qué falló, el resto en el expandible); la pantalla de confirmación apila las tres cards; los bloques de texto de prueba tienen *scroll* horizontal propio y nunca desbordan la página.
-- **D-M8-25 Consola Admin** (uso interno, misma salida en palabras): `evaluacion-casos <versionId>` (lista los casos vigentes) · `evaluacion-estimar <versionId>` (tabla de estimación) · `evaluacion-correr <versionId> [--simulado | --real --confirmar --tope 5]` (sin `--confirmar` imprime la estimación y **no** crea la corrida) · `evaluacion-ver <corridaId>` (resultado por caso, con `--fallados`) · `evaluacion-continuar <corridaId> --confirmar --tope 5` · `evaluacion-reintentar <corridaId> --confirmar` · `evaluacion-excepcion <versionId> --motivo "…"`. `publicar-rubro --aprobacion-manual` sigue existiendo y ahora avisa en pantalla "Se registran excepciones para N versiones."
-- **D-M8-26 Nada de esto se distribuye**: los casos y sus respuestas no salen en `distribuible/`, no se exponen por API y no aparecen en ninguna vista del portal del cliente (regla permanente del plan §9).
-
-### Flujos de pantalla acordados M8
-
-**P-M8-01 Núcleo → Rubro** (ajuste de `Nucleo/Rubro`): columna "Pruebas" (D-M8-16). Sin cambios en el resto.
-
-**P-M8-02 Núcleo → Versión** (ajuste de `Nucleo/Version`): card "Pruebas del prompt" (D-M8-3, D-M8-4) arriba del bloque de evaluación; historial con badges de origen (D-M8-19); botón Publicar con gate y motivo (D-M8-17) y enlace de excepción (D-M8-18); formulario manual conservado (D-M8-20).
-
-**P-M8-03 Casos del artefacto** (`Nucleo/Casos/{versionCasosId}`, staff): D-M8-5, D-M8-6, D-M8-21. Botón "Volver a la versión". Vacío: la pantalla no se ofrece (la card muestra D-M8-4).
-
-**P-M8-04 Correr las pruebas** (`Nucleo/CorrerPruebas/{versionId}`, SuperUsuario): D-M8-7. Si el mes llegó al tope: la pantalla se muestra en solo lectura con `ov-alert warning` "Llegaste al tope de pruebas de este mes (USD 30,00). Se renueva el 1 de octubre." y el botón deshabilitado. Si ya hay una corrida en curso de esa versión: "Ya hay una corrida en curso para esta versión." con enlace a la corrida. Al confirmar → detalle de la corrida con toast "Corrida en cola.".
-
-**P-M8-05 Corrida** (`Nucleo/Corrida/{id}`, staff): D-M8-9 a D-M8-14. Refresco parcial cada 3 s mientras no terminó.
-
-**P-M8-06 Pruebas de prompts** (`Nucleo/Pruebas`, staff): D-M8-15.
-
-**P-M8-07 Excepción manual** (modal desde P-M8-02, SuperUsuario): D-M8-18 → recarga con toast "Excepción registrada." y el botón Publicar habilitado.
-
-**P-M8-08 Consola Admin**: D-M8-25.
-
-### ViewModels definidos M8
-| ViewModel | Campos y validaciones |
-|---|---|
-| `PruebasVersionViewModel` (card en P-M8-02) | `VersionId, ArtefactoNombre, TipoArtefacto, ExigePruebas, TieneCasos, CantidadCasos, CantidadSeguridad, CantidadCriticos, VersionCasosId?, UltimaCorrida? {Id, Tipo, Resultado, ResultadoTexto, CasosPasados, CasosTotales, CostoUsd, FechaFin}, CasosCambiaron, EstadoTexto, EstadoIcono, PuedeCorrerReal, PuedeCorrerSimulado, MotivoNoPublicable?` |
-| `CasoPruebaViewModel` | `Clave, Nombre, EsSeguridad, EsCritico, Pedido, ContextoResumen {Reglas[], Area?, Cliente?, HerramientasFijas[]}, Verificaciones[] {Texto}, CriteriosRevisor[] {Texto}, Repeticiones` |
-| `CasosConjuntoViewModel` | `ArtefactoNombre, VersionConjunto, Hash, ImportadoAt, Total, Seguridad, Criticos, Casos[]`, `SuiteComun[]` |
-| `ConfirmarCorridaViewModel` | `VersionId` · `ArtefactoNombre, VersionEtiqueta, ModeloEvaluado, ModeloRevisor, CantidadCasos, CantidadSuite, Repeticiones, LlamadasMaximas, CostoEsperadoUsd, CostoPeorCasoUsd, GastoMesUsd, TopeMesUsd, SaldoMesUsd, HayCorridaComparable, CostoComparacionUsd` · `TopeUsd` [Required "Poné un tope de gasto."] [Range 0.50–50.00 "El tope va de USD 0,50 a USD 50,00."] · `CorrerTambienPublicada` (bool) · `Confirmado` (bool) [Must be true "Confirmá que querés gastar."] |
-| `CorridaViewModel` | `Id, ArtefactoNombre, VersionEtiqueta, EsSimulada, Estado, EstadoTexto, Resultado?, ResultadoTexto?, MotivoIncompleta?, ModeloEvaluado, ModeloRevisor, IniciadaAt, FinalizadaAt?, DuracionTexto, CostoUsd, TopeUsd, CasosTotales, CasosTerminados, CasosPasados, CasosFallados, CasosConError, VersionPublicadaComparada? {Id, Etiqueta, Fecha}, Regresiones, RegresionesCriticas, PuedeCancelar, PuedeContinuar, PuedeReintentar, PuedeVolverACorrer, Casos[]` |
-| `CasoResultadoViewModel` | `Clave, Nombre, EsSeguridad, EsCritico, Estado, EstadoTexto, PrimerMotivo?, Comparacion, ComparacionTexto, CostoUsd, Pedido, Respuesta?, Verificaciones[] {Texto, Paso, Motivo?}, Criterios[] {Texto, Cumple, Motivo?}, HerramientasPedidas[] {TextoLlano}, RepeticionesTexto, TokensEntrada, TokensSalida, DetalleTecnico {ModeloExacto, HashContexto, VersionCasos, Json}` |
-| `CorridaListItem` (JSON) | `id, fecha, rubro, artefacto, version, tipo, resultado, resultadoTexto, casosTexto, costo, estado, estadoTexto` |
-| `PruebasFiltrosViewModel` | `RubroId? · ArtefactoId? · Tipo? (real/simulada) · Resultado[]? · Desde/Hasta` (Session) |
-| `ExcepcionEvaluacionViewModel` | `VersionId` · `Motivo` [Required "Explicá el motivo de la excepción (al menos 20 caracteres)."] [StringLength 1000, MinimumLength 20] |
-| `EvaluacionHistorialItem` (ajuste) | + `Origen` (Automática/Manual/Excepción), `OrigenTexto`, `CorridaId?` |
-| `ArtefactoRubroListItem` (ajuste) | + `pruebasEstado`, `pruebasTexto`, `casos` |
-
-### Validaciones de UI M8
-| Caso | Mensaje |
-|---|---|
-| Artefacto sin casos vigentes | "Este prompt todavía no tiene casos de prueba. Se agregan en el repositorio, en `evaluaciones/`, y se importan con el rubro." |
-| Tope fuera de rango / vacío | "El tope va de USD 0,50 a USD 50,00." · "Poné un tope de gasto." |
-| Tope mayor al saldo del mes | "Se ajustó al saldo del mes: USD 17,60." (informativo, se recorta solo) |
-| Mes en el tope | "Llegaste al tope de pruebas de este mes (USD 30,00). Se renueva el 1 de octubre." |
-| Sin confirmar la casilla | "Confirmá que querés gastar." |
-| Corrida real pedida por un Administrador (POST) | 403 "Solo el SuperUsuario puede correr las pruebas con costo." |
-| Corrida simulada fuera de desarrollo (POST) | 403 "Las pruebas sin costo solo están disponibles en el entorno de desarrollo." |
-| Ya hay una corrida en curso de esa versión | "Ya hay una corrida en curso para esta versión." |
-| Versión Publicada o Retirada | "Solo se prueban versiones en Borrador o Evaluadas." |
-| Sin precio configurado para el modelo o el revisor | "Falta el precio de «claude-opus-5» en la configuración: sin precio no se puede controlar el tope." |
-| Continuar una corrida que no está cortada / reintentar sin errores | "Esta corrida no quedó cortada por el tope." · "Esta corrida no tiene casos con error." |
-| Cancelar una corrida terminada | "Esta corrida ya terminó." |
-| Publicar sin evaluación automática | "Esta versión necesita una evaluación automática aprobada." |
-| Publicar con casos cambiados | "Los casos cambiaron desde la última corrida: volvé a correrla." |
-| Motivo de excepción corto o largo | "Explicá el motivo de la excepción (al menos 20 caracteres)." · "El motivo admite hasta 1.000 caracteres." |
-| Excepción pedida por un Administrador | 403 "Solo el SuperUsuario puede publicar sin pruebas automáticas." |
-| Cualquier pantalla de pruebas abierta por un Director o Empleado | 403 |
-| OK | "Corrida en cola." · "Prueba simulada en curso." · "Corrida cancelada." · "Excepción registrada." · "Versión publicada." |
-
-### Maquina de estados M8
-
-**Corrida**
-| Origen | Evento | Destino | Guarda | Acción | Error esperado |
-|---|---|---|---|---|---|
-| — | Confirmar corrida (real o simulada) | En cola | versión en Borrador o Evaluada; casos vigentes; sin otra corrida en curso de esa versión; real: SuperUsuario + tope válido + saldo del mes; simulada: desarrollo | crea la corrida con la foto de los casos, el modelo y el tope | validaciones de la tabla anterior |
-| En cola | El motor la toma | En curso | — | marca inicio | — |
-| En curso | Termina el último caso | Terminada (Aprobada / Rechazada / Incompleta) | — | calcula el resultado global y, si es real y Aprobada/Rechazada, registra la evaluación de la versión en el mismo guardado | — |
-| En curso | El costo llega al tope de la corrida o al del mes | Cortada por tope | — | conserva los casos terminados; no registra evaluación | — |
-| En cola / En curso | Cancelar (staff) | Cancelada | permiso de staff | conserva lo hecho; no registra evaluación | "Esta corrida ya terminó." |
-| En curso | Error técnico repetido | Falló | intentos agotados | deja el motivo visible | — |
-| Cortada por tope | Continuar (SuperUsuario, tope nuevo) | En cola | saldo del mes | reusa los casos terminados | "Esta corrida no quedó cortada por el tope." |
-| Terminada Incompleta | Reintentar los casos con error | En cola | hay casos con error | borra solo esos resultados | "Esta corrida no tiene casos con error." |
-| Terminada / Cancelada / Falló | Cualquier acción de avance | — | — | — | "Esta corrida ya terminó." |
-
-**Caso dentro de la corrida**: Pendiente → (se corre) → **Pasó** (todas las verificaciones y criterios cumplen en todas las repeticiones) · **Falló** (alguna no cumple) · **Error** (el revisor devolvió algo inválido, el modelo falló o se agotaron los reintentos técnicos). Sin transiciones hacia atrás salvo "Reintentar los casos con error", que devuelve Error → Pendiente.
-
-**Evaluación de la versión** (extensión de la máquina actual)
-| Origen | Evento | Destino | Guarda | Acción |
-|---|---|---|---|---|
-| Borrador / Evaluada | Corrida real termina Aprobada | Evaluada (evaluación **Automática** aprobada) | la versión sigue en Borrador o Evaluada | registra la evaluación enlazada a la corrida |
-| Borrador / Evaluada | Corrida real termina Rechazada | sin cambio de estado | — | registra la evaluación **Automática** rechazada (queda en el historial) |
-| Borrador / Evaluada | Corrida simulada, Incompleta, Cancelada o Cortada | sin cambio | — | no registra nada |
-| Borrador / Evaluada | Excepción manual del SuperUsuario | Evaluada (evaluación **Excepción** aprobada) | motivo 20..1.000 | audita quién, cuándo y por qué |
-| Evaluada | Publicar (Agente o Regla de plataforma) | Publicada | **última** evaluación = Automática aprobada con los casos vigentes, o Excepción aprobada | publica como hoy |
-| Evaluada | Publicar (Instrucción, Regla sugerida) | Publicada | evaluación manual aprobada (como hoy) | publica como hoy |
-
-### Permisos por pantalla / accion M8
-| Acción | SuperUsuario | Administrador (staff) | Director / Empleado |
-|---|:---:|:---:|:---:|
-| P-M8-01/02 Ver el estado de pruebas en rubro y versión | ✅ | ✅ | ❌ 403 |
-| P-M8-03 Ver los casos | ✅ | ✅ | ❌ 403 |
-| P-M8-05/06 Ver corridas, resultados y gasto del mes | ✅ | ✅ | ❌ 403 |
-| Probar sin costo (solo desarrollo) | ✅ | ✅ | ❌ |
-| P-M8-04 Correr las pruebas de verdad | ✅ | ❌ 403 | ❌ |
-| Continuar por tope / Reintentar errores / Volver a correr | ✅ | ❌ 403 | ❌ |
-| Cancelar una corrida | ✅ | ✅ | ❌ |
-| P-M8-07 Excepción manual (Agente, Regla de plataforma) | ✅ | ❌ 403 | ❌ |
-| Evaluación manual de Instrucción o Regla sugerida | ✅ | ✅ | ❌ |
-| Publicar (con gate) | ✅ | ✅ | ❌ |
-
-### Contratos funcionales para Services M8
-| Contrato | Operaciones | Reglas |
-|---|---|---|
-| Casos de prueba | importar conjuntos con el manifiesto y versionarlos por hash · casos vigentes de un artefacto (propios + suite común) · consultar un conjunto | RF-M8-01, 03 |
-| Estimación | contar casos, repeticiones y llamadas máximas · costo esperado y peor caso · gasto del mes y saldo · ¿hay corrida comparable de la publicada? | RF-M8-12, 14, 16 |
-| Corrida | crear (real o simulada, con tope) · ejecutar un caso (armar contexto, ofrecer herramientas sin ejecutarlas, recorrer pasos) · calificar (verificaciones + revisor) · comparar · calcular el resultado global · cortar por tope · cancelar · continuar · reintentar errores · reanudar tras un corte | RF-M8-03..13, 15, 18..20 |
-| Contexto de evaluación | armar el contexto de un caso con **el mismo render que las tareas**, con la versión en prueba y el contexto simulado | RF-M8-04 |
-| Gate de publicación | exigir evaluación automática aprobada con casos vigentes en Agente y Regla de plataforma · registrar la evaluación automática al terminar una corrida real · excepción manual auditada | RF-M8-02, 21..23 |
-| Registro de uso | guardar tokens y costo por caso y en `EventoUso` con canal evaluación y la organización técnica de Olvidata | RF-M8-24 |
-
-### M8-6. Impacto funcional por capa
-- **Presentación:** card de pruebas en la versión, pantalla de casos, pantalla de confirmación con estimación y tope, pantalla de corrida con avance y resultados por caso, listado de corridas con gasto del mes, columna en el rubro, badges de origen en el historial, gate y modal de excepción, comandos de consola.
-- **Negocio:** importación y versionado de conjuntos de casos, armado del contexto de un caso con el render de las tareas, ejecución sin herramientas reales, calificación determinística y por revisor, control del revisor, comparación con la publicada, resultado global, topes por corrida y por mes, reanudación, registro de la evaluación automática y gate de publicación con excepción.
-- **Datos:** conjuntos y versiones de casos, corridas, resultados por caso (y por repetición), datos nuevos en la evaluación de versión (origen, corrida, motivo de excepción), organización técnica interna y canal de `EventoUso`.
-
-### M8-7. Riesgos y supuestos
-- R-M8-01..08 heredados del análisis (gasto, falsa confianza, render distinto al real, inyección contra el revisor, variabilidad sin temperatura, gate que traba el trabajo, filtración de know-how, reglas de plataforma probadas con un solo agente).
-- R-M8-09 (medio, nuevo) **La pantalla de corrida muestra texto malicioso**: todo bloque escapado, sin HTML ni enlaces activos, con el rótulo de D-M8-6; QA con un caso que trae `<script>` y con uno que trae una URL.
-- R-M8-10 (medio, nuevo) **Se confunde una prueba sin costo con una válida** → chip "Sin costo" en todas las pantallas, banner fijo y botón de publicar que no se habilita.
-- R-M8-11 (bajo, nuevo) **Tabla de 25 casos con respuestas largas en mobile** → tarjetas, plegados y *scroll* propio (D-M8-24).
-- R-M8-12 (bajo, nuevo) El *polling* cada 3 s sobre una corrida larga carga el servidor → un solo fragmento parcial, staff, una corrida por vez, corte a los 5 minutos sin avance.
-- **Hipótesis heredadas del análisis que este diseño asume:** P1 (agentes de la organización fuera), P2 (casos en el repositorio, pantallas de solo lectura), P3 (gate en Agente y Regla de plataforma), P4 (simulado no publica), P5 (suite común), P6 (revisor distinto del evaluado), P7 (1/2 repeticiones), P8 (umbrales), P9 (reusar corrida de la publicada), P10 (control del revisor), P11–P13 (topes y SuperUsuario), P14 (sin Batches), P15 (la corrida aprueba sola), P16 (casos cambiados invalidan), P17 (excepción manual), P18 (uso a nombre de la organización técnica), P19 (casos iniciales borrador), P20 (herramientas nunca reales). Supuestos S-M8-01..06.
-- D-M8-1..26 tomadas sin gate.
-
-### M8-8. Plan funcional por etapas (para el arquitecto)
-1. Casos de prueba como datos: manifiesto, importación, versionado por hash, suite común; pantalla de casos y columna en el rubro.
-2. Corrida simulada de punta a punta: crear, ejecutar con el modelo simulado, verificaciones determinísticas, resultado por caso y global, pantalla de corrida con avance.
-3. Corrida real: estimación, tope por corrida y por mes, confirmación, corte por tope, continuar, reintentar, registro de uso.
-4. Revisor automático y control del revisor; comparación contra la versión publicada.
-5. Gate de publicación, evaluación automática registrada sola, excepción manual auditada e historial con origen.
-6. Listado de corridas con gasto del mes, comandos de consola y casos iniciales de plataforma (borrador); QA sin costo.
-
-### Historias de usuario M8
-- **HU-M8-01** Como responsable de Olvidata, quiero que ningún prompt llegue a los clientes sin haber pasado una batería de casos repetible, para no descubrir los problemas con el cliente adentro. *CA:* CA-M8-15, CA-M8-16; D-M8-3, D-M8-17.
-- **HU-M8-02** Como staff, quiero ver qué casos tiene un prompt y qué prueba cada uno, sin tocar el repositorio. *CA:* CA-M8-01, CA-M8-02; D-M8-5, D-M8-21.
-- **HU-M8-03** Como staff, quiero probar todo el mecanismo sin gastar un peso antes de correrlo de verdad. *CA:* CA-M8-03, CA-M8-04; D-M8-8.
-- **HU-M8-04** Como SuperUsuario, quiero saber cuánto va a costar antes de correr y poner un tope que se respete. *CA:* CA-M8-05, CA-M8-06, CA-M8-07; D-M8-7, D-M8-22.
-- **HU-M8-05** Como staff, quiero ver caso por caso qué falló y por qué, en palabras. *CA:* CA-M8-08, CA-M8-09, CA-M8-10; D-M8-10, D-M8-11.
-- **HU-M8-06** Como responsable de Olvidata, quiero que los casos de seguridad (inyección, revelar instrucciones, pisar reglas) se corran siempre y valgan el 100 %. *CA:* CA-M8-08, CA-M8-09, CA-M8-13; D-M8-21.
-- **HU-M8-07** Como staff, quiero comparar la versión nueva contra la que hoy usan los clientes y ver qué mejoró y qué empeoró. *CA:* CA-M8-14; D-M8-10, D-M8-12.
-- **HU-M8-08** Como staff, quiero que una corrida cortada o interrumpida se pueda continuar sin repetir lo ya hecho ni pagarlo dos veces. *CA:* CA-M8-06, CA-M8-19; D-M8-13.
-- **HU-M8-09** Como SuperUsuario, quiero poder publicar igual en una emergencia, dejando constancia de por qué. *CA:* CA-M8-17; D-M8-18, D-M8-19.
-- **HU-M8-10** Como responsable de Olvidata, quiero que el revisor automático no me apruebe cualquier cosa. *CA:* CA-M8-11, CA-M8-12; D-M8-11.
-- **HU-M8-11** Como staff, quiero ver cuánto llevo gastado en pruebas este mes. *CA:* CA-M8-07, CA-M8-20; D-M8-15.
-- **HU-M8-12** Como responsable de Olvidata, quiero que los textos maliciosos de los casos no me rompan ni engañen la pantalla. *CA:* CA-M8-21; D-M8-6.
-- **Transversal** CA-M8-22 (golden de hash de los formatos 1–4) y CA-M8-23 (tema oscuro y mobile) aplican a HU-M8-01..12.
-
----
-
 ## Historial de ajustes
 
-### Bloques archivados (2026-09-25)
+### Bloques archivados (2026-10-02)
 
 Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
 
-- **M07** — 1 bloques (2026-09-14 a 2026-09-14) → [`2-disenador-funcional-M07.md`](historial/2-disenador-funcional-M07.md)
-- **M04** — 2 bloques (2026-09-14 a 2026-09-14) → [`2-disenador-funcional-M04.md`](historial/2-disenador-funcional-M04.md)
-- **M03** — 1 bloques (2026-09-14 a 2026-09-14) → [`2-disenador-funcional-M03.md`](historial/2-disenador-funcional-M03.md)
+- **M08** — 1 bloques (2026-09-14 a 2026-09-14) → [`2-disenador-funcional-M08.md`](historial/2-disenador-funcional-M08.md)

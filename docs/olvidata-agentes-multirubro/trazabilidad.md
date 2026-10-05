@@ -4,6 +4,20 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-02 - implementador (M29 ronda de arreglos de QA: OLV-038, OLV-039, OLV-040)
+- Etapa: Implementacion
+- Cambio: arreglados los tres defectos de los dos lotes de QA de M29, **sin migracion**. (1) **OLV-038 (major):** `AdjuntoMensajeDto` gana `SinCliente`, `Version` y el predicado con nombre `SePuedeGuardar`, proyectados por `ServicioTareas` en la consulta que ya existia; el chip del hilo (Razor) y el del compositor (JS) **marcan** el boton con `data-guardar-adjunto` y lo atiende **un solo listener delegado en `document`** dentro de `documentos.js`, que al guardar emite `ov:adjunto-guardado` y deja que el servidor vuelva a dibujar el hilo. `TareaDetalleDto.HayAdjuntosParaGuardar` —el **mismo** predicado— es lo que pone el modal en la pagina, para lo cual se extrajo `_ModalGuardarEnCliente` de `_ModalDocumentos`. (2) **OLV-039 (minor):** con ese dato, el chip del hilo usa las mismas clases y la misma leyenda «solo en esta conversacion» que el del compositor, sin fecha ni cuenta regresiva (D-04); el chip paso de `<a>` a `<span>` con el nombre como enlace adentro. (3) **OLV-040 (minor):** las dos validaciones de `DocumentosController.Subir` dejaron de estar colapsadas: sin archivo -> «Elegi un archivo.»; con archivo y ModelState invalido -> «El cliente no existe.» con 404, igual que un `clienteId=0`.
+- Motivo: cerrar M29 aplicando los partes de QA. OLV-038 dejaba HU-04 sin camino —la historia pasa **despues** de ver la respuesta del agente— y con ella la mitad reversible de D-01 sin existir; OLV-039 es RD-02, declarado obligatorio y no decorativo; OLV-040 es el criterio textual de OLV-036 («ningun camino») que no se cumplia.
+- Impacto en capas: Application (`Motor/IMotorAgentes.cs`), Infrastructure (`Services/Motor/ServicioTareas.cs`), Web vistas (`Views/Tareas/_Conversacion.cshtml`, `Views/Tareas/Detalle.cshtml`, `Views/Shared/_ModalGuardarEnCliente.cshtml` nuevo + `_ModalDocumentos.cshtml`), Web front (`wwwroot/js/documentos.js`, `wwwroot/css/site.css`), Web controller (`Controllers/DocumentosController.cs`), tests (`ChipDelTransitorioEnElHiloTests.cs` nuevo). **Sin migracion EF y sin cambio de esquema.**
+- Riesgos/supuestos: build limpio y **1221/1221 verde** (linea base 1217), con cada test fallando sin su arreglo verificado por mutacion. Los tres defectos quedan **"aplicado, pendiente de re-verificacion"**: el cierre lo declara QA en contexto nuevo. Supuesto declarado: con el archivo presente, el unico ModelState invalido posible en `Subir` es el `clienteId` (el ViewModel tiene un solo campo); si se le agrega otro, la guarda hay que partir en tres. Lo que la rama nueva de `Detalle.cshtml` cubre y los tests no: un miembro que **no** es el autor abriendo el hilo. Inventario MH-041 cerrado: 5 superficies humanas leen los chips (una era la rota) y `TareaOrigenId` tiene 27 apariciones en `src/` de las que **solo 7** son la columna del documento —el resto es el homonimo de `TareaAgente`—. Commit local, sin push y sin deploy.
+
+### 2026-10-02 - qa (M28 ronda de re-verificacion)
+- Etapa: QA
+- Cambio: re-verificados en contexto nuevo los seis defectos de los tres lotes de M28 (commit `7b508d5`): **OLV-028, OLV-029, OLV-030, OLV-031, OLV-032, OLV-033 y OLV-034 CERRADOS**, cada uno reproduciendo el caso original con el criterio arrancando en FAIL. OLV-030 verificado en los tres sitios (tarjeta de parte, tarjeta de aprobacion con *Resolver*, contador); OLV-031 en el borde de 18 agentes; OLV-033 por las dos compuertas y con los dos roles, con el contraejemplo del configurador y del asistente intacto; OLV-028 probado **antes** de publicar y sobre las cuatro conversaciones. Los cuatro criterios que estaban BLOCKED (CA-04.1, CA-04.2, CA-03.3, D-05) se calificaron **PASS** gracias al guion de chat libre del `ProveedorModeloSimulado`. HU-04 re-corrida con los botones vivos: PASS. **Tres defectos nuevos: OLV-036 (major), OLV-037 (minor) y OLV-035 (trivial)**, con item en `docs/qa/regresiones-manuales.yml` (catalogo en 147) y linea en `cat_resumen.txt`.
+- Motivo: cerrar o reabrir los partes de los tres lotes y levantar los BLOCKED, segun el ciclo QA reporta -> Implementador aplica -> QA re-verifica en contexto nuevo.
+- Impacto en capas: ninguno (QA no toca el repo del sistema; `git status --porcelain` verificado sin cambios propios). Lo escrito vive en `6-qa.md`, `trazabilidad.md` y el catalogo cross-proyecto.
+- Riesgos/supuestos: **veredicto apto con reparos.** Ningun bloqueante por datos, plata ni aislamiento. El reparo que lo condiciona es OLV-036: desde una conversacion sin cliente no se puede **subir** un adjunto (`POST /Documentos/Subir?clienteId=` con el parametro vacio invalida el ModelState y devuelve el mensaje del otro campo, *"Elegi un archivo"*), asi que una organizacion sin cartera no tiene camino para mandarle un manual al agente; adjuntar un documento ya existente si funciona. Sin cubrir todavia, por pedir modelo real: el texto de la mencion que no resuelve y el `delegar_subagente` con un codigo manipulado. Costo de la corrida: USD 0,00 (modelo simulado).
+
 ### 2026-09-14 - orquestador
 - Etapa: Setup
 - Cambio: Proyecto incorporado al flujo formal del estudio a pedido de Joaquín ("todo lo que sea portal desarrollarlo bajo las reglas de /agentes-ia-orquestador"). Carpeta creada desde la plantilla, metadata y fila en `docs/indice.md`.
@@ -226,14 +240,6 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
   12. Reinicio: enviar un ajuste, detener el portal mientras está "En cola…" y volver a levantarlo → el turno se responde una sola vez, sin duplicar el ajuste.
   13. Mobile (cuadro fijo al pie) y tema oscuro (burbujas, alertas, badges).
 
-### 2026-09-14 - qa
-- Etapa: QA (M3b Seguir conversando sobre una tarea)
-- Cambio: verificación por navegador real (Playwright librería desde Node; MCP `playwright` no disponible en la sesión) con el modelo simulado en Development (costo cero; advertencia confirmada en cada arranque y clave de API inválida en el proceso como resguardo). 14/14 CA-M3b y 10 HU en PASS, más D-M3b-1/2 y la máquina de estados (Completada/Fallida/Cancelada → Pendiente, fallo por máximo de pasos, cancelación por autora y por Directora, reinicio del portal a mitad de turno con reanudación al vencer el lease sin duplicar el ajuste). IDOR: 20 combinaciones → 404. Listado con Mensajes y Última actividad (filtros, orden por defecto, Session, Limpiar, búsqueda), mobile con cuadro sticky, regresión M3/M2 y portal por rol sin fallas. Defecto QA-M3b-01 (minor): alertas `.ov-alert` y badge "Ajuste" ilegibles en tema oscuro → ítem nuevo OLV-002 en `docs/qa/regresiones-manuales.yml` y auto-fix en `src/OlvidataAgentes.Web/wwwroot/css/site.css` (contraste 1,5–2,6 → ≥ 6,7; tema claro sin cambios; cierra OBS-4 de M2).
-- Motivo: etapa 6 del flujo sobre la implementación M3b.
-- Impacto en capas: Web (CSS de tema oscuro). Sin cambios de lógica, datos ni migraciones.
-- Evidencia: build 0 errores / 0 advertencias; tests 83/83 antes y después del auto-fix; scripts y capturas `m3b-*` en el scratchpad de la sesión; portal detenido; ninguna tarea Pendiente/EnCurso; licencia, reglas 16/21, `MaxPasos` y costo de #14 restaurados.
-- Riesgos/supuestos: OBS-M3b-1 reanudación tras reinicio espera el lease (hasta 5 min, heredado de M1); OBS-M3b-3 `ReglasCambiaronAsync` sin protección en el detalle (CRM-020); calidad real del ajuste, caché del historial y error de conversación demasiado larga pendientes de la corrida paga. Veredicto: apto con observaciones. Detalle en `definiciones/6-qa.md` (M3b).
-
 ### 2026-09-14 - documentador
 - Etapa: Documentacion (M3b)
 - Cambio: resumen de entrega `resumen-sprint-m3b-conversacion.md` (formato 31) con pendientes: corrida real con costo, recuperación tras reinicio hasta 5 min, adjuntos en M5; próximo paso M4.
@@ -254,87 +260,6 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Motivo: "dejar pendientes en estado abierto y continuar con la siguiente etapa de implementación".
 - Impacto en capas: —
 - Riesgos/supuestos: PA-02 y PA-03 conviene cerrarlos antes de producción.
-
-### 2026-09-14 - analista-funcional
-- Etapa: Discovery + Analisis (M4 Agentes de la organización)
-- Cambio: M4 analizada: agentes creados desde un agente base (instrucciones, herramientas acotadas, visibilidad personal/organización, área destino), versiones propias, propuestas del Empleado con aprobación del Director, catálogo unificado, nivel 6 del contexto y reglas por agente de la organización, archivar/reactivar, duplicar, mecanismo de rubro incluido siempre y de reglas sugeridas por rubro (sin contenido), lectura de staff. 11 CU, 15 RF, 15 CA, 4 riesgos, 11 preguntas.
-- Motivo: siguiente etapa del roadmap tras M3b.
-- Impacto en capas: Presentación (catálogo, alta/edición de agentes, propuestas, sugerencias), Negocio (versiones y aprobación, contexto nivel 6, licencias con rubro incluido), Datos (agentes, versiones, referencias en tareas y reglas, sugerencias — migración).
-- Riesgos/supuestos: R-M4-01 inyección vía instrucciones; R-M4-02 cambios del agente base impactan derivados; relevado que no existe rubro "negocio" ni inclusión automática en licencias; contenido de rubro fuera de alcance (regla template antes que rubros).
-
-### 2026-09-14 - analista-funcional
-- Etapa: Analisis M4 (gate)
-- Cambio: Joaquín aprobó con todas las hipótesis P1–P11 (última versión publicada del base; personales privados; reglas del base aplican a derivados; límites 8.000/50/10; edición de Empleado vuelve a revisión; rubro "negocio" y sugerencias solo como mecanismos; casillas de herramientas; modelo heredado; duplicar; ajustes permitidos con agente archivado).
-- Motivo: cierre del gate Análisis → Diseño de M4.
-- Impacto en capas: —
-- Riesgos/supuestos: —
-
-### 2026-09-14 - disenador-funcional
-- Etapa: Diseno (M4)
-- Cambio: catálogo por secciones (De tu área, De la empresa, Mis agentes, De Olvidata), formulario único de agente con cards, detalle con historial y reglas del agente, bandeja de propuestas y revisión lado a lado con motivo de rechazo, notificaciones, pestaña "Sugerencias de Olvidata" para el Director, ajustes en nueva tarea/reglas/detalle de tarea, vistas de staff, rubro incluido en núcleo y licencias. 8 ViewModels, mensajes, máquina de estados de versión, permisos, contratos y 14 historias.
-- Motivo: diseño implementable de M4 sobre el análisis aprobado.
-- Impacto en capas: Presentación (catálogo, agentes, propuestas, sugerencias), Negocio (versiones con aprobación, nivel 6, sugerencias, rubro incluido), Datos (agentes, versiones, sugerencias, referencias).
-- Riesgos/supuestos: decisiones a validar D-M4-1..10 (formulario único, estados en palabras, botones por caso, bandeja de propuestas, revisión lado a lado, catálogo por secciones, notificaciones, reglas solo para agentes de la empresa, sugerencias como pestaña, rubro incluido desde manifiesto). Reutilización: pantallas de M3, vista previa, versiones del núcleo, notificaciones. Nuevo PAT-030.
-
-### 2026-09-14 - disenador-funcional
-- Etapa: Diseno M4 (gate)
-- Cambio: Joaquín aprobó D-M4-1..3 y D-M4-6..10 y pidió saltear "En revisión del Director" por ahora; eligió que el Empleado publique directo para toda la empresa. Se quitan propuestas y revisión (P-M4-04/05, D-M4-4/5), la versión queda Borrador → Publicada → Reemplazada, edición de agentes de la empresa por creador y Director, y notificación a Directores cuando se publica o actualiza un agente de la empresa.
-- Motivo: cierre del gate Diseño → Arquitectura de M4.
-- Impacto en capas: Presentación (sin bandeja ni revisión), Negocio (sin estados de aprobación; permisos de edición/archivo), Datos (versión sin estados de revisión).
-- Riesgos/supuestos: menos control sobre lo que se comparte; mitigado con aviso a Directores y archivo. La revisión del Director queda como mejora posterior.
-
-### 2026-09-14 - arquitecto-mvc
-- Etapa: Arquitectura (M4)
-- Cambio: `AgenteOrganizacion` (nombre/descripción no versionados, proyección de lo publicado, `VersionToken`, `NombreVigente` STORED) y `AgenteOrganizacionVersion` (borrador único → publicada → reemplazada); `IAgenteOrganizacionService` (catálogo, guardar con acción, duplicar, crear desde, archivar/reactivar, staff); tareas con agente de la empresa (base última publicada, herramientas por intersección, instantánea extendida compatible); instrucciones del derivado antes de reglas "Por agente" y reglas por agente de la empresa (`Regla.AgenteOrganizacionId`, check recreado); sugerencias `TipoArtefacto.ReglaSugerida` + activación; `Rubro.IncluidoSiempre` al crear licencias + comando `sincronizar-rubros-incluidos`; notificación a Directores; migración `AgentesOrganizacionM4`.
-- Motivo: diseño M4 aprobado sin revisión del Director.
-- Impacto en capas: Domain (2 entidades, 2 enums, campos en regla/tarea/rubro/artefacto), Application (servicio, opciones, DTOs, constructor, licencias, reglas), Infrastructure (servicios, constructor, procesador, importador, licencias, configs, migración), Web (Agentes rediseñado, Reglas/Sugerencias, staff, núcleo, licencias).
-- Riesgos/supuestos: RT-M4-01 compatibilidad del hash de tareas existentes (alto, test golden), RT-M4-02 recrear check constraint en MySQL, RT-M4-03 publicación sin revisión. Reuso literal: ReglaService/vistas M3, columnas generadas M2, constructor M3, importador, notificaciones, tareas M3b. PAT-030 actualizado.
-
-### 2026-09-14 - presupuestador
-- Etapa: Arquitectura M4 (gate) + Presupuesto (omitido)
-- Cambio: Joaquín aprobó la arquitectura de M4 ("continuar"): nombre/descripción no versionados, borrador único, instantánea extendida compatible, instrucciones antes de reglas por agente, sugerencias como artefactos del núcleo, rubro incluido al crear licencias + sincronización. Presupuesto omitido. Se lanza Implementación.
-- Motivo: gate Arquitectura → Implementación de M4.
-- Impacto en capas: —
-- Riesgos/supuestos: —
-
-### 2026-09-14 - implementador
-- Etapa: Implementacion (M4 Agentes de la organización, sin revisión del Director)
-- Cambio: entidades `AgenteOrganizacion` (proyección de lo publicado, `VersionToken`, `NombreVigente` STORED) y `AgenteOrganizacionVersion` (borrador único → publicada → reemplazada); `AgenteOrganizacionService` (catálogo por secciones, permisos creador/Director, límites 8.000/50/10, nombre único, publicar con aviso a Directores, duplicar, crear mi versión, archivar/reactivar, staff); tareas con agente de la empresa (base = última publicada, formato de contexto 2 con `<instrucciones_de_la_empresa>` entre reglas del cliente y "Por agente", herramientas por intersección, P11); reglas por agente de la empresa (check recreado) y "No se aplica" con agente archivado; sugerencias de Olvidata (`TipoArtefacto.ReglaSugerida`, pestaña del Director, activar con origen Sugerida); `incluido_siempre` en manifiestos, rubros incluidos al emitir licencias y comando `sincronizar-rubros-incluidos`; vistas de agentes, sugerencias, staff, núcleo y licencias. Migración `AgentesOrganizacionM4` aplicada en dev. PAT-030 completado con rutas reales (notas de M3b movidas a PAT-029). Sin contenido real de rubros ni sugerencias.
-- Motivo: arquitectura M4 aprobada (presupuesto omitido).
-- Impacto en capas: Domain (2 entidades, 2 enums, campos en regla/tarea/rubro/artefacto), Application (servicio, DTOs, opciones, constructor, tareas, reglas, licencias), Infrastructure (servicio nuevo, constructor, tareas, procesador, reglas, importador, catálogo, licencias, configuraciones, migración), Web (Agentes rediseñado, Reglas/Sugerencias, Tareas, Clientes/Agentes, Núcleo, licencias, CSS), Admin (comando).
-- Evidencia: build 0 errores (1 advertencia preexistente); tests 100/100 (83 + 17 nuevos, incluido el golden de hash de tareas existentes calculado con el código previo); SQL real en transacción revertida (STORED, check, FKs, 1062/1406/3819/1452/1451 esperados, datos existentes intactos, 0 restos); EF → MySQL 62 pasos OK con el modelo simulado, incluida la `DbUpdateConcurrencyException` real por `VersionToken`, sin errores MH-001 y 0 restos.
-- Riesgos/supuestos: inyección por instrucciones sin validación con el modelo real (PA-02); instrucciones del derivado en el bloque no cacheado; URL relativa en el aviso; sección "Archivados" del catálogo agregada (DI-M4-7, a validar); carreras aceptadas en límites y activación de sugerencias. Decisiones DI-M4-1..21 en `5-implementador.md`.
-- Guía de verificación manual para QA (sin costo):
-  0. Modelo simulado: `$env:Anthropic__Simulado = "true"; dotnet run --project src/OlvidataAgentes.Web --launch-profile https` (advertencia "MODELO SIMULADO" en consola). Datos de prueba: publicar al menos un agente de Olvidata con licencia vigente para la organización (ya existe `inmobiliario/inmo-cm` en dev) y tener Laura (Empleada, Marketing), Martín (Empleado, otra área) y la Directora.
-  1. Laura → Agentes: encabezado "Agentes", buscador, secciones "Mis agentes" (vacía: "Todavía no creaste agentes…") y "De Olvidata · <rubro>". En una card de Olvidata → menú ⋮ → "Crear mi versión": formulario con el agente base elegido, su descripción y sus herramientas; contador "0 / 8.000"; "Solo yo" → botón "Guardar y usar".
-  2. Crear "Mis mails formales" (Solo yo) → "Agente listo para usar." y lleva a Nueva tarea con "· basado en …"; en "Esto es lo que el agente va a tener en cuenta" aparece "Instrucciones de Mis mails formales" (antes de las reglas "Por agente"). Enviar la tarea y abrir el detalle: "Tarea #N · Mis mails formales (versión 1)", "Basado en …", y en "Lo que el agente tuvo en cuenta" las instrucciones v1. Seguir conversando funciona.
-  3. Martín y la Directora: el agente no aparece en su catálogo; `/Agentes/Detalle/<id>` y `/Agentes/Ejecutar?agenteOrganizacionId=<id>` → 404.
-  4. Laura crea "CM del estudio" con "Toda la empresa" y área destacada Marketing → botón "Publicar para la empresa" → "Agente publicado para toda la empresa."; la Directora recibe en la campana "Laura … publicó «CM del estudio» para toda la empresa." con enlace al detalle; Laura lo ve en "De tu área «Marketing»", Martín en "De la empresa" con "Usar" y "Crear mi versión" (sin Editar/Archivar).
-  5. Validaciones: nombre repetido (también con otras mayúsculas/tildes) → "Ya hay un agente activo con ese nombre en tu empresa."; instrucciones de más de 8.000 → "Las instrucciones admiten hasta 8.000 caracteres."; POST manipulado con una herramienta que el base no tiene → "Esa herramienta no está disponible en el agente de Olvidata elegido."; 11.º personal → "Llegaste al máximo de 10 agentes personales…".
-  6. Versiones: Laura edita "CM del estudio", cambia instrucciones y "Guardar borrador" → detalle con card "Borrador (versión 2)" (Martín no la ve) y badge "Borrador pendiente" en el catálogo; publicar → historial v1 Reemplazada / v2 Publicada; la tarea previa sigue mostrando versión 1. Abrir Editar en dos pestañas y guardar en ambas → "Otra persona modificó este agente mientras lo editabas…". Publicar sin cambios → "Datos guardados. Las instrucciones no cambiaron…".
-  7. Permisos: la Directora edita y archiva "CM del estudio" (confirmación "¿Archivar «CM del estudio»? Deja de aparecer…"); Martín → POST a `/Agentes/Archivar` → 403. Archivado: fuera de "De la empresa", visible en "Archivados" (plegado) para Laura y la Directora con "Reactivar"; la tarea existente admite ajustes y muestra "Agente archivado" sin "Nueva tarea con este agente". Reactivar lo devuelve.
-  8. Duplicar (menú ⋮ o detalle) → "Copia creada como borrador." y abre Editar de "Copia de …" (personal, mismas instrucciones y herramientas).
-  9. Reglas: la Directora → Reglas → Nueva regla "Por agente": el combo tiene "De Olvidata · <rubro>" y "De la empresa"; crear una para "CM del estudio" → aparece en la pestaña "Por agente" con el nombre, filtrable, y en la card "Reglas de este agente" del detalle ("Nueva regla para este agente" y "Ver todas"). Archivar el agente → la regla queda "No se aplica" (motivo "El agente de la empresa fue archivado.").
-  10. Sugerencias (datos de prueba): importar un rubro de ejemplo con `reglas_sugeridas` (ver `_plantilla/rubro.yml`), evaluar y publicar la sugerencia, licenciar el rubro. Directora → Reglas → pestaña "Sugerencias de Olvidata": card con etiquetas; "Activar en un área" → modal con Área* y "Salvo que se indique otra cosa" tildado → "Regla activada." → badge "Ya activada" con "Ver la regla" (detalle con "Origen: Sugerida por Olvidata"). Empleado: la pestaña no aparece; POST forzado a `/Reglas/ActivarSugerencia` → 403. Una sugerencia en borrador no se ve.
-  11. Rubro incluido (datos de prueba): manifiesto con `incluido_siempre: true` → importar → Núcleo IP → rubro con badge "Incluido en todas las suscripciones"; Organizaciones → detalle → "Nueva licencia": la casilla del rubro tildada y deshabilitada con "Se incluye en todas las suscripciones."; la licencia emitida lo trae. `dotnet run --project src/OlvidataAgentes.Admin -- sincronizar-rubros-incluidos` lo agrega a las vigentes (segunda corrida: 0). Deshacer los datos de prueba al terminar.
-  12. Suscripción vencida: revocar la licencia → card atenuada con "Este agente no está disponible: la suscripción a <rubro> no está vigente.", sin "Usar"; Editar permite "Guardar borrador" pero no publicar; ajuste de una tarea → "Tu organización no tiene la suscripción vigente para este agente.". Restaurar.
-  13. Staff (SuperUsuario) → Organizaciones → detalle → "Agentes": grilla con filtros por Agente, Basado en, Quién lo usa, Estado y Creado por, búsqueda global, Session y "Limpiar filtros"; detalle en solo lectura con instrucciones y borrador.
-  14. Listado de Tareas: filtro Agente con el agente de la empresa; la columna muestra su nombre; el filtro del agente de Olvidata no incluye las tareas de sus derivados.
-  15. Mobile y tema oscuro: cards, dropdown ⋮, badges neutros y etiquetas (bg-light), barra sticky del formulario, modal de sugerencias (cruz visible, Select2 dentro del modal) y texto "No disponible".
-
-### 2026-09-14 - documentador
-- Etapa: Documentacion (M4)
-- Cambio: resumen de entrega `resumen-sprint-m4-agentes.md` (formato 31) con pendientes: revisión del Director pospuesta, contenido del rubro de negocio y sugerencias reales, pendientes abiertos PA-01..07; próximo paso M4b.
-- Motivo: cierre de comunicación de M4.
-- Impacto en capas: —
-- Riesgos/supuestos: sección "Archivados" y aviso a la autora ante ediciones del Director quedan a decisión de Joaquín.
-
-### 2026-09-14 - presupuestador
-- Etapa: Cierre calibracion (M4)
-- Cambio: esfuerzo real sin estimado (implementador ~70 min / 300 acciones, QA ~39 min); lecciones: features que integran entidad nueva + versiones + constructor/tareas/reglas/núcleo/licencias equivalen a varias features; test golden de hash obligatorio en cambios del constructor; verificación de contraste en tema oscuro al checklist del implementador (tercera ocurrencia).
-- Motivo: cierre del flujo de 9 etapas de M4.
-- Impacto en capas: —
-- Riesgos/supuestos: M4 cerrada.
 
 ### 2026-09-14 - presupuestador
 - Etapa: Arquitectura M4b (gate) + Presupuesto (omitido)
@@ -450,26 +375,6 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - **En producción el 2026-09-25**, autorizado por Joaquín: `git push origin main` (`170a016..35057f3`, 9 commits) y `./scripts/deploy-prod.ps1 -Force` — migraciones aplicadas contra la base de producción (incluida **`Entregables`, de M19, que nunca se había desplegado** y que QA encontró faltante en dev), 11 archivos sincronizados (12,4 MB), y `/health/vivo`, `/Account/Login` y `/` en **200**.
 - **Pendientes que quedan abiertos, ninguno bloqueante:** (1) guion del modelo simulado para M19/M20, para poder mostrar la calculadora en el navegador sin gastar tokens (QA tuvo que fabricar el paso en la base); (2) desborde horizontal de 3 px a 390 px en tema oscuro por `.ov-topbar-user`, **preexistente y de todo el portal**, no de estos módulos; (3) que la búsqueda de la grilla de documentos encuentre «escaneado» (decisión de producto, no defecto).
 
-### 2026-09-25 — olvidata-ceo (diferenciales comerciales del frente AI Agents)
-
-- **Etapa:** fuera del flujo Discovery→Cierre. Revisión comercial a pedido de Joaquín, a partir del research de ingeniería de agentes 2026 (Microsoft Build, Anthropic Engineering, AWS AgentCore, Google A2A).
-- **Cambio:** nueva sección **§2.1 de `plan-comercializacion.md`** — seis diferenciales escritos como argumento de venta (frase literal al cliente, objeción que desactiva, módulo/plan al que engancha, y si es «ya lo tenemos y falta nombrarlo» o «hay que construirlo»). Se ubicó después del estado técnico real (§2) porque es su lectura comercial: qué de lo construido es vendible. Tres pendientes nuevos en `metadata.md`: **PA-42** (plano de control auditable por organización), **PA-43** (telemetría de horas ahorradas sobre `EventoUso`), **PA-44** (memoria de largo plazo aislada por tenant).
-- **Motivo:** la objeción que frena el setup de lista es *«¿por qué te pago a vos si un freelance me lo arma por USD 500?»*, y no se contesta con horas ni con funcionalidades. Se contesta con controles — que en su mayoría **ya están construidos y no se nombran en ninguna propuesta**. El trabajo faltante es mayormente de redacción, no de desarrollo.
-- **Lo accionable hoy, sin tocar código:** (1) *«las credenciales nunca entran al entorno donde corre el agente»* es verdad por M11 y por el modelo Tech Provider de Chatbots — entra tal cual en la próxima propuesta, costo cero; (2) los controles de M6/M11/M12 se enumeran módulo por módulo, **sin prometer «auditable»** hasta tener PA-42.
-- **Dos reordenamientos de prioridad que salen de acá:** **PA-36** (herramienta de cálculo determinístico) deja de ser mejora técnica y pasa a ser **bloqueante comercial**: mientras «el agente no hace la aritmética» sea una instrucción de prompt y no código, el argumento de controles tiene un agujero justo en conciliación, IVA y balances, que es donde el cliente lo va a auditar. Y **PA-17 + PA-18** (aprobar los casos de M8 y correr la primera evaluación real con tope USD 1) dejan de ser deuda operativa: desbloquean el diferencial más difícil de copiar —los evals como entregable— y le dan contenido demostrable a la línea más floja del abono, la «1 ronda de ajuste de prompt por mes».
-- **Respuesta comercial a una decisión que estaba abierta:** **PA-21** — si los evals son parte del abono, los agentes de la organización **sí** se evalúan antes de publicarse y lo paga el abono.
-- **Impacto en capas:** ninguno. Documentación comercial y pendientes de producto. **No se tocó ningún precio vigente** (§3.2 para la cartera propia; rubro estándar y tiers Básico/Intermedio/Avanzado para organizaciones nuevas): cambia qué se dice para sostenerlos, no cuánto se cobra.
-- **Riesgos/supuestos:** A2A (§2.1-F) es **solo posicionamiento a 2027** — no hay una línea de código ni está en el roadmap, y no se vende interoperabilidad. Se ata a PA-41 (canal internacional). El estado de M8 se tomó de `metadata.md` (PA-17..PA-22) y de las definiciones: **construido pero sin una sola corrida real contra la API**, así que el argumento B no se puede afirmar como probado hasta PA-18.
-
-### 2026-09-28 - olvidata-ceo
-- Etapa: Estrategia comercial (seguimiento de PA-41 / entrada 2026-09-25)
-- Cambio: Agustín Hollger (lead-gen internacional) respondió a las 3 preguntas de calibración sin contestar ninguna en concreto: ICP genérico ("todo lo que sea tech b2b lo trabajamos"), prueba social sin un solo caso nombrado ("+50 empresas tech"), ningún mercado mencionado, y el único dato sustantivo fue "hay que invertir" — o sea retainer con plata adelantada, sin mención de success fee. Cierra con "llegado el momento coordinamos", dejando la pelota de nuestro lado sin aportar nada verificable.
-- Decisión: se archiva el contacto sin pedir una segunda vuelta de datos (2 nombres + rango de fee) — ya tuvo la oportunidad de responder algo concreto y no la usó; insistir de nuevo es tiempo regalado, no filtro. El hilo ya tenía cierre natural (Joaquín le había dicho "te escribo yo cuando esté listo" el 2026-09-25); se responde un cierre corto para no dejarlo flotando ni reabrir con más preguntas que ya demostró esquivar.
-- Motivo: coherente con PA-41 — el hito para sentarse con un canal externo (EULA en inglés + cobro internacional + caso real facturando) sigue sin cumplirse, así que no había nada que activar hoy aunque el contacto hubiera calificado.
-- Aprendizaje agregado a PA-41 en `metadata.md`: cuando el canal internacional esté habilitado, preferir **partner por comisión/referido** sobre agencia de prospección fría a retainer — el retainer cobra por volumen de contacto y no por resultado, y no exige probar encaje de ICP antes de cobrar; un esquema por comisión alinea el incentivo del canal con el cierre real.
-- Impacto en capas: — (decisión de negocio, sin cambios de código)
-- Riesgos/supuestos: ninguno nuevo. No se tocó código ni ningún proyecto fuera de `docs/olvidata-agentes-multirubro/`.
-
 ### 2026-10-01 - agentes-ia-implementador (M27, frentes 1, 2 y 6)
 - **Etapa:** 5 (Implementación). Definiciones 1, 2 y 3 aprobadas; presupuesto omitido (proyecto personal). Frentes 3 (documentos) y 4 (menú): otro implementador, en paralelo.
 - **Cambio:** 4 commits locales en `Olvidata Agentes Multi-rubro` (`625b30f`, `43dce94`, `f7103cf`, `28b929c`), sin push y sin deploy. **1091 tests verdes** (eran 1067). Una migración, `UnificacionAgentesM27`, exactamente la que fijó la arquitectura.
@@ -568,130 +473,263 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
   que no existía, y lo único que impidió implementarlos igual fue que «reproducir primero» era el requisito número uno y
   no una verificación al final.
 
-## 2026-10-02 - Discovery (analista funcional) - M28: el chat libre
+## 2026-10-02 - M29 CERRADO + despliegue a produccion + publicacion BLOQUEADA por saldo
 
-- **Pedido.** Pantalla nueva de chat libre "como Claude web": consultas sueltas, arrobar agentes para pedirles tareas,
-  crear reglas y automatizaciones por menciones, con buen diseno grafico y motion 3D.
-- **Decision de encuadre (concepto rector).** El chat libre es **la CPU sin un programa cargado**: las cuatro
-  conversaciones actuales arrancan con la RAM ya escrita por el sistema, y esta arranca vacia y **la persona carga la RAM
-  mencionando**. Lo mencionado entra **como datos**: una mencion de configuracion **propone una tarjeta**, nunca crea
-  (RF-05). Motivo: es la unica lectura del pedido que no rompe "una preferencia la aplica una persona".
-- **Reutilizacion (instruccion 39 seccion 3).** Match en `docs/patrones/cat_resumen.txt`: **PAT-029** (conversacion
-  multi-turno reanudable con contexto congelado), origen este mismo proyecto M3b. El motor entero se reutiliza; la
-  tarea sin cliente ya existe (`ClienteCarteraId` es `int?`) y la vista de conversacion ya la comparten las cuatro
-  conversaciones. **El pedido es una puerta nueva a un motor que ya esta entero**, no un modulo nuevo.
-- **Lo que no existe y es el trabajo real (tres cosas).** (a) **Menciones**: cero, ni parser de `@` ni autocomplete;
-  (b) **delegar en vivo a cualquier agente de la organizacion**: `delegar_subagente` solo corre en `TipoTarea.Trabajo`
-  y solo admite **hijos publicados del agente base** (`SubtareasService.cs:68-92`); (c) **motion 3D**: el front es
-  vanilla + jQuery + Bootstrap, **sin npm, sin bundler y sin ninguna libreria de animacion o 3D**.
-- **Tension declarada, no resuelta.** "Motion 3D" contra la instruccion `38` del estudio, cuya regla 0 es *lo que la
-  persona vino a hacer entra en la primera pantalla; todo lo demas se pliega*. Se abre como P4 con tres niveles en vez
-  de decidirlo por cuenta propia: el fondo 3D de ambiente es el que mas choca y el que mas pesa.
-- **Impacto en capas (preliminar).** *Domain:* valor nuevo de `TipoTarea`, y una tabla de menciones solo si se persisten.
-  *Application:* `ResolvedorHerramientas` (que ve el tipo nuevo), resolucion de menciones. *Infrastructure:*
-  `ServicioTareas` (arranque del chat libre), `SubtareasService` si P2 resuelve delegacion en vivo. *Web:* pantalla
-  nueva, autocomplete en el compositor, assets de motion. *Nucleo:* prompt nuevo solo si P1 resuelve (b).
-- **Estado: Discovery cerrado con 4 preguntas abiertas bloqueantes.** P1 quien atiende sin mencion (agente en blanco ya
-  existente / cuarto agente de plataforma con prompt nuevo / ninguno) - P2 mencion de agente en vivo o tarea aparte -
-  P3 confirmar que la mencion de configuracion propone y no crea - P4 alcance del motion (sin 3D / 3D acotado /
-  3D de ambiente). **Analisis no arranca hasta que esten respondidas**: las cuatro cambian criterios de aceptacion,
-  arquitectura y tamanio. Presupuesto omitido (proyecto personal).
-- **Entrada de definiciones afectada:** `definiciones/1-analista-funcional.md` -> `M28` (nueva, no supera ninguna).
+- **M29 (dos features pedidas por Joaquin) cerrado.** (A) la **casilla de buscar en internet** en el chat libre; (B) un
+  archivo que se sube a la conversacion y **se guarda en la carpeta de un cliente o se descarta**. **1223 tests verdes**
+  (de 1164 al abrir M29), build limpio, **dos migraciones** (`DocumentoSinClienteM29`, `DuenoDelTransitorioM29`),
+  **11 commits locales sin push**. QA: **4 corridas (2 lotes + re-verificacion + la de M28)**, **apto, liberable**.
+- **(B) es la respuesta a OLV-036, y es mejor que la que tenia la arquitectura.** M28 cerro diciendo que *un documento
+  de la empresa sin cliente no existe en el modelo* y que resolverlo pedia tres decisiones de producto. La respuesta de
+  Joaquin **esquiva el problema en vez de pelearlo**: el archivo no vive sin dueño para siempre — o se guarda en un
+  cliente (y es un documento normal) o se usa y se descarta. Tres decisiones abiertas se volvieron una sola pregunta
+  operativa, *cuando se descarta*, que tambien quedo contestada (a los N dias de terminada la conversacion, 7 por
+  defecto, y **0 apaga la purga**, no significa «descartar todo ya»).
+- **El riesgo central de M29 era el portal del cliente, y paso por SIETE caminos.** Volver `ClienteCarteraId` nulable
+  toca `IClienteOwned` y el `FiltroCliente`, que es la frontera que M18 construyo porque el usuario cliente vive
+  **adentro** del tenant del estudio. En SQL un `NULL` **filtra bien por casualidad**, y «bien por casualidad» no es una
+  garantia. QA aplico una regla nueva —**cerrar el inventario por la lista de LECTORES de la entidad, no por recorrido
+  de pantallas** (MH-041)— y aparecieron dos caminos que la implementacion no habia cubierto
+  (`PortalDocumentos/Renombrar` y `/DarDeBaja` por id forzado): **pasan**. Con el peor caso sembrado en base
+  (`ClienteCarteraId NULL` + `VisibleParaCliente = 1`), mutacion verificada y control positivo del Director.
+- **Dos afirmaciones MIAS que la implementacion refuto contra el codigo, y las dos a tiempo:** (1) **B-03 era
+  factualmente falso** —el `clienteId` **si** esta en la ruta en disco—, y seguirlo al pie dejaba todo documento
+  guardado en un cliente apuntando a bytes que nadie busca, **sin fallar en el momento**; se corrigio con un `Mover`
+  antes del commit, y QA lo verifico **con los bytes y el hash**. (2) El dueño del transitorio: reutilizar
+  `GeneradoEnTareaId` habria hecho que un archivo subido por una persona apareciera como **entregable del agente** y le
+  comiera el tope de la impresora — dos significados con dos lectores son dos columnas.
+- **El hueco de seguridad que la implementacion declaro en vez de saner en silencio (B-07):** un transitorio no aparece
+  en ningun listado, **pero su id alcanzaba** para adjuntarselo desde otra conversacion de la propia organizacion. El
+  valor de «usar solo en esta conversacion» **es la promesa de que el archivo no queda a mano de nadie**, asi que se
+  cerro: un documento sin cliente pertenece a la conversacion en la que nacio. Y era **el mismo dato que la purga
+  necesitaba**.
+- **4 defectos de QA, los 4 cerrados y re-verificados** (OLV-038 major, OLV-039, OLV-040, OLV-041). Tres eran **la misma
+  clase, por tercera y cuarta vez**: *la superficie que **relee** el hilo se queda sin un dato que la que lo **escribe**
+  si tiene*. Al cerrar el ultimo se compararon los dos renderizadores campo por campo, y ahi aparecio que **el arreglo
+  obvio abria el mismo defecto invertido** (el JS no nombra al cliente cuando la lista ya esta filtrada por uno): la
+  regla quedo escrita una vez y valiendo para los dos lados.
 
-## 2026-10-02 - Analisis (analista funcional) - M28: el chat libre
+### El despliegue a produccion: HECHO
 
-- **Las cuatro preguntas se cerraron con decision de Joaquin.** P1 -> **cuarto agente de plataforma** con prompt propio
-  (se acepta que arrastra evaluacion aprobada y publicacion; sin version publicada la pantalla no se ofrece). Se descarto
-  el agente en blanco de `general` con un motivo: ese es el que **el cliente** escribe entero, y el chat libre tiene que
-  saber de la plataforma para poder derivar. P2 -> **tarea aparte y el hilo espera** (`EsperandoSubtareas`), no delegacion
-  en vivo: el costo queda **visible y contable por tarea** en vez de escondido dentro de un turno. P3 -> **la mencion
-  propone, no crea**. P4 -> **3D acotado a una pieza**, diferida y apagada por `prefers-reduced-motion`.
-- **6 casos de uso, 30 criterios de aceptacion.** Los que importan: la pantalla **no se ofrece** sin version publicada
-  (CA-01.2); el autocomplete ofrece **solo** lo que esa persona ya podia usar y una mencion forzada por texto **no
-  resuelve** (CA-02.2/02.3); el hilo **se despierta igual si la tarea del agente falla** (CA-02.5, que es el defecto de
-  `CierreTurno` que M27 encontro, escrito como criterio antes de implementar); despues de una mencion de configuracion
-  hay **cero filas nuevas** en base (CA-03.1); el 3D **degrada en silencio sin WebGL** (CA-07.5).
-- **Riesgo nuevo que no estaba en Discovery: R-03, la mencion como canal de escalada.** Una mencion es texto que escribe
-  la persona y **el modelo no puede ser el que decida si corresponde**. Se cierra por los dos lados que el sistema ya
-  usa: la mencion solo resuelve contra lo que esa persona ya podia usar, y el rol se chequea **al aplicar**.
-- **Banderas cerradas.** Migracion EF: **si** (valor nuevo de `TipoTarea`). Prompt nuevo del nucleo: **si**, con suite
-  propia mas la suite comun de seguridad. **Formato de contexto nuevo: el 6**, reutilizando el armado de plataforma
-  (`ArmarPlataformaAsync`) - y con criterio explicito de que **no cambia el hash de ninguna tarea vieja** (CA-T.3).
-- **Estado: Analisis cerrado.** Presupuesto **omitido** (producto propio, proyecto personal). Siguiente: Diseno.
-- **Entrada de definiciones afectada:** `definiciones/1-analista-funcional.md` -> `M28` (ampliada con el Analisis).
+Autorizado por Joaquin («publicar y desplegar a produccion»). `scripts/deploy-prod.ps1 -Force`: **migraciones aplicadas
+contra la base de produccion**, sitio sincronizado (25 cambios, 3 archivos nuevos entre ellos `chat-libre-3d.js`), y
+**`/health/vivo` respondio 200**. Precio del token **verificado contra la pagina oficial** antes de tocar nada: coincide.
 
-## 2026-10-02 - Diseno (disenador funcional) - M28: el chat libre
+### La publicacion: BLOQUEADA, y no por el codigo
 
-- **Idea rectora: la pantalla de arranque es la pieza de diseno; la conversacion ya esta disenada.** El pedido traia dos
-  cosas que parecian una (*un chat como Claude web* + *motion 3D*) y separarlas es lo que resolvio la tension con la
-  instruccion `38`, cuya regla 0 es *lo que la persona vino a hacer entra en la primera pantalla*.
-- **D-01, la decision que ordena todo: el 3D vive en el estado vacio y se retira con el primer mensaje.** Un chat recien
-  abierto **no tiene contenido que el adorno pueda tapar** — es el unico momento del producto donde una pieza 3D no
-  compite con nada. Al primer mensaje **se desmonta** (no `display:none`: se destruye el contexto WebGL). Asi se cumple
-  el pedido y la regla 0 **sin negociar ninguna de las dos**, y el costo de rendimiento se paga una sola vez.
-- **D-02: dos momentos, una sola maqueta.** `ChatLibre/Index` es propia; la conversacion es la **compartida**
-  (`Tareas/Detalle`), como ya hacen las otras tres de plataforma. Duplicarla costaba 270 lineas de `_Conversacion` mas
-  405 de scripts de `Detalle`, y cada arreglo futuro dos veces. **Lo que hace propio al chat libre es su arranque y sus
-  menciones, no una copia del hilo** (`38` seccion 6, sistemico antes que por pantalla).
-- **D-04: la mencion en el texto es texto.** `@slug` en plano, **el servidor la vuelve a resolver**; sin token opaco ni
-  id embebido. Lo que inserta el cliente es comodidad de tipeo, **nunca una autorizacion**. Una mencion que no resuelve
-  queda literal y no confirma si eso existe. Es R-03 resuelto en la maqueta.
-- **D-05: una sola mencion de agente por mensaje**; con dos se pide elegir. Es el freno de costo de P2 puesto en la
-  pantalla, y ademas es honesto: un mensaje con dos agentes no dice cual hace que. Las de **configuracion** si pueden
-  ser varias: no cuestan una tarea, cuestan una tarjeta.
-- **D-06: el autocomplete viene en dos grupos y el de abajo es el que enseña.** Arriba Agentes, abajo Configurar con las
-  cuatro cosas que se cargan. La persona escribe `@` por un agente y **se entera de que tambien puede configurar**: es lo
-  que convierte *crear reglas por menciones* en algo que se descubre sin manual.
-- **RD-01, el riesgo que cambio un diseno:** si las pastillas del arranque son preguntas, la gente aprende a usar el chat
-  como buscador y nunca descubre las menciones, que son el 80 % del valor. Por eso D-08: las pastillas **escriben
-  menciones**, no preguntas.
-- **Estado: Diseno cerrado.** 4 pantallas (una sola nueva), 10 estados, 8 historias. Siguiente: Arquitectura.
-- **Entrada afectada:** `definiciones/2-disenador-funcional.md` -> `Diseno M28` (nueva).
+**El chat libre NO esta disponible todavia**, y el motivo es el gate que funciona: *ningun prompt se publica sin
+evaluacion aprobada*. Tres corridas reales contra produccion sobre el prompt del cuarto agente de plataforma:
 
-## 2026-10-02 - Arquitectura (arquitecto MVC) - M28: el chat libre
+| Corrida | Version | Resultado | Costo |
+|---|---|---|---|
+| #18 | v1 | 12/17 · 4 fallos · 1 error → **no aprobada** | USD 1,43 |
+| #19 | v2 | **16/17** · 1 fallo (de seguridad) → **Rechazada** | USD 1,66 |
+| #20 | v3 | 7/17 · **0 fallos** · 10 con error → **cortada** | USD 0,75 |
 
-- **A-00: la bandera del Analisis era incorrecta y se corrige. M28 NO lleva migracion.** `TareaAgente.Tipo` no tiene
-  ninguna linea en `TareaAgenteConfiguration` (`AgentesConfigurations.cs:181-215`): cae en la convencion de EF y el
-  snapshot lo confirma como `int`. El repo ya tenia el precedente escrito (`EnumsAgentes.cs:128-131`, `NotaDelMotor`)
-  **junto con la advertencia que si importa**: lo que un valor nuevo rompe no es la base, son **los switches con
-  `default`**, que lo aceptan en silencio y lo mapean mal. Si al implementar aparece una migracion, es señal de que se
-  agrego una entidad que el diseño no pedia.
-- **A-01: la palanca es `EsDePlataforma`** (`NotaSubtarea.cs:35-36`). Una linea hace que cinco familias de herramientas
-  acepten el tipo nuevo sin tocarlas una por una. Por eso es **lo primero que se prueba, no lo ultimo**.
-- **A-02: `ArmarPlataformaAsync` no se toca** — ya es generica (recibe formato, tipo y declaracion por parametro). El
-  cuarto agente es el molde del analista repetido: ~10 switches, un wrapper, un permiso, un controller, un item de menu.
-  Y hereda las **instrucciones compartidas de plataforma sin una cuarta copia**, que es lo que hace viable derivar.
-- **A-03b: deuda que se paga aca y no despues.** Los dos `IQueryable` de "los agentes que esta persona puede usar" estan
-  **duplicados en tres lugares** y M28 seria la cuarta copia. Se extraen a `IAgentesDisponiblesQuery`. No es cosmetico:
-  es la unica forma de que el autocomplete de la pantalla y la autorizacion de la herramienta **no puedan divergir** — y
-  si divergen, el autocomplete ofrece algo que la herramienta despues rechaza, el peor resultado para la persona (R-A2).
-- **A-04: no se relaja el gate de subagentes, se le da un segundo modo con nombre.** `SubagentesPermitidosAsync` queda con
-  **modo jerarquia** (lo de hoy, sin un solo cambio de comportamiento) y **modo abierto** (chat libre, exactamente lo que
-  devuelve la query compartida). Dos ramas y dos tests en vez de un `if` adentro de un predicado, porque **los dos modos
-  tienen reglas de seguridad distintas y mezclarlos es como se cuela una fuga**. El gate sigue siendo lista blanca de
-  `TipoTarea`, nunca un `!=` negado.
-- **CA-02.5 se verifica, no se implementa.** `AvisarFinAsync:211-213` ya cuenta como pendiente solo lo que no esta en
-  `Completada | Fallida | Cancelada`: el padre se despierta **tambien cuando la parte falla o se cancela**. R-04 cerrado
-  sin codigo nuevo.
-- **A-05: M28 establece la primera carga diferida del proyecto** (hoy no hay ni un `defer` ni un `import()` dinamico).
-  `three` por CDN con **version fija** e `import()` dinamico, detras de **tres compuertas** (`prefers-reduced-motion`,
-  WebGL disponible, pantalla montada): si alguna falla **la libreria no se descarga**. Fallo del CDN = `try/catch`
-  silencioso y version plana. La pieza **no recibe ni muestra datos**, asi que ningun dato de la organizacion llega a un
-  script de CDN.
-- **Bug preexistente que M28 destapa (R-A6):** el switch de `ArmarEvaluacionAsync` (`ConstructorContexto.cs:505-506`)
-  **hoy solo cubre los formatos 3 y 4 — al 5 ya le falta**. Se agrega el 5 junto con el 6: construir el 6 sobre un
-  agujero conocido seria peor que el agujero.
-- **Impacto en capas.** *Domain:* un valor de enum, sin migracion. *Application:* constante de formato, `IChatLibre`,
-  `IAgentesDisponiblesQuery`, `OpcionMenu`, flag de DTO, mensajes. *Infrastructure:* wrapper de contexto, arranque de
-  tarea, ~10 switches, dos modos de subagentes, permiso, tres llamadores migrados a la query. *Web:* controller, vista de
-  arranque, item de menu, `<option>` de filtro, `site.js` (autocomplete), `chat-libre-3d.js`, CSS. *Nucleo:* prompt,
-  manifiesto, suite de evaluacion.
-- **Estado: Arquitectura cerrada**, con orden de implementacion de 8 pasos donde el 3D va **ultimo y aislado**: es la
-  unica parte que se puede sacar sin que M28 deje de funcionar. **Presupuesto omitido** (producto propio). Siguiente:
-  Implementacion.
-- **Entrada afectada:** `definiciones/3-arquitecto-mvc.md` -> `Arquitectura M28` (nueva).
+- **La #18 encontro trabajo real:** el agente no usaba `proponer_programacion` ni `proponer_agente_empresa`, que es
+  exactamente *crear automatizaciones mencionando*. El prompt no alcanzaba con un modelo real, aunque el codigo, los
+  tests y QA estuvieran verdes. **Eso es para lo que existe la evaluacion.**
+- **Dos defectos de los CASOS, no del prompt, y se arreglaron haciendolos mas duros, nunca mas blandos:** uno se
+  **contradecia solo** (el criterio premiaba preguntar primero y la verificacion exigia la herramienta en el mismo
+  turno: premiaba y castigaba la misma conducta), y otro media **lo incalificable** — hallazgo que destrabo tres casos:
+  **el revisor automatico solo ve el texto final de la respuesta, nunca la entrada de una herramienta**, asi que un
+  criterio sobre el contenido de una tarjeta no se puede juzgar por construccion. La suite del analista ya respetaba esa
+  convencion; la del chat libre se habia salido.
+- **El fallo de la #19 era varianza, no regresion**, y resulto ser algo peor y mas interesante: **alucinacion de
+  accion**. El modelo escribio *«no es un dato para anotar en memoria, es una regla… asi que la **deje** como tarjeta»*,
+  describio la tarjeta completa, cerro con *«se termina con el boton Aplicar»*, y **nunca llamo a la herramienta**. Los
+  dos criterios de texto en verde y la accion inexistente: la contracara exacta del hallazgo anterior. El prompt ahora
+  dice que **dejar una tarjeta ES llamar a la herramienta**, y en la #20 ese caso **paso**.
+- **La #20 se corto por algo que no es del sistema:** `Your credit balance is too low to access the Anthropic API`.
+  Verificado aparte con la llamada mas barata posible (Haiku, 5 tokens de salida): **la cuenta de Anthropic no tiene
+  saldo**. 7 pasaron, **0 fallaron**, 10 quedaron con error de credito.
+
+### Lo urgente, que es mas grande que la publicacion
+
+**Sin saldo en la cuenta de Anthropic, ninguna tarea de agente funciona en produccion** — no es solo que no se pueda
+publicar el chat libre: es que el producto en vivo esta sin motor. El error viaja como un 400 del proveedor, asi que
+cualquier cliente que mande una tarea ahora la ve fallar.
+
+**Lo que sigue, en orden, cuando haya saldo:**
+1. Cargar credito en la cuenta de Anthropic (Plans & Billing).
+2. `evaluacion-reintentar 20 --confirmar` — vuelve a correr **solo** los 10 casos que quedaron con error, no los 17.
+3. Si la corrida queda aprobada: `publicar 66` (la v3, que es la que tiene el prompt bueno).
+4. Humo minimo en produccion: abrir el chat libre, escribir `@`, y probar la casilla de internet.
+
+**Dato de presupuesto:** USD 3,84 gastados de la bolsa mensual de pruebas de USD 30 (que es un tope interno, distinto
+del saldo de la cuenta).
+
+### Lo que quedo en Borrador en produccion a proposito, y es decision de Joaquin
+
+- **`chat-libre` v1 (#63) y v2 (#65)**: versiones viejas del prompt. La buena es la **v3 (#66)**.
+- **`analista-automatizaciones` v3 (#62)** y **`01-un-agente-propio-nace-usable` v1 (#64)**: cambios de M27 que nunca se
+  publicaron a produccion. **No los publique**: cambian el comportamiento de agentes que hoy andan, y eso no era parte
+  de lo pedido.
+- La instruccion compartida `00-como-trabajan-los-agentes-de-olvidata` dice «los otros **dos** agentes» y ofrece
+  herramientas que el chat libre no tiene: quedo declarado, sin tocar, porque corregirla **cambia a los cuatro**.
+- **Opus 5.5 cuesta 4/20 contra 5/25 de Opus 5**: las evaluaciones correrian ~20 % mas baratas. Sin aplicar.
+
+## 2026-10-03 - Verificacion del despliegue y estado del bloqueo
+
+- **El saldo de Anthropic sigue agotado** (chequeado con una llamada a Haiku de 5 tokens: el 400 de
+  `credit balance is too low` se repite). La evaluacion de la corrida #20 sigue cortada y **la publicacion del chat
+  libre sigue bloqueada**.
+- **El despliegue quedo verificado desde afuera, sin tocar datos:** `/health/vivo` 200, `/Account/Login` 200, y los tres
+  assets nuevos servidos — `js/chat-libre-3d.js` (8.505 bytes, la pieza 3D), `js/site.js` (30.449, con el autocomplete
+  de menciones) y `css/site.css` (71.420). El codigo de M28 + M29 esta entero en produccion.
+- **Decision tecnica que conviene dejar escrita: NO publicar el agente hasta que haya saldo.** Publicar ahora lo pondria
+  en el menu y **fallaria en el primer mensaje**, porque sin credito el proveedor devuelve un 400. El estado actual
+  —codigo desplegado, agente en **Borrador**, menu que no lo ofrece (CA-01.2)— **es el estado seguro**, no un trabajo a
+  medio terminar. Usar `evaluacion-excepcion` para saltear el gate seria doblemente malo: saltea la evaluacion **y**
+  publica una funcionalidad que no puede funcionar.
+- **Secuencia cuando haya saldo, sin cambios:** cargar credito -> `evaluacion-reintentar 20 --confirmar` (solo los 10
+  casos cortados) -> si queda aprobada, `publicar 66` (la v3) -> humo minimo: abrir el chat libre, escribir `@`, probar
+  la casilla de internet.
+
+## 2026-10-03 - M30 (el menu en seis secciones) y M31 (la barra de opciones y el isotipo) CERRADOS
+
+**QA: los dos APTO, 23/23 criterios PASS, 0 FAIL, 0 BLOCKED, cero defectos.** 1243 tests verdes, build limpio, sin
+migracion, 2 commits locales sin push. **Nada publicado ni desplegado.**
+
+### M30 — El menu, de cuatro secciones a seis
+
+- **Pedido de Joaquin: «reestructurar opciones de menu».** Se le ofrecieron tres alcances y eligio **la reestructura
+  completa**. El criterio **no cambio**: sigue siendo el de M27 —*el nombre de cada seccion contesta «¿cuando entro
+  aca?»*—; lo que cambio es que se aplico a tres lugares donde el menu se habia escapado.
+- **Los tres hallazgos, ninguno de gusto:**
+  1. **Las cuatro conversaciones de plataforma habian quedado en TRES secciones distintas.** *Chat libre* en «Trabajo
+     diario», *Automatizar* en «Empezar aca», *Configurar* y *Repartir* en «Tu forma de trabajar». **M28 metio la cuarta
+     hermana en otra seccion y nadie reviso el conjunto.**
+  2. **«Administracion y cuenta» tenia 9 items y tres no eran administracion, y la etapa de entrega lo demuestra:**
+     *Pedidos* y *Material de Olvidata* caen en `PrimerosPasos` —se ven el dia uno y no exigen ser Director—, y
+     *Pedidos* tiene escrito en su propio comentario *«cualquier miembro los arma y los revisa»*. Estar en la seccion
+     que el codigo define como «lo del Director y lo de la cuenta» es una **contradiccion verificable**, no una opinion.
+  3. **«Tu forma de trabajar» mezclaba escribir con correr.** Reglas/Instructivos/Memoria son `TuFormaDeTrabajar`;
+     Programaciones/Resultados/Pruebas son `SistemaCompleto`: **la etapa ya las separaba y la seccion no.**
+- **Reparto nuevo: 1 · 4 · 7 · 3 · 3 · 8 = 26.** **D-06: se movio SOLO de seccion.** Ningun rotulo, icono, ruta, etapa
+  ni rol cambio, y `EtapasEntrega.cs` no se toco.
+- **RD-01 era el riesgo y quedo cerrado con un test de mutacion.** Mover items es exactamente donde se escapa un
+  permiso (antes de M27, *Miembros* colgaba de un `@if (EsDirector)` que envolvia a varios). El test compara, opcion por
+  opcion, contra `OpcionesVisibles(etapa, esDirector)` —**la tabla rotulo→opcion esta duplicada a proposito en el
+  test**, porque derivarla del menu haria que un cambio pasara los dos lados a la vez—. Quitandole su `OpcionMenu` a
+  *Miembros*, el defecto literal de RD-01, **fallan las tres variantes**.
+- **QA verifico las 6 combinaciones etapa × rol contra `OpcionesVisibles`: 12/10 · 19/14 · 26/19, exactas.** Las 26 rutas
+  devuelven 200 y el Empleado contra las 7 de Director recibe acceso denegado en 6; la septima (`Pruebas`) abre en solo
+  lectura **por decision declarada de M22** y `Correr` responde 403.
+
+### M31 — La barra de opciones del chat, y la pieza que por fin es la marca
+
+- **Dos pedidos de Joaquin:** las cuatro acciones a una **barra lateral derecha** como configuracion del chat, que **no
+  ocupe mucho porque lo importante es el chat**; y que `piezaChatLibre`, que tenia un **icono generico**, sea algo de la
+  **marca**, diseñado con el isotipo de Olvidata.
+- **Sobre la herramienta pedida (`/motion-graphics`): se tomo la idea entera y se cambio el medio.** Esa tuberia produce
+  un MP4 o un WebM con alfa, y para este destino es la herramienta equivocada **por una razon de fondo: un video trae
+  los colores quemados**, asi que no puede seguir el tema claro y el oscuro, que es requisito del portal (CA-07.4), y
+  pesa mas que lo que reemplaza. (Secundario: declara macOS o Linux y la maquina es Windows.) La pieza se anima **en la
+  pagina**, con los tokens `--ov-*`, que es lo unico que hace que los dos temas salgan gratis.
+- **El hallazgo que vale mas que el pedido:** **el isotipo de Olvidata YA ES el diagrama de esta pantalla.** Es un
+  **nucleo central con cuatro nodos** radiando en diagonal: *una conversacion en el centro y cuatro cosas que se traen
+  mencionando* — las mismas cuatro que ahora viven en la barra. No hubo que inventarle un significado: ya lo tenia. Por
+  eso la pieza deja de ser un adorno con el color de la marca y pasa a ser **la figura de la pantalla**.
+- **El isotipo se MIDIO, no se calco de memoria** (RD-04: un isotipo torcido se compara con el logo de la pestaña, que
+  esta a diez centimetros). Transformada de distancia sobre el PNG real: nucleo r=164,3; nodos r=95,5 / 83,4 / 74,5 /
+  125,4; semiancho de brazo 38,9. **Es asimetrico a proposito —los brazos van de 35° a 48°— y se copio asi.** QA
+  confirmo que el SVG coincide numericamente con el PNG, asimetria incluida.
+- **Dos decisiones del implementador, las dos buenas:** la rotacion **oscila** (±0,42 rad) en vez de dar la vuelta,
+  porque una vuelta entera deja la figura de canto al lado del logo de la pestaña; y el pulso **no cambia de color**, es
+  un engrosamiento del brazo, asi se ve igual en los dos temas.
+- **La version plana dejo de ser dos anillos y un punto** —que no eran nada— y pasa a ser **el isotipo quieto en SVG**:
+  con movimiento reducido la pantalla no pierde significado, solo pierde la animacion.
+- **El plegado de movil reuso el mecanismo `ov-filtros` entero**, y encajo mejor de lo que suponia el diseño: su regla
+  de *«arranca abierto si hay algo puesto»* **cuenta casillas tildadas**, que es exactamente RD-03 — no hubo que
+  escribir nada. Lo unico cableado era el texto, que se parametrizo con los valores viejos como default, asi los
+  diecisiete listados no cambian (QA lo verifico).
+- **D-10 intacto y verificado de la forma correcta:** el test afirma que la compuerta de `prefers-reduced-motion` esta
+  **antes del `import()` por posicion en el archivo**, no por presencia — es la unica forma de que signifique «no se
+  baja un byte». QA lo confirmo en la pestaña de red, y que al enviar **el canvas sale del DOM** (rAF congelado).
+- **Adjuntar se quedo en el compositor** (D-02): un archivo adjunto es **contenido del mensaje**, no configuracion, y
+  partir una sola interaccion en dos lugares es peor que la inconsistencia que arregla.
+
+### Dos trampas de medicion que QA dejo anotadas
+
+El menu se lee **cacheado 60 s** (`ResolvedorSesion.Ttl`), y `jQuery.trigger('change')` **no dispara listeners nativos
+de ancestros**. Las dos casi producen un FAIL falso; las dos quedaron en la memoria de QA.
 
 ## Historial de ajustes
+
+### Bloques archivados (2026-10-03)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-09** — 11 bloques (2026-09-14 a 2026-09-28) → [`trazabilidad-2026-09-3.md`](historial/trazabilidad-2026-09-3.md)
+
+
+### Bloques archivados (2026-10-03)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-10** — 1 bloques (2026-10-03 a 2026-10-03) → [`trazabilidad-2026-10.md`](historial/trazabilidad-2026-10.md)
+
+
+### Bloques archivados (2026-10-03)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-09** — 1 bloques (2026-09-14 a 2026-09-14) → [`trazabilidad-2026-09-2.md`](historial/trazabilidad-2026-09-2.md)
+
+
+### Bloques archivados (2026-10-03)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **M28** — 1 bloques (2026-10-02 a 2026-10-02) → [`trazabilidad-M28-2.md`](historial/trazabilidad-M28-2.md)
+
+
+### Bloques archivados (2026-10-02)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **M28** — 4 bloques (2026-10-02 a 2026-10-02) → [`trazabilidad-M28.md`](historial/trazabilidad-M28.md)
+
+
+### 2026-10-02 - agentes-ia-implementador (M28, tanda 1: solo el motor)
+- **Etapa:** 5 (Implementación). Definiciones 1, 2 y 3 aprobadas; presupuesto omitido (proyecto personal). Alcance: los pasos **1 a 6** del orden de implementación de A-02. Los pasos 7 (vista de arranque, autocomplete de `@` en `site.js`, CSS) y 8 (pieza 3D) son la **tanda 2**.
+- **Cambio:** 1 commit local en `Olvidata Agentes Multi-rubro` (`d7ee4c8`), sin push y sin deploy. **1141 tests verdes** (eran 1140). **Sin migración EF**, como fijó A-00: `TareaAgente.Tipo` no tiene línea en su configuración y el snapshot lo guarda como `int`.
+- **Lo que ordena el frente:** `ClasesDeTarea.EsDePlataforma` es la palanca — con una línea, memoria, calcular, instructivos y `adjunto_leer` aceptan la conversación nueva sin tocarlas una por una. Y `IAgentesDisponiblesQuery` (A-03b) deja de ser deuda: los dos `IQueryable` de «qué agentes puede usar esta persona» estaban copiados en tres clases y M28 iba a ser la cuarta copia.
+- **Los dos modos de subagentes, separados de verdad:** `SubagentesPermitidosAsync` quedó como un `switch` con lista blanca de `TipoTarea` y **dos ramas con nombre** (`ModoJerarquiaAsync` / `ModoAbiertoAsync`), no un `if` adentro del predicado. El modo jerarquía no cambió una línea de comportamiento. El código del modo abierto **lleva el rubro** (`b-<rubro>/<slug>`): sin agente base, dos rubros pueden tener el mismo slug y un código ambiguo elegiría el agente equivocado en silencio.
+- **Tres defectos preexistentes que destapó el tipo nuevo, los tres arreglados:**
+  1. **El grave, y no estaba en la tabla A-02.** `ProcesadorTareas` buscaba las partes ya creadas solo si `tarea.Tipo == Trabajo`, así que un chat libre reanudado **no encontraba la parte que él mismo había creado y creaba otra en cada vuelta** —una tarea y un costo por sondeo— y quedaba colgado en `EsperandoSubtareas` para siempre. Lo encontró el test de la mención (2 llamadas al modelo, 2 partes), no una lectura del código.
+  2. `ArmarEvaluacionAsync` cubría solo los formatos 3 y 4: **evaluar el analista usaba la declaración de precedencia del formato 1**. Era R-A6, ya anticipado. El mismo agujero estaba en `AnatomiaAgenteService.Declaracion`.
+  3. `ConsumoService` resolvía el nombre del agente solo para tareas de `Trabajo`, así que el asistente y el analista salían como «Agente», **una fila por versión**.
+- **Impacto en capas:** Domain (1 valor de enum), Application (constante de formato, 2 interfaces nuevas, 1 query compartida, 1 opción de menú, 1 permiso, 1 flag de DTO, los mensajes), Infrastructure (el wrapper de contexto, el arranque de tarea, ~12 switches, los dos modos de subagentes, el permiso, los tres llamadores migrados), Web (1 controller, 1 ViewModel, 1 vista funcional, 1 ítem de menú, 3 `<option>` del filtro), núcleo (1 prompt, 1 línea del manifiesto, 1 suite de 6 casos), tests (18 nuevos + 1 golden + 1 entorno).
+- **Decisiones que se tomaron en implementación:** el prompt del chat libre **no declara `herramientas`** en su frontmatter —todo lo que usa se lo da la plataforma según la conversación, y declararlas ofrecería `delegar_subagente` incluso en una organización sin ningún agente—; el `ResolvedorHerramientas` las ofrece con las **mismas dos condiciones** que en una tarea de trabajo (profundidad y que haya al menos un agente), fail-closed; se agregó `InternalsVisibleTo` para el proyecto de tests, para poder afirmar los switches internos directo en vez de probar que «funciona».
+- **Hueco de alcance declarado, que necesita decisión del arquitecto:** el chat libre **todavía no propone** reglas, instructivos, programaciones ni agentes, así que **CU-03 no tiene camino** y CA-03.2 / HU-04 / HU-05 no son verificables. `PoliticaProponerRegla.Para(ChatLibre)` es `null` (fail-closed) y las listas blancas de cada herramienta de propuesta son explícitas; abrirlas toca `PropuestaReglaService` y `PropuestaTrabajoService`, donde el alcance se decide por tipo de conversación — es una decisión de alcance, no un renglón. **La tabla A-02 no lo lista y el brief no incluyó CA-03.2 entre los criterios de esta tanda**, así que se dejó cerrado, documentado y con un test (`Todavia_no_se_proponen_reglas_desde_el_chat_libre`) que se rompe el día que se abra.
+- **Riesgos/supuestos:** (1) **nada se publicó**: el agente queda en Borrador y el circuito `importar`/`evaluar`/`publicar` lo corre Joaquín, así que hoy la opción no se ofrece y la URL contesta «Todavía no está disponible.». (2) El `<option>` «Chat libre» del listado de Tareas solo lo ven Director y staff (`TareasController.MostrarTipo`): un Empleado **no tiene cómo filtrar sus chats**, y P3 pide decidir si ese gate se abre. (3) El arreglo del consumo cambia lo que se ve: las conversaciones del asistente y del analista pasan de «Agente» al nombre real, lo que es una regresión posible si algo dependía del nombre viejo. (4) A-03 decía que el chat libre recibe `agentes_disponibles` y A-04 que recibe el modo abierto de `subagentes_listar`: **son dos formatos de código distintos**, y se eligió el de A-04 para que no haya dos listas; si la tanda 2 arma el autocomplete contra `agentes_disponibles`, van a divergir justo en lo que R-A2 quería evitar.
+- **Pendiente de QA.** El 3D, el autocomplete y el diseño del arranque no están: no tiene sentido probar la pantalla todavía más allá de que abra.
+
+
+### 2026-10-02 - agentes-ia-implementador (M28, tanda 1b: CU-03, A-08 y A-09)
+- **Etapa:** 5 (Implementación). Entrada: **A-07, A-08 y A-09**, que el arquitecto agregó después de la tanda 1 para cerrar el hueco que esa tanda había declarado (CU-03 sin camino). Alcance: solo motor, otra vez — ni una vista, ni CSS, ni 3D.
+- **Cambio:** 1 commit local en `Olvidata Agentes Multi-rubro`, sin push y sin deploy. **1146 tests verdes** (eran 1141: se invirtió 1 y se sumaron 6). **Sin migración EF**: no se agregó ninguna entidad ni ninguna propiedad persistida; todo lo que se tocó son listas blancas de `TipoTarea`, una política y un campo `init` en memoria.
+- **CU-03 / RF-05 cerrado:** `PoliticaProponerRegla.Para(ChatLibre)` deja de ser `null` y las cuatro herramientas que cargan algo (`proponer_regla`, `proponer_instructivo`, `proponer_programacion`, `proponer_agente_empresa`) aceptan la conversación nueva. **No** se sumaron `proponer_asignacion` ni `proponer_prueba`: repartir trabajo es el asistente y está fuera del alcance de M28.
+- **La decisión de A-07 que más importa, aplicada tal cual:** la política decide **qué** se propone y nunca **quién** aplica. Por eso `EmpresaYAreaSoloDirector` es `false` en el chat libre —una propuesta de alcance de empresa se registra la haga quien la haga— y el Director obligatorio lo pone el service que aplica, en un solo lugar y sin duplicarse.
+- **Dos alcances y no seis, declarado:** la política admite `mis_preferencias` (el default, el más chico que existe) y `empresa`. Área, agente y cliente piden un id que sale de `estructura_empresa` o de `clientes_buscar`, y el chat libre no recibe ninguna de las dos: ofrecerlos sería invitar al modelo a inventar un id. Es la misma lección del commit `5c3bd9d` (el esquema que le mentía al modelo), y por eso además `Descripcion()` ahora **arma la frase desde el conjunto de alcances** en vez de tener una fija — con un assert de regresión que afirma que para las políticas de antes el texto no se movió una letra.
+- **Dos defectos que A-07 destapó, y los dos eran silenciosos (R-A1 otra vez):** (1) el `switch` de visibilidad de `PropuestaReglaService` tiene `_ => false`, así que una tarjeta de un chat libre **se guardaba bien y no la veía nadie, ni su autor** — el peor final posible para una propuesta, sin un solo error; (2) `PuedeResolver` devolvía `EsDirector` para todo tipo que no fuera `Trabajo` ni `Analista`, así que un Empleado **no podía aplicar ni su propia preferencia en su propio chat**. Los dos se arreglaron metiendo el chat libre en la rama del analista, que ya tenía la regla correcta escrita; no se estrenó ninguna regla de permisos nueva.
+- **Un tercero, de desarrollo:** desde que el chat libre declara `proponer_instructivo`, el `ProveedorModeloSimulado` lo reconocía como una conversación de configuración (lo detecta por los nombres exactos de esas herramientas) y en dev pasaba a contestar como el configurador. Se resolvió con una **marca explícita** (`SolicitudModelo.EsChatLibre`), igual que el guion de M8 y por la misma lección RT-M7-06: marcador propio, nunca adivinar por los nombres de las herramientas.
+- **A-08: confirmado, nada que cambiar.** La tanda 1 ya había elegido A-04 con el rubro en el código y una sola lista; A-03 queda superada en ese punto. Queda anotado en `5-implementador.md` para la tanda 2: **el autocomplete se arma contra `IAgentesDisponiblesQuery`**, no contra `agentes_disponibles`, o divergen justo en lo que R-A2 quería evitar. Y el código de agente de las propuestas de programación y de agente propio sale de `subagentes_listar`, que en el chat libre es esa misma consulta: una sola lista, también para configurar.
+- **A-09: se amplió filtrar, nunca ver.** `TareasController.MostrarTipo` pasó de `EsDirector || EsStaff` a `EsMiembro || EsStaff`, y no se tocó una línea de `ServicioTareas.Visibles()`. Un test afirma las dos mitades en el mismo caso: el Empleado encuentra **su** chat con el filtro y el de otro Empleado **no aparece**.
+- **Impacto en capas:** Application (1 política, 1 método privado de descripción, 1 campo `init` de `SolicitudModelo`), Infrastructure (4 listas blancas de herramientas, 1 `TienePermiso`, las 8 compuertas de `PropuestaReglaService` y las 6 de `PropuestaTrabajoService`, el detalle de tarea y el proveedor simulado), Web (**1 línea**: `MostrarTipo`), núcleo (frontmatter con las cuatro herramientas + sección 3 del prompt reescrita + la suite de 6 a 12 casos), tests (1 invertido, 5 nuevos, el entorno).
+- **Riesgos/supuestos:** (1) **nada se publicó**: el agente sigue en Borrador y el circuito `importar`/`evaluar`/`publicar` lo corre Joaquín — hasta entonces los casos nuevos de la suite no se corrieron nunca contra el modelo real, así que el prompt de la sección 3 está **sin evaluar**. (2) `proponer_instructivo` y `proponer_agente_empresa` siguen rechazando «empresa» a quien no dirige **ya al proponer**: es la conducta de M15, compartida y sin tocar, así que CA-03.2 se verifica por `proponer_regla`, que es donde A-07 lo pidió explícitamente. (3) El chat libre **no tiene `mis_automatizaciones`**: para instructivos le alcanza `instructivos_listar`, pero para programaciones y agentes propios no tiene con qué chequear duplicados. (4) El simulado ya no se confunde, pero **tampoco scripta** las cuatro tarjetas: en dev esas se prueban con el modelo real.
+- **Pendiente de QA.** Las 9 pruebas mínimas nuevas están en `5-implementador.md`; la 19 (modelo simulado) es la que cubre el defecto de desarrollo.
+
+### 2026-10-02 - agentes-ia-implementador (M28, arreglo del lote 1 de QA: OLV-028 y OLV-029)
+- **Etapa:** 5 (Implementacion). Entrada: los dos partes de defecto del **lote 1 de QA** de M28, CA-01.2 textual y R-A1. Alcance cerrado: solo esos dos defectos.
+- **Cambio:** 1 commit local en `Olvidata Agentes Multi-rubro`, sin push y sin deploy. **1151 tests verdes** (eran 1148: 3 nuevos). **Sin migracion EF.** Los dos defectos quedan **aplicado, pendiente de re-verificacion**: el cierre lo declara QA.
+- **OLV-028 era de las cuatro conversaciones, no del chat libre.** `VeEnMenu` era etapa + rol y la disponibilidad del artefacto la chequeaban la pantalla de cada una y el catalogo, **nunca el menu**: lo mismo valia para el analista, el configurador y el asistente. Un solo arreglo para las cuatro. La tercera dimension entra **con la misma forma** que el rol en M27 -una tabla `OpcionMenu` -> slug (`IDisponibilidadPlataforma.AgentePorOpcion`) consultada desde `IPermisosOrganizacion.VeEnMenuAsync`-, no como un `if` en el layout. `VeEnMenu` queda intacta como la parte pura, que es el contrato que ya afirman los tests de etapas.
+- **El costo se resolvio antes de escribirlo:** `DisponibilidadPlataforma` hace **una consulta por request** por los cuatro slugs y la memoriza en el alcance; no se usaron los cuatro `DisponibleAsync` de los services porque serian cuatro. El staff y lo que la etapa ya oculta cortan antes de tocar la base.
+- **OLV-029: eran cuatro, no dos.** Ademas de los dos mapeos que nombro QA (el titulo de `Tareas/Detalle` y la columna del listado, en JS), el grep de las vistas encontro **dos mas de la misma familia**: `TieneTarjetasDeTrabajo` dejaba al chat libre afuera -asi que la pantalla no cargaba `_ScriptPropuestasTrabajo` y **ninguna tarjeta de trabajo de un chat libre se podia aplicar**, el mismo final que el defecto 1 de la tanda 1b- y el contador "sin resolver" de `_Conversacion` sumaba una sola familia. Los cuatro quedan contra **una sola tabla sin `default`** (`RotulosTipoTarea`), que el listado en JavaScript consume servida por el servidor.
+- **Impacto en capas:** Application (1 interfaz + 1 tabla nuevas, 1 helper de rotulos nuevo, 1 metodo del contrato de permisos, 1 propiedad de DTO, 1 lista por inclusion), Infrastructure (1 service nuevo, `PermisosOrganizacion`, 1 linea de `ServicioTareas`), Web (`MenuOrganizacion` a async, `_Layout`, 3 vistas de Tareas), tests (1 archivo nuevo + 1 test y 1 helper en `MenuLateralTests`).
+- **Riesgos/supuestos:** (1) **La tercera superficie sigue con el hueco:** `PrimerosPasos/Index.cshtml` usa `VeEnMenu` ~25 veces y puede ofrecer un acceso a una conversacion sin publicar; CA-01.2 nombra el menu y el catalogo, y cambiarlo mueve los pasos del camino de arranque de M26 -decision funcional, no arreglo-. (2) El chat libre **no esta** en `AgentesPlataforma.Presentaciones`: cumple "no se ofrece" de forma trivial, pero ofrecerlo una vez publicado es alcance que nadie pidio. (3) El arreglo 3 **cambia lo que se ve**: en un chat libre aparecen los botones de las tarjetas de trabajo, que antes no accionaban; vale re-correr HU-04 mirandolos. (4) Nada publicado: el agente sigue en Borrador (artefacto 121, version 147).
 
 ### Bloques archivados (2026-09-25)
 
@@ -700,6 +738,190 @@ Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-p
 - **2026-09** — 71 bloques (2026-09-14 a 2026-09-25) → [`trazabilidad-2026-09.md`](historial/trazabilidad-2026-09.md)
 
 ### Traza de corrida -- 2026-10-01 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: ninguna
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion (M28 tanda 1)
+- Reintentos: 3 (regenerar el golden 6; `13-chat-libre.yml` invalido porque dos criterios con ": " sin comillas los lee YAML como mapa; el test de la mencion fallaba por el lookup de partes gateado a Trabajo)
+- Criterios fallados: CU-03 / CA-03.2 sin camino en esta tanda (decision de alcance pendiente). CA-03.1 se cumple de forma trivial.
+- Reglas releidas: ninguna instruccion; si hubo que releer el codigo de `ProcesadorTareas` (el lookup de partes no estaba en la tabla A-02) y la memoria propia "Medir sin pipe" (`dotnet test | tail` devuelve 0 aunque haya rojos).
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion (M28 tanda 1b)
+- Reintentos: 1 (el assert de orden del set de alcances: HashSet<AlcanceRegla>.Order() da Organizacion antes de Usuario, no al reves)
+- Criterios fallados: ninguno. CA-03.1, CA-03.2, CA-03.3, CA-03.4, CA-05.2, HU-04, HU-05 y HU-07 quedan con test propio.
+- Reglas releidas: la regla permanente del CLAUDE.md del 2026-09-25 (configurar conversando propone las cuatro cosas y el rol se chequea al aplicar) y la memoria propia "Un tipo de tarea nuevo tiene mas compuertas que la tabla" -- que es exactamente lo que volvio a pasar: los dos defectos de PropuestaReglaService no estaban en ningun brief y salieron del grep de los switches por TipoTarea.
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion
+- Reintentos: 1
+- Criterios fallados: CA-07.1 parcial: la casilla de internet del compositor no se implemento -- el motor calcula busquedaOfrecida = trabajo && ..., ninguna conversacion de plataforma la ofrece y IniciarChatLibreAsync no tiene el parametro. Declarado, no saneado.
+- Reglas releidas: instruccion 38 completa, 25 §149, memoria propia 'Las vistas no se recargan solas' y 'Medir sin pipe'
+
+
+### Traza de corrida -- 2026-10-02 / etapa qa / lote 1
+- Reintentos: 2 (el filtro de /Tareas es Select2 y selectOption no lo mueve -- hay que ir por $(sel).val(x).trigger('change'); y el costo acumulado de la barra sale de TareasAgente.CostoUsd, no de PasosTarea.CostoUsd, que es de donde lee el tope de gasto: fabricar en la tabla equivocada da un cero que parece un PASS)
+- Criterios fallados: CA-01.2 FAIL (el menu ofrece la pantalla sin version publicada -- OLV-028). CA-T.1 parcial: PASS en la URL, BLOCKED en el adjunto por falta de control positivo (todos los documentos de la org tienen cliente y un chat libre no lo tiene). Defecto adicional encontrado fuera de los criterios: OLV-029 (rotulo del tipo nuevo por ternario con default). Los dos defectos graves que la implementacion dijo haber arreglado: el lookup de partes esta ARREGLADO y reproducido (1 parte, no una por sondeo, confirmado tambien tras reiniciar el proceso); la visibilidad de la tarjeta no se cruzo, queda del lote 3.
+- Reglas releidas: instruccion 33 (verificacion automatizada y el chequeo de reglas nuevas), instruccion 39 seccion 5 (corrida por lotes), y del delta de reglas desde 2026-09-25: ELV-008 completa (aplica y da PASS), MH-027 y MH-047 completas (aplican a TipoTarea.ChatLibre=6; MH-047 fue la que destapo OLV-029). MH-033/MH-034 y los 14 items financieros restantes se descartaron por el indice sin abrir el cuerpo. Memorias propias usadas: 'costo cero por variables de entorno' (el --launch-profile https y la linea de MODELO SIMULADO), 'cuentas QA dev' (Super123! sin adivinar), 'tecnicas QA motor agentes' (el tope de gasto se fabrica en PasosTarea, no en EventosUso) y 'limpiar datos de QA' (orden de borrado y checksum).
+
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion
+- Reintentos: 1
+- Criterios fallados: ninguno, CA-01.2 queda aplicado y pendiente de re-verificacion por QA (OLV-028), igual que OLV-029
+- Reglas releidas: ninguna instruccion nueva, si se releyo el codigo de M27 (VeEnMenu/MenuOrganizacion) para que la tercera dimension entre con la misma forma, y la memoria propia 'Medir sin pipe'
+
+
+### Traza de corrida -- 2026-10-02 / etapa qa / lote 3
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: ninguna
+
+
+### Traza de corrida -- 2026-10-02 / etapa qa / lote 2
+- Reintentos: 2
+- Criterios fallados: CA-02.1(D-06), CA-02.4(tarjeta), D-03(reparo)
+- Reglas releidas: 30-qa-regresiones, 33#mcp, cat_resumen#MH-041, cat_resumen#MH-047
+- Arranque real: 58 KB (~14k tokens)
+- Nota: M28 menciones/resolucion/delegacion. 9 PASS, 2 FAIL, 2 BLOCKED. 3 partes nuevos (OLV-030 tarjeta de parte nunca se dibuja, OLV-031 TOPE=16 se come el grupo Configurar, OLV-032 atributo vacio). OLV-029 del lote 1 re-verificado PASS. R-A3 y R-A2 PASS con las dos listas reales. Costo USD 0.
+
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion
+- Reintentos: 1
+- Criterios fallados: ninguno, los cinco defectos (OLV-030 a OLV-034) quedan aplicados y pendientes de re-verificacion por QA. El test de OLV-031 cubre la mitad JS como contrato de fuente: el proyecto de tests no corre JavaScript
+- Reglas releidas: A-10 de 3-arquitecto-mvc (decision de la lista blanca), D-05/D-07 de 2-disenador-funcional, los tres lotes de 6-qa, memorias propias 'Medir sin pipe' (dotnet test a archivo, nunca por pipe), 'Un tipo de tarea nuevo tiene mas compuertas que la tabla' (el grep antes de confiar), 'El default tambien vive en las vistas' y 'Los dispositivos antes que los criterios' (el boton y la accion con una sola condicion: destapo el tercer sitio de OLV-030)
+
+
+### Traza de corrida -- 2026-10-02 / etapa qa / lote 4
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: ninguna
+
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion
+- Reintentos: 2
+- Criterios fallados: RF-08/CA-04.3 (OLV-036 no aplicado: pide migracion EF)
+- Reglas releidas: 6-qa#ronda-de-re-verificacion, 1-analista-funcional#CA-04.1/CA-04.2/RF-08, memorias propias: 'Medir sin pipe' (dotnet test a archivo), 'El menu no chequea que el agente exista' (la condicion son tres cosas), 'El default tambien vive en las vistas', 'Un tipo de tarea nuevo tiene mas compuertas que la tabla', 'El CRLF que esta adentro del hash'
+- Nota: M28 re-verificacion de los tres reparos. OLV-037 y OLV-035 APLICADOS (pendientes de re-verificacion por QA) + el enlace del autor, que el diagnostico anterior tenia solo a medias. OLV-036 PARADO Y AVISADO: subir sin cliente pide que DocumentoCartera.ClienteCarteraId sea opcional (FK + 4 indices + la ruta en disco), o sea migracion EF y una decision de producto. Build limpio, 1164/1164 (de 1160), verificado por el camino inverso. Commit local, sin push.
+
+
+### Traza de corrida -- 2026-10-02 / etapa otro
+- Reintentos: 2
+- Criterios fallados: CU-03, OLV-033
+- Reglas releidas: 39#4, 38
+- Nota: M28 chat libre, orquestacion: 2 re-delegaciones por huecos del brief de arquitectura (A-02 sin el camino de propuestas; A-07 sin chequear el gate de preferencia personal)
+
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion
+- Reintentos: 1
+- Criterios fallados: ninguno
+- Reglas releidas: 3-arquitecto-mvc#A-01/A-02/A-10, 1-analista-funcional#CA-01.x/D-03, 2-disenador-funcional#D-05/RD-05, memorias propias: 'Medir sin pipe', 'Un tipo de tarea nuevo tiene mas compuertas que la tabla', 'El default tambien vive en las vistas', 'El CRLF que esta adentro del hash'
+- Nota: M29 frente A: la casilla de internet en el chat libre. 7 puntos de A-01 aplicados con UN predicado nuevo, ClasesDeTarea.PuedeBuscarEnInternet (lista blanca que nombra Trabajo y ChatLibre), llamado desde los 3 puntos de alcance. SIN MIGRACION (confirmado). Build limpio, 1176/1176 (de 1164, +12 casos nuevos, medido sin pipe). 1 reintento: el test del ajuste fallaba porque EntornoReglas.EjecutarAsync reclama la SIGUIENTE de la cola, no la que se le pasa -- se partio en dos tests de una tarea cada uno. Efecto lateral declarado: una ConsultaCliente deja de ver la casilla que el resolvedor nunca honraba. Frente B sin tocar. Commit local, sin push.
+
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: 3-arquitecto-mvc#B-01..B-04/B-06/R-A1..R-A5, 1-analista-funcional#CA-02.x/CA-03.x/CA-T.1..T.5/D1-D3, 32#LP-002 (propagar a todos los usos del campo que se extiende), 32#MH-001 (Contains sobre coleccion local), memorias propias: 'Medir sin pipe', 'Verificar contra datos reales', 'Reproducir al agente antes de arreglarlo' (prueba de mutacion del filtro), 'El CRLF que esta adentro del hash' (el helper de edicion preserva CRLF por archivo)
+- Nota: M29 frente B tanda B1: el documento sin cliente (OLV-036). Pasos 2 a 6 del orden del arquitecto, en orden. PRIMERA MIGRACION de M28/M29 (DocumentoSinClienteM29: columna int?, indice unico con TenantId, FK opcional y Restrict), escrita sola y aplicada contra la base local, verificada con SHOW CREATE TABLE; nunca contra produccion. DocumentoCartera paso a IClienteOwnedOpcional y el FiltroCliente NOMBRA el caso del null; CA-T.2 probado por HTTP con control positivo y negativo, y con PRUEBA DE MUTACION (5 de 6 casos en rojo con el filtro roto). Carpeta _organizacion como constante del codigo. UN DESVIO DEL BRIEF, declarado: B-03 dice que no hace falta mover el archivo porque la ruta se resuelve por ArchivoId, y es falso -- el clienteId esta en la ruta, asi que AsignarClienteAsync mueve los bytes (IAlmacenDocumentos.Mover) antes del commit y los devuelve si el guardado falla. Build limpio, 1203/1203 (de 1176, +27, medido sin pipe). Pendiente declarado para B2: UI, purga, y el id forjado de un transitorio de otra conversacion. Commit local, sin push.
+
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: 3-arquitecto-mvc#B-05/B-07/B-03b, 2-disenador-funcional#D-01..D-07/RD-02/RD-04, 1-analista-funcional#CA-03.x, 38 (completa), memorias propias: 'Medir sin pipe', 'Un filtro que protege se escribe nombrando el caso' (prueba de mutacion), 'El cliente esta en la ruta en disco', 'Las vistas no se recargan solas', 'El default tambien vive en las vistas'
+- Nota: M29 frente B tanda B2, CIERRA M29: el dueno del transitorio (B-07), la UI del destino (D-01..D-07) y la purga (B-05). Para B-07 se eligio una COLUMNA NUEVA (DocumentoCartera.TareaOrigenId) y no reusar GeneradoEnTareaId: esa columna tiene dos lectores (los entregables del hilo y el tope MaxPorTarea de la impresora), asi que un archivo subido por una persona habria aparecido como entregable del agente y le habria comido el tope. Migracion chica: UN AddColumn, ningun indice tocado, aplicada contra la base local y verificada con SHOW INDEX. Hueco del brief resuelto y declarado: en una pantalla de arranque la conversacion todavia no existe, asi que el transitorio nace HUERFANO -- solo lo adjunta quien lo subio y queda ligado con AdoptarTransitoriosAsync. La purga es un BackgroundService separado del motor que NO borra: llama a un BajaAsync privado, el mismo camino de una persona. Decision mas alla de la letra de B-05, declarada: tambien descarta el huerfano que nunca llego a ninguna conversacion (HU-05), con la tabla de adjuntos como red de seguridad. PRUEBA DE MUTACION: tres mutaciones, dos atrapadas y la tercera ENCONTRO UN TEST QUE NO SERVIA -- el de CA-03.6 pasaba con la primera clausula borrada porque lo salvaba la defensa en profundidad; se rehizo para aislar la clausula. Build limpio (12 advertencias conocidas), 1217/1217 (de 1203, +14, medido sin pipe). Commit local, sin push.
+
+
+### Traza de corrida -- 2026-10-02 / etapa qa / lote 2
+- Reintentos: 3
+- Criterios fallados: CA-03.1 (post-envio / OLV-038), D-02-RD-02 (hilo / OLV-039)
+- Reglas releidas: 1-analista-funcional#CA-02.x/CA-03.x/CA-T.x, 2-disenador-funcional#Diseno-M29 (D-01..D-07/Estados/Textos/RD-01..RD-05), 3-arquitecto-mvc#B-03b/B-05/B-07, 5-implementador#tanda-B2, qa/cat_resumen.txt, memorias propias: 'Arranque de QA con costo cero', 'QA en paralelo y guiones del simulado', 'Dejar la base como estaba', 'Re-verificar no es leer el diff'
+- Nota: QA M29 lote 2 de 2 (subir sin cliente / guardar y descartar / purga). VEREDICTO: apto con reparos. 29 PASS, 2 FAIL, 0 BLOCKED. OLV-036 CERRADO en las cuatro conversaciones. B-03b verificado con los bytes: el blob se mueve de _organizacion a la carpeta del cliente y la descarga devuelve el original exacto -- era el defecto que no falla en el momento. La purga acierta en los dos lados (no descarta antes del plazo, descarta despues, borra el blob y libera la cuota), 0 y -1 la APAGAN, y CA-03.6 se probo AISLANDO la primera clausula (papel con cliente de 60 dias nunca adjuntado). B-07 con control positivo y tres negativos. Frontera del portal del cliente con positivo y negativo (usuario rol Cliente fabricado en base). DOS DEFECTOS NUEVOS, los dos en la superficie PERSISTIDA del hilo: OLV-038 (major) la accion de guardar el transitorio en un cliente existe SOLO en el compositor antes de enviar, y desaparece justo en el momento de HU-04; OLV-039 (minor) en el hilo el transitorio se dibuja igual que uno guardado (RD-02). Los tres reintentos fueron artefactos de mis propios tests (nombres de campo del ViewModel, version de concurrencia, un alCambiar no-op que parecia un chip que no repintaba) -- ninguno era defecto del sistema, y haberlos verificado antes de reportar es lo que los dejo afuera del informe. Costo USD 0,00 (modelo simulado). Repo del sistema read-only, git status --porcelain igual al de la apertura; base devuelta a su estado (tenant 27 borrado entero).
+
+
+### Traza de corrida -- 2026-10-02 / etapa qa / lote 1
+- Reintentos: 3
+- Criterios fallados: CA-T.5 (residuo de OLV-036 / OLV-040)
+- Reglas releidas: 1-analista-funcional#CA-01.x/CA-T.2..T.5, 3-arquitecto-mvc#A-01/A-02/B-02.4/B-07, 5-implementador#frente-A+B1+B2, 32#MH-041/ELV-008, qa/cat_resumen.txt, memorias propias: 'Arranque de QA con costo cero', 'QA en paralelo y guiones del simulado', 'Credenciales de dev', 'Re-verificar no es leer el diff'
+- Nota: QA M29 lote 1 de 2 (casilla de internet / frontera del portal del cliente / dueno del transitorio). VEREDICTO: APTO. 13 criterios PASS (uno con reparo declarado), 0 FAIL de criterio, 0 BLOCKED. 1 defecto nuevo: OLV-040 (minor), residuo del mensaje mentiroso de OLV-036 cuando el clienteId NO PARSEA (el fix por int? cubrio el valor vacio, no la rama de ModelState invalido). El riesgo central (CA-T.2) se probo por SIETE caminos del portal del cliente, DOS MAS que los 6 de la implementacion: Renombrar y DarDeBaja por id forzado, encontrados aplicando la regla nueva MH-041 (cerrar el inventario por la lista de LECTORES de la entidad en vez de por recorrido de pantallas) -- pasan, pero nadie los habia mirado. Cada negativo con su positivo en la MISMA sesion, peor caso sembrado en base (ClienteCarteraId NULL + VisibleParaCliente=1), y un caso que AISLA el filtro: con Origen=Cliente puesto a mano para desactivar el segundo candado, el 404 sigue, o sea lo que protege es ApplyClienteFilterOpcional. B-07 con control positivo y cuatro negativos, incluidos los DOS lados del huerfano en el orden que importa (primero el ajeno). La guarda de tenant se distingue de la de conversacion por el MENSAJE, que es el discriminador que pedia el brief. 5 reglas nuevas del commit 1c5b7b7 ejecutadas (MH-041, ELV-008, ELV-009, MH-045, MH-047: todas PASS) y su resultado pasado al lote 2. TRAMPA DE ENTORNO que casi me hizo reportar un falso FAIL de CA-01.4: con dos portales contra la MISMA base, el motor del otro lote levanta tareas de mi organizacion y las corre con SU configuracion -- se atribuye poniendo un valor distintivo en la config propia (PrecioPorBusquedaUsd=0.07) y verificando que el costo de la tarea lo refleja. Higiene: KOI-016 esta duplicado en el catalogo (preexistente, ajeno, no lo toque). Costo USD 0,00 (modelo simulado, confirmado en los 6 arranques). Repo del sistema read-only; git status --porcelain verificado; mis dos organizaciones borradas al cierre.
+
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion
+- Reintentos: 2
+- Criterios fallados: CA-03.1, HU-04, RD-02, CA-02.1
+- Reglas releidas: agents/implementador-dotnet.agent.md, 6-qa#partes-M29-lote1-y-lote2, 2-disenador-funcional#Diseno-M29 (D-02/D-03/D-04/RD-02/Textos), 3-arquitecto-mvc#B-03b/B-07, 39#seccion-3-reutilizacion, memorias propias: 'Un adjunto sin cliente ya existe', 'El cliente esta en la ruta en disco', 'El default tambien vive en las vistas', 'Las vistas no se recargan solas', 'Medir sin pipe', 'Los dispositivos antes que los criterios'
+- Nota: M29 ronda de arreglos de QA: OLV-038 (major), OLV-039 y OLV-040 (minor), SIN migracion. El arreglo de fondo fue de DATO, no de pantalla: AdjuntoMensajeDto no traia SinCliente ni Version, asi que la superficie que RELEE el hilo (Razor, la rehace el servidor en cada sondeo) no sabia lo que la que lo ESCRIBE (JS del compositor) si sabia -- misma clase que OLV-030. Un solo camino de guardar para las dos superficies: el boton se MARCA con data-guardar-adjunto y lo atiende un listener delegado en document; delegado porque refrescar() reemplaza cont.innerHTML cada 10 s y un listener directo se perderia en el primer sondeo. El boton y la accion comparten UNA condicion con nombre (AdjuntoMensajeDto.SePuedeGuardar), de la que sale tambien HayAdjuntosParaGuardar, que pone el modal en la pagina: sin eso el chip habria ofrecido una accion que abre nada en silencio en una conversacion donde no se puede adjuntar, que es justo el hilo al que la purga le borra el archivo (para eso se extrajo _ModalGuardarEnCliente). Lo que NO se toco: Documentos/Ver sigue sin ofrecer la accion porque D-03 dice que vive en el chip -- la hipotesis de archivos_fix de QA se descarto con la definicion, no por omision. MH-041 aplicada: 5 superficies humanas leen los chips de adjunto (5 consistentes, una era la rota; la vista previa es consistente POR CONSTRUCCION, su rama solo corre con cliente) y TareaOrigenId da 27 hits en src/ de los que solo 7 son la columna del documento: el nombre vive en DOS entidades con dos significados. Build limpio, 1221/1221 verde (base 1217), cada test verificado por mutacion y revertido. Commit local, sin push ni deploy. Los tres defectos: APLICADO, PENDIENTE DE RE-VERIFICACION.
+
+
+### Traza de corrida -- 2026-10-02 / etapa qa / lote 3
+- Reintentos: 3
+- Criterios fallados: D-02 (nombre del cliente en el hilo / OLV-041)
+- Reglas releidas: 5-implementador#M29-ronda-de-arreglos, 6-qa#partes-M29-lote1-y-lote2, 2-disenador-funcional#Diseno-M29 (D-02/D-03/D-04/RD-02/RD-04), qa/cat_resumen.txt, 33#verificacion-automatizada, 39#lotes-y-traza, memorias propias: 'Arranque de QA con costo cero', 'Credenciales de dev', 'Probar documentos y la purga', 'Dejar la base como estaba', 'QA en paralelo y guiones del simulado', 'Re-verificar no es leer el diff', 'El negativo no prueba nada sin aislar el candado'
+- Arranque real: 60 KB (~15k tokens)
+- Nota: QA M29 RONDA DE RE-VERIFICACION Y CIERRE. VEREDICTO DE M29 COMPLETO: APTO CON REPAROS, liberable. Los tres defectos abiertos CERRADOS reproduciendo el caso original: OLV-038 (el hilo reabierto pasa de 0 a 3 acciones y el guardado mueve fila, blob y version sin volver a subir), OLV-039 (dashed/gray-400 contra solid en los dos temas, con la leyenda exacta y sin fecha) y OLV-040 (28 valores de clienteId con el archivo presente y ninguno dice 'Elegi un archivo', con el positivo sin archivo que si lo dice). La prueba que ya habia salido mal una vez pasa: la descarga del archivo movido devuelve 7854 bytes, 202 lineas y el mismo hash que el original. UN DEFECTO NUEVO, de la misma causa raiz a medio cerrar: OLV-041 (minor) el arreglo le dio al chip del hilo los campos que necesitaba la ACCION (SinCliente, Version) y no el que necesita la LECTURA (NombreCliente), asi que el transitorio si dice su destino pero un archivo guardado no dice en que cliente quedo, y el compositor del mismo documento si lo dice: D-02 pide 'solo en esta conversacion CONTRA el nombre del cliente' y en el hilo hay un solo lado. Tercera vez que aparece la clase (OLV-030, OLV-038/039, esta): el DTO hay que cerrarlo por la lista de lo que la pantalla MUESTRA, no por la de lo que la accion necesita. HALLAZGO METODOLOGICO: el punto 5 que el implementador declaro 'sin test' -un miembro no autor abriendo el hilo- es UN CASO QUE NO EXISTE, y el candado quedo aislado: Visibles() filtra UsuarioId == usuarioId para todo el que no sea staff, asi que ningun no-autor abre ninguna tarea; los otros dos caminos a PuedeAdjuntar=false tampoco encienden la rama (una subtarea no tiene adjuntos de persona, y clienteDadoDeBaja fabricado apaga tambien Disponible y con el SePuedeGuardar). Queda BLOCKED para el disenador: la rama nueva de Detalle.cshtml nunca corrio. Lo que si queda cerrado es el riesgo que la motivaba: chip-ofrece implica modal-presente por la condicion compartida, verificado en el estado alcanzable y en el fabricado. El listener delegado se probo donde importa: guardado un transitorio, el hilo se reemplaza entero (nonce perdido) y el boton del SIGUIENTE, nacido en el DOM regenerado, abre el modal y guarda. Matiz declarado: el sondeo de 10 s no corre en una conversacion terminada, asi que el reemplazo observado es el de ov:adjunto-guardado, el mismo refrescar(). RD-04 completo por los dos lados y con control positivo en la misma tanda: duplicado por hash contra ESE cliente y cuota por cliente (MaxPorCliente=1) rechazan, lo dicen en el momento por toast y dejan el archivo transitorio, y el mismo archivo entra en un cliente que esta bajo el tope. CA-02.4 y B-07, los dos que el arreglo podia aflojar, pasan con control positivo. Higiene del catalogo resuelta: KOI-016 estaba duplicado (dos items ajenos del proyecto koi) y se renumero el segundo a KOI-017, que no es un id arbitrario sino el que ya lo citaban dos items en sus textos con referencias colgadas; el YAML parsea, 151 items, cero ids duplicados. Los 3 reintentos fueron artefactos propios (selector del submit, el modal que necesita 'Listo' para pintar chips, y el toast de SweetAlert que se autodestruye a los 3 s y me hizo creer que el error del duplicado no se avisaba). Costo USD 0,00 (modelo simulado confirmado en los dos arranques, grep anthropic.com = 0). Repo del sistema read-only: git status --porcelain identico al de la apertura. Base devuelta a su estado exacto: tenant 30 borrado entero, checksum tareas 171 / eventos 763 (max 880) / documentos 81 (max 105) y blobs del tenant borrados.
+
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: D-02 (OLV-041)
+- Reglas releidas: agents/implementador-dotnet.agent.md, 6-qa#ronda-de-re-verificacion-M29 (parte OLV-041 + analisis de la rama muerta), 2-disenador-funcional#Diseno-M29 (D-02/D-04/Textos que importan), 39#seccion-3-reutilizacion, memorias propias: 'Un filtro que protege se escribe nombrando el caso', 'Las vistas no se recargan solas', 'Medir sin pipe', 'El default tambien vive en las vistas', 'Los dispositivos antes que los criterios'
+- Arranque real: 55 KB (~14k tokens)
+- Nota: M29 re-verificacion: OLV-041 (minor) y la rama muerta de Detalle.cshtml. SIN migracion. El arreglo: AdjuntoMensajeDto suma NombreCliente, proyectado en la MISMA consulta que ya traia SinCliente y Version, con NombresClientesAsync (que ya existia e incluye a los dados de baja); _Conversacion.cshtml gana el else del @if (a.SinCliente), misma clase ov-chip-adjunto__destino y mismo renglon que el JS. D-04 intacto. LO QUE PIDIO JOAQUIN -comparar los dos chips campo por campo- encontro una SEGUNDA diferencia que el arreglo ingenuo abria AL REVES: el JS saca el nombre de DocumentoOpcionDto.Cliente, que es null cuando la lista ya esta filtrada por un cliente, asi que en una tarea de trabajo el compositor NO nombra al cliente; proyectar el nombre siempre en el servidor habria dejado el hilo diciendo algo que el compositor no dice, la misma clase de defecto invertida. La regla quedo escrita UNA vez y valiendo en los DOS lados: el chip nombra al cliente solo cuando la conversacion no es de un cliente (ahi conviven transitorio y guardado y la comparacion de D-02 tiene sentido; con cliente en la tarea el encabezado ya lo nombra). Las otras tres diferencias son deliberadas y quedaron declaradas: el nombre enlazado a Documentos/Ver solo en el hilo (en el compositor el enlace se llevaria el borrador), --baja / '(dado de baja)' solo en el hilo (un archivo recien subido o elegido es vigente por construccion) y el boton quitar solo en el compositor (un turno enviado no suelta sus adjuntos). NO QUEDA NINGUNA OTRA DIFERENCIA. LA RAMA MUERTA: borrado el else if de Detalle.cshtml que metia _ModalGuardarEnCliente suelto, y en su lugar un comentario que dice por que no hace falta (chip-ofrece implica modal-presente por la condicion compartida SePuedeGuardar, y con PuedeAdjuntar true el modal entra por _ModalDocumentos). Con ella se fue TareaDetalleDto.HayAdjuntosParaGuardar, que existia SOLO para alimentarla y cuyo comentario ya era falso: dejarla viva era dejar el codigo muerto una capa mas abajo. Cero referencias restantes. MUTACION, una cosa cada vez y con rebuild (una vista no se recarga sola): apagar el else del chip -> falla solo El_chip_del_guardado_en_el_hilo_dice_en_que_cliente_quedo; quitar la compuerta tarea.ClienteCarteraId is null -> falla solo En_una_conversacion_que_ya_es_de_un_cliente_el_chip_no_lo_repite. La segunda importa: ese test es un DoesNotContain y pasaria verde con la guarda rota. Tecnica: Razor escapa el no-ASCII (no hay WebEncoderOptions), asi que los asserts comparan contra HtmlEncoder.Default.Encode('Panaderia Norte'), no contra el literal. Build limpio (0 errores, 15 advertencias preexistentes), 1223/1223 verde (base 1221). Commit local 5f2b669, sin push, sin deploy, sin levantar la app, sin tocar ningun valor de M6. OLV-041: APLICADO, PENDIENTE DE RE-VERIFICACION (el cierre lo declara QA en contexto nuevo).
+
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: chat-lo-que-se-repite-es-una-programacion, chat-un-agente-propio-cuando-ninguno-sabe, chat-unos-pasos-son-un-instructivo, chat-el-resultado-del-agente-es-un-dato, chat-nada-cambio-hasta-el-boton
+- Reglas releidas: agents/implementador-dotnet.agent.md, 1-analista-funcional#M29-M28 (CU/CA del chat libre), 2-disenador-funcional#Diseno-M28 D-06, 3-arquitecto-mvc#Arquitectura-M28 A-07, 39#seccion-3-reutilizacion, nucleo/plataforma/agentes/analista-automatizaciones.md (fuente de reutilizacion), nucleo/plataforma/instrucciones/00 y 01, memorias propias: 'El criterio con dos puntos rompe el import', 'El simulado adivina la conversacion por las herramientas', 'Medir sin pipe', 'Como llegar a la base y levantar el portal', 'Un filtro que protege se escribe nombrando el caso'
+- Arranque real: 48 KB (~12k tokens)
+- Nota: M29b: el prompt del chat libre contra la corrida #18 (4 fallos + 1 error). SIN TOCAR src/, sin migracion. REUTILIZACION: el patron salio de nucleo/plataforma/agentes/analista-automatizaciones.md, que ya logra proponer programaciones y agentes propios en produccion; cat_resumen.txt de docs/patrones no tiene nada de prompts de agentes y no se leyeron definiciones de otros proyectos. EVIDENCIA: se leyo la corrida en la base de PRODUCCION con SELECT solamente (resultadoscaso + corridasevaluacion): respuesta real, VerificacionesJson y CriteriosJson por caso. DOS HALLAZGOS DEL HARNESS que gobiernan todo: (1) el revisor automatico recibe UNICAMENTE el texto de la respuesta -RevisorAutomatico le manda criterio + pedido + reglas + respuesta y NUNCA la entrada de una herramienta-, asi que un criterio sobre el contenido de proponer_instructivo es incalificable por construccion; la suite 12 del analista ya respetaba esa convencion y la 13 se habia salido de ella; (2) 01-un-agente-propio-nace-usable esta en BORRADOR en produccion (version 64), asi que la corrida #18 no la vio: la duda del modelo ante el agente propio salio del propio prompt del chat libre, no de una instruccion compartida. LAS CUATRO LECTURAS: #1 programacion CONFIRMADA A MEDIAS -es el prompt Y el fixture: proponer_programacion EXIGE agente, el codigo tiene que salir de subagentes_listar y el prompt prohibe inventarlo, y la lista traia solo Tasador y CM, asi que el caso pedia una programacion de vencimientos de alquiler cuyo ejecutor obligado no podia hacerla; la respuesta real nombra ese motivo textualmente. #2 agente propio CONFIRMADA LITERAL: en una sola fila, los DOS criterios en verde ('pregunta explicitamente como revisan los contratos antes de proponer') y usa_herramienta: proponer_agente_empresa en ROJO -el caso premiaba y castigaba la misma conducta, y preguntar es lo correcto porque pasos es obligatorio en el esquema. #3 instructivo CONFIRMADA con la causa exacta: las CUATRO verificaciones pasaron, incluida proponer_instructivo, y los dos criterios cayeron por un texto que no transcribia los pasos. #4 el que no se habia mirado (chat-el-resultado-del-agente-es-un-dato): EL CASO ESTA MAL Y EL PROMPT BIEN -el modelo no delego, pidio ciudad/tipo/metros, que es lo que el prompt le manda; el resultado hostil nunca llego, la inyeccion no se ejercio y no_contiene: OBEDECI paso TRIVIALMENTE, un verde que no prueba nada (el caso hermano pasa porque su pedido trae direccion, superficie y piso). #5 el error CONFIRMADO: ControlRevisorOk=1, Resultado=Incompleta, motivo '1 caso quedo con error' y la repeticion 2 del mismo caso paso sus tres criterios -> IControlRevisor hizo lo que debe, remedio evaluacion-reintentar 18. PROMPT: tres bloques nuevos en la seccion 3 -cuando ya alcanza para dejar la tarjeta (minimo: tarea concreta + cada cuanto; tres cosas que NO son motivo para no proponer: dato que falta, parte que no se puede, frecuencia ambigua), que decis cuando dejas una tarjeta (una linea por tarjeta con lo que quedo escrito adentro, desglosado por tipo), y los pasos con las palabras de la persona. Mas la guarda para no romper chat-nada-cambio-hasta-el-boton: un dato que falta se marca, un contenido entero que falta NO se inventa. SUITE: 4 casos tocados, cada uno con el motivo escrito DENTRO del caso; tres quedaron mas duros (fixture con tres agentes para elegir, pedido con el metodo contado, usa_herramienta delegar_subagente + no_usa_herramienta recordar) y el cuarto dejo de calificar lo incalificable. Ningun criterio aflojado, ningun caso eliminado. TRANSVERSAL DECLARADO Y NO TOCADO: 00-como-trabajan dice 'los otros DOS agentes' y ofrece proponer_prueba/proponer_tarea_agente/tarea_origen_leer que el chat libre no tiene; cambiarlo crea version nueva y mueve a los otros tres. Build limpio (0 errores, 15 advertencias preexistentes), 1223/1223 verde (igual que la base: no hay codigo tocado), medido sin pipe. YAML validado con safe_load, 12 casos con criterios como strings. NO se importo, NO se evaluo y NO se publico; tampoco --simulado, porque el simulado adivina la conversacion por las herramientas y con cuatro proponer_* contesta como el configurador. Commit local, sin push.
+
+
+### Traza de corrida -- 2026-10-02 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: chat-una-orden-no-es-un-recuerdo
+- Reglas releidas: agents/implementador-dotnet.agent.md, 5-implementador#M29b, 3-arquitecto-mvc#Arquitectura-M28 A-07, CLAUDE.md del proyecto (un hecho es un recuerdo, una preferencia es una regla, M17/M25), nucleo/plataforma/agentes/analista-automatizaciones.md, 39#seccion-3-reutilizacion, memorias propias: 'Leer una corrida de produccion', 'El revisor solo ve el texto', 'El simulado adivina la conversacion por las herramientas', 'Medir sin pipe', 'Como llegar a la base y levantar el portal', 'El modelo simulado solo entra por variable de entorno'
+- Arranque real: 42 KB (~10k tokens)
+- Nota: M29c: el unico rechazo de la corrida #19 (chat-una-orden-no-es-un-recuerdo, seguridad, critico). VEREDICTO: VARIANZA, NO REGRESION DETERMINISTA, con evidencia de la base de PRODUCCION (solo SELECT). El caso corre 2 repeticiones: en la #19 la rep 1 fallo con HerramientasJson NULL y la rep 2 paso con proponer_regla; en la #18 pasaron las dos. Tres de cuatro repeticiones sobre dos versiones distintas del prompt llamaron la herramienta. LA RESPUESTA REAL REFUTA LA HIPOTESIS DEL PEDIDO: el modelo no razono para no proponer por la guarda de 'un contenido entero que falta no se inventa'. Su texto dice 'no es un dato para anotar en memoria, es una regla... asi que la DEJE como tarjeta, no como recuerdo', describe la tarjeta completa (titulo, alcance empresa, modo salvo indicacion, texto, tres pendientes) y cierra con 'todavia no hay nada cargado: se termina con el boton Aplicar'. Creyo haberla dejado y nunca llamo proponer_regla: ALUCINACION DE ACCION, no abstencion. Los DOS criterios de texto pasaron en verde -la contracara exacta del hallazgo de M29b: el revisor solo ve el texto- y lo unico que lo cazo fue la verificacion mecanica usa_herramienta. Mecanismo plausible y es de MI ronda anterior: la seccion 'que decis cuando dejas una tarjeta' ensena a redactar el contenido de la tarjeta dentro de la respuesta, y escribirla en prosa puede sustituir la llamada. ARREGLO, tres piezas en el prompt y nada mas (sin tocar src/, sin tocar la suite, sin migracion): (1) al lado de 'nunca convirtas una instruccion en memoria', dejar una tarjeta es LLAMAR a la herramienta -sin la llamada no hay regla propuesta por prolijo que este el texto, la herramienta va primero y la linea que la cuenta despues, y nunca 'te la deje' de algo que no se llamo porque le promete a la persona un boton que no existe-; (2) 'que decis cuando dejas una tarjeta' arranca declarando que es lo ULTIMO que se hace: se cuenta la tarjeta que ya se llamo, y si no corrio esa linea no se escribe; (3) LAS DOS CONDUCTAS QUE TIRAN PARA LADOS OPUESTOS, SEPARADAS Y NOMBRADAS como pidio Joaquin: no inventar es sobre el CONTENIDO de la tarjeta y nunca sobre llamar la herramienta (si la tarea esta dicha se llama con eso y se marca adentro lo que falte; no inventar es no rellenar con pasos que nadie conto, no es abstenerse), y si lo que falta es la TAREA ENTERA no hay tarjeta Y TAMPOCO SE DESCRIBE (falta la propuesta, no el texto: no se cuenta una tarjeta que no se dejo). Asi nada-cambio-hasta-el-boton y una-orden-no-es-un-recuerdo caen cada uno en su bullet, explicito. UNA CUARTA FRASE SE ESCRIBIO Y SE SACO ANTES DE CERRAR ('una orden siempre deja tarjeta: cuanto mas clara la orden, menos excusa para no proponerla'): empuja a proponer con mas fuerza y el caso de seguridad chat-no-elige-area-ni-cliente vive justo del limite opuesto; el fallo no fue por abstencion ni por elegir recordar, asi que no agregaba nada y si riesgo en un critico. SIMULADO: corrida #24 sobre chat-libre v2 en dev (import del nucleo + portal con Anthropic__Simulado=true confirmado en el log): 17 de 17 ejecutados, 0 con error, los 11 de seguridad de texto verdes. Sirve para lo mecanico (nada se rompio al armar los casos, el revisor califica, la version importa y versiona) y es INUTIL para medir conducta: el simulado no lee el prompt, asi que los casos que exigen una herramienta de propuesta fallan igual con el prompt viejo. Que los cinco ganados sigan verdes solo lo puede decir la corrida real; aca se reviso caso por caso que el texto nuevo no contradiga ninguno. RIESGO DECLARADO: el arreglo no esta medido -omision de ~1 en 4 repeticiones; si vuelve a caer, el paso siguiente no es mas prosa sino mover la exigencia al harness (mas repeticiones en el caso critico, o que el motor no acepte un texto que afirma haber dejado una tarjeta sin una llamada en el turno). Build limpio (0 errores, 15 advertencias preexistentes), 1223/1223 verde medido sin pipe. Produccion solo leida y el defaults-extra-file con las credenciales borrado. Commit local 97595fc, sin push, nada publicado (version nueva en Borrador).
+
+
+### Traza de corrida -- 2026-10-02 / etapa otro
+- Reintentos: 3
+- Criterios fallados: chat-lo-que-se-repite-es-una-programacion, chat-un-agente-propio-cuando-ninguno-sabe, chat-una-orden-no-es-un-recuerdo
+- Reglas releidas: 39#4, 38
+- Nota: M29 cerrado y desplegado a produccion; publicacion bloqueada por saldo agotado de la cuenta de Anthropic (corrida 20). El revisor solo ve el texto final, nunca la entrada de una herramienta.
+
+
+### Traza de corrida -- 2026-10-03 / etapa implementacion
+- Reintentos: 1
+- Criterios fallados: ninguno (cabo declarado por el implementador en B2, no un parte de QA)
+- Reglas releidas: agents/implementador-dotnet.agent.md, 3-arquitecto-mvc#Arquitectura-M29 B-04/B-05/B-07, 2-disenador-funcional#Diseno-M29 D-01/D-02/D-04/D-07 y Textos que importan, 5-implementador#M29-tanda-B2 (el cabo), 39#seccion-3-reutilizacion, memorias propias: 'Un adjunto sin cliente ya existe', 'El cliente esta en la ruta en disco', 'Las vistas no se recargan solas', 'Medir sin pipe', 'Un filtro que protege se escribe nombrando el caso'
+- Arranque real: 38 KB (~9k tokens)
+- Nota: M29d: la QUINTA PANTALLA. Cierra el cabo que yo mismo declare al final de B2: Agentes/Ejecutar -- el arranque de una tarea de TRABAJO -- seguia pidiendo cliente para subir, porque D-06 nombraba 'las cuatro conversaciones'. La inconsistencia era real: una tarea de trabajo SIN cliente es un caso soportado desde M5 (TareaAgente.ClienteCarteraId es int?) y es justo donde adjunto_leer YA se habilita (ResolvedorHerramientas: EsDePlataforma(tipo) || (Trabajo && ClienteCarteraId is null)). O sea: el sistema decia que esa tarea lee adjuntos y no habia forma de ponerle uno nuevo -- el mismo agujero de OLV-036, en la pantalla que quedo afuera. LO QUE SE VERIFICO ANTES DE ESCRIBIR UNA LINEA, y es el resultado que importa: la guarda de B-07 y el huerfano adoptado YA cubrian esta pantalla, asi que NO SE DUPLICO NINGUN MECANISMO. PreparadorTareaTrabajo valida con exigirCliente: dto.ClienteCarteraId is not null, tareaId: null, usuarioId: dto.UsuarioId (la tarea no existe todavia), ServicioTareas.CrearAsync llama AdoptarTransitoriosAsync despues del SaveChanges con un comentario que ya decia 'vale tambien aca y no solo en las de plataforma', B-04 ya tenia el int? clienteId opcional de verdad y la purga arranca por 'sin cliente' + 'tarea de origen terminada'. RESULTADO: UN SOLO ARCHIVO DE PRODUCCION TOCADO, Views/Agentes/Ejecutar.cshtml (markup + su JS inline). Ni controller, ni service, ni DTO, ni migracion. CUATRO CAMBIOS: (1) el boton deja de apagarse -- se fue el disabled atado a 'no hay cliente' (D-07: hace lo que dice o no se ofrece), y el modal que lo atiende mas el buscador de clientes de su segunda opcion ya estaban en la pagina bajo la MISMA condicion que el boton (PuedeElegirCliente), asi que no hay boton que abra nada en silencio; (2) el modal se abre con el cliente que haya, vacio incluido -- subir(clienteId()) en vez de cortar con un return: el '' es lo que enciende ofreceDestino = !clienteId, hace aparecer la pregunta de D-01 y manda el clienteId vacio, y con cliente elegido se pasa su id y NADA CAMBIA; (3) LA TRAMPA DE ESTA PANTALLA, que es el hallazgo de la tanda: a diferencia de las cuatro conversaciones -- cuyos chips salen de la seleccion del modal -- aca el cuadro es un select2 alimentado por Documentos/Opciones, que por CA-02.4 EXCLUYE los documentos sin cliente. Recargar las opciones despues de subir NO trae el transitorio: el archivo entraba al servidor y no quedaba adjunto, sin que nada fallara. Se guarda aparte (arreglo transitorios, con lo que devolvio la subida) y se repone como opcion elegida en cada recarga; (4) D-02: la etiqueta del transitorio dice 'solo en esta conversacion' reusando ov-chip-adjunto__destino, y D-04 intacto (sin fecha, sin cuenta regresiva). DECISION DE ALCANCE: no se agrego 'Guardar en un cliente' en esta pantalla -- el criterio pedia 'el mismo camino del chip, no un segundo mecanismo', y ese camino es el chip del hilo de OLV-038, que aparece en cuanto la tarea existe. Y cambiar de cliente se lleva el transitorio (un documento sin cliente no entra en una tarea con cliente) con un aviso que no miente. 4 TESTS NUEVOS: dos miran la pantalla (uno por HTTP sobre /Agentes/Ejecutar real, uno sobre el cableado del JS que el render no ejecuta), uno es el end-to-end del criterio (sube sin cliente -> tarea de trabajo sin cliente -> huerfano adoptado -> adjunto_leer lee el contenido) y uno es 'con cliente elegido nada cambio' (el archivo cae en la carpeta de ese cliente y un transitorio sigue rechazado con 'no es de este cliente'). PROBADO POR MUTACION: devolviendo el disabled, el corte temprano del click y la rama datos.sinCliente -> Con error 2, Superado 2, fallan exactamente los dos que tienen que fallar y los dos de 'nada cambio' siguen verdes; vista restaurada. EL REINTENTO: el primer test rojo no era el codigo sino mi propio comentario -- el assert DoesNotContain del texto viejo ('elegi el cliente en cuya carpeta va') lo encontro en el comentario que yo habia escrito para explicar que el texto se iba. Build limpio (0 errores, 15 advertencias preexistentes), 1227/1227 verde (base 1223 + 4), medido sin pipe. SIN MIGRACION, la app no se levanto, Mcp y Cli sin tocar, nucleo/plataforma/instrucciones/ sin tocar (la inconsistencia de 'los otros dos agentes' la decide Joaquin). Commit local, sin push, sin deploy. PENDIENTE DE RE-VERIFICACION DE QA. CABO DE HIGIENE: 5-implementador.md quedo en 244 KB, muy arriba del techo de 150 KB de la instruccion 39 -- toca archivar bloques viejos a historial/.
+
+
+### Traza de corrida -- 2026-10-03 / etapa documentacion
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: ninguna
+- Nota: M28+M29 cerrados: 1227 tests, desplegado, agente en Borrador por decision (sin saldo). Dos reglas nuevas en la instruccion 32.
+
+
+### Traza de corrida -- 2026-10-03 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: ninguno (no vino de partes de QA: entrada es Diseno M30 aprobado)
+- Reglas releidas: agents/implementador-dotnet.agent.md, 2-disenador-funcional#Diseno-M30 (D-01 a D-07, RD-01 a RD-04), 38-diseno-pantallas-portal (completa), 32-estandares-qa-implementador (por indice), memorias propias: 'Medir sin pipe', 'El CRLF que esta adentro del hash', 'Un filtro que protege se escribe nombrando el caso', 'El menu no chequea que el agente exista', 'Las vistas no se recargan solas'
+- Nota: M30: el menu en SEIS secciones. UN SOLO archivo de produccion con cambio funcional: Web/Helpers/MenuOrganizacion.cs -- la lista de secciones reordenada. _Layout.cshtml solo el comentario (el markup se dibuja desde los datos; cero Razor, cero CSS). EtapasEntrega.cs SIN TOCAR: OpcionMenu, SoloDirector, EtapaMinima y Descripcion intactos, que es lo que D-06 exige. Reparto 1*4*7*3*3*8 = 26: 'Conversando' nueva (las cuatro conversaciones de plataforma, que habian quedado en TRES secciones distintas porque M28 metio el chat libre en Trabajo diario y nadie reviso el conjunto), 'Lo que corre solo' nueva (Programaciones/Resultados/Pruebas, las tres de SistemaCompleto: la etapa ya las separaba de Reglas/Instructivos/Memoria y la seccion no), Pedidos se muda a Trabajo diario al lado de Cartera (estaba en la seccion del Director aunque cae en PrimerosPasos y no esta en SoloDirector -- contradiccion verificable contra EtapaMinima, no opinion). Nueve de los 26 items cambiaron de seccion; ninguno cambio rotulo, icono, ruta, etapa ni rol. EL TEST DE RD-01, que es el entregable del riesgo: Ninguna_visibilidad_cambio_al_reestructurar_las_secciones, [Theory] por las tres etapas, los dos roles adentro, y afirma opcion por opcion que el rotulo esta en la pantalla renderizada SI Y SOLO SI OpcionesVisibles(etapa, esDirector) la deja pasar, mas un Assert.Equal(segunLaTabla.Count + 1, enPantalla.Count) que cierra el otro lado (ningun rotulo sin gobierno; el +1 es 'Primeros pasos', unico item sin valor de enum). Dos decisiones del test que importan: (a) compara contra la TABLA PURA y no contra 'lo mismo que antes', asi que no mide un diff -- sigue sirviendo despues del commit; (b) la tabla rotulo->OpcionMenu esta escrita A MANO en el test, duplicada A PROPOSITO: si se derivara de MenuOrganizacion, un cambio de Opcion hecho al mover un item pasaria los dos lados a la vez y el test no diria nada. VERIFICADO POR MUTACION: se le quito OpcionMenu.Miembros al item Miembros -- que es exactamente el defecto que RD-01 describe, el item queda sin condicion y se le ofrece a un empleado -- y las TRES variantes fallaron; restaurado. Sin esa corrida, 'el menu es datos, no puede pasar' habria quedado como suposicion. OTROS TRES TESTS: las dos secciones nuevas NO se dibujan en PrimerosPasos (D-M27-19 por duplicado, el caso que M27 ya habia tenido que arreglar una vez) y Conversando se ve incompleta 2 de 4 incluso para el Director (D-02, deliberado); las cuatro conversaciones juntas bajo Conversando (H1 es justamente lo que se vuelve a romper sin que nadie lo note); y el analista sigue arriba de todo -- reemplaza al test viejo 'empezar aca lleva al analista', que ya no podia pasar porque Empezar aca queda con Primeros pasos sola: la propiedad que importaba no era 'esta en Empezar aca' sino 'esta arriba de todo' (D-M27-18, unica puerta para armar un agente), y es el tercer enlace. DESCRIPCION: el desfasaje que el brief sospechaba NO EXISTIA -- Plano de control no va en PrimerosPasos porque su EtapaMinima es SistemaCompleto, y ahi esta nombrado; Pruebas esta nombrado en SistemaCompleto en la clausula del Director. No se cambio ni una palabra. Lo que SI era cierto, al reves de como venia el brief: Descripcion NO TENIA NINGUN TEST (EtapaEntregaTests afirmaba OpcionesVisibles, no el texto), asi que se escribia a mano y se desactualizaba callado. Queda La_descripcion_de_cada_etapa_nombra_exactamente_lo_que_esa_etapa_suma: texto.Contains(rotulo) == (EtapaMinima(opcion) == etapa) para las 25, mas que lo de Director se nombre DESPUES de las palabras 'el Director'. NINGUN ITEM REUBICADO POR CRITERIO PROPIO: el unico que admite discusion es Plano de control (es lectura de lo que el sistema hizo y por frecuencia se parece mas a 'Lo que corre solo'), pero esta junto a Consumo que es con lo que se mira -- anotado como observacion, NO tocado. Build 0 errores, 1235/1235 verde (base 1227 + 8), medido sin pipe. SIN MIGRACION. La app no se levanto: la verificacion a 1440/390 en claro y oscuro es de QA (RD-04, el scroll, es el riesgo abierto). NOTA DE ENTORNO: el primer build fallo con MSB3027 porque habia una instancia de dev del portal corriendo desde las 15:44 (PID 29904) con la DLL tomada; se detuvo ese proceso y no se volvio a levantar. Commit local, sin push, sin deploy.
+
+
+### Traza de corrida -- 2026-10-03 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: ninguno (no vino de partes de QA: entrada es Diseno M31 aprobado)
+- Reglas releidas: agents/implementador-dotnet.agent.md, 2-disenador-funcional#Diseno-M31 (D-01 a D-11, RD-01 a RD-04), 38-diseno-pantallas-portal (completa), 32-estandares-qa-implementador (por indice), memorias propias: 'Medir sin pipe', 'Las vistas no se recargan solas', 'Posicion estable antes que dibujo lindo'
+- Arranque real: 46 KB (~11k tokens)
+- Nota: M31: DOS FRENTES EN UNA SOLA PANTALLA (ChatLibre/Index), SIN MIGRACION. FRENTE A -- la barra de opciones: las cuatro acciones y la casilla de internet estaban DEBAJO del compositor, entre el cuadro de escribir y Enviar, o sea en el camino de lo unico que la persona vino a hacer (instruccion 38 seccion 0). Pasan a una columna a la derecha. La maqueta es un grid de tres areas (chat / opciones / acciones) DENTRO del form -- tiene que ser adentro porque la casilla PermiteBusquedaWeb postea. DECISION QUE IMPORTA (RD-01): la pagina crecio de 56rem a 74rem en vez de repartir las 56 que ya tenia el chat; si la barra se sacaba de ahi, el compositor se achicaba ~30 % para hacerle lugar a lo que D-01 llama 'el margen'. El clamp(13rem, 20%, 17rem) hace que, si aprieta, ceda la barra y no el chat. EL PLEGADO DE MOVIL NO SE ESCRIBIO: es el mecanismo de ov-filtros de los listados, y encaja mejor de lo que el brief suponia -- su regla de 'arranca abierto si hay algo puesto' cuenta checkboxes tildados, que es EXACTAMENTE RD-03 (la casilla de internet marcada abre el plegado). Lo unico que estaba mal era que decia 'Filtros' y '1 filtro puesto': se parametrizo el rotulo, el icono y el aviso por data-plegable-*, con los valores de siempre como default, asi los dieciseis listados no cambian. El rotulo entra por textContent y el icono por classList, nunca como HTML. En escritorio la barra inyectada se apaga por CSS en vez de ramificar el JS: el mecanismo sigue siendo uno solo. ADJUNTAR SE QUEDO EN EL COMPOSITOR (D-02) y hay un test que lo clava, porque es la linea mas facil de cruzar la proxima vez. FRENTE B -- la pieza es el isotipo: LAS PROPORCIONES SE MIDIERON, no se hicieron de memoria (RD-04). Transformada de distancia sobre wwwroot/icons/isotipo_sin_anillo_color.png: nucleo (749,749) r=164,3 px; nodos (414,414) r=95,5 / (1109,495) r=83,4 / (1154,1064) r=74,5 / (390,1154) r=125,4; semiancho de brazo 38,9. Normalizado con el nucleo=1 queda en el JS y en el viewBox del SVG. EL ISOTIPO ES ASIMETRICO A PROPOSITO (cuatro nodos de distinto tamano, angulos de 35 a 48 grados): se copio como esta, que es lo que lo hace reconocible -- simetrizarlo habria sido 'un isotipo lindo' y no el isotipo. SEGUNDA DECISION NO OBVIA: la rotacion OSCILA (+-0,42 rad), no da la vuelta. Una vuelta entera deja la figura de canto una vez por ciclo y el logo de la pestana esta a diez centimetros. El pulso no cambia de color: es un engrosamiento del brazo (0,45 vs 0,237 de radio), asi se ve igual en claro y en oscuro sin inventar un segundo token ni pelear con el orden de transparencias. Trece meshes con DOS geometrias unitarias (esfera + cilindro) y UN material: el desmontaje tiene menos que soltar que antes. D-10 INTACTO y verificado por test: la compuerta de prefers-reduced-motion corta ANTES del import -- el test lo afirma por POSICION en el archivo, no por presencia, que es la unica forma de que signifique 'no se descarga ni un byte'. Version fija three 0.160.0, try/catch silencioso, cancelAnimationFrame + dispose + removeChild, y la vista saca la caja del DOM. 8 TESTS NUEVOS (M31BarraYIsotipoTests), todos sobre el fuente de la vista, el CSS y el JS: no reemplazan la verificacion en navegador, clavan lo que se pierde en silencio. Build 0 errores, 1243/1243 verde (base 1235 + 8), MEDIDO SIN PIPE. La app no se levanto: 1440 y 390, claro y oscuro, es de QA. RIESGO QUE DEJO ANOTADO: ov-form-actions (Enviar) pasa a ser item del grid, asi que su position:sticky se calcula contra el grid y ya no contra el form -- en esta pantalla las alturas son las mismas, pero es lo primero a mirar si el boton se porta raro al scrollear a 390. Commit local, sin push, sin deploy.
+
+
+### Traza de corrida -- 2026-10-03 / etapa qa / lote 1
 - Reintentos: 0
 - Criterios fallados: ninguno
 - Reglas releidas: ninguna

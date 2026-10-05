@@ -334,6 +334,69 @@ Circuito completo (semantica reemplaza-vs-delta, guardado por fila, motivo opcio
 - **Como detectarlo en QA (el chequeo que lo encontro):** ante cualquier criterio del tipo "X no puede ser negativo/menor/mayor", enumerar los campos que entran al calculo y **contar en produccion las filas que ya estan del lado prohibido**, campo por campo. Si alguna existe y es legitima, el criterio esta mal especificado y vuelve al analista (BLOCKED), no solo el codigo. Al re-verificar el fix, probar **cada campo del piso por separado**, armando una fila donde ese campo sea el minimo, y confirmar que es el quien define el mensaje; y probar que el campo excluido **puede hundirse mas** sin que nada lo bloquee.
 - **Origen:** eleven-la-plata, 2026-10-01 (QA lote D lo reporto, lote E lo re-verifico cerrado). El fix correcto fue de dos partes: reescribir el criterio de aceptacion y recien despues sacar el campo de la lista del piso, conservando su mutacion.
 
+## Un agente que PROPONE algo puede narrar la accion sin ejecutarla: «alucinacion de accion» (OLV-ALUC-01)
+
+**Origen:** olvidata-agentes-multirubro, M29, corrida de evaluacion real #19 contra produccion (2026-10-02). Sin item
+YAML asociado: no se reproduce por pasos de UI, se reproduce corriendo un prompt contra el modelo real.
+
+**El sintoma.** El agente contesto, textual: *«no es un dato para anotar en memoria, es una regla… asi que la **deje**
+como tarjeta»*, describio la tarjeta completa (alcance, modo, pendientes) y cerro con *«todavia no hay nada cargado: se
+termina con el boton Aplicar»*. **Nunca llamo a la herramienta.** Los criterios de texto quedaron en verde —porque el
+texto decia todo lo correcto— y la accion no existio. Si la suite no hubiera tenido una verificacion de tipo
+`usa_herramienta`, el caso pasaba.
+
+**Por que pasa.** El prompt le enseñaba a **redactar en la respuesta** lo que dejaba en la tarjeta (para que la persona
+sepa que se propuso sin abrir nada). Esa instruccion, buena en si misma, le da al modelo una forma de **cumplir el
+objetivo en prosa**: describir la tarjeta se siente como dejarla. Cuanto mejor le enseñas a contar lo que hizo, mas
+facil es que cuente en vez de hacer.
+
+**La regla preventiva, para cualquier agente con herramientas:**
+
+1. **Decirlo explicito: ejecutar la accion ES llamar a la herramienta.** Primero la llamada, despues la linea que la
+   cuenta; y nunca escribir «te lo deje» de algo que no se llamo.
+2. **La seccion que enseña a narrar arranca declarando que es lo ultimo que se hace**, y que una linea solo se escribe
+   si su herramienta corrio.
+3. **No confundir «no inventar contenido» con «no ejecutar».** Son dos conductas y tiran para lados opuestos: si falta
+   un dato, se llama igual y se marca lo que falta; si falta el objeto entero, no hay accion **y tampoco se describe**.
+   Un prompt que mezcla las dos produce abstencion silenciosa.
+4. **Toda prueba de un agente que propone, crea o modifica algo necesita una verificacion sobre la LLAMADA**
+   (`usa_herramienta`), no solo criterios sobre el texto. Un criterio de texto no distingue entre hacer y contar.
+5. **Verificarlo en la base, no en la respuesta:** despues del turno, contar las filas. Si el modelo dice que dejo tres
+   tarjetas, tienen que haber tres filas.
+
+## Un criterio de evaluacion solo puede juzgar lo que el revisor VE (OLV-EVAL-01)
+
+**Origen:** olvidata-agentes-multirubro, M29, corridas #18 y #19 (2026-10-02). Sin item YAML asociado.
+
+**El sintoma.** Tres casos de una suite de evaluacion fallaban con veredictos del tipo *«la respuesta no muestra ni
+detalla el instructivo con los cuatro pasos»*, cuando el agente **si** habia llamado a la herramienta con los cuatro
+pasos completos. Las verificaciones mecanicas pasaban; los criterios juzgados por el revisor LLM caian.
+
+**La causa.** El revisor automatico recibe **unicamente el texto final de la respuesta**, nunca los argumentos con que
+se llamo una herramienta. Un criterio redactado sobre **el contenido de lo que se propuso** es **incalificable por
+construccion**: el revisor no lo tiene delante, asi que contesta sobre lo unico que ve y el caso falla por una razon
+que no es la que se queria medir.
+
+**La regla preventiva:**
+
+1. **Antes de escribir un criterio, preguntarse que ve el juez.** Lo que esta en la entrada de una herramienta se mide
+   con una **verificacion mecanica** (`usa_herramienta`, o un chequeo sobre los argumentos), no con un criterio de
+   texto.
+2. **Un criterio sobre el contenido de un artefacto** (una tarjeta, un archivo, una fila) se reescribe como criterio
+   sobre **lo que la respuesta tiene que decir** de ese artefacto, o se baja a verificacion mecanica.
+3. **Esta convencion se escribe.** En el proyecto de origen, una suite vieja la respetaba y la nueva no, porque nunca
+   habia estado escrita en ningun lado: se cumplia por imitacion. Lo que se cumple por imitacion se rompe en la
+   siguiente suite.
+4. **Al diagnosticar un fallo de evaluacion, leer la corrida guardada antes de tocar el prompt.** Dos de los tres casos
+   no eran del prompt: eran del caso. Arreglar el prompt contra un diagnostico equivocado es trabajo tirado, y encima
+   empeora el prompt.
+
+**Corolario que vale para los dos items de arriba:** un caso de prueba que **se contradice solo** —el criterio premia
+una conducta y la verificacion exige la opuesta en el mismo turno— es un defecto del caso, no del agente. Pasa cuando
+el criterio admite dos caminos («pregunta primero **o** propone con lo que ya tiene») y la verificacion exige uno. Se
+arregla **endureciendo** el caso (que el pedido no deje lugar al otro camino, o que la verificacion sea condicional),
+nunca aflojando el criterio: **un «paso» falso es peor que no tener pruebas.**
+
 ## Mantenimiento de este catalogo
 
 **Los IDs son un namespace unico por proyecto.** `<PROY>-NNN` (CRM-014, MH-021, KOI-006...) identifica una sola cosa, sin importar donde viva: una regla preventiva de este catalogo, un item reproducible de `docs/qa/regresiones-manuales.yml` o un defecto puntual registrado en el `6-qa.md` de ese proyecto. Antes de asignar uno nuevo, buscar el ultimo usado en los TRES lugares — no reiniciar la numeracion por archivo. Ejemplo real: `CRM-007` a `CRM-014` son defectos del `6-qa.md` de crm-olvidata y `CRM-017` en adelante son reglas de este archivo; el rango 015-016 quedo en el yml. `python scripts/doctor.py` avisa cuando un ID citado no existe en ningun catalogo y corta si uno titula dos reglas distintas.

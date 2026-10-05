@@ -65,6 +65,10 @@ Sin precio público: Tango Punto de Venta, Dragonfish, Lince, POS de Tiendanube.
 | PREMIUM | 500 | 600 | Igual a Bsale Estándar |
 | SCALE | 850 | 1.000 | Debajo de Bsale Full |
 
+## Continuacion
+
+- **2026-10-02:** se fijo el precio de lista del producto **Landing 2D autogestionable** (Landing 2D + panel de promociones) en USD 500 el 1er ano / USD 300 anual, con upgrade 3D a +USD 100 — ver `precios-landing-2d-autogestionable-2026-10.md`. Va en la direccion de la alternativa "setup 250 + 300/ano" que esta tabla proponia para Landing 2D.
+
 ## Salvedades
 
 1. Casi todos los rangos salen de blogs de agencias que venden eso mismo (sesgo al alza); Wynges compite con Tango. Los precios en ARS se mueven con la inflación.

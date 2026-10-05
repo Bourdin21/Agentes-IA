@@ -45,3 +45,5 @@ PAT-044   | agentes-ia       | olvidata-agentes-multirubr | Aprobacion humana de
 PAT-045   | agentes-ia       | olvidata-agentes-multirubr | Tarea repetitiva reanudable: programacion + ocurrencia reservada con indice unico
 PAT-046   | integracion      | ninguno todavia (incorpora | Automatizacion con n8n (orquestador externo de workflows por webhooks/API)
 PAT-047   | agentes-ia       | olvidata-agentes-multirubr | Ficha de agente en dos vistas: funcional para el cliente y literal para el staff, con DTOs distintos por tipo
+PAT-048   | agentes-ia       | olvidata-agentes-multirubr | Autocomplete de menciones servido por la MISMA consulta que despues autoriza
+PAT-049   | frontend         | olvidata-agentes-multirubr | Pieza 3D decorativa de carga diferida que se DESMONTA cuando aparece el contenido

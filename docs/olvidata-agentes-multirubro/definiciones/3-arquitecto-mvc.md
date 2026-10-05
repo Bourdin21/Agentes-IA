@@ -1,9 +1,140 @@
 # Memoria - Arquitecto MVC
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-10-02 (M28: chat libre -- sin migracion, EsDePlataforma como palanca, dos modos de subagentes) | 2026-10-01 (M27)
+## Ultima actualizacion: 2026-10-02 (M29: documento sin cliente, primera migracion, y la frontera del portal del cliente) | 2026-10-02 (M28: chat libre -- sin migracion, EsDePlataforma como palanca, dos modos de subagentes) | 2026-10-01 (M27)
 
 ## Definiciones vigentes
+
+## Arquitectura M29 — La casilla de internet y el documento sin cliente (2026-10-02)
+
+Entrada: Diseño M29 cerrado (`2-disenador-funcional.md`, D-01..D-07). Reutilización: el pipeline entero de subida (`SubirInternoAsync`), `adjunto_leer`, la baja, y la casilla ya maquetada dos veces. **Sin antecedente** solo para la purga.
+
+**M29 son dos frentes de tamaño muy distinto y conviene decirlo de entrada:** el frente A (internet) son **7 cambios de código y ninguna migración**; el frente B (el documento sin cliente) es **la primera migración de M28/M29 y toca una columna que es la base de una frontera de seguridad**. El orden de implementación lo refleja.
+
+---
+
+### Frente A — Buscar en internet desde el chat libre
+
+**A-01 — No hay nada que construir: hay un `&&` que sacar, con cuidado.** `ResolvedorHerramientas.cs:263` es `busquedaOfrecida = trabajo && (busquedaEnElAgente || s.BusquedaWebPedidaEnLaTarea) && _busquedaWeb.Disponible`. Los siete puntos de la cadena:
+
+| # | Qué | Dónde |
+|---|---|---|
+| 1 | `IniciarChatLibreAsync(..., bool permiteBusquedaWeb = false)` | `IMotorAgentes.cs:620` + `ServicioTareas.cs:246` |
+| 2 | `IniciarPlataformaAsync(..., bool permiteBusquedaWeb = false)`; los otros tres wrappers siguen pasando `false` | `ServicioTareas.cs:256-258` |
+| 3 | Setear `PermiteBusquedaWeb = permiteBusquedaWeb && _busquedaWeb.Disponible` en el `new TareaAgente` | `ServicioTareas.cs:319-333` |
+| 4 | El gate del resolvedor, **por inclusión** | `ResolvedorHerramientas.cs:263` |
+| 5 | El seguimiento, que hoy fuerza `tarea.Tipo == TipoTarea.Trabajo` | `ServicioTareas.cs:1425` |
+| 6 | `OfreceBusquedaWeb = !esDePlataforma && ...` para que la casilla vuelva al cuadro de ajuste | `ServicioTareas.cs:934` |
+| 7 | UI: `ChatLibreViewModels`, `Views/ChatLibre/Index.cshtml:81`, `ChatLibreController:59/69` (hay que inyectar `BusquedaWebOptions`, hoy no lo tiene) | Web |
+
+**A-02 — La forma del gate, que es lo único discutible.** Los puntos 4, 5 y 6 se escriben como **lista blanca que nombra `Trabajo` y `ChatLibre`**, no como `EsDePlataforma(...)` ni como un `!=` negado. Dos motivos: (a) D-03 dice explícitamente que el configurador, el asistente y el analista **no** la tienen, y `EsDePlataforma` los incluiría a los cuatro; (b) es el molde que M28 pagó caro **dos veces** — un `default` que traga un tipo nuevo (R-A1) y una lista blanca de un solo valor que lo rechaza (OLV-033, A-10). Una lista blanca que **nombra** los dos tipos es la única forma que falla ruidosamente cuando aparezca un tipo nuevo.
+
+**Sin migración:** `TareasAgente.PermiteBusquedaWeb` ya existe para toda tarea (`Tareas.cs:145`). Lo que hoy pasa es que el arranque de plataforma **no la setea** y queda en el `false` del default de la entidad.
+
+**Lo que no se toca:** la búsqueda **la ejecuta el proveedor**, así que sigue saliendo del set de herramientas antes de cualquier cuenta (`ResolvedorHerramientas.cs:60-61`) y volviendo solo como flag; no entra en la lista que corre el motor y no pasa por el guardia de destinos (CA-01.6). El costo sigue viniendo de `usage.ServerToolUse?.WebSearchRequests` y cobrándose en `ProcesadorTareas.cs:383-391`. `MaxBusquedasPorTarea` sigue valiendo. **Ningún valor de M6 se toca.**
+
+---
+
+### Frente B — El documento sin cliente
+
+**B-01 — La decisión: un archivo transitorio es un `DocumentoCartera` sin cliente, no una tabla nueva.**
+
+Había tres caminos y los tres son viables. Se elige volver `ClienteCarteraId` nulable porque **lo que se reutiliza es desproporcionado**: validación de formato real por firma, corte por bytes, hash, duplicados, cuota por cliente y por organización, extracción por partes con sus topes, nombre único con reintento del 1062, `adjunto_leer` con su universo por inclusión, la baja con borrado físico del archivo y de las partes, y `documentos-limpiar`. Una tabla paralela no agrega ninguna capacidad: **duplica todo eso y obliga a `adjunto_leer` a tener dos caminos**, que es precisamente donde un universo por inclusión se rompe.
+
+Y hay un segundo motivo, de modelo: *«guardar en la carpeta de un cliente»* con esta decisión es **asignar una columna**, no copiar un archivo ni migrar una fila entre tablas. El acto que el usuario entiende como «guardarlo» es el más barato y el más atómico de los dos diseños.
+
+**El costo que se acepta, dicho sin maquillaje:** es una migración sobre una columna que participa de cinco índices y de una frontera de seguridad. Los cuatro puntos de abajo son el precio, y ninguno es opcional.
+
+**B-02 — La migración, y las cuatro cosas que arrastra.**
+
+1. **`DocumentosCartera.ClienteCarteraId` pasa a `int?`**, y la FK a `ClientesCartera` sigue siendo **Restrict** (un cliente con documentos no se borra; uno sin cliente no tiene a quién referenciar).
+2. **El índice único deja de ser global.** Hoy es `(ClienteCarteraId, NombreVigente)` y en MySQL los `NULL` no colisionan — lo que suena cómodo y es engañoso: con `ClienteCarteraId` nulable, *si colisionaran* el índice significaría «un nombre único entre todos los documentos sin cliente **de todas las organizaciones**». Pasa a **`(TenantId, ClienteCarteraId, NombreVigente)`**. Y porque los `NULL` **no** colisionan, **el nombre único de un archivo sin cliente no lo garantiza el índice**: lo garantiza `GuardarConNombreUnicoAsync`, que ya sufija, y hay que verificar que su consulta de nombres existentes filtre por `TenantId` cuando no hay cliente (CA-T.4).
+3. **La ruta en disco.** `AlmacenDocumentosDisco.Ruta` exige `clienteId > 0` como **guarda de path traversal**, no por capricho: valida que cada segmento sea un entero positivo o un Guid. La carpeta del archivo sin cliente es un **nombre constante del código** (p. ej. `_organizacion`), **nunca un valor que venga del pedido** y **nunca un `0` convenido** — un sentinel numérico pasaría la guarda por casualidad y dejaría la puerta abierta a que un `clienteId` mal bindeado caiga ahí. La firma del almacén pasa a tomar un `int?` y a resolver la carpeta adentro.
+4. **`IClienteOwned` y el `FiltroCliente`: acá está el riesgo real de M29 (R-01).** `DocumentoCartera` implementa `IClienteOwned` y el `FiltroCliente` del `AppDbContext` es **lo que protege a los usuarios del portal del cliente** — la frontera que M18 construyó porque el usuario cliente vive *adentro* del tenant del estudio y `FiltroTenant` no lo alcanza. Con la columna nulable hay que verificar que un `NULL` **no se cuele**: en SQL, `ClienteCarteraId == clienteDelPortal` con `NULL` da *unknown*, que **filtra bien por casualidad**, y «bien por casualidad» no es una garantía — un `IgnoreQueryFilters`, un `OR`, o un cambio de ese predicado lo rompen sin que nada falle. Se exige: el filtro **nombra** el caso (`ClienteCarteraId != null && ClienteCarteraId == ...`), y CA-T.2 se prueba con **control positivo y negativo** por HTTP, no por consulta.
+
+**B-03 — Guardar en un cliente es un alta para ese cliente.** `AsignarClienteAsync(documentoId, clienteCarteraId, version)` en `IDocumentoCarteraService`: valida cliente vigente del tenant, **revalida duplicado por hash y cuota por cliente contra *ese* cliente**, hace único el nombre ahí, y setea el cliente con `VersionToken++` (concurrencia optimista, igual que la baja). **No mueve el archivo de carpeta**: la ruta se resuelve por `ArchivoId`, así que mover bytes sería trabajo y riesgo sin beneficio. Consecuencia que hay que escribir en el código: **la carpeta en disco deja de ser la fuente de verdad de a quién pertenece un documento** — ya lo era la base.
+
+**B-04 — Subir sin cliente: el parámetro, no un endpoint nuevo.** `DocumentosController.Subir(int? clienteId, ...)` y `SubirAsync(int? clienteId, ...)`; dentro de `SubirInternoAsync`, `ClienteVigenteAsync` se chequea **solo si viene cliente**. Nada de endpoint paralelo y nada de `clienteId = 0` convenido — es el mismo pipeline con un parámetro opcional de verdad. Y **el mensaje mentiroso se va**: hoy un `clienteId` vacío rompe el ModelState y devuelve «Elegí un archivo» con el archivo adentro (OLV-036).
+
+**B-05 — La purga, que es lo único realmente nuevo.** Hoy no hay ningún mecanismo de expiración: el único `AddHostedService` es `MotorAgentesWorker`, que no toca archivos, y lo único que limpia es el comando manual `documentos-limpiar` con corte de 1 hora.
+
+- **Un `BackgroundService` nuevo**, al lado de `MotorAgentesWorker` y **separado de él** (el motor no toca archivos y no va a empezar ahora).
+- **Qué alcanza, por inclusión y en este orden:** documentos **sin cliente** (`ClienteCarteraId is null`), vigentes, **cuya tarea de origen está terminada**, y cuya terminación ocurrió hace **más** que la ventana. **Un documento con cliente nunca entra, bajo ninguna condición** (CA-03.6) — y eso se escribe como primera cláusula de la consulta, no como un `if` adentro del bucle.
+- **Descartar es `DarDeBajaAsync`**, no un borrado propio: así hereda el borrado físico del archivo, el borrado de las partes, `ArchivoEliminadoAt` y la liberación de cuota. **Cero lógica de borrado nueva.** Corre como sistema, con `IgnoreQueryFilters([AppDbContext.FiltroTenant])` justificado y nombrado.
+- **`DocumentosOptions.DiasGraciaAdjuntoSinCliente`, default 7.** Y la guarda que M27 enseñó dos veces: **`0` no significa «descartar todo ya»**. Las comparaciones con `>=` ya invirtieron el comportamiento dos veces en este repo al poner un tope en 0. Acá `<= 0` significa **purga apagada**, y hay un test que lo afirma (CA-03.4).
+- `documentos-limpiar` suma el mismo caso, para poder mirarlo sin `--aplicar` antes de confiar en el servicio.
+
+**B-06 — Lo que NO cambia, y hay que probar que no cambió.** `adjunto_leer` no se toca: su universo es `AdjuntosMensajeTarea` por `TareaAgenteId` + `TenantId` + `DocumentoCarteraId`, y un documento sin cliente entra por ahí **sin ninguna rama nueva** (`AdjuntoMensajeTarea.DocumentoCarteraId` sigue no nulable: el transitorio **es** un `DocumentoCartera`). La guarda de `ResolvedorHerramientas.cs:110-116` tampoco. `ValidarAdjuntosAsync(..., exigirCliente: false)` ya existe. **Ningún valor de M6.**
+
+### B-03b — Correccion de B-03: el `clienteId` SI esta en la ruta en disco (2026-10-02, post-B1)
+
+**B-03 decia que «guardar en un cliente no mueve el archivo de carpeta porque la ruta se resuelve por `ArchivoId`». Eso es
+factualmente falso y lo detecto la tanda B1.** La ruta real es `{raiz}/{tenant}/{cliente}/{archivoId}` y **cada lector la
+rearma desde la columna**. Seguir B-03 al pie habria dejado **todo documento guardado en un cliente apuntando a bytes que
+nadie busca**, y —lo peor— **sin fallar en el momento**: el alta andaba, el archivo existia, y recien al querer leerlo
+aparecia el vacio.
+
+**Correccion aplicada:** `IAlmacenDocumentos.Mover`, y `AsignarClienteAsync` mueve los bytes **antes del commit**,
+devolviendolos si el guardado falla. Lo que de B-03 sigue siendo verdad es la mitad conceptual: **la carpeta no es la
+fuente de verdad de a quien pertenece un documento** —eso lo dice la base—, **pero tiene que estar de acuerdo con ella**.
+
+**La leccion, que es la que vale:** una afirmacion de arquitectura sobre codigo existente («la ruta se resuelve por X»)
+es una **cosa a verificar**, no un supuesto. Esta la escribi de memoria sobre un relevamiento que decia lo contrario dos
+parrafos antes —el propio mapa de B-02 punto 3 dice que el clienteId es parte de la ruta—. El implementador la cruzo con
+el codigo y la refuto; si no lo hubiera hecho, el defecto habria sido invisible para los tests y habria aparecido semanas
+despues como «un documento que no se puede abrir».
+
+### B-07 — El id forjado de un transitorio de otra conversacion (abierto en B1, se cierra en B2)
+
+La tanda B1 dejo declarado, sin sanearlo en silencio, un hueco que CA-02.4 **no** cubre: un archivo transitorio **no
+aparece en ningun listado**, pero **su id alcanza**. Alguien de la **misma organizacion** puede forjar en el POST del
+mensaje el id de un transitorio nacido en **otra conversacion** y adjuntarselo a la suya. No cruza organizaciones —la
+guarda de tenant sigue en pie— pero cruza conversaciones, y un transitorio es justamente el archivo que alguien subio
+**esperando que no quedara en ninguna carpeta**.
+
+**Decision: un documento sin cliente pertenece a la conversacion en la que nacio, y eso se escribe en el modelo.** Se
+reutiliza la columna que ya existe: **`GeneradoEnTareaId`** (`int?`, de M19, hoy solo para entregables del agente) o una
+hermana con nombre propio si mezclar los dos significados confunde —lo decide la implementacion, pero **no se agrega una
+tabla**—. Con eso:
+
+- `ValidarAdjuntosAsync` exige que un documento **sin cliente** pertenezca a **esa** tarea. Un documento **con** cliente
+  se sigue validando como hasta hoy: el universo de la cartera no cambia.
+- **Es el mismo dato que la purga necesita** (B-05 ya pide «cuya tarea de origen esta terminada»), asi que no es trabajo
+  extra: es el dato que faltaba, encontrado por el lado de la seguridad antes que por el lado de la limpieza.
+
+**Por que esto no es una exageracion:** el valor de la opcion «usar solo en esta conversacion» es **la promesa de que el
+archivo no queda a mano de nadie**. Si el id alcanza para traerlo a otra conversacion, la promesa es falsa — y una
+promesa de privacidad que no se cumple es peor que no haberla hecho.
+
+---
+
+### Impacto por capa
+
+- **Domain:** `DocumentoCartera.ClienteCarteraId` → `int?`. Nada más.
+- **Application:** `IDocumentoCarteraService.SubirAsync(int?...)` + `AsignarClienteAsync`; `IAlmacenDocumentos` con `int?`; `DocumentosOptions.DiasGraciaAdjuntoSinCliente`; `IniciarChatLibreAsync`/`IniciarPlataformaAsync` con `permiteBusquedaWeb`; mensajes.
+- **Infrastructure:** la migración y la config EF (índice con `TenantId`, FK nulable); `AlmacenDocumentosDisco` (carpeta constante); `DocumentoCarteraService` (`SubirInternoAsync` con cliente opcional, `AsignarClienteAsync`, nombre único por tenant sin cliente); el `FiltroCliente` del `AppDbContext` **nombrando el caso**; el `BackgroundService` de purga; los 6 puntos del frente A.
+- **Web:** `DocumentosController.Subir(int?...)` + acción de asignar cliente; `_ModalDocumentos` (zona de subida sin cliente, elección de destino, el botón que deja de mentir); `_AdjuntarEnConversacion` y su script (chips con destino y acción); `documentos.js`; `ChatLibre/Index` + `ChatLibreViewModels` + `ChatLibreController` (la casilla).
+- **Admin:** `documentos-limpiar` suma el caso.
+- **Tests:** la frontera del portal del cliente con control positivo y negativo; el índice por tenant; la purga (alcanza / no alcanza / apagada en 0); asignar cliente con duplicado y con cuota llena; la casilla en los tres gates; y que **el analista, el asistente y el configurador NO la tengan**.
+
+### Riesgos técnicos
+
+- **R-A1 (alto) — El `NULL` que se cuela por `FiltroCliente`.** Ver B-02 punto 4. **Es el riesgo que puede hacer de M29 un incidente de privacidad**, no un bug. Mitigación: el filtro nombra el caso y CA-T.2 se prueba por HTTP con control positivo y negativo.
+- **R-A2 (alto) — La migración sobre una columna de cinco índices.** Mitigación: la migración se escribe y se revisa **sola, en su propio paso**, y se corre primero contra la base local; el índice único nuevo lleva `TenantId`.
+- **R-A3 (medio) — Código nuevo que borra archivos.** Mitigación: la purga no borra, **llama a `DarDeBajaAsync`**; la cláusula de «sin cliente» es la primera de la consulta; `0` apaga; y el comando manual permite mirar antes.
+- **R-A4 (medio) — El gate de internet se abre de más.** Mitigación: lista blanca que **nombra** `Trabajo` y `ChatLibre` (A-02), más un test que afirme que las otras tres **no** la tienen.
+- **R-A5 (bajo) — La carpeta en disco deja de decir de quién es el documento.** Ya era así (la base manda), pero ahora es visible. Mitigación: queda escrito en el código y en B-03.
+
+### Orden de implementación (el 3D de M28 enseñó a dejar lo aislable al final)
+
+1. **Frente A completo** (7 puntos + tests de los tres gates). No lleva migración y se puede cerrar y probar solo.
+2. **La migración** de `ClienteCarteraId` + el índice con `TenantId` + la config EF. Sola, revisable sola.
+3. **`FiltroCliente` nombrando el caso + los tests de la frontera del portal del cliente, con control positivo y negativo.** Antes de que exista un solo documento sin cliente.
+4. `AlmacenDocumentosDisco` con la carpeta constante.
+5. `SubirInternoAsync` con cliente opcional + `DocumentosController.Subir(int?)`.
+6. `AsignarClienteAsync` con sus revalidaciones.
+7. UI: el modal, los chips, `documentos.js`.
+8. La purga (`BackgroundService` + opción + `documentos-limpiar`). Última: es lo único que se puede dejar afuera sin que M29 deje de funcionar.
 
 ## Arquitectura M28 — El chat libre (2026-10-02)
 
@@ -92,6 +223,89 @@ Hoy **no hay ningún patrón de carga diferida** en el repo: cero `defer`, cero 
 - **Web:** un controller, una vista de arranque, un ítem de menú, un `<option>` de filtro, `site.js` (autocomplete), `chat-libre-3d.js` (nuevo), CSS del arranque y del menú de menciones con tokens `--ov-*`.
 - **Núcleo:** un prompt, una línea del manifiesto, una suite de evaluación.
 - **Tests:** `ChatLibreTests.cs` nuevo (molde: `AnalistaAutomatizacionesTests.cs`), más extensión de `ConstructorContextoTests` + goldens, `SubagentesTests` (los dos modos), `EtapaEntregaTests`, `MenuLateralTests`, `AnatomiaAgenteTests`, `ConversacionTests`.
+
+### A-07 — Proponer desde el chat libre: lo que faltaba en A-02 (agregado 2026-10-02, despues de la tanda 1)
+
+La tanda 1 cerro el motor y dejo **CU-03 sin camino**: `PoliticaProponerRegla.Para(ChatLibre)` es `null` y las listas
+blancas de cada herramienta de propuesta son explicitas por tipo de conversacion, asi que el chat libre **no puede
+proponer nada**. La tabla A-02 no lo listaba: **es un hueco del brief de arquitectura, no del implementador**, y se
+corrige aca porque CU-03 / RF-05 es la mitad del pedido («crear reglas y automatizaciones haciendo menciones»).
+
+**Decision: el chat libre propone las cuatro cosas que se cargan, con el alcance mas chico posible y el rol chequeado
+al aplicar.** Es exactamente la regla permanente del `CLAUDE.md` del 2026-09-25 aplicada a una cuarta conversacion:
+*configurar conversando propone las cuatro cosas que se cargan, y el rol se chequea al aplicar, segun el alcance de cada
+propuesta*. El chat libre no es una excepcion a eso; es el cuarto lugar donde vale.
+
+Que se abre, nombrado:
+
+- `PoliticaProponerRegla.Para(TipoTarea.ChatLibre)` deja de ser `null`: devuelve la politica **de alcance personal por
+  defecto**. Una propuesta de alcance de empresa se puede proponer igual, y es **al aplicar** donde el Director es
+  obligatorio (CA-03.2). La politica decide **que se propone**, nunca **quien puede aplicar**: eso ya lo decide el
+  permiso del service que aplica, y no se duplica.
+- `TiposPermitidos` de las herramientas de propuesta suma `TipoTarea.ChatLibre`: `proponer_regla_nueva`,
+  `proponer_instructivo`, `proponer_programacion`, `proponer_agente_empresa`. **No** se suman las de alcance de
+  asignacion de personas (`proponer_asignacion`) ni `proponer_prueba`: repartir trabajo es el asistente (M7/M15) y esta
+  fuera del alcance declarado de M28.
+- `TopePropuestas` sigue en **10** (ya resuelto: no es tarea de trabajo).
+- El test que la tanda 1 dejo «para el dia que se abra» se invierte: pasa a afirmar que **si** se propone, y que
+  **despues del turno hay cero filas nuevas** hasta que alguien aplique (CA-03.1).
+
+Lo que **no** cambia: `IEscritorRecuerdos` sigue siendo la unica implementacion de los controles, y el destilado sigue
+teniendo **prohibido** convertir una instruccion en memoria.
+
+### A-08 — Una sola lista de agentes: se resuelve la contradiccion entre A-03 y A-04
+
+A-03 decia que el chat libre recibe `agentes_disponibles` (codigos `b-<rubro>/<slug>`) y A-04 que recibe el modo abierto
+de `subagentes_listar` (codigos `b-<slug>`). **Eran dos listas y eso es justo lo que R-A2 queria evitar.** La tanda 1
+eligio A-04 y le puso el rubro al codigo para unificar; **se confirma esa decision y A-03 queda superada en ese punto**.
+
+Regla que queda, y que la tanda 2 **tiene que respetar**: el autocomplete de la pantalla se arma contra
+**`IAgentesDisponiblesQuery`**, la misma fuente y los mismos codigos que usa la herramienta que autoriza. Si el
+autocomplete se armara contra `agentes_disponibles`, divergen — y el sintoma seria el peor posible: la pantalla ofrece un
+agente que la herramienta despues rechaza.
+
+### A-09 — El filtro del historial tiene que servirle al Empleado
+
+`TareasController.MostrarTipo` hoy muestra el filtro por tipo **solo a Director y staff**, asi que un Empleado no tiene
+como encontrar sus chats libres. Eso rompe CU-05 / HU-07 para el rol que mas va a usar la pantalla (el chat libre es de
+**cualquier miembro**, no del Director). El filtro por tipo se le ofrece tambien al Empleado; lo que **no** cambia es
+que un Empleado sigue viendo **solo sus** tareas (CA-05.2 y el filtro de `ServicioTareas:114-115`): se amplia que pueda
+**filtrar**, nunca que pueda **ver mas**.
+
+### A-10 — La colision que destapo OLV-033: de donde puede nacer una preferencia personal (2026-10-02, post-QA lote 3)
+
+QA encontro que **una preferencia personal propuesta en el chat libre no se puede aplicar nunca**, ni el Director ni el
+Empleado sobre la suya: falla con el mensaje del configurador y la propuesta se quema como `Fallida`. La causa es
+`ReglaService.EsPropuestaDeTrabajoAsync` (`ReglaService.cs:528-530`), que exige
+`p.TareaAgente.Tipo == TipoTarea.Trabajo`.
+
+**Eso no es un bug suelto: es una decision de diseño anterior, y A-07 choco con ella sin verla.** El motivo original es
+bueno y sigue valiendo: una **preferencia personal** («para mi, siempre mas corto») nace naturalmente **mirando un
+resultado concreto** — o sea, en una tarea de trabajo —, y el **configurador** existe para las reglas de la **empresa**,
+asi que ahi una preferencia personal no corresponde (de eso habla `MensajesConfigurador.SinPreferencias`). A-07 declaro
+«alcance personal por defecto» para el chat libre **sin chequear ese gate**, y el resultado fue una propuesta que se
+puede proponer y no se puede aplicar: el peor estado posible, porque se quema sola.
+
+**Decision: el chat libre SI es un origen legitimo de una preferencia personal, y se agrega a esa lista blanca.** Es la
+unica de las cuatro conversaciones de plataforma de la que eso se puede decir, y por una razon concreta: es la unica que
+**no tiene tema fijo y la usa cualquier miembro para su propio trabajo**. Las otras tres son del Director o son sobre la
+configuracion de la organizacion; el chat libre es el lugar donde una persona dice como quiere que le salgan las cosas
+**a ella**. Sin esto, CA-03.2 no se puede cumplir del lado positivo: un Empleado no podria aplicar **ni su propia**
+preferencia, que es justamente el alcance que si le corresponde.
+
+**Lo que NO se toca:** el configurador y el asistente siguen afuera de la lista blanca, con el mismo mensaje y por el
+mismo motivo. **La forma importa:** la lista blanca sigue siendo lista blanca (`Trabajo` o `ChatLibre`), **nunca** un
+`!=` negado — mismo criterio que A-04.
+
+**`AnalistaAutomatizaciones` queda afuera a proposito, y se deja declarado:** el analista propone **automatizaciones**
+(programaciones y agentes propios), no preferencias de alcance `Usuario`, asi que el gate no lo alcanza en la practica.
+Si alguna vez M15 propone una regla de alcance personal, **esta entrada es el lugar donde mirar** antes de pensar que es
+un bug nuevo.
+
+**La leccion de metodo, que es la que vale:** OLV-033 es el **molde inverso de R-A1**. R-A1 avisaba de los `switch` con
+`default` que **aceptan** el tipo nuevo en silencio y lo mapean mal. Este es una **lista blanca de un solo valor** que lo
+**rechaza** en silencio. Buscamos los primeros y no los segundos. Al agregar un valor a un enum de dominio hay que
+grepear **las dos formas**: `default`/`_ =>` que lo tragan, y `== UnValor` que lo excluyen.
 
 ### Riesgos técnicos
 

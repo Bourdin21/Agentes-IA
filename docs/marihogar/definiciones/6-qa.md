@@ -1,9 +1,14 @@
 # Memoria - QA
 
 ## Proyecto: marihogar
-## Ultima actualizacion: 2026-10-02 (**CR-86 frente A — lote 1 de 3: "cuanto me cobraron" en `ConfiguracionCostosCobranza/Index` + reporte `Gastos/Solapados` -> GO CONDICIONADO**. Verificacion por codigo y por SQL contra produccion, sin levantar la app (regla del proyecto). **RA-86.1 PASS, y es el hallazgo que importa**: los tres metodos comparten de verdad un unico `IQueryable` privado (`MovimientosCostoDelPeriodo`, `CostoCobranzaService.cs:212`) y un unico reductor (`NetoPosteado`), asi que la invariante vale por construccion. **AC-86.1 PASS**: el monto sale del ledger, no de `PagoVenta` -- `PagosVenta` se lee solo para resolver `Id -> (TasaId, Procesador)` y esa proyeccion no trae ningun importe, asi que el numero no puede salir de `CostoTotalCobranza` ni el dia que divergan. Numeros reproducidos al peso: **$1.301.077,43 / 23 movimientos** para 2026-09, **8 filas de tasa** que suman exacto, **MP $768.568,20 (11) / Payway $517.869,27 (8) / BancoDirecto $14.639,96 (4)** = el mismo total; invariante probada ademas en **4 rangos** (ago/2026 y oct/2026 vacios, 15/09-15/10 = $421.940,52, historial = $1.301.077,43). Residuo preservado por codigo (`GroupBy` sobre clave nullable, ningun `Where` que lo descarte) aunque hoy produccion no lo ejercita: 0 movimientos sin tasa. **2 defectos nuevos. MH-042 (low, de criterio)**: la pantalla declara **726** pagos sin tasa en el historial, no los **730** que pide CA-86.5 -- la diferencia son exactamente los 4 pagos sin tasa de ventas canceladas que el filtro MH-029 excluye; 726 es probablemente el numero correcto, pero el criterio dice 730 y lo ratifica el analista, no QA. **MH-043 (medium, de alcance)**: el reporte de solapados cumple CA-86.15 al peso (80 / $9.113.426,00) pero **no incluye el unico doble conteo confirmado en vivo** -- el gasto 520 'COMISION PERCEPCION MP' de $50.000,00 (MH-039) -- ni las 3 subcategorias que el implementador declaro fuera de alcance ($4.480.222,00 vigentes en 'comision mp'), y el encabezado no dice que es un subconjunto: es el corolario de MH-033 otra vez. **Desvio de las 10 columnas: ACEPTADO** -- fusionar la vigencia en una celda con el dato secundario debajo es literalmente lo que pide la instruccion 38 seccion 1 ('dato secundario debajo del principal, no en otra columna'); mandar 'Vigente hasta' al detalle era la segunda opcion del diseno, no la primera. CA-86.6 queda **BLOCKED** en su mitad: el rotulo existe y el $0 tenue se ve en 11 de 19 filas, pero **no hay ninguna tasa con vigencia cerrada antes del periodo** en produccion (0 de 19), asi que ese caso no es observable. Build 0 errores. `git status --porcelain` del repo bajo prueba sin cambios de QA. **Ultima validacion de reglas cross-proyecto: 2026-10-02** -- sin reglas nuevas ni modificadas desde el 2026-09-30 (`git log` sobre la instruccion 32 y `regresiones-manuales.yml` desde esa fecha: vacio). Ver seccion "CR-86 frente A (2026-10-02) — lote 1 de 3" al final. Entrada previa: auditoria cross-pantalla CR-83/CR-84, GO CONDICIONADO)
 
-## Ultima actualizacion: 2026-10-02 (**CR-86 frente B (CR-85 absorbido) — lote 2 de 3: la fecha con la que se asienta un cheque -> NO-GO**. Verificacion por codigo + SQL contra produccion, sin levantar la app (regla del proyecto). **Las dos afirmaciones del implementador se CONFIRMAN, las tres por separado y al peso.** (1) El conteo "obvio" da **32 grupos de dia / 8 de mes**, reproducido exacto por QA (23 grupos de los 24 cheques con un solo movimiento — el 353 ya esta en su fecha — mas 9 de los 5 cheques con par Pago+Cargo reversado del 19/08/2026); los **5 cheques son los pagos 339/340/341/344/345**, cada uno con un Pago no-reversion y un Cargo reversion del MISMO importe el 19/08 (neto 0, verificado fila por fila); y contar por saldo neto por fecha da **27 de dia / 3 de mes por $1.452.133,30** = **362 ($354.000,01) + 407 ($564.799,96) + 339 ($533.333,33)**, que suma exacto. El neto **no esconde ningun caso real**: para el pago 339 deja vivo el grupo del 28/08 y solo descarta el del 19/08, que ya esta compensado; y la **idempotencia es consecuencia del mismo neto**, no un agregado (tras la corrida el grupo viejo queda en 0 y el nuevo coincide con `FechaAcreditacion`, asi que `ArmarBackfillFechasAsync` lo saltea por el `continue`). (2) **"El backfill no toca la caja" es cierto, y medido**: de los 29 cheques, **24 tienen egreso de caja y los 24 tienen `DATE(caja) = DATE(FechaAcreditacion)`** — cero excepciones —, asi que `staleCaja` sale vacio en los 29 y `MovimientosCajaCorregidos` va a dar **0**. Los **5 restantes no tienen egreso de caja en absoluto** ($2.224.700,00): son las exclusiones MH-036 declaradas por CR-84, no un hallazgo nuevo, pero por eso la frase se cumple por una razon peor que la del argumento. **Lo que lo frena son 2 defectos nuevos, los dos sobre la interaccion con CR-84, no sobre el backfill en si.** **MH-044 (major, EN VIVO HOY, no hace falta correr el backfill)**: al caerse el guard `Metodo == Transferencia` (punto 8), `ActualizarFechaPagoAsync` alcanza los pagos con cheque, y ahi corrige el movimiento de proveedor con `FirstOrDefaultAsync` **sin `OrderBy`** (una sola fila) mientras el metodo hermano de caja corrige **todas** con `ToListAsync` + `foreach`. En el pago 339 las filas no-reversion son la **id 593 (19/08, ya compensada por la reversion id 601)** y la **id 625 (28/08, la viva)**: se corrige la muerta, la viva se queda y los dos ledgers del mismo hecho vuelven a meses distintos — exactamente lo que CR-84 cerro. Alcanza hoy a 5 pagos y, despues del backfill, a los **27 / $9.745.379,65**. **MH-048 (major, se materializa al correr el backfill)**: el guard MH-036 de `EgresoPagoProveedorService.ArmarBackfillAsync` (`mov.Cantidad > 1`) se evalua **antes** del chequeo de idempotencia (`yaPosteado`), asi que la pantalla de regularizacion de caja de CR-84 pasa de pedir revision manual de **5 pagos / $2.224.700,00** a pedirla de **28 / $10.278.712,98** (27 reasentados + el pago 341), todos ellos con el egreso ya posteado y bien fechado: falsa alarma de $10,2M sobre la pantalla que decide una escritura financiera de una sola corrida. **Lo que PASA. CA-86.7 PASS por codigo**: las tres puntas (`RegistrarMovimientoAsync`, `PostearEgresoAsync`, `PostearAsync` del impuesto) reciben la MISMA variable `fecha` dentro de la MISMA transaccion (`ChequeService.cs:179-230`), con validacion server-side de futuro y de anterioridad a la emision (REG-004), y `fecha` sale de `FormParsing.ParseDateOrNull(fechaDebito)` del formulario. **CA-86.9 PASS**: el lapiz esta en todas las filas de pago de `OrdenesCompra/Details` sin ningun `@if` de metodo, el guard de servicio se cayo, y el pago **441 (Mercado Pago, $581.358,96)** cuelga de la **OC 80, Estado=Recibida, `DeletedAt` nulo** — el camino existe. **MH-028 PASS**: la reversion del backfill se postea con `fechaVieja`, el periodo original, no con hoy (`ChequeService.cs:544`). **PAT-023 PASS**: cero `UPDATE` en el camino del backfill — solo `RegistrarMovimientoAsync` / `RevertirEgresoAsync` / `PostearEgresoAsync`, todos `Add`, y cero `ExecuteUpdate`/`FromSql` en `ChequeService`, `CCProveedorService` y `CCLocalService`. **RA-86.3 PASS**: `AcreditarAsync` tiene **un unico call site** (`ChequesController.cs:84`); el flujo de notificaciones no cambia estado (el unico `Estado = EstadoCheque.Acreditado` de toda la solucion es `ChequeService.cs:190`). **Cheque rechazado PASS**: los 2 en estado Rechazado (ids 28 y 30, pagos 368 y 374) tienen **0 movimientos en los dos ledgers** y su pago sigue en Pendiente. **Honestidad del entregable PASS, y es lo mejor del frente**: la pantalla del backfill dice arriba, antes del boton, que la fecha es un proxy que acierta **8 de 13** contra el extracto y que **"no es exacta"**, con el 1 de 13 del vencimiento al lado; QA cruzo el extracto del Banco Provincia de forma independiente (17 lineas `CHEQUE DE CAMARA`) y conto **8 aciertos inequivocos** de la acreditacion (0139, 0115, 0110, 0107, 0132, 0109, 0099, 0113) contra **1** del vencimiento (0116): el numero que la pantalla promete es el numero que se mide. El cheque **0114 (pago 358, $564.800,00)** es el contraejemplo que justifica el cartel: extracto 16/09, acreditacion 18/09, vencimiento 15/09 — los dos proxies fallan. **CA-86.8: no observado (FAIL por defecto)** — el backfill no se corrio en produccion (0 filas con "fecha reasentada") y QA no escribe en produccion; la aritmetica que lo predice si esta replicada en SQL, y los 2 pagos del enunciado (362 y 407, $918.799,97) se reprodujeron al peso como los **unicos** 2 cruces caja-vs-proveedor de mes que hay hoy. Build 0 errores. `git status --porcelain` del repo bajo prueba: sin cambios de QA. **Ultima validacion de reglas cross-proyecto: 2026-10-02** — sin reglas nuevas ni modificadas desde el 2026-09-30, ya verificado por el lote 1 de esta misma corrida y no reejecutado; se escribieron **MH-044** y **MH-048** en el catalogo y se actualizo `cat_resumen.txt` (**MH-048 arranco como MH-045 y hubo que renumerarlo: el lote 3, en paralelo, ya habia tomado MH-045/046/047**). Ver seccion "CR-86 frente B (2026-10-02) — lote 2 de 3" al final. Entrada previa: CR-86 frente A, lote 1 de 3, GO CONDICIONADO)
+## Ultima actualizacion: 2026-10-02 (**CR-86 — consolidado final: GO.** 3 lotes, hasta 3 corridas cada uno. **Lote 1 GO, lote 2 GO (condicion extinguida por alcance), lote 3 GO.** 5 commits: `0e80ff5`, `e973c7b`, `74444d8`, `7c4a424`, `c6c3c9d`; build 0 errores verificado por el orquestador. **14 defectos cerrados (MH-042 a MH-048, MH-050 a MH-053) + 2 aceptados sin arreglar y declarados (MH-049 como regla de catalogo, MH-054 low preexistente).** **Corrida 3 (`7c4a424`, el desacople): el impuesto quedo independiente POR CONSTRUCCION, no por los datos** — `ArmarRegularizacionImpuestoAsync` agrega los 29 sin un solo `continue` ni precondicion heredada (el unico `continue` que queda es sobre el contador del DTO y esta *despues* de agregar la linea), asi que el $39.719,67 ya no depende de que ningun cheque caiga en el salteo de otro proceso. **Previsualizacion y posteo comparten los tres metodos de decision** (`TieneImpuestoVigenteAsync`, `ObtenerAlicuotaVigenteAsync`, `CalcularImpuesto`), el mismo monto y la misma fecha: el riesgo de que el usuario confirme un numero y se postee otro **no se materializo**. Barrido del reasiento retirado: 7 identificadores, 0 hallazgos; la regularizacion de caja de CR-84 intacta; `SaldoLedgerPorFecha` con 2 consumidores vivos y **MH-044 no reabierto**. **Corrida 4 (`c6c3c9d`): la invariante de la alicuota paso de afirmada a garantizada** — `CrearAlicuotaAsync` validaba el solape y lo declaraba en un comentario ("nunca dos alicuotas vigentes a la misma fecha"), pero `ActualizarAlicuotaAsync` pisaba ambas fechas **sin validar**, asi que el camino de edicion podia crear el estado que el comentario negaba y de el depende el importe del impuesto. Verificado cerrado en las lineas 332 y 379 del servicio. **Lo demas del veredicto previo se mantiene:** Alcance financiero → **un modulo por lote** (instruccion 39 seccion 5), 3 subagentes en paralelo. **Corrida 1: lote 1 GO CONDICIONADO, lote 2 NO-GO, lote 3 GO CONDICIONADO** — 7 defectos, 2 major. **Corrida 2 sobre `e973c7b` + `74444d8`: lote 1 GO, lote 2 GO CONDICIONADO, lote 3 GO. El NO-GO esta levantado.** Los dos bloqueantes cerrados con prueba: **MH-044** (el helper `SaldoLedgerPorFecha` quedo con **una sola definicion y 3 consumidores**, **cero** `FirstOrDefault`/`First` sobre un ledger en toda la capa de servicios; en el pago 339 mueve la fila viva 625 y no la compensada 593, idem 340→626, 341→629, 344→662, 345→672) y **MH-048** (vuelve a 5 / $2.224.700,00, **declarado preventivo**: hoy hay 0 pagos con neto de caja > 0 y ledger sucio, asi que el orden viejo daba el mismo numero). **Veredicto sobre la equivalencia de `ActualizarFechaEgresoAsync`: CONFIRMADA y mas fuerte que la afirmacion del implementador** — hay 0 pagos con filas de reversion y 0 con mas de un egreso no-reversion, asi que el conjunto nuevo es identico al viejo en el **100%** de los pagos, no solo "en el caso normal"; **corolario: la rama que el cambio arregla no tiene hoy ningun caso real que la ejercite**, es forward-correcta para el estado que crea el backfill. **MH-037 PASS medido** (13 pagos, 1 movimiento cada uno, 0 reversiones, 0 divergencias) y CA-84.8 sin alterar. **Las dos afirmaciones del implementador sobre el backfill quedaron CONFIRMADAS parte por parte:** el conteo obvio da 32/8 y por saldo neto 27/3 = $1.452.133,30 (los 5 cheques con par reversado son los pagos 339/340/341/344/345, `Pago` + `Cargo` del mismo importe el 19/08, neto 0; el neto **no esconde ningun caso real** y la idempotencia es consecuencia del mismo neto); y "no toca la caja" es cierto y medido — **24 de 29 ya tienen `DATE(caja) = DATE(FechaAcreditacion)`** sin una excepcion, y los **5 restantes no tienen egreso en absoluto** ($2.224.700,00, exclusiones MH-036). **CA-86.17 (alcance nuevo del cliente) PASS: $39.719,67** en 19 cheques verificado fila por fila — el camino "0,6% del total" da $39.719,69, y esos **$0,02** prueban que el redondeo por cheque es el correcto; ademas se verifico que **ninguno de los 19 queda omitido** por el `continue` de `SaldoLedgerPorFecha`, que esta *antes* del `PostearAsync`. **CA-86.13 PASS** (10 cheques / $3.958.765,39). **La afirmacion de que el orden reasiento/impuesto es irrelevante: CONFIRMADA por dos vias** — `cheque.FechaAcreditacion` se escribe en 3 lugares y ninguno es el backfill, **y** los dos pasos escriben universos de ledger disjuntos (`OrigenTipo="Gasto"` vs `"PagoOC"`), asi que el flush intermedio tampoco contamina. **MH-050** (coleccion local de strings hacia un `IN` de SQL, patron MH-001) **cerrado**, y con una correccion importante: **el defecto nacio con el reporte en `0e80ff5`, no con el refactor** — EF traduce igual un `static readonly string[]` que un parametro, asi que el arreglo repara tambien la version que QA habia calificado en la corrida 1. El `OrdinalIgnoreCase` quedo aceptado y fundado: lote 1 agrupo por `CAST(Subcategoria AS BINARY)` porque un `GROUP BY` sobre `utf8mb3_unicode_ci` **fusiona** las variantes de caja y las habria escondido — 8 valores byte a byte, identicos a los 8 del whitelist, 0 con espacios de borde. Numeros del reporte sostenidos en 3 mediciones sobre 3 estados del codigo: **80 / $9.113.426,00** confirmados + **60 / $6.363.222,00** candidatos ($4.851.222,00 vigentes), interseccion 0, union 140, gasto 520 adentro, 531 afuera, 0 formularios y 0 POST. **Defectos cerrados: MH-042 a MH-048, MH-050 a MH-053** (13 en total entre las dos corridas). **MH-042 fue defecto de criterio del analista, no de implementacion**, igual que CA-86.8, CA-86.11 y CA-86.14; **MH-049** quedo como regla de catalogo: replicar en SQL crudo un WHERE de EF sin sus `HasQueryFilter` globales no da el numero que ve el usuario — dos agentes distintos cayeron en el mismo pozo el mismo dia. **MH-053 lo resolvio el analista** (CA-86.18 / RN-86.5): un pago con neto 0 en el ledger no se ofrece para correccion de fecha; son 3 sobrepagos del sistema anterior reversados el 30/09 por $1.229.975,84. **CA-86.6 BLOCKED no bloqueante** (0 de 19 tasas con vigencia cerrada antes del periodo: el caso no existe todavia). **CA-86.8 quedo FAIL por no observado, y su condicion del GO se EXTINGUIO por una decision de alcance posterior, no por QA** (2026-10-02): el cliente decidio *"dejar los datos de los cheques en produccion como estan, estan cargados por el usuario"*, asi que **el backfill de fechas salio del alcance y no se va a correr**. Los cheques ya acreditados **siguen asentados por vencimiento** y los **3 casos que cruzan de mes ($1.452.133,30: pagos 362, 407 y 339) quedan asi, como estado conocido y aceptado**. El comportamiento nuevo lo cubre CA-86.7, que esta PASS. **El backfill DEL IMPUESTO si se mantiene** (CA-86.17, $39.719,67) y hubo que **desacoplarlo** del reasiento: el `PostearAsync` vivia dentro del recorrido del reasiento, detras del `continue` de los cheques omitidos — el mismo punto que este lote midio y que daba bien por suerte, no por construccion. **Queda pendiente de re-verificar ese desacople.** **La migracion no esta aplicada en produccion**, asi que todos los defectos salvo MH-044 tenian 0 casos en vivo. Build 0 errores en los 3 commits (`0e80ff5`, `e973c7b`, `74444d8`); ningun cambio de QA en el repo. **Hallazgo cross-CR levantado como CR-87:** el aviso de doble conteo de `PrevisualizarRecalculoAsync` filtra solo `ComisionesBancarias` y ve **1 de 121 gastos** (120 / $11.479.487,00 estan en `Otro = 6`), lo que reinterpreta MH-039 — su "se cumplio al 93%" era sobre un universo de 1 gasto. Detalle de cada lote y corrida en `historial/6-qa-2026-10.md`. Entrada previa: auditoria cross-pantalla CR-83/CR-84, GO CONDICIONADO)
+
+## Ultima actualizacion previa: 2026-10-02 (**CR-86 frente B (CR-85 absorbido) — lote 2 de 3, corrida 2 sobre `e973c7b`: los 2 defectos CERRADOS -> GO CONDICIONADO**. Re-verificacion por codigo + SQL contra produccion; no se reauditaron los PASS de la corrida 1 salvo los que el diff toco. **MH-044 CERRADO con prueba.** No lo parcheo con un `OrderBy` — la adjudicacion de que eso "tapaba el 339 sin resolverlo" **se acepta**: extrajo el criterio de saldo neto por fecha a `SaldoLedgerPorFecha` (`Proveedor`/`Caja`) y lo comparten los **tres** caminos, verificado con `grep`: 2 usos en `ChequeService`, 1 en `EgresoPagoProveedorService:110`, 1 en `PagoOrdenCompraService:328`, y **cero** `FirstOrDefault`/`First` sobre un ledger en toda la capa de servicios — no quedo una cuarta copia. Sobre el pago **339** las fechas vivas son `{28/08}` (el 19/08 netea 0 entre la id 593 y la reversion id 601), asi que ahora mueve la **id 625**, la viva, y no la **593**; idem en 340 (id 626), 341 (629), 344 (662), 345 (672). **Precision sobre el punto (d) del pedido**: en los cinco, lo que **no** se mueve es el **grupo del 19/08** (neto 0); el grupo vivo **si** se mueve, que es el comportamiento correcto — no es que "los pagos no se muevan". **MH-048 CERRADO con el numero exacto**: con el `yaPosteado > 0` adelantado a los guards de MH-036, la lista de revision manual de la regularizacion de caja replicada en SQL da **5 pagos / $2.224.700,00**, los **mismos 5** (339/340/341/344/345); y queda demostrado que post-backfill sigue en 5, porque los 23 reasentados con caja posteada salen por el retorno temprano antes de llegar al guard. **Hallazgo de metodo sobre este fix**: hoy el reordenamiento **no cambia nada observable** — los pagos con `netocaja > 0` **y** ledger sucio son **0**, asi que viejo y nuevo dan los dos 5 / $2.224.700,00. El fix es **preventivo y correcto**, pero su efecto solo se puede observar despues de correr el backfill; se declara asi y no como "verificado en vivo". **Veredicto sobre la equivalencia que afirma en `ActualizarFechaEgresoAsync`: CONFIRMADA, y es mas fuerte de lo que el implementador afirma — pero por eso mismo esta sin ejercitar.** Medido sobre todo el ledger de caja: **0 pagos tienen alguna fila `EsReversion=1`** con `OrigenTipo='PagoOC'` y **0 tienen mas de un `Egreso` no-reversion**, asi que el conjunto de filas que selecciona el codigo nuevo es **identico** al del viejo en el **100%** de los pagos de produccion, no solo en "el caso normal". El corolario es que la rama que el cambio viene a arreglar **no tiene ningun caso real que la pruebe** y descansa en lectura de codigo: se declara como riesgo, no como PASS observado. Donde si diferirian es exactamente en el estado que crea el propio backfill de CR-86 (`Egreso dVieja` + `Ingreso rev dVieja` + `Egreso dObjetivo`): ahi el codigo viejo movia los **dos** egresos y dejaba huerfano el ingreso — el nuevo mueve solo el vivo. Forward-correcto. **Regresion de MH-037: PASS medido, no aceptado por afirmacion.** Los **13** pagos del lote retroactivo (`CreatedAt = 2026-09-30 15:02:43.059807`) tienen **1** movimiento de proveedor, **0** reversiones, **0** filas de caja — cada uno: el `FirstOrDefault` viejo y el `fechasVivas` nuevo seleccionan **la misma unica fila**, y el lado de caja es no-op en los dos. Cero divergencias. `ArmarBackfillAsync`: el diff es efectivamente solo el reordenamiento mas el `APostear`/`candidatos` que se simplifican al quedar bajo el retorno temprano; **CA-84.8 no se altero** (hoy quedan **0** pagos por postear — los 56 filtrados ya tienen caja por $14.961.567,17 — asi que no hay objetivo que mover). **Criterio reenunciado por el orquestador: PASS** — la previsualizacion lee **3** cheques que cambian de mes por **$1.452.133,30** (pagos **362**, **407** y **339**), replicado en SQL con el mismo `GroupBy` de neto por fecha; y **0** cheques con mas de una fecha viva, o sea **0 omitidos**. **CA-86.8 sigue FAIL por no observado**, mismo encuadre: el backfill no se corrio y QA no escribe en produccion. **La afirmacion de que el orden entre los dos pasos es irrelevante: CONFIRMADA.** `PostearAsync(cheque, pago.Monto, objetivo, ...)` con `objetivo = cheque.FechaAcreditacion.Date`, y el reasiento **no escribe** `FechaAcreditacion` (solo mueve movimientos hacia ella); ademas el gasto del impuesto postea su caja con `OrigenTipo='Gasto'`, que el `Where` del reasiento (`OrigenTipo='PagoOC'`) no alcanza — los dos pasos no comparten ni una fila. Idempotencia **sostenida** con la transaccion compartida: en la segunda corrida `YaTieneImpuesto` apaga el impuesto y `staleProv`/`staleCaja` salen vacios, asi que el cheque se saltea entero. Carteles de honestidad **intactos** tras los +76 renglones de la vista ("8 de 13", "no es exacta", "en el mes original", "Nada se borra ni se edita"). **1 defecto nuevo, `low`, preexistente: MH-053** — el "grupo entero" cubre la reversion **parcial del mismo dia**, que tiene **0 ocurrencias**, y no cubre la **total fechada en otro dia**, que tiene **3** (pagos **58**, **201**, **203**, $1.229.975,84, con la reversion al 30/09): corregirles la fecha mueve el debito y deja el credito en su mes. El codigo viejo hacia lo mismo, asi que no es regresion del fix, pero la justificacion del cambio describe un caso que no existe. Decision de fondo (si un pago con neto total 0 deberia ser corregible) **vuelve al analista**. **1 observacion cruzada (lote 3)**: `ImpuestoChequeService.PostearAsync:127` hace un `SaveChangesAsync` **propio** dentro de la transaccion que abre el backfill, contra la convencion declarada en todos los servicios hermanos. No rompe la atomicidad (una sola `tx`, rollback en el `catch`) ni afecta al reasiento, pero es un flush a mitad de un lote de 29. Build 0 errores. `git status --porcelain` del repo bajo prueba: los mismos 18 archivos ajenos preexistentes, ninguno de QA. **Ultima validacion de reglas cross-proyecto: 2026-10-02** — sin cambios desde la corrida 1 del mismo dia; se escribio **MH-053** (los ids MH-049 a MH-052 los tomaron los otros lotes). Ver seccion "CR-86 frente B (2026-10-02) — lote 2 de 3", subseccion "Re-verificacion de los fixes (corrida 2)". Entrada previa: CR-86 frente B lote 2 corrida 1, NO-GO)
+
+## Ultima actualizacion previa: 2026-10-02 (**CR-86 frente A — lote 1 de 3: "cuanto me cobraron" en `ConfiguracionCostosCobranza/Index` + reporte `Gastos/Solapados` -> GO CONDICIONADO**. Verificacion por codigo y por SQL contra produccion, sin levantar la app (regla del proyecto). **RA-86.1 PASS, y es el hallazgo que importa**: los tres metodos comparten de verdad un unico `IQueryable` privado (`MovimientosCostoDelPeriodo`, `CostoCobranzaService.cs:212`) y un unico reductor (`NetoPosteado`), asi que la invariante vale por construccion. **AC-86.1 PASS**: el monto sale del ledger, no de `PagoVenta` -- `PagosVenta` se lee solo para resolver `Id -> (TasaId, Procesador)` y esa proyeccion no trae ningun importe, asi que el numero no puede salir de `CostoTotalCobranza` ni el dia que divergan. Numeros reproducidos al peso: **$1.301.077,43 / 23 movimientos** para 2026-09, **8 filas de tasa** que suman exacto, **MP $768.568,20 (11) / Payway $517.869,27 (8) / BancoDirecto $14.639,96 (4)** = el mismo total; invariante probada ademas en **4 rangos** (ago/2026 y oct/2026 vacios, 15/09-15/10 = $421.940,52, historial = $1.301.077,43). Residuo preservado por codigo (`GroupBy` sobre clave nullable, ningun `Where` que lo descarte) aunque hoy produccion no lo ejercita: 0 movimientos sin tasa. **2 defectos nuevos. MH-042 (low, de criterio)**: la pantalla declara **726** pagos sin tasa en el historial, no los **730** que pide CA-86.5 -- la diferencia son exactamente los 4 pagos sin tasa de ventas canceladas que el filtro MH-029 excluye; 726 es probablemente el numero correcto, pero el criterio dice 730 y lo ratifica el analista, no QA. **MH-043 (medium, de alcance)**: el reporte de solapados cumple CA-86.15 al peso (80 / $9.113.426,00) pero **no incluye el unico doble conteo confirmado en vivo** -- el gasto 520 'COMISION PERCEPCION MP' de $50.000,00 (MH-039) -- ni las 3 subcategorias que el implementador declaro fuera de alcance ($4.480.222,00 vigentes en 'comision mp'), y el encabezado no dice que es un subconjunto: es el corolario de MH-033 otra vez. **Desvio de las 10 columnas: ACEPTADO** -- fusionar la vigencia en una celda con el dato secundario debajo es literalmente lo que pide la instruccion 38 seccion 1 ('dato secundario debajo del principal, no en otra columna'); mandar 'Vigente hasta' al detalle era la segunda opcion del diseno, no la primera. CA-86.6 queda **BLOCKED** en su mitad: el rotulo existe y el $0 tenue se ve en 11 de 19 filas, pero **no hay ninguna tasa con vigencia cerrada antes del periodo** en produccion (0 de 19), asi que ese caso no es observable. Build 0 errores. `git status --porcelain` del repo bajo prueba sin cambios de QA. **Ultima validacion de reglas cross-proyecto: 2026-10-02** -- sin reglas nuevas ni modificadas desde el 2026-09-30 (`git log` sobre la instruccion 32 y `regresiones-manuales.yml` desde esa fecha: vacio). Ver seccion "CR-86 frente A (2026-10-02) — lote 1 de 3" al final. Entrada previa: auditoria cross-pantalla CR-83/CR-84, GO CONDICIONADO)
+
+## Ultima actualizacion previa: 2026-10-02 (**CR-86 frente B (CR-85 absorbido) — lote 2 de 3: la fecha con la que se asienta un cheque -> NO-GO**. Verificacion por codigo + SQL contra produccion, sin levantar la app (regla del proyecto). **Las dos afirmaciones del implementador se CONFIRMAN, las tres por separado y al peso.** (1) El conteo "obvio" da **32 grupos de dia / 8 de mes**, reproducido exacto por QA (23 grupos de los 24 cheques con un solo movimiento — el 353 ya esta en su fecha — mas 9 de los 5 cheques con par Pago+Cargo reversado del 19/08/2026); los **5 cheques son los pagos 339/340/341/344/345**, cada uno con un Pago no-reversion y un Cargo reversion del MISMO importe el 19/08 (neto 0, verificado fila por fila); y contar por saldo neto por fecha da **27 de dia / 3 de mes por $1.452.133,30** = **362 ($354.000,01) + 407 ($564.799,96) + 339 ($533.333,33)**, que suma exacto. El neto **no esconde ningun caso real**: para el pago 339 deja vivo el grupo del 28/08 y solo descarta el del 19/08, que ya esta compensado; y la **idempotencia es consecuencia del mismo neto**, no un agregado (tras la corrida el grupo viejo queda en 0 y el nuevo coincide con `FechaAcreditacion`, asi que `ArmarBackfillFechasAsync` lo saltea por el `continue`). (2) **"El backfill no toca la caja" es cierto, y medido**: de los 29 cheques, **24 tienen egreso de caja y los 24 tienen `DATE(caja) = DATE(FechaAcreditacion)`** — cero excepciones —, asi que `staleCaja` sale vacio en los 29 y `MovimientosCajaCorregidos` va a dar **0**. Los **5 restantes no tienen egreso de caja en absoluto** ($2.224.700,00): son las exclusiones MH-036 declaradas por CR-84, no un hallazgo nuevo, pero por eso la frase se cumple por una razon peor que la del argumento. **Lo que lo frena son 2 defectos nuevos, los dos sobre la interaccion con CR-84, no sobre el backfill en si.** **MH-044 (major, EN VIVO HOY, no hace falta correr el backfill)**: al caerse el guard `Metodo == Transferencia` (punto 8), `ActualizarFechaPagoAsync` alcanza los pagos con cheque, y ahi corrige el movimiento de proveedor con `FirstOrDefaultAsync` **sin `OrderBy`** (una sola fila) mientras el metodo hermano de caja corrige **todas** con `ToListAsync` + `foreach`. En el pago 339 las filas no-reversion son la **id 593 (19/08, ya compensada por la reversion id 601)** y la **id 625 (28/08, la viva)**: se corrige la muerta, la viva se queda y los dos ledgers del mismo hecho vuelven a meses distintos — exactamente lo que CR-84 cerro. Alcanza hoy a 5 pagos y, despues del backfill, a los **27 / $9.745.379,65**. **MH-048 (major, se materializa al correr el backfill)**: el guard MH-036 de `EgresoPagoProveedorService.ArmarBackfillAsync` (`mov.Cantidad > 1`) se evalua **antes** del chequeo de idempotencia (`yaPosteado`), asi que la pantalla de regularizacion de caja de CR-84 pasa de pedir revision manual de **5 pagos / $2.224.700,00** a pedirla de **28 / $10.278.712,98** (27 reasentados + el pago 341), todos ellos con el egreso ya posteado y bien fechado: falsa alarma de $10,2M sobre la pantalla que decide una escritura financiera de una sola corrida. **Lo que PASA. CA-86.7 PASS por codigo**: las tres puntas (`RegistrarMovimientoAsync`, `PostearEgresoAsync`, `PostearAsync` del impuesto) reciben la MISMA variable `fecha` dentro de la MISMA transaccion (`ChequeService.cs:179-230`), con validacion server-side de futuro y de anterioridad a la emision (REG-004), y `fecha` sale de `FormParsing.ParseDateOrNull(fechaDebito)` del formulario. **CA-86.9 PASS**: el lapiz esta en todas las filas de pago de `OrdenesCompra/Details` sin ningun `@if` de metodo, el guard de servicio se cayo, y el pago **441 (Mercado Pago, $581.358,96)** cuelga de la **OC 80, Estado=Recibida, `DeletedAt` nulo** — el camino existe. **MH-028 PASS**: la reversion del backfill se postea con `fechaVieja`, el periodo original, no con hoy (`ChequeService.cs:544`). **PAT-023 PASS**: cero `UPDATE` en el camino del backfill — solo `RegistrarMovimientoAsync` / `RevertirEgresoAsync` / `PostearEgresoAsync`, todos `Add`, y cero `ExecuteUpdate`/`FromSql` en `ChequeService`, `CCProveedorService` y `CCLocalService`. **RA-86.3 PASS**: `AcreditarAsync` tiene **un unico call site** (`ChequesController.cs:84`); el flujo de notificaciones no cambia estado (el unico `Estado = EstadoCheque.Acreditado` de toda la solucion es `ChequeService.cs:190`). **Cheque rechazado PASS**: los 2 en estado Rechazado (ids 28 y 30, pagos 368 y 374) tienen **0 movimientos en los dos ledgers** y su pago sigue en Pendiente. **Honestidad del entregable PASS, y es lo mejor del frente**: la pantalla del backfill dice arriba, antes del boton, que la fecha es un proxy que acierta **8 de 13** contra el extracto y que **"no es exacta"**, con el 1 de 13 del vencimiento al lado; QA cruzo el extracto del Banco Provincia de forma independiente (17 lineas `CHEQUE DE CAMARA`) y conto **8 aciertos inequivocos** de la acreditacion (0139, 0115, 0110, 0107, 0132, 0109, 0099, 0113) contra **1** del vencimiento (0116): el numero que la pantalla promete es el numero que se mide. El cheque **0114 (pago 358, $564.800,00)** es el contraejemplo que justifica el cartel: extracto 16/09, acreditacion 18/09, vencimiento 15/09 — los dos proxies fallan. **CA-86.8: no observado (FAIL por defecto)** — el backfill no se corrio en produccion (0 filas con "fecha reasentada") y QA no escribe en produccion; la aritmetica que lo predice si esta replicada en SQL, y los 2 pagos del enunciado (362 y 407, $918.799,97) se reprodujeron al peso como los **unicos** 2 cruces caja-vs-proveedor de mes que hay hoy. Build 0 errores. `git status --porcelain` del repo bajo prueba: sin cambios de QA. **Ultima validacion de reglas cross-proyecto: 2026-10-02** — sin reglas nuevas ni modificadas desde el 2026-09-30, ya verificado por el lote 1 de esta misma corrida y no reejecutado; se escribieron **MH-044** y **MH-048** en el catalogo y se actualizo `cat_resumen.txt` (**MH-048 arranco como MH-045 y hubo que renumerarlo: el lote 3, en paralelo, ya habia tomado MH-045/046/047**). Ver seccion "CR-86 frente B (2026-10-02) — lote 2 de 3" al final. Entrada previa: CR-86 frente A, lote 1 de 3, GO CONDICIONADO)
 
 ## Ultima actualizacion previa: 2026-09-30 (**Auditoria de consistencia cross-pantalla de CR-83/CR-84, lote unico -> GO CONDICIONADO**. Se mergea el diff de 6 archivos: el card del Dashboard ahora muestra el margen NETO desde el MISMO `IRentabilidadService` que la pantalla de Rentabilidad (mismo metodo, mismos parametros, sin recalculo -> identicos por construccion), la alerta mira el neto, y `EgresosGastoPosteadosFuturos` es la condicion simetrica exacta del promedio de gasto operativo. Linea base de produccion **reproducida al peso** (23 `CostoCobranza` / $1.301.077,43; 54 `PagoOC` / $14.561.567,17; saldo $1.898.914,35). **3 defectos nuevos.** **MH-039 (medium, EN VIVO)**: el gasto id 520 'COMISION MP' de $50.000,00 del 14/09 quedo sin anular -- 1 de 14 -- asi que el costo de cobranza se cuenta **dos veces** en Caja, Gastos operativos, CC Local y en el promedio que proyecta los meses futuros; la pantalla de Recalcular avisaba en rojo con el monto y se cumplio al 93%. **MH-040 (medium, latente, 0 casos)**: el 'disjuntos por construccion' de `NetoProyectado` es **falso** -- al revertir la acreditacion de un cheque con vencimiento futuro (CR-82) el egreso futuro sobrevive en el ledger inmutable, la reversion se fecha hoy (otro mes) y el cheque vuelve a `ChequesPendientes`: **-2x el monto**. **MH-041 (low)**: el inventario de 16 pantallas **no esta completo** (al menos 19 candidatos a item 17+, 4 que importan), aunque la superficie del ledger **si** esta cerrada: `grep` de `MovimientosCCLocal` da 6 lectores, todos auditados. **Las 5 'ajenas': 4 confirmadas, 1 con defecto de datos encima.** La de **Deuda a proveedores se confirma con datos**: los 54 egresos de caja tienen 1 a 1 un `Pago` en CC Proveedor por el mismo importe (0 huerfanos, 0 desalineados), la deuda ya esta neta de ellos y descontar el egreso restaria $14,5M dos veces sobre $15.864.097,06 -- numero que el calculo por documentos reproduce identico. El **defecto propio que declaro el implementador se confirma** (base desalineada del gasto operativo) y el **'hoy da 0' tambien**, por una razon mas fuerte: no hay **ninguna** fila de ledger con fecha futura. **IVA del costo de cobranza: $0 verificado** (19 filas de tasas, 0 con `PorcentajeIva<>0`; `SUM(CostoIva)`=0,00 sobre 23 pagos). **Dictamen: alcance nuevo, no defecto** -- no hay dato del cual derivar el credito ni comprobante que lo devengue; pero el gatillo **no es un deploy, es una fila de configuracion**, asi que se propone un aviso en la pantalla de tasas. Rotulos CA-84.10 **PASS** (los 3 lugares dicen 'Resultado desde la apertura'; ningun rotulo promete disponibilidad). 3 observaciones: CC Local no reconcilia (filas visibles vs acumulado, -$90.628,00 en 9 movimientos de 3 ventas canceladas), 'son 13 gastos anulados, no 12', y los dos ledgers del mismo hecho en meses distintos por $906.911,70 (CR-85). **Ultima validacion de reglas cross-proyecto: 2026-09-30** -- sin reglas nuevas ni modificadas desde la corrida anterior del mismo dia; se escribieron **MH-039/MH-040/MH-041** en el catalogo y se regenero `cat_resumen.txt`. Ver seccion 'Auditoria de consistencia cross-pantalla de CR-83 / CR-84 (2026-09-30)' al final. Entrada previa: CR-84 corrida 4, GO CONDICIONADO)
 
@@ -147,6 +152,14 @@ Observaciones menores (no bloqueantes, no requieren auto-fix):
 
 ## Historial de ajustes
 
+### Bloques archivados (2026-10-02)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-10** — 3 bloques (2026-10-02 a 2026-10-02) → [`6-qa-2026-10.md`](historial/6-qa-2026-10.md)
+- **2026-09** — 5 bloques (2026-09-02 a 2026-09-30) → [`6-qa-2026-09-2.md`](historial/6-qa-2026-09-2.md)
+
+
 ### Bloques archivados (2026-09-25)
 
 Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
@@ -179,1071 +192,6 @@ Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-p
 - 2026-07-28: Duodecima ejecucion de QA — **Sprint CR-F del Change Request #1** (CR-14 saldo acumulado en CC Local/CC Proveedores + CR-15 fecha de emision de cheque por defecto en OC + CR-16-codigo mayusculas en Proveedor/Producto + CR-18 ajuste de apertura del importador + refinamiento de CR-13 ClienteCUIT), ampliacion sobre Sprint CR-E. Cobertura de 4 HU (HU-11.4/HU-13.3/HU-12.9/HU-2.5) + refinamiento CR-13 + CR-18: 6/6 CUMPLE por revision de codigo propia. **Verificacion critica del sprint**: el calculo de saldo acumulado de CR-14 fue reproducido de forma **independiente con SQL de ventana** (`SUM(...) OVER (ORDER BY Fecha, Id)`) contra datos reales de `marihogar_dev` (Proveedor Id=1 con 44 movimientos, CC Local completo con 1115 movimientos), coincidente fila por fila con el algoritmo de `CCLocalService`/`CCProveedorService` — no se confio solo en la lectura de codigo. El caso de borde explicito de CR-15 (cheque → otro metodo → cheque, no debe pisar la fecha ya cargada por el usuario) fue confirmado por lectura completa del handler JS (`pagos[idx].fechaEmisionCheque` solo se limpia si ningun handler lo toca, el guard `if (!...)` lo respeta). CR-18 confirmado matematicamente correcto por simulacion con los saldos reales ya presentes hoy en `marihogar_dev` (el ajuste llevaria CC Local de +$64.877.865,31 a $0 con un unico Egreso, y cada CC Proveedor de su Cargo acumulado a $0 con un unico Pago) y confirmado, por ausencia de filas `OrigenTipo='AjusteApertura'`, que el script no fue ejecutado. Sin migracion EF (confirmado con `dotnet ef migrations list`, 12 migraciones sin cambios desde CR-E), consistente con la Arquitectura v4. Build limpio en ambos proyectos (`MariHogar.slnx` + `tools/ImportarHistorico/ImportarHistorico.csproj`, 0 errores, mismos 9 warnings preexistentes). **1 observacion documental de bajo riesgo, sin auto-fix**: `5-implementador.md` cuenta "7 archivos tocados" cuando son 10 (faltan las 2 vistas de CR-14 en el resumen de conteo, aunque la seccion del sprint si las describe) — mismo tipo de imprecision de conteo ya visto sin impacto en CR-E ("5 vs 4 campos"). Sin defectos bloqueantes, criticos ni major. Playbook cross-proyecto ejecutado (12 items evaluados explicitamente, resto N/A), 0 regresiones reproducidas, 0 auto-fixes necesarios. **Recomendacion: GO para dar por cerrado tecnicamente el Sprint CR-F, y dar el Change Request #1 completo (CR-1 a CR-18 + refinamientos de CR-13) por GO desde el punto de vista de QA en su alcance ya implementado**, a la espera de que el cliente/orquestador coordinen (1) la corrida real de `tools/ImportarHistorico/` (con CR-13/CR-18 ya incorporados) contra `marihogar_dev` de nuevo y luego produccion, y (2) la aplicacion de las 5 migraciones acumuladas contra produccion, ambas en pausa por decision del cliente y sin relacion con la calidad del codigo entregado.
 - 2026-07-31: **Sprint CR-K — fix de horario Argentina (UTC-3) para toda la UI/PDF/email**, escrito directamente por el orquestador (bugfix transversal reportado por el cliente: "revisar que la hora de los registros en el servidor sea la correcta utc -3 y que inserte bien"), sin pasar por el implementador. **Alcance real confirmado**: la INSERCION en base ya era correcta (`DateTime.UtcNow` en todo el sistema, verificado contra un `AuditLog` real de produccion) — el bug era exclusivamente de DISPLAY, por 2 causas independientes: (A) `MySql.EntityFrameworkCore` devuelve `DateTimeKind.Unspecified` al releer, y `System.Text.Json` serializaba sin sufijo `'Z'`, haciendo que `moment.js` (DataTables) interpretara la hora UTC cruda como si ya fuera hora local del navegador (+3h de mas en toda pantalla con grilla: Stock/CCLocal/CCProveedores/ComprobantesAfip/Ventas); (B) 7 vistas Razor formateaban con `.ToString(...)` sin convertir nunca, y 6 generadores de PDF/email usaban `DateTime.Now` (hora del servidor de hosting, no Argentina). Fix: helper nuevo `MariHogar.Domain/Helpers/HorarioArgentino.cs` (mismo patron de fallback triple IANA→Windows→offset fijo ya probado en produccion por `AfipService`/`ChequeAcreditacionHostedService`, sin tocar esas 2 clases a proposito) + converter JSON global `MariHogar.Web/Json/UnspecifiedAsUtcDateTimeConverter.cs` (fuerza `Kind=Utc` antes de serializar, nunca cambia el valor) registrado en `Program.cs` + 7 vistas Razor corregidas + `AuditController` reestructurado (materializa antes de formatear, porque `HorarioArgentino.Convertir` no es traducible a SQL por el provider) + 6 usos de `DateTime.Now` reemplazados por `HorarioArgentino.Ahora`. **QA no partio de cero**: re-verifico todo de forma independiente (build, logica del helper, impacto del converter global) y, ademas, **encontro un defecto real no declarado por el orquestador antes de dar el sprint por cerrado — MH-009 (major), catalogado y auto-fixeado en el mismo ciclo**: el converter JSON global, al forzar `Kind=Utc` sobre TODO `DateTime` serializado sin distinguir "instante real" (`DateTime.UtcNow`, se beneficia correctamente del fix) de "fecha calendario pura" (`Entrega.FechaProgramada`/`Cheque.FechaVencimiento`/`Gasto.Fecha`, poblados con `.Date`/`DateTime.Today` via `<input type=date>`, sin hora real), hacia que `moment(d).format('DD/MM/YYYY')` (sin `HH:mm`) en 3 listados (`Entregas/Index`, `Cheques/Index`, `Gastos/Index`) mostrara el dia anterior al guardado (medianoche UTC-etiquetada-como-tal menos 3h cae en el dia previo, 21:00 Argentina). **Verificado empiricamente, no solo por lectura de codigo**: programa C# standalone propio (referenciando `MariHogar.Infrastructure`+`MariHogar.Web`, conectado a `marihogar_dev` real) que reproduce exactamente la serializacion JSON de MVC con el converter nuevo — confirmado con un `Gasto` real (Id=480, Fecha=2025-05-05T00:00:00) que el JSON con el fix da `04/05/2025` (bug) en vez de `05/05/2025` (correcto); mismo programa confirmo tambien que `HorarioArgentino.Convertir` funciona exacto contra un `AuditLog` real (22:45:54 UTC → 19:45:54 Argentina, -3h exacto) y que las columnas con hora real (`Venta.CreatedAt`, etc.) se benefician correctamente del fix sin regresion. Auto-fix aplicado (sin logica de negocio nueva, solo presentacion): `moment(d)` → `moment.utc(d)` en las 3 columnas afectadas (`Entregas/Index.cshtml`, `Cheques/Index.cshtml`, `Gastos/Index.cshtml`) — evita el shift de huso horario para fechas puras sin tocar el converter global (que sigue siendo correcto para el resto del sistema) ni las vistas Razor server-rendered (ya correctas, `EntregaProgramadaIntento` quedo deliberadamente sin convertir desde el disenio original). Barrido completo confirmando que no queda ninguna otra columna con el mismo patron de riesgo (`OrdenesCompra/Index.fecha` y `Presupuestos/Index.createdAt` son instantes reales, se benefician correctamente sin cambio). **Otras verificaciones del pedido explicito**: `AuditController` — paginado (`Skip`/`Take`) confirmado que ocurre ANTES de la materializacion (`ToListAsync`), sin impacto de performance ni de resultados; `totalRecords`/`filteredRecords` confirmados como queries `CountAsync()` separadas, no afectadas por la reestructuracion. Riesgo de "Read" del converter (deserializacion de POSTs) descartado: `Read` no cambia (`reader.GetDateTime()`, identico al default) y, ademas, el repo no usa `[FromBody]` en ningun Controller (confirmado por grep) — todo POST es form-binding, el path `Read` del converter nunca se ejercita en la practica. Sin `new Date(...)` de JS nativo en ninguna vista (solo `moment`). 4 llamadas a `System.Text.Json.JsonSerializer.Serialize` fuera de MVC (`Ventas/Details`/`Create`, `OrdenesCompra/Create`, `Presupuestos/Edit`) confirmadas sin ningun campo `DateTime`, no afectadas por el converter global (que solo aplica a `Json(...)` de MVC). Build de la solucion completa re-verificado de forma independiente (`dotnet build MariHogar.slnx -c Release --no-incremental` → 0 errores, mismos 9 warnings preexistentes) antes y despues del auto-fix. Sin migracion EF (confirmado, todos los cambios son de comportamiento/presentacion). Playbook cross-proyecto: sin items nuevos aplicables mas alla del propio MH-009 recien creado. **Sin defectos bloqueantes ni criticos. Recomendacion: GO CONDICIONADO** para deployar a produccion — condicionado a que el usuario confirme visualmente en navegador (regla de proceso del proyecto, QA no automatiza UI) las 3 pantallas corregidas por MH-009 (Entregas/Cheques/Gastos, mismo dia mostrado que el guardado) y, idealmente, una pantalla con hora real (Ventas/Index o Stock/Index) para confirmar que la hora mostrada ahora coincide con la hora real de Argentina (no la UTC cruda de antes del fix). Esta corrida fue solo de codigo — todavia no deployada a produccion (confirmado con el orquestador antes de este ciclo).
 
-## Auditoria de infraestructura (2026-09-02)
-
-Pedido explicito del cliente via `/agentes-ia-orquestador`: revision de codigo contra las ultimas definiciones para encontrar **gaps de infraestructura** (drift doc-vs-codigo, configuracion faltante, riesgos operativos), no QA funcional de un CR puntual. Alcance: definiciones 1/2/3 + entradas de trazabilidad del 2026-09-02 (CR-59 a CR-66) contra el codigo real en `master` (working tree limpio, HEAD `fe51f01`).
-
-**Metodo**: solo lectura. `dotnet ef migrations list`, `dotnet build` de `MariHogar.Web` y de los 5 proyectos de `tools/`, lectura de codigo y `grep` de call sites. Sin levantar la app, sin navegador, sin ninguna escritura contra ninguna base (ni dev ni produccion). Verificacion automatizada por navegador: **no aplica** (auditoria de codigo y configuracion, sin superficie de UI bajo prueba).
-
-### Resultado por punto auditado
-
-| # | Punto | Resultado |
-|---|-------|-----------|
-| 1 | Migraciones + snapshot | **PASS** — 27 migraciones, ninguna pendiente. Las 2 de CR-62 (`AddGastosRecurrentes`, `AddMovimientoCCLocalUsuarioId`) presentes y reflejadas en `AppDbContextModelSnapshot.cs`. |
-| 2 | Registro en DI | **PASS** — las 29 interfaces de `MariHogar.Application/Interfaces/` tienen su implementacion registrada en `DependencyInjection.cs`, incluida `IGastoRecurrenteService`/`GastoRecurrenteService` (linea 91). Ninguna interfaz huerfana. |
-| 3 | `tools/` | **PASS con recomendacion** — los 5 proyectos compilan; ninguno versiona credenciales de produccion (fallback `localhost/marihogar_dev`); `bin`/`obj` ignorados y no trackeados. Ver GAP-5. |
-| 4 | Simetria de CR-63/64 en Compras | **FAIL** — ver GAP-1, GAP-2 y GAP-3. La conclusion previa ("una OC con pagos reales nunca es cancelable") es **incorrecta**. |
-| 5 | Simetria de CR-65 en Compras | **FAIL** — ver GAP-1. |
-| 6 | Semantica de saldo (CR-66) en otros modulos | **PASS** — `CCProveedorService` no tiene ningun metodo de "saldo por ventana" (`ObtenerSaldoActualAsync`/`ObtenerSaldoTotalAsync`/`ObtenerSaldosAcumuladosAsync` son todos acumulados sobre el ledger completo). `CajaService` y `ProyeccionFinancieraService` ya **excluyen explicitamente** `OrigenTipo="AjusteApertura"` de sus totales por periodo. `StockService` no expone ningun concepto de saldo. CC Local era el unico caso y quedo corregido. |
-| 7 | MH-016 (limitacion conocida de CR-61) | **PASS** — sigue sin fix y correctamente catalogado (`fix_aplicado: null`). Verificado en codigo: `AppDbContext.OnBeforeSaveChanges` (lineas 640-644) sigue reasignando `Producto.RowVersion` para todo `Added`/`Modified` sin discriminar propiedad, y `StockService.ActualizarStockAsync` (lineas 111-114) sigue con un unico `catch (Exception ex)` que devuelve `ex.Message` crudo. No se corrigio sin querer. |
-| 8 | Indices | **PASS** — `GastosRecurrentes` tiene `IX_GastosRecurrentes_Nombre`, que cubre el `OrderBy(Nombre)` de `ListarAsync` y de `ListarActivosParaComboAsync` (tabla de volumen minimo). `MovimientosCCLocal.UsuarioId` **no necesita indice**: nunca aparece en un `WHERE`/`JOIN` — la resolucion de nombre es en memoria, identica al patron ya usado por `StockService.ListarMovimientosAsync`. Consistencia confirmada. |
-| 9 | Consistencia de documentacion | **PASS** — CR-63 (pisado de fecha con `HorarioArgentino.Ahora.Date` en `VentaService.cs:814` y `PagoOrdenCompraService.cs:213`), CR-64 (soft-delete de pagos Pendiente en `VentaService.cs:581-585` + guard de Cancelada en `EliminarPagoAsync`), CR-65 (`montoRealmentePosteado` en `VentaService.cs:594-598`) y CR-66 (`ObtenerSaldoFiltradoAsync` en `CCLocalService.cs:126-136` + etiqueta "al {fecha}" en `CCLocal/Index.cshtml:17`) coinciden exactamente con lo documentado. Sin drift. |
-| 10 | Build limpio | **PASS** — `dotnet build MariHogar.Web` → **0 errores**. Warnings: solo las 4 NU1902 de MailKit/MimeKit (Web + Infrastructure) y 1 CS0114 de `HomeController.StatusCode`. **Ningun warning nuevo** (el conteo 9 vs. los 8 historicos es un artefacto del paso de `restore`, no un warning distinto). |
-
-### Gaps encontrados
-
-**GAP-1 (CRITICO) — `OrdenCompraService.CancelarAsync` no reversa los pagos ya posteados en la CC del proveedor.**
-La premisa documentada de que "una OC con pagos reales nunca es cancelable" es falsa: `EstadosPagables = [Confirmada, Recibida]` (`PagoOrdenCompraService.cs:31`) **se superpone** con `EstadosCancelables = [Borrador, Confirmada]` (`OrdenCompraService.cs:27`) en el estado **Confirmada**. `OrdenesCompra/Details.cshtml` ofrece ambas acciones a la vez sobre una OC Confirmada (`puedePagar` en la linea 10, boton "Cancelar orden de compra" en la 266), y `OrdenesCompraController.Cancelar` (linea 190) no agrega ningun guard. Un pago no programado sobre una OC Confirmada postea de inmediato su `MovimientoCCProveedor.Pago` (`PagoOrdenCompraService.cs:155-161`), pero `CancelarAsync` (`OrdenCompraService.cs:380-404`) solo setea `Estado`/`MotivoCancelacion`/`FechaCancelacion` y no genera contramovimiento. El comentario de las lineas 395-397 solo contempla el **Cargo** (que efectivamente recien se postea al Recibir), no el **Pago**. Resultado: un credito sin su cargo queda permanentemente en el ledger del proveedor, y `ObtenerSaldoTotalAsync` (Cargo − Pago) **sub-reporta la "Deuda total a proveedores"** de la vista CEO del Dashboard (CR-58). Es el espejo exacto de CR-65 del lado Compras.
-
-**GAP-2 (CRITICO) — `ChequeService.AcreditarAsync` no valida que la OC no este cancelada.**
-`ChequeService.cs:116-149` valida que el cheque este Pendiente y que existan `pago` y `oc`, pero **nunca chequea `oc.Estado == EstadoOrdenCompra.Cancelada`** — a diferencia de su hermano `PagoOrdenCompraService.ConfirmarPagoAsync`, que si lo hace (`PagoOrdenCompraService.cs:190-191`). Asimetria objetiva entre dos metodos que cumplen la misma funcion. Un cheque de una OC cancelada sigue Pendiente y se puede acreditar desde `/Cheques`, posteando un `MovimientoCCProveedor.Pago` **nuevo** contra una OC cancelada. Mas severo que GAP-1 porque es un camino de escritura activo que genera datos malos *despues* de la cancelacion.
-
-**GAP-3 (IMPORTANTE) — pagos de OC en `Pendiente` quedan colgados al cancelar (patron CR-64 no replicado en Compras).**
-`OrdenCompraService.CancelarAsync` no soft-deletea ni cancela los `PagoOrdenCompra` con `Estado=Pendiente` (ni sus `Cheque` asociados). Ninguno de los dos jobs diarios filtra por el estado de la OC: `ObtenerYMarcarPagosVencidosNoNotificadosAsync` (`PagoOrdenCompraService.cs:237-241`) y `ObtenerYMarcarVencidosNoNotificadosAsync` (`ChequeService.cs:97-99`) filtran solo por el estado del pago/cheque. Consecuencia: notificaciones de vencimiento por pagos de ordenes de compra ya canceladas, y cheques de OC canceladas que siguen figurando en `/Cheques`. `ProyeccionFinancieraService` **no** esta afectado (ya acota a OCs Confirmada/Recibida).
-
-**GAP-4 (MENOR) — `tools/` fuera de `MariHogar.slnx`.**
-Los 5 proyectos de `tools/` referencian `MariHogar.Infrastructure`/`Domain` pero no estan en la solucion, asi que un `dotnet build` de la solucion no los cubre y pueden romperse en silencio ante un cambio de Domain. Verificado en esta auditoria: **los 5 compilan hoy**. El riesgo es de deteccion tardia, no un defecto actual.
-
-**GAP-5 (INFORMATIVO) — `tools/CorregirUsuarioCCLocal` ya cumplio su proposito.**
-Script de una sola vez, ya ejecutado con `--apply` contra produccion (7 filas, trazabilidad 2026-09-02). No se borro ni se modifico en esta auditoria. **Recomendacion (decision del cliente, no de QA)**: conservarlo como referencia historica y dejar constancia en el encabezado de `Program.cs` de que ya fue ejecutado y no debe re-correrse, o moverlo a un subdirectorio `tools/historicos/`. El script es idempotente por construccion (un texto ya corregido no vuelve a matchear el regex, re-validado en el QA de CR-62), asi que una re-ejecucion accidental no corrompe datos — el riesgo es de confusion, no de integridad.
-
-### Riesgos de liberacion
-
-- GAP-1/GAP-2/GAP-3 **ya estan en produccion** y no los introdujo ningun cambio de hoy: son preexistentes, quedaron expuestos al auditar la simetria de CR-64/65. No bloquean el deploy de nada pendiente, pero **si contaminan silenciosamente la "Deuda total a proveedores"** cada vez que se cancela una OC Confirmada con pagos.
-- Recomendado antes de cualquier fix: consulta **de solo lectura** contra produccion para dimensionar el impacto real — cuantas OC en estado `Cancelada` tienen `PagosOrdenCompra` asociados (y de esos, cuantos en `Pagado` con su `MovimientoCCProveedor` posteado). Si el conteo es 0, los 3 gaps son preventivos y bajan de prioridad.
-- Los 3 gaps son de **logica de negocio de Compras**: exceden el auto-fix catalogado de QA (no replican una solucion ya validada tal cual) y deben pasar por Diseño/Arquitectura o, como minimo, por una decision explicita del cliente sobre la semantica deseada (¿bloquear la cancelacion de una OC con pagos posteados, o permitirla generando contramovimientos?).
-
-### Fuera de alcance de esta auditoria
-
-- Verificacion visual en navegador de cualquier pantalla (auditoria de codigo, sin app levantada).
-- Estado real de los datos de produccion (no se ejecuto ninguna consulta contra produccion).
-- Revision linea por linea de las definiciones 1/2/3 completas (la comparacion doc-vs-codigo fue puntual sobre CR-59 a CR-66, segun el pedido).
-
----
-
-## CR-80 (2026-09-25) — Inventario (capital inmovilizado/ABC) + rentabilidad con costo historico + posicion de IVA + Dashboard reestructurado
-
-**Ultima validacion de reglas cross-proyecto: 2026-09-25** (antes de esta corrida el campo no existia en este archivo, asi que se trato todo el catalogo vigente de `docs/qa/regresiones-manuales.yml` y de `32-estandares-qa-implementador.instructions.md` como "a validar por primera vez" para la superficie de este CR).
-
-### Como se probo (metodo, y por que asi)
-
-- **Runner de consola de solo lectura contra la base REAL de produccion** (`scratchpad/qacr80`, `scratchpad/qacr80b`): instancia `AppDbContext` con la connection string de `appsettings.Production.json` y llama a `InventarioService`, `RentabilidadService` y `DashboardService` directamente. No levanta la app web, asi que **ningun hosted service corre y no se escribe una sola fila** (los 3 hosted services recuperan la corrida diaria ~30 s despues de arrancar y escriben notificaciones). Es el unico camino para probar estas 3 metricas: dependen de un historial real de ventas, compras y comprobantes que la base de desarrollo no tiene.
-- **SQL directo de verificacion cruzada** (`mysql.exe`, solo `SELECT`): cada numero importante se calculo **por segunda vez y por otro camino**, no se dio por bueno el del service.
-- **Pantallas por HTTP con `curl` + cookie jar** contra `marihogar_dev` (nunca produccion): codigos de respuesta, HTML renderizado, estados vacios, panel de filtros, sesion y matriz de roles.
-- **Verificacion automatizada por navegador: NO ejecutada.** El servidor MCP `playwright` **no esta disponible en esta sesion** (se verifico: no hay herramientas `mcp__playwright__*` ni por busqueda de herramientas diferidas). Se cayo al procedimiento de `33-verificacion-automatizada-qa.instructions.md`: todo lo verificable por HTTP se verifico por HTTP, y lo que exige un navegador real (consola de JS limpia, 390 px, interaccion del grafico) queda como procedimiento manual para el usuario, listado abajo. **Ninguna verificacion se da por hecha sin decir por que camino se cubrio.**
-
-### Cobertura por criterio de aceptacion
-
-| CA | Resultado | Evidencia concreta (consulta + valor) |
-|---|---|---|
-| CA-CR80.1 — capital inmovilizado y su desglose | **PASS** | Service: `CapitalInmovilizado = 15.563.957,61` con 106 productos. SQL independiente: `SELECT COUNT(*), ROUND(SUM(StockActual*PrecioCompra),2) FROM productos WHERE StockActual>0 AND DeletedAt IS NULL` -> `106 / 15563957.61`. Identico al peso. Desglose: `sumaCategorias = 15.563.957,61`, `dif = 0,00` en las 3 ventanas (60/90/180) |
-| CA-CR80.2 — plata quieta nunca crece al ampliar la ventana | **PASS** | `PlataQuieta`: 60d `10.567.283,60` (75 prod) -> 90d `8.897.232,93` (64) -> 180d `7.032.071,39` (49). Monotona en monto y en cantidad. Ademas, prueba fuerte: **0 productos** pasan a "quieto" al ampliar 60->90 ni 90->180. Riesgo latente identificado y descartado con datos: el clamp de unidades negativas a 0 (decision 4 del implementador) **podria** hacer crecer la plata quieta si en la franja 180d..90d hubiera una reversion de cancelacion mayor que las ventas de la ventana corta; SQL: `SELECT ProductoId, SUM(Cantidad) FROM movimientosstock WHERE Tipo=2 AND Fecha>='2026-03-29' AND Fecha<'2026-06-27' GROUP BY ProductoId HAVING SUM(Cantidad)>0` -> **0 filas** |
-| CA-CR80.3 — cobertura "sin movimiento", nunca 0/infinito/error | **PASS** | Ventana 90: `null (sin movimiento) = 153`, `== 0 (agotado) = 27`, `negativa = 0`, `unidades < 0 = 0`. Las dos situaciones se distinguen (decision 3 del implementador verificada en datos reales). La vista renderiza `<span class="ov-vacio">sin movimiento</span>` y `nunca se vendio` |
-| CA-CR80.4 — excluye canceladas y ajustes | **PASS** | El filtro `Tipo == Venta` deja afuera los 25 movimientos de `Ajuste` (SQL: `SELECT Tipo, COUNT(*) FROM movimientosstock GROUP BY Tipo` -> `1:494, 2:1200, 3:25`). Las canceladas se netean por signo: de los 1200 movimientos de Tipo=Venta, 46 son positivos (reversiones) y 1154 negativos; en los ultimos 180 dias hay 46 reversiones sobre 28 productos y **ningun** producto queda con unidades netas negativas |
-| CA-CR80.5 — A+B+C = 100% de las ventas de la ventana | **FAIL -> corregido (MH-023)** | Antes: ventana 180 `VentasVentana = 83.702.745,28` contra `suma de las filas = 83.110.721,32`, **dif 592.023,96**; A+B+C tampoco cerraba. SQL que aisla la causa: las ventas de 180d de productos con `DeletedAt IS NOT NULL` son exactamente `592023.96`, de 2 productos (#88 "BASE tela 100" y #52 "Base pana 80", dados de baja el 19/08/2026). Ventanas de 60 y 90 daban dif 0, asi que el defecto era intermitente segun los datos. Despues del fix: `VentasVentana = 83.110.721,32 = suma de filas`, `dif 0,00`, y A+B+C = `66.696.066,23 + 12.314.210,37 + 4.100.444,72 = 83.110.721,32` exacto. Efecto colateral esperado y correcto: la clase A pasa de 42 a 41 productos porque el denominador del Pareto dejo de estar inflado |
-| CA-CR80.6 — costo historico; una recepcion posterior no cambia el margen de una venta anterior | **PASS (invariante probado, no asumido)** | Recalculo **independiente** (busqueda lineal, implementacion distinta de la binaria del service) escenario A (todas las recepciones cargadas) contra escenario B (excluyendo toda recepcion posterior al fin del periodo): 1T2026 `service 18.461.260,95 = A 18.461.260,95 = B 18.461.260,95`, con **173 recepciones posteriores realmente existentes**; 4T2025 `16.116.306,69` en los tres, con **285 posteriores**; ago-2026 `5.814.857,64` en los tres, con **14 posteriores**. Ventas tambien coinciden (`36.019.792,44` service vs recalculo). El invariante se prueba de verdad porque las recepciones posteriores existen y no mueven el numero |
-| CA-CR80.7 — % de ventas valuadas con costo historico | **PASS (con la salvedad de MH-026)** | Cobertura medida en pesos: mes en curso `100%` (50/50 lineas), ago-2026 `99,0%` (64/66), 1T2026 `94,7%` (193/203), historico `89,9%` (912/1077). Visible en la cabecera de `/Rentabilidad`, en las tablas por categoria/marca (`costo de hoy, sin recepcion anterior` en la celda) y en el JSON de la card: `porcentajeCoberturaCostoHistorico: 100`. La salvedad: el porcentaje se calcula sobre una base de ventas incompleta mientras MH-026 siga abierto |
-| CA-CR80.8 — el IVA de la pantalla coincide peso por peso con lo declarado a AFIP | **PASS (la prioridad del pedido)** | Tres evidencias independientes. (1) **Identidad de codigo**: el `git diff` de `AfipService` y `ComprobanteAfipService` muestra que los dos metodos privados tenian cuerpos identicos y que `CalculoIva.CalcularNetoIva` los replica linea por linea (neto = round(total/(1+tasa),2,AwayFromZero), IVA = round(total-neto,2,AwayFromZero)) — no hay cambio de comportamiento posible. (2) **Identidad de entrada**: lo que se declara a AFIP es `ImporteTotal = comprobante.Total` (`ComprobanteAfipService.IntentarEmitirYPersistirAsync`), el mismo campo del que la pantalla deriva el IVA. Los 3 consumidores (FECAESolicitar, PDF de Factura A, pantalla) llaman al mismo helper con la misma tasa de `Afip:PorcentajeIva` (= 21 en produccion, leida del appsettings, nunca hardcodeada). (3) **Recalculo por SQL de los 138 comprobantes Emitidos, mes a mes**: `ROUND(SUM(CASE WHEN TipoComprobante IN (1,6) THEN ROUND(Total-ROUND(Total/1.21,2),2) WHEN TipoComprobante IN (3,8) THEN -ROUND(...) END),2) GROUP BY mes` da **exactamente** los 12 valores de la serie del grafico: oct25 `869.042,19` / nov25 `1.158.698,68` / dic25 `924.060,74` / ene26 `1.640.822,33` / feb26 `1.114.021,16` / mar26 `1.402.504,32` / abr26 `1.259.783,70` / may26 `1.552.360,52` / jun26 `2.081.144,22` / jul26 `1.884.569,46` / ago26 `1.257.570,25` / sep26 `1.636.195,40`. Cero diferencias de redondeo. El redondeo coincide porque el service calcula **comprobante por comprobante** y no sobre la suma de los totales |
-| CA-CR80.9 — la NC resta del debito de su mes de emision | **PASS** | Hay 2 Notas de Credito Emitidas en produccion: #306 `NotaCreditoB PV00007-00000001` del 21/08/2026 (Total `239.000,00`, IVA `41.479,34`, CAE 86349308680400) y #337 del 23/09/2026 (Total `190.000,00`, IVA `32.975,21`, CAE 86384353542463). El conteo del service coincide con el SQL para ambos meses (`ago26: 22 facturas + 1 NC`, `sep26: 21 + 1`) y el debito del mes es el SQL con la NC **restada**, no sumada |
-| CA-CR80.10 — devengado por fecha del comprobante, no de cobro | **PASS en el codigo y en los datos, con un riesgo latente de zona horaria** | Las dos consultas de debito filtran y agrupan **solo** por `ComprobanteAfip.Fecha`; no hay ningun join a `PagoVenta` ni a la fecha de acreditacion en ningun punto del calculo. El credito usa `OrdenCompra.Fecha`. Verificado por lectura y por la coincidencia exacta con el SQL por mes. **Riesgo latente (ver DEF-4)**: `ComprobanteAfip.Fecha` se guarda como `DateTime.UtcNow` mientras a AFIP se le declara `CbteFch` ya convertido a hora de Argentina, asi que un comprobante emitido desde las 21:00 ART del ultimo dia del mes se imputaria al mes siguiente. Hoy no hay ninguno: el comprobante real emitido mas tarde es el #310 a las 19:16 ART |
-| CA-CR80.11 — rotulo de base devengada visible en la card y en el grafico | **PASS** | En el HTML servido, dentro de la card (no en un tooltip): "Estimacion sobre base devengada (por fecha del comprobante, no de cobro)" + `<strong>No reemplaza el Libro IVA ni la liquidacion del contador</strong>`; y en el panel del grafico: "Es una estimacion de gestion, no reemplaza el Libro IVA ni la liquidacion del contador" |
-| CA-CR80.12 — cada card declara su ventana temporal | **PASS** | 14 `ov-chip-ventana` en el HTML servido: 12 para las 12 cards con numero (`periodo` x4, `a hoy` x3, `periodo · devengado`, `historico`, `30 dias`, `90 dias`) + 1 del grafico (`12 meses · devengado`) + 1 de productos mas vendidos. La unica card sin chip es la del enlace a Proyeccion financiera, que no muestra ninguna cifra. Encabezado: "**El rango de fecha afecta solo a las tarjetas marcadas con «periodo»**; las demas declaran su propia ventana" |
-| CA-CR80.13 / REG-010 — el Vendedor no ve nada y los endpoints dan 403 | **PASS** | Sesion real de Vendedor (`vendedor.prueba@marihogar.test`) por `curl`: `/Inventario`, `/Rentabilidad`, `/Dashboard/GetPosicionIva`, `/Dashboard/GetSeriePosicionIva`, `/Dashboard/GetCapitalInmovilizado` y `/Dashboard/GetMargenBruto` devuelven los 6 **302 -> /Account/AccessDenied con 0 bytes de payload** (el proyecto resuelve la denegacion por redirect, no por status 403 crudo: mismo comportamiento que el resto del sistema, sin fuga de datos). El sidebar del Vendedor tiene **0** referencias a `/Inventario` y `/Rentabilidad` (el del Administrador tiene 3 y 2). El Dashboard del Vendedor no contiene ninguna de las cards nuevas (`cardPosicionIva`, `cardCapitalInmovilizado`, `cardPlataQuieta`, `cardMargenBruto`: 0 ocurrencias; en el del Administrador 5/3/4/6) |
-| CA-CR80.14 — ninguna pantalla rompe con base vacia o ventana sin movimientos | **PASS por HTTP / PARCIAL en consola** | `/Inventario?categoriaId=999&filtrar=1` -> 200, 26 KB, estado vacio explicito "No hay productos cargados en la categoria elegida"; `/Rentabilidad?desde=2030-01-01&hasta=2030-01-31` -> 200, estado vacio "No hay ventas confirmadas entre el 01/01/2030 y el 31/01/2030" + "Sin ventas en el periodo seleccionado" + "Sin ventas para valuar". Rango invertido (`desde=2026-09-30&hasta=2026-09-01`) -> 200 sin excepcion. En el Dashboard de dev la card de IVA devuelve todo en 0 y no rompe. Log de la app: **0** excepciones en toda la corrida. **Lo que falta**: la consola del navegador limpia (KOI-B02) no se pudo verificar sin Playwright — los guards estan en el codigo y verificados por lectura, pero la comprobacion empirica queda en el procedimiento manual |
-
-### Historias de usuario
-
-| HU | Resultado | Nota |
-|---|---|---|
-| HU-80.1 — plata inmovilizada y quieta con desglose | **CUMPLE** | CA-CR80.1 + CA-CR80.2 con datos reales |
-| HU-80.2 — que productos explican las ventas (clase A) | **CUMPLE tras el fix MH-023** | Antes el Pareto se calculaba sobre un denominador inflado |
-| HU-80.3 — margen al costo del momento de la venta | **CUMPLE con reserva** | El invariante del costo historico esta probado (CA-CR80.6), pero **MH-026** deja afuera del margen las ventas de productos dados de baja |
-| HU-80.4 — IVA a pagar en el Dashboard | **CUMPLE** | 12 meses verificados peso por peso contra SQL |
-| HU-80.5 — Dashboard sin diez tarjetas iguales | **CUMPLE** | 4 bloques con titulo y subtitulo, 3 cards heroe, 12/12 chips de ventana, clases del design system existentes en el CSS (OLV-018 verificado: las 17 clases nuevas estan definidas), media query de 575,98 px presente |
-| HU-80.6 — el Vendedor no ve ninguna metrica | **CUMPLE** | CA-CR80.13 verificado con sesion real |
-
-### Maquina de estados
-
-**No aplica.** CR-80 es enteramente de solo lectura: no crea ni modifica ninguna entidad, no hay migracion EF, no hay transiciones nuevas. Lo que si se verifico es el **consumo correcto de las maquinas de estados existentes** en las 4 agregaciones nuevas (LP-001): Venta `Pendiente/PagadaParcial/Pagada` (inventario y rentabilidad), OC `Recibida` para el costo historico, OC `Confirmada/Recibida` para el credito fiscal, `ComprobanteAfip.Emitido` para el debito. Ningun `!= Cancelada` en codigo nuevo salvo el caso documentado de la variacion vs periodo anterior. Comprobado con datos: los estados realmente presentes en produccion son Venta `2:1, 3:719, 4:4` y el conjunto explicito los cubre.
-
-### Cobertura del catalogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
-
-| id | aplica | resultado | accion |
-|---|---|---|---|
-| LP-001 | **si (misma superficie exacta: el bug original es un ABC que no filtra el estado de la Venta)** | **PASS** — `InventarioService` y `RentabilidadService` usan el conjunto explicito `[Pendiente, PagadaParcial, Pagada]`; verificado contra los estados realmente presentes | ninguna |
-| MH-001 | si | **PASS** — los 3 `Contains` nuevos van sobre `List<int>`; las 3 consultas de `/Inventario` y las 2 de `/Rentabilidad` ejecutaron contra produccion sin 500 | ninguna |
-| MH-002 | si | **PASS** — los 3 endpoints nuevos no serializan ningun enum (`clase` viaja como string, el resto son decimales/enteros) | ninguna |
-| MH-004 | **si (mismo patron: desglose que no parte el mismo conjunto que el total)** | **FAIL -> corregido** — reaparecio en superficie nueva como **MH-023** | auto-fix aplicado |
-| MH-009 | si | **RIESGO LATENTE** — la familia "fecha guardada en UTC leida como fecha calendaria ART" vuelve a aparecer: `ComprobanteAfip.Fecha = DateTime.UtcNow` contra `CbteFch` en hora ART. Ver DEF-4 | reportado, no corregido (pre-existente y sistemico) |
-| MH-014 | si | **PASS** — las fechas de las pantallas nuevas se renderizan server-side con Razor; el unico dato de fecha que arma el JS son las etiquetas de mes del grafico, que vienen ya formateadas del server (`NombresMes`, sin depender de la cultura del hosting) | ninguna |
-| MH-015 / MH-018 | si | **PASS** — las tablas nuevas son DataTables **client-side** (no hay `GetData` server-side ni `SortColumn`), asi que toda columna ordenable ordena de verdad. Los importes y los dias ordenan por `data-order` numerico, no por el texto formateado | ninguna |
-| MH-016 | si | **PASS** — `InventarioService` proyecta columnas sueltas (`Select` a tipo anonimo) y nunca materializa `Producto`, asi que no toca `RowVersion` | ninguna |
-| REG-010 / KOI-003 | si | **PASS** — policy a nivel de clase en los 2 controllers nuevos + explicita en los 3 endpoints nuevos, verificado empiricamente con sesion de Vendedor | ninguna |
-| KOI-005 / KOI-006 | si | **PASS** — los 2 links nuevos del sidebar apuntan a controllers que existen y responden 200 para Administrador (no 404) | ninguna |
-| KOI-015 | si | **PASS** — `ObtenerCapitalInmovilizadoAsync` reutiliza `ObtenerAsync(ventana, categoria)` pasando el filtro **como parametro**; no hay ningun `Where` aplicado despues de una proyeccion | ninguna |
-| KOI-016 (guarda de privilegio) | si | **PASS** — la autorizacion es por policy, no por comparacion de string de rol | ninguna |
-| KOI-016 (complemento aritmetico visible en otra pantalla) | si | **PASS para lo nuevo** — el Vendedor no accede a ninguna de las metricas nuevas ni a sus endpoints; el margen no es derivable desde ninguna pantalla nueva que el vea | ninguna |
-| KOI-B02 | si | **PASS por lectura, PARCIAL por navegador** — los 3 bloques de JS nuevos resuelven el elemento primero y salen si no esta (tabla de Inventario, daterangepicker de Rentabilidad, panel de filtros); no se pudo confirmar la consola limpia sin Playwright | queda en el procedimiento manual |
-| KOI-017 | si | **PASS** — 12/12 cards con chip de ventana + aclaracion del alcance del rango en el encabezado + ventana propia declarada en el grafico y en las 3 cabeceras de Inventario | ninguna |
-| CRM-024 | si | **PASS** — el `Take(10)` de mejores/peores productos va **despues** del filtro y del orden | ninguna |
-| OLV-012 | si | **PASS** — el filtro vuelve de la sesion y la vista lo repone: tras "Limpiar filtros" la vista renderiza `<option value="90" selected>` | ninguna |
-| OLV-018 | si | **PASS** — las 17 clases `ov-*` que usan las vistas nuevas estan definidas en `olvidata-theme.css` (verificado una por una) | ninguna |
-| REG-001, REG-002, REG-003, REG-004, REG-005, REG-006, REG-007, REG-008, REG-009 | no | N/A — CR-80 no tiene ABM, ni combos de alta, ni autocomplete, ni maquina de estados, ni inputs de importe: son 2 pantallas de reporte de solo lectura y 3 endpoints de lectura | ninguna |
-| KOI-001, KOI-002, KOI-004, KOI-009, KOI-010, KOI-011, KOI-012, KOI-013, KOI-014 | no / parcial | N/A — sin acciones destructivas ni SweetAlert2, sin export, sin topes, sin escrituras de auditoria, sin checkbox+hidden. KOI-014 es el antecedente de KOI-B02, ya cubierto arriba. **KOI-009 (AJAX con URL absoluta desde la raiz)**: los 3 fetch nuevos usan rutas absolutas `/Dashboard/...`, igual que los 9 pre-existentes de la misma vista — consistente con el proyecto, que se deploya en la raiz del sitio, no anidado | ninguna |
-| DN-001, DN-002 | no | N/A — ninguna consulta nueva combina `Include` de coleccion + OrderBy dinamico + Skip/Take (no hay paginacion server-side) | ninguna |
-| GAN-001, GAN-002, GAN-003, GAN-004, GAN-005, GAN-006 | no | N/A — sin grillas dinamicas de filas, sin backfill (no hay migracion), sin `<script type="text/x-template">`, sin `<datalist>`, sin inputs numericos posteados | ninguna |
-| VSF-001, VSF-002, MH-003, MH-005..MH-008, MH-010..MH-013, MH-017, MH-019..MH-022, SG-001, LP-003, LP-004, LP-005, ELV-001, ELV-002, LIP-001, DN-003, DN-004 | no | N/A — modulos y caminos de escritura que CR-80 no toca (cancelaciones, remitos, links publicos, facturacion, edicion inline de stock, cheques, proyeccion, POST de formularios con decimales) | ninguna |
-| CRM-*, OLV-*, KOI-015 (parcial), GAN-*, LIP-001 | no | N/A — otros proyectos / superficies que marihogar no tiene (bot, portal de tenant, frentes, cupos) | ninguna |
-| **MH-023, MH-024, MH-025** | **nuevos, creados en esta corrida** | **FAIL -> auto-fix aplicado y re-verificado contra produccion** | ver "Auto-fixes" |
-| **MH-026** | **nuevo, creado en esta corrida** | **FAIL -> escalado al implementador, sin corregir** | ver DEF-1 |
-
-### Cobertura de reglas nuevas/modificadas desde la ultima corrida de QA de este proyecto
-
-Este archivo **no tenia** el campo "Ultima validacion de reglas cross-proyecto" (la entrada previa es del 2026-09-02, anterior a que la regla existiera), asi que por la mecanica de `33-verificacion-automatizada-qa.instructions.md` se trato **todo** el catalogo vigente como "a validar por primera vez" para la superficie de este CR. Lo aplicable esta en la tabla de arriba. De lo agregado al catalogo despues del 2026-09-02, lo que efectivamente aplica a CR-80:
-
-| Regla | Origen | Resultado | Accion |
-|---|---|---|---|
-| KOI-017 — dos numeros dibujados juntos: la ventana de cada uno es un DATO | `32-estandares-qa-implementador.instructions.md` | **PASS** — es la regla que estructura el rediseno del Dashboard; 12/12 chips verificados en el HTML servido | ninguna |
-| KOI-015 — helper compartido recibe el filtro como parametro y proyecta al final | `32-...` | **PASS** | ninguna |
-| KOI-016 — guarda de privilegio fail-closed sobre la lista completa de roles | `32-...` | **PASS** | ninguna |
-| MH-022 — asimetria de bases entre los dos lados de una comparacion (CR-79, 2026-09-24) | `regresiones-manuales.yml` | **PASS para CR-80, pero su familia produjo MH-026**: la leccion de MH-022 es que dos cifras dibujadas juntas tienen que estar medidas sobre la misma base. MH-026 es exactamente esa falla entre "Ventas del periodo" y "Margen real del periodo" | reportado como MH-026 |
-| CRM-023 / CRM-024 | `regresiones-manuales.yml` | **N/A / PASS** — sin arrays por AJAX GET; el `Take` va despues del filtro | ninguna |
-| Verificacion automatizada por navegador (politica del 2026-08-14) | rol `qa-mvc.agent.md` + `33-...` | **NO EJECUTABLE en esta sesion** — el MCP de Playwright no esta disponible; se declaro y se cayo al procedimiento por HTTP + manual | procedimiento manual abajo |
-
-**Hallazgo de higiene del catalogo**: el id `KOI-016` esta **duplicado** en `regresiones-manuales.yml` (lineas 3367 y 3401) con dos bugs distintos ("guarda de privilegio fail-closed" y "complemento aritmetico visible en otra pantalla"). El formato dice que los ids son estables y no se renombran, asi que la correccion no la hace QA por su cuenta: queda anotado para que el proximo que toque el catalogo renombre el segundo (candidato: KOI-018).
-
-### Defectos detectados
-
-**DEF-1 / MH-026 — `major`, NO corregido, escalado al implementador.** Dar de baja un producto borra sus ventas pasadas del margen. La consulta de lineas de `RentabilidadService` proyecta `i.Producto!.Nombre` / `i.Producto.Categoria!.Nombre` / `i.Producto.PrecioCompra`, y al navegar a `Producto` EF aplica su query filter global de soft-delete: las lineas de productos dados de baja se caen **enteras**. Evidencia: el service informa `Ventas = 204.545.349,70` sobre 1077 lineas para todo el historico, mientras el SQL da `207.904.904,02` sobre 1108 (`SELECT SUM(vi.Subtotal), COUNT(*) FROM ventaitems vi JOIN ventas v ... JOIN productos p ...` con y sin `p.DeletedAt IS NULL`); la diferencia, `3.359.554,32` en 31 lineas, es exactamente lo de los productos borrados. Y `SUM(Venta.Total) = SUM(VentaItem.Subtotal) = 207.904.904,02`, asi que la card "Ventas del periodo" del Dashboard **si** las cuenta. Resultado: dos cifras rotuladas como ventas del mismo periodo, en el mismo bloque de la misma pantalla, difieren en **12 de los ultimos 17 meses**, entre 0,7% y 3,3% (peor caso abril 2026: `11.437.741,92` en la card de ventas contra `10.945.724,46` de base del margen, `492.017,46` de diferencia). Ademas viola el espiritu de CA-CR80.6: una accion posterior a la venta (dar de baja el producto) cambia el margen de un periodo cerrado. **Por que no lo toque**: el fix cambia el universo de ventas del margen y exige partir la consulta en dos e introducir `IgnoreQueryFilters()` en un Service — hoy solo se usa en `tools/` —, o sea una decision de diseno, no la replica de una solucion ya validada. Propuesta completa en `archivos_fix` de MH-026.
-
-**DEF-2 / MH-023 — `minor`, corregido.** Ver CA-CR80.5.
-
-**DEF-3 / MH-024 — `minor`, corregido.** La columna "Ultima venta" mostraba la fecha en que se **anulo** una venta como si fuera la ultima vez que el producto se vendio, porque tomaba `MAX(Fecha)` sobre todos los `MovimientoStock` de `Tipo=Venta` sin mirar el signo (la reversion de una cancelacion se guarda con `Tipo=Venta` y `Cantidad > 0`). 5 productos afectados en produccion, el peor con 15 dias de error: producto #55 mostraba 19/08/2026 cuando su ultima venta real fue el 04/08/2026. El mismo metodo ya usaba el signo correctamente una linea mas arriba para netear las unidades.
-
-**DEF-4 — `minor`, latente, NO corregido (pre-existente y sistemico).** `ComprobanteAfip.Fecha` y `Venta.Fecha` se guardan como `DateTime.UtcNow`, mientras a AFIP se le declara `CbteFch` ya convertido a hora de Argentina (`AfipService`, linea 292) y las ventanas de las pantallas se calculan con `HorarioArgentino.Ahora.Date`. Entre las 21:00 y las 24:00 ART la fecha UTC ya es la del dia siguiente, asi que **un comprobante emitido despues de las 21:00 ART del ultimo dia de un mes se imputaria al mes siguiente**, difiriendo de lo declarado. Hoy no ocurre: de los 138 comprobantes Emitidos, los 2 que tienen mes ART distinto del mes UTC (#57 y #28) son del historico importado con hora 00:00 y sin CAE, no emitidos por el sistema; el comprobante real emitido mas tarde es el #310 a las 19:16 ART. Mismo efecto sobre el limite de dia en todas las ventanas de fecha. **No lo toque** porque cambiar la semantica de `Fecha` es un pase sistemico sobre todo el proyecto (familia MH-009), muy por fuera del alcance de CR-80.
-
-**DEF-5 / MH-025 — `minor`, corregido.** Ver "Auto-fixes".
-
-**OBS-1 — decision de negocio, no la toco.** El credito fiscal excluye las OC `Facturada = true` que quedaron **Canceladas**. En produccion hay una: OC #257 del 01/09/2026, `MontoIva = 80.001,60`. La implementacion sigue la letra del analisis funcional ("OC con `Facturada = true` **no canceladas**"), pero es IVA de una factura real de proveedor: sin ella, el saldo de septiembre es `1.026.032,55`; con ella seria `946.030,95` (8% menos a pagar). **Decision del cliente/contador**, no un defecto.
-
-**OBS-2 — dato para el cliente, no un defecto.** Los 222 productos vigentes de produccion estan **todos** en la unica categoria que existe ("Sin categorizar") y **todos** sin marca. El desglose por categoria y por marca —que el analisis pide en las dos pantallas nuevas— rinde hoy **una sola fila** en cada caso. Las metricas de capital, plata quieta, cobertura y ABC funcionan igual; lo que no aporta nada hasta que se categorice el catalogo es el desglose. Vale decirselo al cliente junto con la entrega.
-
-**OBS-3 — menor, no lo toco.** En `/Rentabilidad`, un producto cuyas lineas suman `Subtotal = 0` (hay 29 lineas de venta con subtotal 0 en el historico: regalos/bonificaciones) informa `MargenPorcentaje = 0` aunque su margen en pesos sea negativo, porque el porcentaje se protege con `Ventas > 0`. Hoy no se ve: ningun producto queda por debajo del umbral del 10% y la lista "peores productos" viene **vacia** en produccion. Es una eleccion de presentacion razonable; queda anotado por si el umbral cambia.
-
-### Auto-fixes aplicados
-
-| id | archivo | que cambio | verificacion post-parche |
-|---|---|---|---|
-| **MH-023** | `MariHogar.Infrastructure/Services/InventarioService.cs` | La consulta de ventas valorizadas se acota con `productoIds.Contains(i.ProductoId)` sobre los ids del catalogo vigente; para que ese universo no dependa del filtro de categoria, el catalogo se trae completo en el SQL y la categoria se filtra en memoria (siguen siendo 3 consultas) | Ventana 180 pasa de `dif 592.023,96` a `dif 0,00`; A+B+C = `83.110.721,32` exacto; capital, plata quieta y la monotonia de CA-CR80.2 sin cambios en las 3 ventanas |
-| **MH-024** | `MariHogar.Infrastructure/Services/InventarioService.cs` | `UltimaVenta` pasa a maximo condicional `g.Max(m => m.Cantidad < 0 ? (DateTime?)m.Fecha : null)` — `MAX(CASE WHEN...)`, no `g.Where(...)` adentro del `GroupBy` (MH-001/MH-002) | Los 5 productos afectados pasan a la fecha del ultimo movimiento con `Cantidad < 0`, cada uno contra una consulta independiente: #31 `23/09 12:36` (antes 16:55), #55 `04/08` (antes 19/08), #65 `02/09 15:04` (antes 15:05), #154 `08/08` (antes 19/08), #167 `05/08` (antes 19/08) |
-| **MH-025** | `MariHogar.Infrastructure/Services/RentabilidadService.cs` | Se agrega `oci.Id` a la proyeccion y el orden pasa a `.OrderBy(r => r.FechaRecepcion).ThenBy(r => r.Id)`: el desempate de dos recepciones de la misma fecha deja de depender del orden de filas de MySQL | Costo historico total: `104.005.283,10` con el orden de la base y `104.005.283,10` con `(Fecha, Id)` — **diferencia 0,00**, el fix no mueve ningun numero hoy y cierra la puerta a que se muevan solos. El invariante de CA-CR80.6 sigue dando A == B == service en los 3 periodos |
-
-Ninguno de los 3 agrega logica de negocio: MH-023 y MH-026 son la misma leccion en espejo (el query filter global se aplica **por consulta**, no por metodo), MH-024 usa el signo que el mismo metodo ya usaba, y MH-025 hace explicito un desempate que estaba delegado al motor. Build tras los 3: `dotnet build MariHogar.slnx` -> **0 errores, 8 warnings preexistentes, ninguno nuevo**. Regresion por HTTP tras los fixes: `/Inventario` (y con ventana 180, con categoria 1 y con categoria inexistente), `/Rentabilidad`, `/Dashboard`, los 3 endpoints nuevos y las 4 pantallas vecinas (`/Stock`, `/Productos`, `/Caja`, `/ProyeccionFinanciera`) -> **todos 200, 0 excepciones en el log**.
-
-### R-CR80.1 cuantificado (para el aviso al cliente)
-
-El margen del Dashboard **cambia de valor** el dia del deploy, y ahora se sabe cuanto, medido contra produccion:
-
-| Periodo | Margen viejo (costo de hoy) | Margen nuevo (costo historico) | Delta |
-|---|---|---|---|
-| Mes en curso (sep-2026) | `6.629.721,04` (50,8%) | `6.541.607,80` (50,1%) | **−88.113,24** (−0,7 pp) |
-| Mes anterior (ago-2026) | `6.152.757,45` (51,3%) | `6.170.256,62` (51,5%) | +17.499,17 |
-| 1T2026 | `14.602.676,26` (40,5%) | `17.558.531,49` (48,7%) | **+2.955.855,23** (+8,2 pp) |
-
-La correccion se hace mas grande cuanto mas viejo el periodo, que es exactamente el sesgo que CR-80 venia a corregir: valuar una venta de hace seis meses al costo de hoy, con inflacion, hundia el margen historico 8 puntos. El numero que el cliente va a ver distinto el dia del deploy es el del mes en curso, y baja poco (menos de 1 punto).
-
-### Costo de las pantallas contra produccion (RT-CR80.2)
-
-Medido desde fuera del hosting (cada round-trip paga ~200 ms de enlace que la app no paga):
-
-| Pantalla / endpoint | Tiempo total | Comandos SQL | Tiempo en la base |
-|---|---|---|---|
-| `/Inventario` (ventana 90) | 2.080 ms | 3 | 660 ms |
-| `/Rentabilidad` (mes en curso) | 1.261 ms | 2 | 416 ms |
-| `Dashboard/GetCapitalInmovilizado` | 1.888 ms | 3 | 628 ms |
-| `Dashboard/GetPosicionIva` | 1.318 ms | 2 | 429 ms |
-| `Dashboard/GetSeriePosicionIva` (12 m) | 1.646 ms | 2 | 423 ms |
-| `Dashboard/GetMargenBruto` | 1.291 ms | 2 | 436 ms |
-
-Sin N+1 en ningun caso, y la cantidad de consultas no depende del volumen de datos. Nota de arquitectura: el Dashboard dispara ahora **3 endpoints nuevos** y `GetCapitalInmovilizado` paga el catalogo completo por decision explicita del implementador (decision 5, para que la card y la pantalla no puedan diferir) — es el precio correcto por esa garantia, y se verifico que en efecto dan el mismo numero al peso (`15.563.957,61` en los dos).
-
-### Pruebas minimas ejecutadas (las 16 que dejo el implementador)
-
-| # | Prueba | Estado |
-|---|---|---|
-| 1 | CA-CR80.8, IVA de la pantalla contra lo declarado a AFIP | **EJECUTADA** — 138 comprobantes, 12 meses, cero diferencias. Lo que **no** se ejecuto: cambiar `Afip:PorcentajeIva` y ver moverse los tres numeros juntos (implica tocar la configuracion de produccion); queda cubierto por lectura — los 3 consumidores reciben la tasa del mismo `AfipSettings` |
-| 2 | CA-CR80.1 contra SQL | **EJECUTADA** — identico al peso |
-| 3 | CA-CR80.2, ventana 90 -> 180 | **EJECUTADA** — monotona, y el riesgo latente del clamp descartado con SQL |
-| 4 | CA-CR80.3 / CA-CR80.14 | **EJECUTADA por HTTP** — "sin movimiento" (153), "agotado" (27), estados vacios de las 2 pantallas; consola del navegador pendiente |
-| 5 | CA-CR80.4, cancelar una venta y ver bajar las unidades | **PARCIAL** — el neteo por signo se verifico sobre las 46 reversiones que ya existen en produccion; cancelar una venta nueva es un camino de escritura y va en el procedimiento manual |
-| 6 | CA-CR80.5, A+B+C | **EJECUTADA — FALLABA, corregida (MH-023)** |
-| 7 | CA-CR80.6, invariante fuerte | **EJECUTADA** — probada con 3 periodos y 173/285/14 recepciones posteriores reales |
-| 8 | CA-CR80.7, % de cobertura | **EJECUTADA** — 100% / 99,0% / 94,7% / 89,9% |
-| 9 | CA-CR80.9 / CA-CR80.10 | **EJECUTADA** — las 2 NC reales restan en su mes; el calculo no toca ninguna fecha de cobro |
-| 10 | CA-CR80.11, rotulo visible | **EJECUTADA** — en la card y en el grafico, en el HTML servido |
-| 11 | CA-CR80.12, chips de ventana | **EJECUTADA** — 12/12 + encabezado. Lo que falta: mover el rango y ver que solo cambian las de «periodo» (requiere navegador) |
-| 12 | CA-CR80.13, 403 al Vendedor | **EJECUTADA** — 6 endpoints, sesion real |
-| 13 | Panel de filtros | **EJECUTADA** — `data-filtros-puestos`: entrada limpia `0`, ventana 180 `1`, vuelta sin parametros `1` (sesion), ventana 90 (default) `0`, categoria+default `1`, tras `LimpiarFiltros` `0` y el combo vuelve a `90` |
-| 14 | Carga independiente por card | **PARCIAL** — el patron esta intacto (un fetch y un `catch` por card, verificado en la vista); simular la caida de un endpoint requiere navegador |
-| 15 | El margen cambio a proposito | **EJECUTADA y cuantificada** — tabla de R-CR80.1 |
-| 16 | Mobile 390 px | **NO EJECUTADA** — sin navegador. La media query de 575,98 px existe y reduce el numero heroe; el resto es grilla de Bootstrap. Va al procedimiento manual |
-
-### Procedimiento manual para el usuario (lo que no se pudo automatizar sin Playwright)
-
-1. **Consola del navegador limpia (KOI-B02)**: abrir `/Inventario`, `/Rentabilidad` y `/Dashboard` con la consola abierta (F12). Despues repetir en `/Inventario?categoriaId=<una categoria sin productos>` y en `/Rentabilidad` con un rango sin ventas. Esperado: ningun error rojo en ninguno de los 5 casos.
-2. **Chips de «periodo» (CA-CR80.12)**: en el Dashboard, mover el rango de fecha y confirmar que **solo** cambian las 4 tarjetas marcadas con «periodo» y las demas quedan igual.
-3. **Carga independiente (prueba 14)**: con la consola abierta, cortar la red un instante mientras carga el Dashboard. Esperado: la tarjeta afectada dice "Error al cargar" y las otras 11 siguen mostrando su numero.
-4. **Cancelar una venta (CA-CR80.4)**: en dev, cancelar una venta reciente y recargar `/Inventario`. Esperado: las unidades vendidas de ese producto bajan exactamente en la cantidad cancelada y **"Ultima venta" no se mueve** (esto ultimo verifica el fix MH-024). Un ajuste manual de stock hacia abajo no debe aparecer como unidades vendidas.
-5. **Mobile 390 px (prueba 16)**: emulador de 390 px en las 3 pantallas. Esperado: una tarjeta por fila, el orden de bloques operacion -> plata -> vencimientos -> inventario, las tablas scrollean horizontal sin romper la pagina y el numero heroe sigue siendo el mas grande.
-6. **Grafico de IVA**: confirmar que el ultimo mes (el mes en curso) se ve con la franja sombreada y que el tooltip muestra los 3 valores (IVA ventas, IVA compras, saldo).
-
-### Riesgos de liberacion y mitigaciones
-
-| Riesgo | Mitigacion |
-|---|---|
-| **MH-026 sin resolver**: la card de margen y la de ventas del Dashboard muestran bases distintas en 12 de los ultimos 17 meses | Decidir antes del deploy. Si se deploya asi, avisar que el margen de un periodo puede calcularse sobre menos ventas que las que informa la card de al lado cuando hubo productos dados de baja. Es lo unico `major` abierto |
-| **El margen del Dashboard cambia de valor el dia del deploy** (R-CR80.1) | Ya cuantificado: el mes en curso baja `88.113,24` (0,7 pp). Va en el resumen de entrega, con la explicacion de que es la correccion pedida |
-| La posicion de IVA se lea como liquidacion fiscal (R-CR80.3) | Rotulo verificado dentro de la card y del grafico (CA-CR80.11). Reforzar en el mensaje de entrega: no contempla percepciones, retenciones, notas de debito ni compras sin factura |
-| **OBS-1**: el saldo de IVA de septiembre excluye `80.001,60` de una OC facturada que quedo Cancelada | Confirmar el criterio con el cliente/contador antes de que use el numero para pagar |
-| **DEF-4**: un comprobante emitido despues de las 21:00 ART del ultimo dia del mes caeria en el mes siguiente | Hoy no pasa (el mas tardio es 19:16 ART). Si el negocio empieza a facturar de noche, hay que arreglar la semantica de `Fecha` — es un pase sistemico, no de CR-80 |
-| El cliente espere valor del desglose por categoria/marca (**OBS-2**) | Avisar que con el catalogo sin categorizar ni marcar el desglose da una sola fila; el valor esta en capital, plata quieta, cobertura y ABC |
-| Sin verificacion por navegador | 6 pasos manuales listados arriba, ninguno de mas de 2 minutos |
-| `/Inventario` sirve ~370 KB de HTML con 222 productos | Aceptable hoy; si el catalogo crece mucho habra que paginar server-side. No bloquea |
-
-### Checklist de salida para merge
-
-- [x] Build `MariHogar.slnx` limpio tras los auto-fixes: 0 errores, 8 warnings preexistentes, ninguno nuevo.
-- [x] Sin migracion EF, sin columnas nuevas (confirmado: el CR es de solo lectura).
-- [x] **No se escribio nada en produccion**: todo el acceso fue por un runner de consola de solo lectura y `SELECT` directo; la app solo se levanto contra `marihogar_dev`.
-- [x] CA-CR80.8 (la prioridad): IVA de la pantalla verificado peso por peso contra la formula declarada a AFIP, 138 comprobantes y 12 meses, cero diferencias.
-- [x] CA-CR80.6: invariante del costo historico probado con recepciones posteriores realmente existentes.
-- [x] Aritmetica que tenia que cerrar: CA-CR80.1 y CA-CR80.2 cierran; CA-CR80.5 fallaba y quedo corregida.
-- [x] CA-CR80.13 / REG-010 verificado con sesion real de Vendedor sobre los 6 endpoints.
-- [x] Estados vacios de las 2 pantallas nuevas verificados por HTTP, sin excepciones en el log.
-- [x] 3 auto-fixes aplicados, catalogados (MH-023/024/025) y re-verificados contra produccion.
-- [x] Regresion de las pantallas vecinas (`/Stock`, `/Productos`, `/Caja`, `/ProyeccionFinanciera`): 200 y sin cambios.
-- [ ] **Decision sobre MH-026** (corregir antes del deploy, o aceptar y avisar). Es lo unico que bloquea.
-- [ ] Decision del cliente/contador sobre OBS-1 (OC facturada y cancelada: su IVA cuenta o no).
-- [ ] 6 pasos del procedimiento manual del navegador (consola limpia, chips de periodo, carga independiente, cancelar una venta, 390 px, grafico).
-- [ ] Aviso al cliente de R-CR80.1 con el numero concreto (−88.113,24 en el mes en curso) y de OBS-2 (desglose sin categorias).
-- [ ] Commit y deploy — los hace el usuario.
-
-### Estado go/no-go
-
-**GO CONDICIONADO a decidir MH-026.** Lo que el pedido marcaba como mas riesgoso salio bien y con evidencia dura: el IVA coincide peso por peso con lo declarado en los 138 comprobantes y los 12 meses del grafico, el invariante del costo historico esta **probado** y no asumido (con 173 y 285 recepciones posteriores reales que no lo mueven), y el capital inmovilizado da identico al SQL. La aritmetica que tenia que cerrar cierra, con una excepcion que aparecio solo en la ventana de 180 dias y ya quedo corregida. Los permisos estan bien puestos y verificados con una sesion real, no por lectura de codigo. Lo unico `major` es MH-026, que no es un error de lo que se implemento sino un filtro global de EF que se cuela en una consulta y no en la de al lado — pero deja dos numeros de la misma pantalla contando distinto, y eso es justo lo que este CR venia a eliminar.
-
----
-
-## CR-83 (2026-09-30) — Costo de cobranza por venta: comision de plataforma + IVA + impuestos bancarios
-
-**Lote unico** (cambio financiero que toca el ledger de CC Local, instruccion 39 seccion 5: 1 modulo por corrida).
-**Ultima validacion de reglas cross-proyecto: 2026-09-30.**
-
-### Como se probo (y el limite duro de esta corrida)
-
-- **La migracion `20260930161626_AddCostoCobranzaPorVenta` NO esta aplicada a ninguna base** (indicacion explicita del brief). No se aplico, no se levanto la app, no se ejecuto ningun `SaveChanges`. La corrida es **revision de codigo + analisis de datos reales**, no ejecucion.
-- **Verificacion automatizada por navegador: NO ejecutada.** Sin migracion aplicada la app no puede levantar contra una base con el esquema nuevo, asi que ninguna pantalla de CR-83 es navegable. Declarado segun `33-verificacion-automatizada-qa.instructions.md`: se cayo al procedimiento manual y todo PASS que dependiera de UI queda **BLOCKED**, no PASS.
-- **SQL de solo lectura contra la base REAL de produccion** (`mysql.exe`, unicamente `SELECT`) para: (a) reproducir el calculo del seed peso por peso contra los pagos reales de septiembre 2026, (b) dimensionar el alcance del defecto MH-027. Cero escrituras.
-- **Aritmetica independiente**: el costo de septiembre se recalculo a mano desde los porcentajes del seed y los 31 pagos reales, sin usar el codigo del sistema, y se contrasto contra los $1.278.947,36 que fijo el analisis.
-
-### Cobertura por criterio de aceptacion
-
-| CA | Resultado | Evidencia observada |
-|---|---|---|
-| CA-83.1 — catalogo de tasas configurable con vigencia | **PASS (codigo)** | `TasaCostoCobranza` sin `SoftDestroyable`, `VigenteDesde`/`VigenteHasta`; `TasaCostoCobranzaService.CrearAsync` detecta solape y cierra la anterior en `VigenteDesde-1`; cero porcentajes hardcodeados (todos los % salen de la fila resuelta). `ResolverTasaAsync` matchea `Cuotas` NULL con NULL, nunca "cualquiera". **UI de la pantalla: BLOCKED** (sin migracion) |
-| CA-83.2 — el vendedor elige el procesador, obligatorio y sin default | **PASS (codigo)** | Triple defensa verificada: JS de `Ventas/Create.cshtml` (`METODOS_CON_PLATAFORMA = [2,3,6,7,8]`, identico al `HashSet` del Service), `VentaService.ConfirmarAsync` y `PagoVentaService.RegistrarPagoAsync` rechazan `Procesador == Ninguno` **y** rechazan un procesador informado donde no corresponde. El select arranca en `<option value="">Plataforma de cobro...</option>`: sin valor preseleccionado. `PagoVentaJson.Procesador` es `int` posicional; un payload sin el campo llega 0, `Enum.IsDefined(0)` es false y el controller lo normaliza a `Ninguno`, que el Service rechaza |
-| CA-83.3 — base = `Monto`, desglose persistido, id de tasa | **PASS (verificado contra datos reales)** | `CalcularAsync` usa `pago.Monto`; `MontoBase` no aparece en `CostoCobranzaService`. Desglose en 4 columnas + `TasaCostoCobranzaId`. **Reproduccion exacta del lado Mercado Pago de septiembre**: MP metodo 1.574.000 x 4,08% = 64.219,20 · 9 cuotas 1.758.000 x 19,38% = 340.700,40 · 12 cuotas 1.513.000 x 23,58% = 356.765,40 → **761.685,00**, identico al peso al numero del analisis. Redondeo por componente y Total como suma de los ya redondeados: el desglose suma exacto lo que se postea |
-| CA-83.4 — egreso junto al ingreso, misma fecha; Pendiente no postea | **PASS (codigo)** | Los 3 puntos de alta revisados uno por uno. `ConfirmarAsync` y `PagoVentaService.RegistrarPagoAsync`: `AplicarCostoAsync` siempre, y `PostearEgresoAsync` **dentro** del bloque que ya excluye `EstadoAcreditacion == Pendiente` (el mismo `continue`/`if` que gobierna el Ingreso) → un pago de TarjetaCredito que nace Pendiente no postea nada. `AcreditarPagoAsync` tiene guard `if (pago.EstadoAcreditacion != Pendiente) return CreateError(...)`, asi que no puede correr dos veces sobre el mismo pago → **no hay doble posteo por los 3 puntos de alta**. Fecha del egreso == fecha del Ingreso en los 3 caminos |
-| CA-83.5 — reversion acotada a lo posteado | **FAIL — MH-027** | El calculo de `ObtenerNetoPosteadoAsync` (Σ Egreso no-reversion − Σ Ingreso reversion, filtrado por `OrigenTipo` **y** `PagoVentaId`) es correcto y es saldo neto, no un `Any()`. Pero `VentaService.EliminarPagoAsync:994` busca el movimiento del pago **sin filtrar `OrigenTipo`** sobre una clave que CR-83 vuelve no-unica → ver MH-027. Un pago que nunca se acredito efectivamente no genera contramovimiento (`RevertirEgresoAsync` devuelve 0 y no postea) |
-| CA-83.6 — rentabilidad descuenta el costo de cobranza | **PASS (codigo) / parcial** | `RentabilidadService` inyecta `ICostoCobranzaService` y no recalcula nada propio; `CostoCobranza` se lee **antes** del early-return de periodo sin ventas; `Margen` (bruto) intacto y `MargenNeto` al lado. **Defecto de consistencia MH-029**: `ObtenerCostoPeriodoAsync` no excluye los movimientos de ventas canceladas, mientras `CCLocalService` si los oculta → dos verdades para el mismo periodo |
-| CA-83.7 — asignacion del procesador a pagos historicos | **BLOCKED (UI) + FAIL (efecto)** | `ActualizarProcesadorPagoAsync` existe, aplica PAT-023 (reversion + alta, nunca UPDATE del movimiento), tiene guard de venta cancelada y revalida REG-004. Edicion inline AJAX en `PagosTarjeta/Index` con `[Authorize(RequireAdministracion)]` y antiforgery. **No navegable** (sin migracion). Y **MH-028**: el contramovimiento se fecha hoy y el egreso nuevo en la fecha de acreditacion, asi que cambiar la plataforma en octubre de un pago de septiembre deja septiembre con el costo contado dos veces |
-| CA-83.8 — recalculo retroactivo idempotente | **PASS parcial (codigo) / BLOCKED (ejecucion)** | Idempotencia por **saldo neto**, no por flag: `APostear = yaPosteado <= 0 ? costo.Total : 0m`, y se **vuelve a leer** el neto justo antes de postear dentro del loop, no se confia en la foto de la previsualizacion. Previsualizar y aplicar comparten un unico nucleo (`ArmarLineasRecalculoAsync`), asi que los dos pasos de PAT-012 no pueden divergir. Filtra por la fecha de posteo (`FechaAcreditacionEfectiva` para tarjeta), no por `PagoVenta.Fecha`. **No ejecutable** sin migracion. Riesgo residual: read-then-write sin constraint unica → dos corridas concurrentes podrian duplicar |
-| CA-83.9 — impuestos bancarios no atribuibles siguen como Gasto | **PASS (por diseno, no automatizado)** | Nada del codigo nuevo toca `Gasto`; la previsualizacion **muestra** los gastos de `ComisionesBancarias` del rango en `alert-danger` (14 por $1.561.000 en septiembre) y no los anula. Correcto: la decision queda en el usuario |
-
-**Reglas nuevas/modificadas desde la ultima corrida (2026-09-25): ninguna.** `git log --since=2026-09-25 -- .github/instructions/32-estandares-qa-implementador.instructions.md docs/qa/regresiones-manuales.yml` → sin commits; ultimo cambio 2026-09-25 02:15, anterior a la corrida de CR-80. Working tree de los dos catalogos limpio.
-
-### Cobertura del catalogo cross-proyecto
-
-| id | aplica | resultado | accion |
-|---|---|---|---|
-| LP-002 (capacidad nueva sin propagar a todos sus usos) | si | **FAIL** | Los 5 lectores de `OrigenTipo` estan bien revisados (incluida la correccion real de `CCLocalService`, que efectivamente faltaba). Pero el relevamiento se hizo por `OrigenTipo` y **no por `PagoVentaId`**, que es la otra clave que CR-83 vuelve no-unica → MH-027. Regla nueva propuesta abajo |
-| MH-020 / PAT-020 (reversion acotada, ledger inmutable) | si | **PASS en el calculo, FAIL en un call site** | Puntos 1-2-3 correctos en `CostoCobranzaService`: contramovimiento nuevo, mismo `OrigenTipo`/`OrigenId`, monto = neto posteado. El punto que rompe es el lector legado de `EliminarPagoAsync` (MH-027) |
-| MH-021 / PAT-010 (fecha real de la accion) | si | **PASS con 2 desvios menores** | `AcreditarPagoAsync` pisa `FechaAcreditacionEfectiva` con `HorarioArgentino.Ahora` y el egreso hereda esa fecha. Desvios: `VentasController.CostoCobranzaEstimado` usa `DateTime.UtcNow` para resolver la tasa (MH-030), y los contramovimientos caen en `DateTime.UtcNow` por el default de `RegistrarMovimientoAsync` (preexistente) |
-| MH-004 (invariante facturado + no facturado == ingresos) | si | **PASS** | `ObtenerDesgloseFacturadoAsync` calcula `noFacturados` como `totalIngresos − facturados` sobre el mismo universo que `ObtenerTotalesAsync`: la igualdad se mantiene por construccion. El egreso no entra (la consulta solo trae Ingresos) y el contramovimiento de reversion, que si es Ingreso, cae del lado "no facturado" — correcto, no es un cobro a un cliente |
-| MH-001 (`IN` desde coleccion local de string) | si | **PASS** | Los tres `Contains` nuevos son sobre `List<int>` / arreglo de enum (`ids`, `idsEnRango`, `estadosConsumados`). Cero colecciones locales de `string` en el codigo agregado |
-| LP-003 (decimales que vuelven al servidor en cultura invariante) | si | **PASS** | `_Form.cshtml` usa `asp-for` sobre los 4 porcentajes con `type="number" step="0.0001"`, **no** un `value=` escrito a mano en Razor — que es donde LP-003 acota el bug ("el bug vive solo en los `value` escritos a mano en Razor"). Precedente vivo en produccion con el mismo patron: `Productos/Edit.cshtml` (`asp-for="PrecioCompra" type="number"`), pantalla de uso diario del cliente. Cultura fija es-AR confirmada en `Program.cs:194` |
-| CRM-020 (funcion opcional no rompe el flujo que la hospeda) | si | **PASS (codigo)** | `CalcularAsync` nunca lanza: sin tasa devuelve todo en 0 con `SinTasaConfigurada = true`. El aviso se muestra en el hint de la fila y **deja guardar**; `AcreditarPagoAsync` lo agrega al mensaje de exito, no a un error. Ningun `throw` ni `CreateError` en el camino de "sin tasa" |
-| CRM-001 (un unico punto de dominio) | si | **PASS** | `CostoCobranzaService` es el unico que calcula y postea; los 3 puntos de alta y los 2 de reversion delegan. Cero aritmetica de porcentajes fuera de ese archivo |
-| REG-002 (campo condicional por medio de pago) | si | **PASS (codigo) / BLOCKED (visual)** | El select de plataforma solo se renderiza si `requierePlataforma(p.metodo)`; cambiar a un medio sin plataforma limpia el valor (`pagos[idx].procesador = null`). El bloque Cuotas del form de tasas se oculta con `d-none` y se limpia |
-| REG-004 (misma regla en JS y en el Service) | si | **PASS** | Probado por codigo: un POST armado a mano sin procesador es rechazado por `ConfirmarAsync`, por `RegistrarPagoAsync` y por `ActualizarProcesadorPagoAsync`, los tres con mensaje propio. La UI no es la unica defensa en ninguno de los 3 caminos |
-| REG-008 (actualizar solo el elemento afectado) | si | **PASS (codigo)** | `refrescarCostoEstimado` toca unicamente `.costo-cobranza-hint` de su fila; no hay `renderPagos()` en el handler del select ni del monto, asi que no se destruye el input que se esta tipeando |
-| REG-010 (link de sidebar respaldado por autorizacion real) | si | **PASS (codigo)** | `ConfiguracionCostosCobranzaController` tiene `[Authorize(Policy = "RequireAdministracion")]` a nivel clase, la misma policy que envuelve el bloque Configuracion de `_Layout.cshtml` |
-| PAT-012 (previsualizar → confirmar) | si | **PASS (codigo)** | Un unico nucleo compartido por los dos pasos; `Previsualizar` no escribe nada; `Aplicar` es POST con antiforgery y policy de Administracion |
-| PAT-023 (editar un pago posteado es reversion + alta) | si | **PASS con defecto de periodo** | Nunca hay UPDATE sobre `MovimientoCCLocal`. El defecto es la fecha del contramovimiento (MH-028), no el mecanismo |
-| DN-003 (lookup heuristico no acotado en el ledger) | si | **primo de MH-027** | DN-003 es el fallback `VentaId + Monto`; MH-027 es la clave `PagoVentaId` que deja de ser unica al agregar un `OrigenTipo`. Misma familia, item distinto |
-| PAT-008 (filtro por columna visible) | si | **PASS (codigo)** | Las 5 columnas nuevas de `PagosTarjeta/Index` tienen filtro (`procesador`, `sinProcesador`) u orden (`procesadorNombre`, `costoComision`, `costoTotalCobranza`) |
-| MH-007 / MH-022 (proyeccion financiera) | si | **PASS** | El egreso entra en `EgresosReales` pero no alimenta `gastoOperativoPorMes`: el costo de cobranza es proporcional a las ventas, que ya se proyectan por su propio camino. Decision correcta y documentada en el codigo |
-| MH-013 / MH-026 / PAT-017 (IDOR) | no | N/A | Sin comprobantes AFIP, sin baja de productos y sin portal de usuario final en la superficie de este CR |
-
-### Defectos
-
-**MH-027 — CRITICO — El egreso de costo de cobranza rompe la unicidad de `PagoVentaId` en el ledger y desarma el guard de `EliminarPagoAsync`.**
-`VentaService.EliminarPagoAsync:994` busca **el** movimiento de un pago con `.Where(m => m.PagoVentaId == pagoVentaId && !m.EsReversion).FirstOrDefaultAsync()` — sin filtrar `OrigenTipo` y **sin `ORDER BY`**. Hasta CR-83 esa clave era unica; el egreso `CostoCobranza` la vuelve no-unica. Tres consecuencias:
-
-1. **El guard de pagos pre-CR-32 queda desarmado.** Ese guard existe justamente para bloquear la eliminacion de un pago sin movimiento identificable de forma exacta. Medido en produccion: **388 pagos acreditados no-efectivo no tienen ningun movimiento propio con `PagoVentaId`**. Despues del recalculo retroactivo (paso 5 de los pendientes del implementador) cada uno de ellos **si** tiene uno — el de costo — asi que `movimiento != null` pasa a ser true, el guard no dispara, y el sistema postea `Egreso` por el **monto del costo** con `OrigenTipo="Venta"` para reversar un Ingreso de venta que nunca existio. La CC Local queda descuadrada por ese importe, y ademas `RevertirEgresoAsync` reversa el costo por su cuenta unas lineas mas abajo: el costo sale dos veces.
-2. **Para un pago post-CR-32, el monto del contramovimiento depende del orden que devuelva MySQL.** Sin `ORDER BY` no hay contrato: si la fila que vuelve es el egreso de costo, se reversa el costo en vez del pago y el Ingreso real del pago queda sin reversar (sobre el pago #757 de produccion serian ~$81.197 en lugar de $366.000). Hoy funciona solo por el orden de insercion (Ingreso antes que Egreso), que no es una garantia.
-3. Evidencia de que la invariante existia y se rompe: `SELECT n, COUNT(*) FROM (SELECT PagoVentaId, COUNT(*) n FROM MovimientosCCLocal WHERE PagoVentaId IS NOT NULL AND EsReversion=0 GROUP BY 1) t GROUP BY n` → **unicamente `n=1`, 77 filas**. Y `SELECT DISTINCT OrigenTipo FROM MovimientosCCLocal` → `AjusteApertura, Gasto, Venta` (produccion todavia no conoce `CostoCobranza`).
-
-- **Pasos de reproduccion**: aplicar la migracion → asignar plataforma a un pago acreditado pre-CR-32 desde el listado de Ingresos (o correr el recalculo del periodo que lo contiene) → eliminar ese pago desde `Ventas/Details` → observar que **no** aparece el bloqueo "datos anteriores a la mejora de agosto de 2026" y que en CC Local queda un Egreso `Venta` por el importe del costo.
-- **`archivos_fix` sugeridos (hipotesis, no instruccion cerrada)**: `MariHogar.Infrastructure/Services/VentaService.cs` (`EliminarPagoAsync`: agregar `&& m.OrigenTipo == "Venta"` al `Where` y un `OrderBy(m => m.Id)` explicito). Sin migracion EF.
-- **Criterio de re-verificacion**: con la migracion aplicada y un egreso de costo posteado, eliminar un pago pre-CR-32 devuelve el mensaje de bloqueo original; y eliminar un pago post-CR-83 postea un contramovimiento por **`Monto` del pago**, nunca por `CostoTotalCobranza`.
-
-**MH-028 — ALTO — Cambiar la plataforma de un pago de un periodo ya cerrado cuenta el costo dos veces en ese periodo.**
-`ActualizarProcesadorPagoAsync` reversa con `RevertirEgresoAsync`, que llama a `RegistrarMovimientoAsync` **sin fecha** → `Fecha = DateTime.UtcNow` (hoy); y despues postea el egreso nuevo con `fecha = FechaAcreditacionEfectiva` (el mes original). El neto global cierra, pero `ObtenerCostoPeriodoAsync(septiembre)` suma los **dos** egresos y ninguna de las reversiones → `CostoCobranza` y `MargenNeto` de septiembre quedan inflados por el costo viejo. Es el escenario central de CA-83.7 (completar la plataforma de ~700 pagos historicos, necesariamente despues del mes en que se cobraron).
-- **`archivos_fix` sugeridos**: `CostoCobranzaService.RevertirEgresoAsync` (aceptar una fecha explicita) + `VentaService.ActualizarProcesadorPagoAsync` (pasarle la fecha del egreso que reversa, no hoy). Decision de negocio a confirmar con el cliente: una **correccion de dato historico** deberia fecharse en el periodo del dato; una **cancelacion real**, hoy (MH-021).
-- **Criterio de re-verificacion**: pago acreditado en septiembre con costo posteado → cambiar la plataforma en octubre → `ObtenerCostoPeriodoAsync(01/09, 30/09)` devuelve **solo** el costo nuevo.
-
-**MH-029 — MEDIO — El costo de cobranza de una venta cancelada sigue contando en la Rentabilidad del periodo original.**
-`ObtenerCostoPeriodoAsync` no excluye los movimientos de ventas canceladas, y el contramovimiento de `CancelarAsync` se fecha hoy (misma causa que MH-028). `CCLocalService.ListarMovimientosAsync` **si** los oculta (correccion de esta entrega). Resultado: el listado de CC Local no muestra el egreso pero la card "Margen neto" de septiembre lo sigue descontando — dos verdades para el mismo periodo, que es exactamente lo que CR-80 fijo como criterio a evitar.
-- **`archivos_fix` sugeridos**: `CostoCobranzaService.ObtenerCostoPeriodoAsync` (misma subquery correlacionada de exclusion de ventas canceladas que usa `CCLocalService:43`, MH-001-safe).
-- **Criterio de re-verificacion**: cancelar una venta con costo posteado en el periodo → `CostoCobranza` de ese periodo baja por ese importe.
-
-**MH-030 — BAJO — `CostoCobranzaEstimado` resuelve la tasa con `DateTime.UtcNow`.**
-`VentasController.CostoCobranzaEstimado` pasa `DateTime.UtcNow` como fecha de vigencia; todo el resto del proyecto usa `HorarioArgentino.Ahora` (PAT-010). Entre las 21:00 y las 00:00 ART la fecha es la del dia siguiente, asi que el dia en que una tasa nueva entra en vigencia el hint de la pantalla puede mostrar una tasa distinta de la que el Service persiste. Solo afecta el texto informativo, nunca el valor persistido.
-- **`archivos_fix`**: `MariHogar.Web/Controllers/VentasController.cs`.
-
-**MH-031 — MEDIO (calibracion, no codigo) — El seed de 6 cuotas de Payway no reproduce el total de septiembre que el propio sprint fijo como criterio de aceptacion.**
-Recalculando a mano desde el seed sobre los 31 pagos reales de produccion:
-
-- El lado **Mercado Pago da $761.685,00, exacto al peso** contra el analisis. Fuerte evidencia de que la formula, la base (`Monto`) y las tasas de MP estan bien.
-- El lado **Payway da $517.869,07 contra los $517.262,36 del analisis: $606,71 de mas.**
-
-La causa esta identificada y esta **dentro del propio codigo**: el XML-doc de `CalcularAsync` documenta la liquidacion del 29/09/2026 del pago de $366.000 como **$292.428,59**, lo que implica un coeficiente de 0,799012 (quita 20,0988%) — no el 0,797286 (20,2714%) que siembra `SeedData`. Con la tasa del seed ese pago da un neto de $291.806,68, o sea $621,91 de comision de mas, que explica casi todo el desvio. Las otras 4 liquidaciones citadas en el seed (670.600 / 536.000 / 168.000 / 410.000) **si** verifican 0,797286 al centavo. Conclusion: el coeficiente de 6 cuotas no es unico, o la liquidacion del 29/09 corresponde a otro bruto — pero el ejemplo que el codigo usa para justificar la formula contradice a la tasa que el codigo siembra.
-
-Ademas, el objetivo de $1.278.947,36 **excluye transferencias y debito**, pero CA-83.2 vuelve la plataforma obligatoria para esos medios: con plataforma asignada, las 4 transferencias ($609.997,97) y el debito ($239.000) de septiembre generan costo, asi que el total posteado va a superar el objetivo en ~$20.000 mas alla del desvio de Payway. Tambien **falta la fila `MercadoPago + Transferencia`** en el seed (y `MercadoPago + BancoCarrefour`, y `Payway + MercadoPago`): elegir esa combinacion cae en "sin tasa configurada", que es el comportamiento correcto por CRM-020 pero deja un hueco funcional real, porque las transferencias por MP son un caso normal del negocio.
-
-- **Accion**: no es un fix de codigo — es el paso 5 de los pendientes del implementador, cuyo criterio de contraste hay que **reenunciar** antes de que el cliente lo corra, o el contraste va a fallar y se va a leer como un bug del sistema.
-
-**Fuera de alcance (trabajos ajenos en el working tree, reportados aparte):** `AppDbContext.cs` incorpora `PorcentajeDescuentoAdicional`/`MontoDescuentoAdicional` con `HasPrecision(18,2)` — del descuento adicional de Orden de Compra, no de CR-83. No se evaluo. CR-82 (reversion de estado de cheque) tampoco: `CostoCobranzaService` reusa su calculo de saldo neto, asi que **MH-027/MH-028 no lo afectan**, pero un FAIL de CR-82 en el calculo de saldo neto arrastraria a CR-83 por herencia de patron.
-
-**Nota de documentacion**: `5-implementador.md` y `trazabilidad.md` dicen "18 filas" de seed; `SembrarTasasCostoCobranzaAsync` siembra **17** (MP 9 + Payway 7 + BancoCarrefour 1). El paso 2 de los pendientes del cliente pide revisar 18 porcentajes y va a encontrar 17.
-
-### Precision decimal — verificada explicitamente (pedido del brief)
-
-- `decimal(18,4)` en los 4 porcentajes, **en los dos lugares**: migracion (`PorcentajeComision = table.Column<decimal>(type: "decimal(18,4)", precision: 18, scale: 4, ...)`, idem IVA/IIBB/Ley25413) y `AppDbContext` (`entity.Property(e => e.PorcentajeComision).HasPrecision(18, 4)`, x4). Las columnas de dinero de `PagosVenta` siguen en `decimal(18,2)`. **PASS.**
-- La pantalla acepta 4 decimales: `type="number" step="0.0001"` en los 4 inputs, `min="0" max="100"`, y el texto de ayuda lo dice. Se muestran con `maximumFractionDigits: 4` en el listado, en el aviso de solapamiento y en el hint de la fila de pago. **PASS (codigo); render real BLOCKED** (sin migracion).
-- El desglose suma exacto el total posteado: cada componente se redondea a 2 con `MidpointRounding.AwayFromZero` y `Total = comision + iva + impuestos` **sobre los ya redondeados**, y `PostearEgresoAsync` postea `pago.CostoTotalCobranza`, que es ese mismo Total. **PASS.**
-- La formula: `ImpuestosBancarios = (Monto − Comision) × (%IIBB + %Ley25413) / 100` — sobre el neto, no sobre el bruto. Validado con el caso del brief: ARBA $5.263,70 = 1,80% de $292.428,59 y Ley 25413 $1.754,57 = 0,60% de $292.428,59; sobre el bruto de $366.000 ninguno da. **PASS** (con la salvedad de MH-031: ese neto no es el que produce la tasa sembrada).
-
-### Recomendacion de liberacion: NO-GO
-
-MH-027 es un defecto **critico de integridad del ledger** con 388 filas de produccion expuestas, y se activa precisamente con los pasos 3 y 5 de la puesta en marcha (asignar plataformas + correr el retroactivo). MH-028 corrompe la Rentabilidad del periodo en el caso de uso central de CA-83.7. Ninguno de los dos se cierra en esta corrida (regla de ciclo: QA reporta → Implementador aplica → QA re-verifica en contexto nuevo, con el criterio de vuelta en FAIL).
-
-Lo que si esta solido y no deberia rehacerse: la formula y el redondeo, la precision 18,4, los 3 puntos de alta sin doble posteo, la idempotencia por saldo neto, el nucleo compartido de PAT-012, la triple defensa de REG-004, y el seed de Mercado Pago (reproduce $761.685,00 al peso).
-
-### Riesgos de liberacion y mitigaciones
-
-- **Orden de puesta en marcha invertido = perdida de integridad contable.** Si el cliente corre el recalculo (paso 5) antes de que MH-027 este corregido, los 388 pagos legados quedan eliminables con un contramovimiento erroneo. Mitigacion: **no aplicar la migracion en produccion hasta que MH-027 este corregido y re-verificado.**
-- **Doble conteo con los 14 gastos manuales de septiembre ($1.561.000).** El sistema los muestra en rojo en la previsualizacion y en el SweetAlert de confirmacion, pero no los anula. Mitigacion correcta y suficiente a nivel producto; el riesgo remanente es de operacion, no de codigo.
-- **Idempotencia sin constraint.** `AplicarRecalculoAsync` es read-then-write sin unica en el ledger: dos corridas concurrentes (doble click, dos pestanas) podrian duplicar. Mitigacion barata: deshabilitar el boton al enviar y/o un lock de aplicacion por rango.
-- **Payway 9 y 12 cuotas en 0 a proposito**, y debito/transferencia informadas y no medidas. Mientras esten en 0 ese volumen no genera costo: el sistema **subestima** el costo real y no hay como saber cuanto sin la liquidacion de Payway. Bien documentado y es la decision correcta (no inventar un numero), pero es un riesgo de negocio abierto.
-- **`PorcentajeIva = 0` en todas las filas**: si el cliente consigue una liquidacion de MP y descubre que los porcentajes de la memoria eran netos de IVA, el costo de todo el historico recalculado queda subestimado en un 21% del componente comision. La columna existe y es editable, asi que el remedio es de datos, no de codigo.
-
-### Checklist de merge
-
-- [ ] MH-027 corregido y re-verificado en contexto nuevo (**bloqueante**).
-- [ ] MH-028 corregido, o la decision sobre la fecha del contramovimiento confirmada explicitamente con el cliente (**bloqueante para CA-83.7**).
-- [ ] MH-029 y MH-030 corregidos (no bloqueantes).
-- [ ] Criterio de contraste del paso 5 reenunciado (MH-031) **antes** de que el cliente lo corra.
-- [ ] Corregir "18 filas" → 17 en `5-implementador.md` y `trazabilidad.md`, o agregar la fila faltante que justifique 18.
-- [ ] Separar los hunks de `AppDbContextModelSnapshot.cs` o commitear los 3 trabajos juntos (advertencia del propio implementador).
-- [ ] Recien entonces: `dotnet ef database update` en produccion, reinicio para que corra el seed, y los 7 pasos de verificacion manual del cliente.
-
-### Reglas nuevas propuestas para el catalogo (no editadas por QA, por indicacion del brief)
-
-**Para `32-estandares-qa-implementador.instructions.md` — "Un `OrigenTipo` nuevo en un ledger rompe las claves de lookup, no solo los filtros (MH-027)"**
-
-- *Regla*: al agregar un `OrigenTipo` (o cualquier discriminador) nuevo a un ledger existente, el relevamiento de LP-002 no alcanza con recorrer los lugares que **leen ese discriminador**. Hay que recorrer tambien los que buscan una fila del ledger por **cualquier otra clave que hasta ahora era unica de hecho** — tipicamente la FK al documento hijo (`PagoVentaId`, `PagoOCId`, `ChequeId`). Todo `FirstOrDefault`/`Single` sobre el ledger por esa clave tiene que recibir, en la misma ronda, el filtro por `OrigenTipo` explicito **y** un `OrderBy` determinista.
-- *Como implementarlo*: antes de cerrar, `grep -rn "<NombreFk> ==" Infrastructure/Services/` y clasificar cada hit en (a) agregacion sobre todas las filas — safe, (b) busqueda de "la" fila — **hay que acotarla**. Verificar en la base si la unicidad era de hecho: `SELECT n, COUNT(*) FROM (SELECT <fk>, COUNT(*) n FROM <ledger> WHERE <fk> IS NOT NULL AND EsReversion=0 GROUP BY 1) t GROUP BY n`. Si solo aparece `n=1`, hay codigo que depende de esa unicidad sin declararla.
-- *Como detectarlo en QA*: el peligro extra es cuando la busqueda no acotada alimenta un **guard de "no tengo forma de identificar el movimiento de este dato legado"**: la fila nueva hace que el guard encuentre algo y deje pasar exactamente lo que bloqueaba. Probar siempre la eliminacion/reversion de un registro **legado** despues de que el feature nuevo le haya posteado su primera fila.
-- *Origen*: marihogar CR-83, 2026-09-30, detectado por QA antes del merge. 388 pagos de produccion expuestos; la invariante "1 movimiento no-reversion por `PagoVentaId`" se verifico vigente en produccion (77 filas, todas `n=1`) justo antes de romperse.
-
-**Para `docs/qa/regresiones-manuales.yml` — item `MH-027`**: `severidad: critical`, `modulo: Ventas / Eliminar pago (VentaService.EliminarPagoAsync) + CC Local`, con los pasos de reproduccion y el SQL de deteccion de arriba, `archivos_fix: [MariHogar.Infrastructure/Services/VentaService.cs]`, `migracion_ef: no`, `deteccion_qa.tipo: codigo+sql`. Emparentado con `DN-003` (misma familia: lookup no acotado sobre el ledger) y con `LP-002` (el relevamiento que no cubre esta clave).
-
-### Re-verificacion de los fixes (2026-09-30, corrida 2) — **GO CONDICIONADO**
-
-**Alcance acotado a pedido del brief**: los 4 fixes de codigo, las 2 discrepancias declaradas por el implementador, la fila de seed agregada por iniciativa propia y el objetivo corregido de septiembre. **No se reprobo CA-83.1 a CA-83.9** (ya cubiertos en la corrida 1). Mismo limite duro que la corrida 1: **la migracion `20260930161626_AddCostoCobranzaPorVenta` sigue sin aplicar**, app no levantada, Playwright no usado (ninguna pantalla de CR-83 es navegable sin el esquema nuevo). Metodo: revision de codigo + SQL de **solo lectura** contra produccion + recalculo aritmetico independiente. Cero escrituras en el repo del sistema (`git status --porcelain` verificado sin cambios de QA).
-
-| Defecto | Estado | Evidencia observada |
-|---|---|---|
-| **MH-027** (critico) | **CERRADO** (por codigo y SQL; ejecucion BLOCKED) | `VentaService.cs:1018` → `.Where(m => m.PagoVentaId == pagoVentaId && !m.EsReversion && m.OrigenTipo == "Venta").OrderBy(m => m.Id).FirstOrDefaultAsync()`. **Barrido hecho por QA, no tomado del informe del implementador**: `grep -rn "PagoVentaId"` sobre las 4 capas → 22 hits, un unico lookup de "la" fila (el corregido); el resto son escrituras (`CCLocalService:167`), agregaciones ya filtradas por `OrigenTipo` (`CostoCobranzaService:165/203/367`) o DTOs. **Claves hermanas barridas**: ningun lookup del ledger de CC Local por `OrigenId` sin `OrigenTipo` (los unicos dos hits de `OrigenId ==` son `ChequeService:225` y `PagoOrdenCompraService:287`, los dos sobre el ledger de **proveedores** y ya acotados por `OrigenTipo == "PagoOC"`); `PagoOrdenCompraId` tiene `HasIndex(...).IsUnique()` declarado en `AppDbContext:479`, asi que ahi la unicidad no es "de hecho" y no puede romperse en silencio; `ChequeId` no existe como columna de ningun ledger. Enumerado tambien por el otro lado: los 15 accesos a `MovimientosCCLocal` en Infrastructure son 14 agregaciones/listados y **1** `FirstOrDefaultAsync` (el de `EliminarPagoAsync`). **SQL en produccion**: pagos acreditados no-efectivo sin movimiento propio con `OrigenTipo='Venta'` → **388**, identico al conteo sin filtrar `OrigenTipo` (`DISTINCT OrigenTipo` sigue devolviendo solo `AjusteApertura, Gasto, Venta`). El literal `'Venta'` es el que el guard necesita: los egresos de costo nacen con `"CostoCobranza"`, asi que ese conteo de 388 se mantiene por construccion cuando el retroactivo postee los egresos → el guard sigue bloqueando los mismos 388 pagos. El contramovimiento se postea con `movimiento.Monto` (el Ingreso del pago), nunca con `CostoTotalCobranza`. |
-| **MH-028** (alto) | **CERRADO para CA-83.7** (alcance parcial aceptado, ver abajo) | `RevertirEgresoAsync(int, string, string?, DateTime? fecha = null)` en interfaz e implementacion, y `RegistrarMovimientoAsync` recibe esa `fecha`. `ActualizarProcesadorPagoAsync` calcula `fecha` una sola vez (`FechaAcreditacionEfectiva` para tarjeta, si no `pago.Fecha`) y la usa en los **tres** pasos: `RevertirEgresoAsync(fecha: fecha)`, `AplicarCostoAsync(pago, fecha)` y `PostearEgresoAsync(pago, fecha, ...)`. Con eso `ObtenerCostoPeriodoAsync(septiembre)` = Σ egresos − Σ reversiones deja el par viejo neteando en cero dentro del mes y sobrevive solo el costo nuevo: el doble conteo de CA-83.7 desaparece. Los 4 call sites usan la firma nueva (`fecha:` nombrado en los 3 de `VentaService`). |
-| **MH-029** (medio) | **CERRADO** | `ObtenerCostoPeriodoAsync` agrega `&& !_db.Ventas.Any(v => v.Id == m.OrigenId && v.Estado == EstadoVenta.Cancelada)` — subquery correlacionada, MH-001-safe, y `OrigenId` de un movimiento `CostoCobranza` es el `VentaId`. Paridad de criterio con `CCLocalService:43` verificada: CC Local excluye `("Venta" OR "CostoCobranza") + venta cancelada`, el costo del periodo excluye `CostoCobranza + venta cancelada`. Las dos pantallas pasan a contar lo mismo. |
-| **MH-030** (bajo) | **CERRADO** | `VentasController.cs:369` → `HorarioArgentino.Ahora`. Cero `DateTime.UtcNow` en el metodo. |
-| **MH-031** (calibracion) | **CERRADO con observacion** | Objetivo reenunciado y **reproducido de forma independiente** (script propio, `decimal` con `MidpointRounding.AwayFromZero`, sobre los 42 pagos acreditados de septiembre traidos de produccion): Payway comision **$461.810,32** + impuestos bancarios **$56.058,95** = **$517.869,27**; Mercado Pago **$761.685,00**; **total $1.279.554,27**, identico al peso al numero del implementador. Verificado ademas que el total pago-por-pago coincide con el total por grupo (el redondeo por componente no divergie al agregar). El desvio de $621,91 del pago de $366.000 esta documentado en el doc-comment de `SembrarTasasCostoCobranzaAsync` como desvio conocido y **no** se agrego una segunda fila de 6 cuotas: correcto. Seed = **18** filas, consistente con `5-implementador.md` y `trazabilidad.md`. *Observacion*: el ejemplo nuevo del XML-doc de `CalcularAsync` dice "670.600 x 20,2714% = 135.940,05 → neto 534.659,95", pero con la tasa sembrada el sistema calcula **135.940,01 → neto 534.659,99** (4 centavos): el ejemplo esta despejado del extracto, no de la tasa. Misma clase de inconsistencia que motivo MH-031, cuatro ordenes de magnitud mas chica y sin efecto sobre ningun importe posteado (los dos impuestos dan igual al centavo: ARBA 9.623,88 y Ley 25413 3.207,96). No se reabre el defecto; corregir el comentario cuando se toque el archivo. |
-
-#### Veredicto sobre las 2 discrepancias declaradas
-
-**1. MH-028, alcance parcial (`CancelarAsync` y `EliminarPagoAsync` siguen fechando hoy) — SE ACEPTA.**
-Argumento verificado, no tomado por bueno: (a) el defecto reportado era el doble conteo de CA-83.7 y esta cerrado; (b) para `CancelarAsync` el periodo original **ya no cuenta el costo** por el filtro de MH-029, independientemente de la fecha del contramovimiento, asi que retrofechar seria redundante y encima dejaria un par egreso+reversion neteando dentro de un periodo cerrado mientras la reversion del Ingreso hermano queda en hoy; (c) la asimetria que el implementador quiere evitar es real y preexistente: los dos metodos ya posteaban antes de CR-83 el contramovimiento del Ingreso con `DateTime.UtcNow` (default de `RegistrarMovimientoAsync`), asi que retrofechar solo la mitad "costo" partiria en dos periodos una correccion unica. *Observacion, no defecto*: `EliminarPagoAsync` **no** esta cubierto por MH-029 (la venta no se cancela), asi que eliminar en octubre un pago acreditado en septiembre deja el costo en septiembre y su reversion en octubre. Es identico a lo que ya hace la mitad Ingreso desde CR-36 — comportamiento preexistente, consistente, y **no atribuible a CR-83**. Si el cliente quiere que una correccion manual de un pago viejo vuelva a su periodo, es un CR propio que tiene que mover **las dos** mitades; no se aprueba ni se rechaza por interpretacion de QA.
-
-**2. Idempotencia sin constraint unica — SE ACEPTA el rechazo de esa constraint; el riesgo residual queda abierto.**
-El argumento es correcto y verificable: `ActualizarProcesadorPagoAsync` postea, despues de la reversion, un **segundo** movimiento con la misma tripleta `(OrigenTipo="CostoCobranza", PagoVentaId, EsReversion=false)`. Un unico sobre `(OrigenTipo, PagoVentaId, EsReversion)` lo rechazaria, y con ~700 pagos historicos a los que hay que asignar plataforma el primer cambio de plataforma repetido sobre el mismo pago reventaria con un error de base. La constraint que propuso QA en la corrida 1 estaba mal formulada: se acepta no aplicarla. Pero la mitigacion **no cubre** el riesgo, y eso se declara en vez de cerrarse: la re-lectura de `ObtenerNetoPosteadoAsync` dentro del loop (`CostoCobranzaService:285`) corre **dentro de la misma transaccion** que todavia no commiteo, asi que una segunda corrida concurrente no ve esas filas (REPEATABLE READ) y puede postear todo de nuevo; el boton deshabilitado solo protege el doble click de una pestana. Queda como **riesgo de liberacion abierto**, con mitigacion sugerida del lado del servidor (lock por rango o `SELECT ... FOR UPDATE` sobre los pagos del periodo), nunca por indice unico. Probabilidad baja (una sola pantalla, un solo rol), impacto alto (duplica el costo de todo un periodo).
-
-#### Veredicto sobre la fila de seed `MercadoPago + Transferencia` al 3,40% — **SE ACEPTA**
-
-La premisa de que es un numero extrapolado de un medio de pago brasileno **no se sostiene contra la fuente**. `1-analista-funcional.md:397` trae la fila literal `| Pix / transferencia | 3,40% | 0,8% |`: la propia tabla de referencia del proyecto agrupa Pix **y transferencia** en la misma fila, y la celda de Payway de esa **misma fila** es el 0,80% que el seed ya usa para `Payway + Transferencia` y que la corrida 1 paso como "informado, no medido". Rechazar el 3,40% obligaria a rechazar tambien el 0,80% por identico argumento. No es una estimacion por analogia: es la celda que corresponde, de la unica fuente que hay. El criterio del CR ("tasa sin fuente va en 0") se cumple — la que no tiene fuente es `BancoCarrefour`, y esta en 0.
-
-Lo segundo, medido: el 3,40% **no es** lo que introduce los ~$20.000. Sobre las 4 transferencias de septiembre ($609.997,97), asignar Mercado Pago da **$20.739,94** y asignar Payway da **$19.402,82** (0,80% de comision + 2,40% de impuestos bancarios sobre el neto): $1.337 de diferencia entre plataformas. Los ~$20.000 los genera **CA-83.2**, que vuelve la plataforma obligatoria para `Transferencia`, no esta fila. Sin la fila el resultado no era $0 sino "sin tasa configurada", o sea un hueco.
-
-*Observacion*: el doc-comment del seed presenta todas las filas de MP como "de la memoria del proyecto" sin distinguir **medido** de **informado**; esta fila (y las de debito/transferencia de Payway) son informadas. Vale una linea que lo diga, para que el cliente sepa cual corregir primero cuando llegue una liquidacion de MP.
-
-#### Defecto nuevo detectado en esta corrida
-
-**MH-032 — MEDIO — Una transferencia bancaria directa no tiene plataforma valida que elegir, y el sistema obliga a elegir una.**
-`MetodosConCostoCobranza` incluye `Transferencia`, asi que `RequiereProcesador(Transferencia)` es true y los 3 puntos de escritura rechazan `ProcesadorPago.Ninguno` (REG-004, correcto segun CA-83.2). Pero el enum `ProcesadorPago` solo tiene `MercadoPago`, `Payway` y `BancoCarrefour`: una transferencia que entra **directo** a la cuenta del Banco Provincia no paso por ninguna de las tres. El operador queda forzado a rotularla `MercadoPago` (3,40% → $20.739,94 sobre septiembre) o `Payway` (0,80% + impuestos → $19.402,82), y las dos son datos falsos. Afecta 4 pagos reales de septiembre 2026 por $609.997,97, y se dispara en el paso 3 de la puesta en marcha.
-- **No es un defecto de codigo**: el codigo cumple CA-83.2 al pie. Es un hueco de **definicion funcional** → vuelve al analista.
-- **Opciones a decidir con el cliente** (hipotesis, no instruccion cerrada): (a) agregar `ProcesadorPago.Banco` con comision 0% + impuestos bancarios 2,40%, que es lo que el extracto muestra que realmente pasa con una transferencia directa; o (b) sacar `Transferencia` de `MetodosConCostoCobranza` y tratarla como `Efectivo`. La (a) es la unica que registra los impuestos bancarios que el extracto si cobra.
-- **Criterio de re-verificacion**: registrar un pago por `Transferencia` recibida directo en el banco y obtener un costo de cobranza que contenga solo impuestos bancarios, sin comision de plataforma inventada.
-
-#### Que queda sin verificar por falta de migracion
-
-Los criterios de re-verificacion de los 4 defectos estan validados **por codigo y por SQL sobre datos reales**, no por ejecucion. Sigue **BLOCKED** hasta que la migracion se aplique (coincide con los pendientes 6 y 7 del cliente):
-
-- MH-027 en ejecucion real: eliminar un pago pre-CR-32 **despues** de que el retroactivo le haya posteado el egreso de costo, y observar el mensaje de bloqueo.
-- MH-028 en ejecucion real: cambiar la plataforma en octubre de un pago de septiembre y leer `CostoCobranza` de septiembre.
-- MH-029 en ejecucion real: cancelar una venta con costo posteado y ver bajar el costo del periodo.
-- CA-83.8: correr el retroactivo dos veces sobre el mismo rango.
-- Toda la UI de CR-83 (6 vistas nuevas, 6 modificadas) y el contraste del paso 5 contra los $1.279.554,27.
-
-#### Recomendacion de liberacion: **GO CONDICIONADO**
-
-Los 4 defectos de codigo estan cerrados y los dos desacuerdos del implementador son correctos (uno con observacion). Se puede aplicar la migracion y liberar, con estas condiciones:
-
-1. **MH-032 decidido antes del paso 3** (completar la plataforma de los pagos historicos). Asignar `MercadoPago` o `Payway` a una transferencia directa mete ~$19.400-$20.700 de costo mal atribuido en septiembre, y despues hay que revertirlo pago por pago.
-2. Correr el retroactivo **una sola vez y desde una sola pestana** hasta que exista el lock del servidor (riesgo de concurrencia abierto, discrepancia 2).
-3. Anular los 14 gastos manuales de septiembre ($1.561.000) **antes** del paso 5, como ya dice el pendiente 4.
-4. Contrastar contra **$1.279.554,27**, no contra el objetivo viejo, y descontar el desvio conocido de $621,91.
-
-#### Checklist de merge (actualizado)
-
-- [x] MH-027 corregido y re-verificado en contexto nuevo (bloqueante) — cerrado.
-- [x] MH-028 corregido para CA-83.7; alcance parcial evaluado y aceptado con argumento.
-- [x] MH-029 y MH-030 corregidos.
-- [x] Criterio de contraste del paso 5 reenunciado y reproducido de forma independiente ($1.279.554,27).
-- [x] "18 filas" consistente entre seed, `5-implementador.md` y `trazabilidad.md`.
-- [ ] **MH-032 decidido con el cliente antes del paso 3** (nuevo; no bloquea el merge, si la puesta en marcha).
-- [ ] Separar los hunks de `AppDbContextModelSnapshot.cs` o commitear los 3 trabajos juntos (advertencia del propio implementador: el working tree sigue mezclando CR-83 con el descuento adicional de OC y con CR-82).
-- [ ] Recien entonces: `dotnet ef database update`, reinicio para que corra el seed, y los 7 pasos de verificacion manual del cliente.
-
-#### Reglas cross-proyecto: estado
-
-**Reglas nuevas/modificadas desde la corrida 1 (2026-09-30): ninguna.** `git log --since=2026-09-25 -- .github/instructions/32-estandares-qa-implementador.instructions.md docs/qa/regresiones-manuales.yml` sigue sin commits.
-
-En esta corrida **si** se escribio la memoria del estudio (no el repo del sistema): item **`MH-027`** completo en `docs/qa/regresiones-manuales.yml`, con `fix_aplicado` y el barrido de verificacion, mas su linea en `docs/qa/cat_resumen.txt`. El texto de la regla para `32-estandares-qa-implementador.instructions.md` sigue **propuesto y no editado**: se confirma el redactado de la corrida 1 y se le agrega el refinamiento que aparecio al ejecutarlo.
-
-> *Barrido por los dos lados, no solo por la FK.* Recorrer los hits de la FK (`grep -rn "<NombreFk> =="`) encuentra los lookups que la nombran, pero se pierde los que llegan a la misma fila por otra clave. Enumerar **tambien** todos los accesos al DbSet del ledger y contar cuantos son `FirstOrDefault`/`Single`: ese numero tiene que ser chico y cada uno tiene que estar acotado por el discriminador. En marihogar CR-83 los dos barridos convergieron en la misma unica fila (15 accesos al ledger, 1 solo lookup), y esa convergencia es lo que permite afirmar que el relevamiento esta completo — un barrido solo no lo permite. Y antes de cerrar, verificar si la clave hermana tiene la unicidad **declarada** (`HasIndex(...).IsUnique()`) o solo de hecho: si esta declarada, el problema no puede aparecer en silencio.
-
----
-
-## CR-84 (2026-09-30) — Los pagos a proveedores postean egreso en la caja del local
-
-**Veredicto: NO-GO para el punto 5 (regularizacion). GO CONDICIONADO para el punto 1 (el mecanismo).**
-Lote unico (nucleo financiero). Contexto nuevo, leido por artefactos (`5-implementador.md` bloque "Sprint CR-84" + diff), sin la transcripcion del implementador. Sin app levantada (regla del proyecto) y sin migracion (no hay cambio de esquema): la evidencia es revision de codigo + **SQL de solo lectura contra la base REAL de produccion** (`MYSQL5044.site4now.net/db_a7251f_marihog`). Playwright no usado y no necesario: la accion riesgosa es un POST que no se debe disparar.
-
-### Cobertura por criterio
-
-**BLOCKED de proceso, antes que nada: CR-84 no tiene criterios de aceptacion.** `1-analista-funcional.md` seccion CR-84 declara "Discovery CERRADO / Diseño, Arquitectura y Presupuesto pendientes", no contiene ningun `CA-84.x`, y no hay seccion CR-84 en `2-disenador-funcional.md` ni en `3-arquitecto-mvc.md`. Se probo contra la prosa del punto 1 del alcance y contra los 7 puntos de verificacion del implementador, pero **los criterios de aceptacion vuelven al analista**: un CR que toca el ledger de caja no se aprueba por interpretacion de un parrafo de alcance.
-
-| Criterio (derivado del alcance) | Resultado | Evidencia |
-|---|---|---|
-| A. Un pago no programado postea Pago + Egreso, misma fecha y monto, misma transaccion | **PASS** | `PagoOrdenCompraService.cs:163-178`: las dos llamadas dentro del mismo `if (!esProgramado)`, con `linea.Monto` y `fechaPago` identicos, dentro del `tx` con un solo `SaveChanges` final. `RegistrarMovimientoAsync` de CC Local no abre transaccion propia (`CCLocalService.cs:173-176`) |
-| B. Un pago con Cheque NUNCA postea egreso en el alta (no hay doble posteo con la acreditacion) | **PASS** | Verificado en el codigo, no asumido: `PagoOrdenCompraService.cs:116` `var esProgramado = linea.Metodo == MetodoPago.Cheque || (...)` — el OR pone Cheque siempre en true, y el posteo esta dentro de `if (!esProgramado)`. Refuerzo independiente: `ConfirmarPagoAsync` rechaza Cheque con guard explicito (`:214`), asi que el camino 2 tampoco lo alcanza |
-| C. Pago programado confirmado: egreso con la fecha real de la accion (MH-021) | **PASS** | `ConfirmarPagoAsync:221` pisa `FechaPagoTentativa = HorarioArgentino.Ahora.Date` (CR-63) y `:234` postea el egreso con ese MISMO valor, no con `UtcNow` |
-| D. Cheque acreditado: egreso con la fecha de vencimiento del cheque | **PASS** | `ChequeService.cs:170-180`: los dos posteos con `cheque.FechaVencimiento`. Guard `if (pago.Estado == Pendiente)` preexistente impide el doble posteo |
-| E. Correccion de fecha: los dos ledgers se mueven juntos (septimo punto de impacto) | **PASS** | `ActualizarFechaPagoTransferenciaAsync:308-315`: `movimiento.Fecha = fechaReal` y `ActualizarFechaEgresoAsync(pago.Id, fechaReal)` con el mismo valor, un solo `SaveChanges`. Nota: el metodo solo acepta Transferencia (`:295`), y ningun pago con movimiento duplicado es Transferencia, asi que el `FirstOrDefaultAsync` sin `OrderBy` del lado proveedor no se vuelve no-determinista |
-| F. Reversion acotada a lo posteado (MH-020), sin doble reversion | **PASS** | `EgresoPagoProveedorService.ObtenerNetoPosteadoAsync` = Egresos no-reversion − Ingresos-reversion del mismo `OrigenId`; `RevertirEgresoAsync` sale con `if (aRevertir <= 0) return 0m`. `CancelarAsync:495` lo llama FUERA del `if/else` y sin filtrar Estado, y `ChequeService.RevertirEstadoAsync:263` lo calcula aparte de `aRevertir` del ledger proveedor. Las dos ordenes (cancelar→revertir cheque y revertir cheque→cancelar) dejan neto 0 y el segundo no postea |
-| G. `RechazarAsync` no postea ni revierte nada | **PASS** | `ChequeService.RechazarAsync` no tiene ninguna llamada a `_ccProveedorService` ni a `_egresoPagoProveedorService`; solo se rechaza desde Pendiente (`:289`), y Pendiente nunca posteo |
-| H. LP-002 lado (a): quien LEE `OrigenTipo` esta cubierto | **PASS** | 6 lectores revisados uno por uno. El hallazgo real del implementador esta corregido: `CCLocalService.cs:46-51` extiende la exclusion de cancelados a `PagoOC` con la subquery por el pago hasta su OC — paridad con `CCProveedorService`. Origen clickeable resuelto con `OrdenCompraId` aparte (`CCLocalDtos.cs:13-17`, `CCLocalService.cs:74-82`, `Index.cshtml:135-146`), correcto porque aca `OrigenId` es el Id del PAGO |
-| I. LP-002 lado (b): ninguna clave se vuelve ambigua (familia MH-027) | **PASS — barrido rehecho por QA de forma independiente** | Enumerados los **29** accesos a los dos DbSet del ledger en `Services/Web/Application` (excluyendo migraciones). Solo **2** son mutacion en el lugar: `PagoOrdenCompraService:308` (cubierto por E) y `VentaService:1021` (acotado a `OrigenTipo == "Venta"` + `OrderBy(Id)` al cerrar MH-027). Cero `RemoveRange` sobre los ledgers. `ChequeService:239` es tracked pero solo lee. **No hay mas metodos que editen movimientos en el lugar**: se confirma la afirmacion del implementador por camino propio |
-| J. Invariante de MH-004 (`facturados + noFacturados == IngresosPeriodo`) | **PASS** | `CajaService.ObtenerDesgloseFacturadoAsync:106` solo trae `Tipo == Ingreso` (el egreso no entra) y `noFacturados` se calcula como `totalIngresos - facturados` sobre el mismo conjunto: la igualdad se mantiene por construccion, sin depender del origen |
-| K. `RecibirAsync` (Cargo) no postea egreso | **PASS** | `OrdenCompraService.cs:416-421`: solo el Cargo de proveedor, con el comentario del porque |
-| L. Regularizacion idempotente por saldo neto y no por flag | **PASS** | `AplicarBackfillAsync:157` relee `ObtenerNetoPosteadoAsync(pago.Id) > 0` justo antes de postear, dentro del `tx`; no hay columna ni flag de "ya corrido". Correrla dos veces no duplica |
-| M. La previsualizacion informa el saldo negativo y explica que viene del ajuste de apertura del 10/08 | **PASS** | `Views/RegularizacionCaja/Index.cshtml:41-51` `alert-warning` primero en la pantalla, texto explicito sobre el ajuste del 10/08/2026 y el saldo inicial pendiente, repetido en el SweetAlert de confirmacion (`:204-214`) |
-| N. **El objetivo de contraste: $23.750.495,09 en 74 pagos, saldo resultante −$7.499.936,14** | **FAIL (critical)** | La consulta del backfill, replicada en SQL contra produccion, devuelve **404 pagos por $120.186.982,10**. Ver MH-035 y MH-036 |
-| O. **Misma fecha y mismo monto en los dos ledgers, siempre** (invariante central) | **FAIL (high) en el camino del backfill** | 5 pagos con dos movimientos de proveedor cada uno: el backfill postearia el doble y con una fecha que no es la de ninguno de los dos. Ver MH-036. Los 4 caminos de alta (A, C, D, E) cumplen |
-| P. Rotulo del saldo (corolario de MH-033) | **FAIL (minor)** | `Views/CCLocal/Index.cshtml:15` sigue diciendo "Saldo actual". Con el saldo inicial (punto 3 del alcance) todavia sin cargar, el numero no es plata disponible sino resultado operativo desde la apertura, y MH-033 exige que la pantalla nombre lo que el saldo mide |
-
-Build de verificacion propio: `dotnet build MariHogar.slnx` → **0 errores** (8 warnings NU1902 preexistentes de MailKit/MimeKit). `IEgresoPagoProveedorService` registrado Scoped (`DependencyInjection.cs:78-80`); sin ciclo de DI (`EgresoPagoProveedorService` depende de `ICCLocalService`, que no depende de el).
-
-### Numeros reproducidos al peso contra produccion
-
-| | Valor | Fuente |
-|---|---|---|
-| Saldo de CC Local hoy | **$16.250.558,95** | `SUM(Ingresos) - SUM(Egresos)` = 210.293.809,06 − 194.043.250,11. **Identico** al del analista: el diagnostico de MH-033 se confirma de forma independiente |
-| Ajuste de apertura | Egreso **$96.986.104,22** al **2026-08-10** (`Id=1143`, "saldo migrado a $0 para inicio de operacion real") | `MovimientosCCLocal WHERE OrigenTipo='AjusteApertura'` |
-| Origenes en el ledger hoy | `AjusteApertura`, `Gasto`, `Venta`. **Ningun `CostoCobranza`** | el retroactivo de CR-83 no se corrio; CR-84 no depende de el |
-| **Lo que el backfill posteria** | **404 pagos, $120.186.982,10** | replica exacta de `ArmarLineasBackfillAsync` |
-| Objetivo declarado | 74 pagos, $23.750.495,09 | `1-analista-funcional.md` + `5-implementador.md` |
-| Acotado a `>= 2026-08-10` | 73 pagos, $25.479.995,09 | efectivo $419.931,32 **=** · transferencia $9.797.494,07 **=** · MP $2.954.356,72 **=** · cheque **$12.308.212,98** vs $10.578.712,98 del analista |
-| Exceso pre-apertura | **331 pagos, $94.706.987,01** | MH-035 |
-| Exceso por movimientos duplicados | **5 pagos, $2.224.700,00** | MH-036 |
-| Saldo resultante real si se corre hoy | **−$103.936.423,15** | 16.250.558,95 − 120.186.982,10, contra los −$7.499.936,14 que anuncia la pantalla |
-
-Los tres rubros que no son cheque coinciden **al centavo** con el analista, lo que valida el metodo y aisla el problema: el delta del rubro cheque ($1.729.500,00) y el 73-vs-74 salen de los movimientos duplicados de MH-036.
-
-### Defectos
-
-**MH-035 — critical — el backfill no tiene piso de fecha y reincorpora lo que el ajuste de apertura ya cerro.**
-`ArmarLineasBackfillAsync` selecciona por `p.Estado == Pagado` y `OrdenCompra.Estado IN (Borrador, Confirmada, Recibida)`, sin ninguna cota temporal. El objetivo del analisis estaba acotado "desde el ajuste de apertura del 10/08/2026"; ese recorte no viajo al codigo. El ajuste de apertura es, por definicion, el neto de todo lo anterior: reincorporar los 331 pagos previos cuenta $94.706.987,01 de compras dos veces. La pantalla anuncia un saldo resultante de −$7.499.936,14 que su propia consulta no produce (−$103.936.423,15), asi que el paso de confirmacion de PAT-012 le muestra al cliente un numero que no es el que se va a aplicar — el peor modo de falla posible para un patron previsualizar→confirmar.
-*Fix sugerido:* piso de fecha derivado del movimiento `OrigenTipo='AjusteApertura'` del ledger (o parametro explicito), y mostrar en la previsualizacion desde que fecha se incorpora. *Re-verificacion:* la replica SQL de la consulta del backfill devuelve la cantidad y el monto del analisis, y el `SaldoResultante` de la previsualizacion coincide con el saldo actual menos ese monto.
-
-**MH-036 — high — el backfill suma los movimientos del ledger hermano en vez de acotarse al monto del documento.**
-5 pagos con cheque (ids **339, 340, 341, 344, 345**) tienen **dos** movimientos `Pago` no-reversion cada uno en `MovimientosCCProveedor` — secuela del cambio de criterio de CR-46 (se posteaba al entregar el cheque y volvio a postearse al acreditarlo). `ArmarLineasBackfillAsync` agrupa por `OrigenId` con `Sum(Monto)` y `Min(Fecha)`, asi que para esos pagos postearia el **doble** ($2.224.700,00 de exceso) con una fecha que no corresponde a ninguno de los dos montos: rompe la invariante central del CR precisamente donde el ledger de partida ya estaba sucio. El comentario del codigo reconoce el caso y elige sumarlo; la decision correcta es excluirlo y listarlo como excepcion, igual que ya hace con los pagos sin movimiento identificable.
-*Fix sugerido:* acotar a `min(suma, pago.Monto)` y **excluir** los documentos con mas de un movimiento no-reversion, devolviendolos en una lista de "a revisar a mano" que la previsualizacion muestre. *Re-verificacion:* la previsualizacion no incluye ningun pago cuyo `OrigenId` tenga `COUNT(*)>1` en el ledger proveedor, y los lista aparte.
-
-**MH-037 — medium — hallazgo del orquestador CONFIRMADO: 14 pagos retroactivos con fecha de hoy.**
-`SELECT ... GROUP BY CreatedAt`: **14 pagos por Transferencia, $6.382.868,96, todos con `Fecha = CreatedAt = 2026-09-30 15:02:43.059807`** (12:02 hora Argentina, al microsegundo identico: una sola sesion de carga), sobre 13 ordenes de compra viejas (**20, 31, 47, 48, 55, 58, 63, 65, 119, 129, 130, 131, 132** — la lista del orquestador era parcial). Dos horas mas tarde, un segundo lote de 2 pagos (ids 440, 441). El extracto del Banco Provincia cierra ese dia con $49.379,22 y no muestra ninguna salida de ese orden. **Es una carga retroactiva con fecha de hoy.** Mecanismo: `RegistrarPagosAsync` usa `DateTime.UtcNow` salvo que Transferencia venga con `FechaPagoTentativa` (CR-54, opcional) — y no vino. Como el backfill espeja la fecha del movimiento de proveedor, correrlo imputaria los $6.382.868,96 enteros a septiembre.
-**Veredicto sobre el hallazgo: confirmado, y corresponde ADVERTIRLO en la previsualizacion, no bloquear.** Bloquear seria desproporcionado — la fecha es un dato de negocio que solo el cliente puede corregir, y el sistema no puede decidir cual era la correcta. La previsualizacion tiene que listar los lotes de carga sospechosos (mismo `CreatedAt`, varias filas, documentos viejos) con su monto, para que el cliente corrija las fechas ANTES de correr la regularizacion; una vez posteado el egreso, la fecha equivocada queda congelada en los dos ledgers.
-
-**P — minor — el rotulo "Saldo actual" no dice lo que el saldo mide.** Corolario explicito de MH-033, no un item nuevo. Con el punto 3 del alcance (saldo inicial) pendiente, el numero es resultado operativo desde la apertura, no plata disponible — y post-deploy va a ser un negativo grande. *Fix sugerido:* rotulo del tipo "Resultado operativo desde la apertura" con un tooltip, en `Views/CCLocal/Index.cshtml` y en la card del Dashboard, hasta que exista el saldo inicial.
-
-### Cobertura del catalogo cross-proyecto
-
-| id | aplica | resultado | accion |
-|---|---|---|---|
-| CRM-001 (punto unico de alta) | si | **PASS** | `IEgresoPagoProveedorService` es el unico que postea/revierte; los 3 services delegan, ninguno arma el egreso inline |
-| LP-002 (origen nuevo sin propagar) | si | **PASS** | barrido por los dos lados rehecho por QA: 29 accesos, 2 mutaciones en el lugar, ambas acotadas |
-| MH-020 (reversion acotada al neto posteado) | si | **PASS** | criterio F |
-| MH-021 (fecha real de la accion, no la sugerida) | si | **PASS** | criterios C y D; reversiones con fecha de hoy en los dos ledgers |
-| MH-027 (clave ambigua por origen nuevo) | si | **PASS** | `VentaService:1021` sigue acotado por `"Venta"`; `PagoOC` no lo alcanza |
-| MH-004 (desglose facturado) | si | **PASS** | criterio J |
-| MH-033 (el ledger registra toda salida real) | si | **PASS parcial** | el mecanismo cumple; el **corolario del rotulo** FAIL (defecto P) |
-| MH-034 (un ledger para varias cuentas) | si | N/A este sprint | el cliente eligio saldo agrupado; la dimension cuenta es el punto 2, fuera de alcance |
-| MH-001 (IN sobre ints) | si | **PASS** | los 4 `Contains` del CR van sobre `List<int>` |
-| LP-001 (conjunto explicito de estados) | si | **PASS** | `estadosVigentes` enumerado, nunca `!= Cancelada` |
-| PAT-012 (previsualizar→confirmar) | si | **FAIL** | la estructura esta, pero el paso 1 promete un numero que el paso 2 no produce (MH-035) |
-| PAT-020 (contramovimiento, ledger inmutable) | si | **PASS con excepcion declarada** | `ActualizarFechaEgresoAsync` edita en el lugar; replica a conciencia el criterio de CR-52 del ledger hermano. **Se acepta**: la alternativa dejaria los dos ledgers contando la misma correccion de forma distinta, que es el problema que el CR cierra |
-| REG-010 (link de sidebar con autorizacion real) | si | **PASS** | `_Layout.cshtml:249-256` dentro del bloque `RequireAdministracion`, y el controller lleva la misma policy |
-| MH-035 / MH-036 / MH-037 | si | **nuevos, abiertos** | escritos en el catalogo en esta corrida |
-
-### Reglas nuevas/modificadas desde la ultima corrida
-
-Ultima validacion registrada: **2026-09-30** (corrida 2 de CR-83, horas antes). `git log --since=2026-09-29 -- .github/instructions/32-estandares-qa-implementador.instructions.md docs/qa/regresiones-manuales.yml` → **sin commits**. Las dos reglas escritas ese mismo dia, **MH-033** y **MH-034**, son las que este CR implementa y se validaron arriba (MH-033 PASS parcial, MH-034 N/A por decision de alcance).
-
-Se detecto y **corrigio** que `docs/qa/cat_resumen.txt` estaba desfasado del YAML (110 lineas, sin MH-033/MH-034): regenerado con `python scripts/contexto.py resumenes` → 113 regresiones. Sin eso, la proxima corrida no habria visto por indice las reglas del dia.
-
-### Texto propuesto para `32-estandares-qa-implementador.instructions.md` (NO editado — la instruction no esta bajo `docs/`)
-
-> **## Un backfill de ledger arranca en el ajuste de apertura, no en el origen de los tiempos (MH-035)**
-> Un ledger que tuvo una migracion suele tener un movimiento de "ajuste de apertura" que llevo el saldo a un valor declarado. Ese ajuste **es** el neto de todo lo anterior. Cualquier backfill posterior que incorpore documentos historicos tiene que arrancar EN la fecha de ese ajuste: los documentos previos ya estan contados dentro de el, y reincorporarlos cuenta el mismo dinero dos veces. El piso de fecha se deriva del propio movimiento de apertura, no se hardcodea ni se omite.
-> **Como verificarlo:** el filtro del backfill por Estado no implica el recorte temporal del analisis. Antes de habilitar la accion, replicar su consulta en SQL y comparar `COUNT` y `SUM` contra el objetivo del analisis funcional; si no coinciden al peso, el backfill esta mal acotado. Y la previsualizacion de PAT-012 tiene que mostrar el saldo resultante que su **propia** consulta produce, nunca el del documento de analisis: si el paso 1 promete un numero distinto del que el paso 2 aplica, el patron previsualizar→confirmar deja de proteger y empieza a legitimar.
-> **Origen:** marihogar, CR-84, 2026-09-30 — el backfill proponia $120.186.982,10 en 404 pagos contra un objetivo de $23.750.495,09 en 74, y anunciaba un saldo resultante 13 veces mejor que el real.
-
-> **## Espejar un ledger hermano exige verificar antes que el hermano este limpio (MH-036)**
-> Cuando un movimiento nuevo se construye leyendo el ledger hermano del mismo hecho (para garantizar por construccion "misma fecha y mismo monto"), la decision es correcta pero asume **un** movimiento por documento. Antes de correr el espejo, verificar el supuesto con `GROUP BY OrigenId HAVING COUNT(*)>1` sobre el hermano, filtrando reversiones. Los documentos que aparezcan ahi se **excluyen** y se listan como excepcion a revisar a mano: sumar sus movimientos convierte una anomalia conocida y acotada en un posteo nuevo, con apariencia de dato limpio, justo en el ledger que el cambio venia a hacer confiable. Acotar ademas el monto espejado al monto del **documento**, que es el techo economico real.
-> **Origen:** marihogar, CR-84, 2026-09-30 — 5 pagos con cheque arrastraban dos movimientos de proveedor por el cambio de criterio de CR-46, y el backfill iba a postear el doble ($2.224.700,00) con una fecha que no era la de ninguno de los dos.
-
-> **## Antes de congelar fechas en un segundo ledger, buscar los lotes de carga retroactiva (MH-037)**
-> `DateTime.UtcNow` como fecha por defecto de un pago es correcta cuando el pago se carga en el momento en que ocurre y falsa cuando se carga al mes siguiente. Mientras el dato vive en un solo ledger usado para saldos acumulados el error es invisible; al usarlo para conciliar **flujo** contra un extracto mensual, aparece. Chequeo barato: `GROUP BY CreatedAt HAVING COUNT(*) > 5` sobre la tabla de pagos — filas con el `CreatedAt` identico al microsegundo sobre documentos viejos son una puesta al dia, no hechos de ese dia. Un backfill que espeja esa fecha la congela en los dos ledgers, asi que la previsualizacion tiene que **listar esos lotes con su monto** para que el cliente corrija antes de confirmar. Advertir, no bloquear: la fecha real es un dato de negocio que el sistema no puede inferir.
-> **Origen:** marihogar, CR-84, 2026-09-30 — 14 transferencias por $6.382.868,96 cargadas en un mismo segundo con fecha de hoy, sobre 13 ordenes viejas, contra un extracto que cierra el dia con $49.379,22.
-
-### Riesgos de liberacion
-
-1. **El punto 5 no se puede correr** hasta cerrar MH-035 y MH-036. Es la unica accion destructiva del sprint y es un POST detras de un boton visible en el sidebar: mitigacion inmediata **sacar el link "Regularizar caja" del `_Layout`** hasta el fix, o dejarlo con la pantalla pero sin el boton de confirmar. Riesgo concreto: el cliente entra, ve la pantalla que le promete −$7.499.936,14, confirma, y queda con −$103.936.423,15 y 331 egresos historicos falsos que hay que borrar a mano del ledger.
-2. **El punto 1 se puede deployar solo.** Es independiente del backfill y de la migracion. Afecta unicamente pagos nuevos.
-3. **Aviso de impacto obligatorio antes del deploy**: los Egresos del periodo en Caja y Dashboard suben al incluir por primera vez la mercaderia comprada. Es la correccion pedida. Sin el aviso se lee como un bug (misma clase que R-CR80.1).
-4. **CR-84 sin criterios de aceptacion ni diseño/arquitectura.** El proximo sprint de este CR (puntos 2, 3 y 4) no debe arrancar sin que el analista escriba los `CA-84.x`.
-5. **Concurrencia del backfill** sin cambios respecto de CR-83: la idempotencia se apoya en una relectura dentro de la transaccion, que en REPEATABLE READ no impide dos corridas simultaneas. Mitigado solo del lado de la UI. Riesgo bajo (accion de un solo usuario Administrador, una sola vez).
-6. **El saldo negativo post-regularizacion no es corregible** hasta que exista el punto 3 (saldo inicial). Queda explicado en la pantalla de regularizacion pero no en las pantallas donde el cliente lo va a mirar todos los dias (defecto P).
-
-### Checklist de merge
-
-- [x] Build 0 errores, verificado por QA
-- [x] Sin migracion (`OrigenTipo` es string), confirmado contra el esquema de produccion
-- [x] DI registrado, sin ciclos
-- [x] CRM-001: punto unico de alta y reversion
-- [x] LP-002 por los dos lados, barrido independiente
-- [x] Reversion acotada (MH-020) en los dos caminos, sin doble reversion en ninguna de las dos ordenes
-- [x] Invariante MH-004 intacta
-- [x] `git status --porcelain` del repo del sistema **identico** al del arranque: QA no escribio una linea
-- [ ] **MH-035 cerrado** (piso de fecha) — bloqueante del punto 5
-- [ ] **MH-036 cerrado** (duplicados excluidos) — bloqueante del punto 5
-- [ ] MH-037 advertido en la previsualizacion
-- [ ] Defecto P: rotulo del saldo
-- [ ] `CA-84.x` escritos por el analista
-- [ ] Aviso de impacto comunicado al cliente antes del deploy
-
-**Ultima validacion de reglas cross-proyecto: 2026-09-30.**
-
-### Re-verificacion de los fixes del backfill (corrida 2, 2026-09-30)
-
-**Veredicto: NO-GO para la regularizacion. MH-035 sigue abierto.** MH-036 y MH-037 cerrados. Contexto nuevo, criterios de vuelta en FAIL. Commit `ae23b16` (el mecanismo del punto 1 ya esta en produccion con el GO de la corrida 1). Build propio: 0 errores. `git status --porcelain` vacio al cerrar.
-
-Se resolvio el **BLOCKED de proceso** de la corrida 1: el analista escribio `CA-84.1` a `CA-84.10`.
-
-#### La diferencia de 1 pago: el objetivo del analista es correcto, pero por otro motivo
-
-La explicacion que traia el brief (que la replica de QA perdia el **pago 355** por usar un corte estricto por dia, porque su movimiento es del 10/08 12:45 y el ajuste es del 10/08 00:00) **se refuta con el dato**: el pago 355 ($231.642,20, transferencia, OC 36, `movCant=1`) estaba **siempre dentro** de la replica de QA — el corte era `MIN(mov.Fecha) >= '2026-08-10 00:00:00'`, que lo incluye. No era el pago faltante.
-
-El pago faltante es el **364**: cheque #30, **$495.200,00**, OC 44. Su movimiento de CC Proveedor esta fechado **2026-08-05** (`AcreditarAsync` postea con `cheque.FechaVencimiento`), pero el cheque se **acredito el 2026-08-22** y el pago se creo ese mismo dia (`PagoOrdenCompra.Fecha = 2026-08-22 13:01:04`). El ajuste de apertura del 10/08 **no pudo absorberlo**: es un hecho posteado 12 dias despues del ajuste, que arrastra una fecha anterior a el.
-
-**Y con ese pago el objetivo cierra exacto.** Probados cinco discriminadores de piso contra produccion:
-
-| Discriminador | Pagos | Total (por documento) |
-|---|---|---|
-| C — `mov.Fecha >= piso` (**el que esta en el codigo**) | 73 | $23.255.295,09 |
-| D — `PagoOrdenCompra.Fecha >= piso` | **74** | **$23.750.495,09** |
-| E — `GREATEST(mov.Fecha, pago.Fecha) >= piso` | 74 | $23.750.495,09 |
-| A/B — por `PagoOrdenCompra.CreatedAt` | 404 | $117.962.282,10 (no discrimina: toda la base se cargo post-10/08) |
-
-**D reproduce el objetivo del analisis al centavo y en los cuatro rubros**, incluido el que la corrida 1 no habia podido reproducir: efectivo $419.931,32 · transferencia $9.797.494,07 · Mercado Pago $2.954.356,72 · **cheque $10.578.712,98**. Que el rubro cheque cierre solo bajo D, y que D sea un superconjunto estricto de C que agrega exactamente un pago, es validacion no circular: **el discriminador correcto es la fecha del PAGO, no la del movimiento.** Con eso queda cerrada tambien la pregunta abierta de la corrida 1 (el delta del rubro cheque) y se confirma que **74 / $23.750.495,09 / −$7.499.936,14** es el criterio a fijar.
-
-Reconstruccion bajo D: incorporados **69 / $21.525.795,09** + excluidos **5 / $2.224.700,00** = **74 / $23.750.495,09**. La tension que planteaba el implementador entre los criterios de MH-035 y MH-036 **no existe**: se resuelve con la reconstruccion, tal como propuso el brief. Bajo el codigo vigente la misma reconstruccion da 68 + 5 = 73 / $23.255.295,09, cierra consigo misma pero **contra el total equivocado**.
-
-#### Estado por defecto
-
-| Defecto | Estado | Evidencia |
-|---|---|---|
-| **MH-035** | **SIGUE FAIL (critical)** | El piso se aplica sobre `mov.Fecha` (`EgresoPagoProveedorService`, `if (piso.HasValue && mov.Fecha.Date < piso.Value) continue;`). Deja afuera el pago 364 y la previsualizacion muestra **73 / $23.255.295,09** contra el objetivo de CA-84.8. **$495.200,00 de faltante.** El doc-comment justifica la eleccion ("para que el recorte coincida exactamente con lo que el ajuste de apertura absorbio") y ese razonamiento es el que falla: para un cheque, el movimiento lleva la fecha de vencimiento mientras la plata sale en la acreditacion |
-| MH-035 parte (c) — "la misma consulta en los dos pasos" | **PASS** | `AplicarBackfillAsync` llama a `PrevisualizarBackfillAsync()` y postea `preview.Lineas`; `ArmarBackfillAsync` es el nucleo unico. No queda ningun camino por el que la consulta del paso 2 difiera de la del paso 1. La idempotencia sigue reforzada con la relectura de `ObtenerNetoPosteadoAsync` por pago dentro del `tx` |
-| MH-035 parte (a) — piso derivado, no hardcodeado | **PASS** | `ObtenerPisoFechaAsync` lee `OrigenTipo == "AjusteApertura"` con `OrderByDescending(Fecha)` y devuelve null si no hay ajuste. Verificado contra produccion: devuelve 2026-08-10 |
-| **MH-036** | **CERRADO (PASS)** | `Monto = p.Monto` (el documento es la autoridad) y el ledger hermano queda solo como fuente de fecha. Los 5 pagos con `movCant > 1` (339, 340, 341, 344, 345) se excluyen y se listan con motivo, monto del documento y monto del ledger. Replica SQL: excluidos 5 / $2.224.700,00, identico bajo C y bajo D |
-| MH-036 — segundo caso de exclusion agregado por el implementador (`mov.Suma != p.Monto` con un solo movimiento) | **se ACEPTA** | En produccion hoy dispara **0 filas**, asi que no esconde nada que deberia postearse. Y es la exclusion correcta: con un unico movimiento cuyo importe difiere del documento no hay forma de decidir cual de los dos vale, y el pago se **lista** en pantalla en vez de saltarse en silencio — misma clase de suciedad que `movCant>1` y mismo tratamiento. Ademas se evalua despues del chequeo de cantidad, asi que no hay solapamiento ni doble conteo en la reconstruccion |
-| **MH-037** | **CERRADO (PASS), con correccion a la cifra del criterio** | Replica SQL de la deteccion: **2 lotes**. El grande es **13 pagos / $6.382.868,84** con `CreatedAt = 2026-09-30 15:02:43.059807` sobre 13 OC (20, 31, 47, 48, 55, 58, 63, 65, 119, 129, 130, 131, 132); el segundo es **2 pagos / $581.359,08** con `CreatedAt = 2026-09-30 15:27:28.346518` (OC 80 y 169). El `alert-warning` los lista y se repite en el SweetAlert |
-| **CA-84.10 (rotulo)** | **PASS parcial — queda ABIERTO** | La pantalla del backfill dice "Resultado desde la apertura" con tooltip. `CCLocal/Index` (que sigue diciendo "Saldo actual") y la card del Dashboard **no se tocaron**. Se acepta el acotamiento de la corrida al backfill: **queda abierto para el sprint del saldo inicial**, que es cuando el criterio se levanta de todos modos |
-
-**Correccion de la corrida 1 de QA, y de CA-84.9:** la corrida 1 reporto "14 pagos por $6.382.868,96, todos con `CreatedAt = 2026-09-30 15:02:43.059807`", y CA-84.9 tomo ese numero. **Es incorrecto y el codigo tiene razon**: solo **13** comparten ese timestamp; el pago 440 ($0,12, transferencia) es de la sesion de las 15:27 ($6.382.868,84 + $0,12 = $6.382.868,96). La cifra de la corrida 1 agrupaba por dia + metodo, no por sesion de carga. La agrupacion por `CreatedAt` del codigo es la correcta y cubre mas: **15 pagos / $6.964.227,92** advertidos en total. **Pedido al analista: corregir la cifra de CA-84.9** a "13 pagos por $6.382.868,84 en el lote de las 15:02, mas un segundo lote de 2 por $581.359,08", para que el criterio no quede fijado contra un numero que la implementacion correcta nunca va a reproducir.
-
-#### Defectos nuevos de esta corrida
-
-**MH-035-b — trivial — la fecha con la que se postearia el pago 364 es anterior al piso.** Al cerrar MH-035 con el discriminador D, el pago 364 entra al backfill pero su `mov.Fecha` es 2026-08-05, **anterior al piso de apertura**: quedaria un egreso historico fechado antes del ajuste que dice contenerlo. La resolucion coherente es postearlo con `PagoOrdenCompra.Fecha` (2026-08-22), que es la misma fecha por la que el pago entra en el alcance. Si no, la regla de fecha y la regla de inclusion se contradicen en la unica fila donde difieren. *No amerita item de catalogo:* es el corolario de aplicar bien MH-035.
-
-**MH-035-c — minor — la linea de reconstruccion deja de cerrar despues de una corrida parcial.** `#reconstruccion` suma `montoAPostear + montoExcluido`, y `MontoAPostear` solo acumula las lineas con `APostear > 0`. Hoy cierra porque no existe ningun egreso `PagoOC` (verificado: los unicos `OrigenTipo` en produccion son `AjusteApertura`, `Gasto` y `Venta`), pero si el backfill corre a medias, los pagos ya posteados quedan en `Lineas` con `APostear = 0` y el "total del periodo" impreso baja — justo en el escenario donde la linea de contraste hace falta. Deberia sumar `l.Monto`, no `l.APostear`.
-
-**Trivial — el bloque comentado del sidebar no se puede reponer "tal cual".** `_Layout.cshtml:259` quedo con `@@(ViewContext...)` dentro del comentario Razor; descomentarlo emite un `@(` literal en el HTML en vez de evaluar la expresion. Hay que dejarlo en `@(` al reponerlo.
-
-#### Cobertura de criterios (solo los del alcance de esta corrida)
-
-| Criterio | Resultado | Evidencia |
-|---|---|---|
-| CA-84.8 (a) piso derivado del `AjusteApertura` | **PASS** | `ObtenerPisoFechaAsync`, verificado contra produccion |
-| CA-84.8 (a) piso **correctamente acotado** | **FAIL** | 73 / $23.255.295,09 contra 74 / $23.750.495,09 (MH-035) |
-| CA-84.8 (b) idempotente por saldo neto, no por flag | **PASS** | relectura de `ObtenerNetoPosteadoAsync` por pago dentro del `tx`; no hay columna ni flag |
-| CA-84.8 (c) misma consulta en previsualizacion y confirmacion | **PASS** | `AplicarBackfillAsync` → `PrevisualizarBackfillAsync` → `ArmarBackfillAsync`, nucleo unico |
-| CA-84.8 objetivo de contraste | **FAIL** | idem (a) |
-| CA-84.9 advertencia de lotes | **PASS** | 2 lotes detectados, replicados en SQL; la cifra del criterio hay que corregirla |
-| CA-84.10 rotulo | **PASS parcial, abierto** | solo la pantalla del backfill |
-| MH-036 monto del documento + exclusiones listadas | **PASS** | replica SQL: 5 / $2.224.700,00 |
-| REG-010 / policy del controller | **PASS** | `[Authorize(Policy = "RequireAdministracion")]` intacta; los dos POST con `ValidateAntiForgeryToken`; `Index` es GET. La policy es la correcta y no cambio |
-
-#### Parte de defecto — MH-035 (reapertura)
-
-- **Severidad:** critical. Bloquea la regularizacion.
-- **Sintoma observado:** la previsualizacion propone 73 pagos / $23.255.295,09; CA-84.8 exige 74 / $23.750.495,09. Faltan $495.200,00 (pago 364).
-- **Causa raiz:** el piso se aplica sobre la fecha del **movimiento** de CC Proveedor. Para un pago con cheque esa fecha es el vencimiento, no el momento en que la plata salio ni el momento en que el hecho se registro, asi que un cheque acreditado despues del ajuste de apertura pero con vencimiento anterior cae del lado equivocado del corte.
-- **Fix sugerido (hipotesis, no instruccion):** aplicar el piso sobre `PagoOrdenCompra.Fecha` (discriminador D; E da lo mismo y es mas conservador), y postear ese pago con esa misma fecha para no dejar un egreso fechado antes del piso (MH-035-b). `archivos_fix`: `MariHogar.Infrastructure/Services/EgresoPagoProveedorService.cs` (`ArmarBackfillAsync`, el `continue` del piso y el `Fecha =` de la linea). `migracion_ef`: no.
-- **Criterio de re-verificacion (vuelve a FAIL):** la previsualizacion informa **74 pagos** y **$23.750.495,09**, con el desglose efectivo $419.931,32 / transferencia $9.797.494,07 / Mercado Pago $2.954.356,72 / cheque $10.578.712,98; la linea de reconstruccion imprime incorporados 69 por $21.525.795,09 + afuera 5 por $2.224.700,00 = $23.750.495,09; el saldo resultante es **−$7.499.936,14**; y ninguna linea a postear queda con fecha anterior al 2026-08-10.
-
-#### El link del sidebar
-
-**No se repone.** MH-035 sigue abierto y la pantalla vuelve a prometer un numero que no es el correcto — menor que en la corrida 1 ($495.200,00 de faltante en vez de $96,4M de exceso), pero un previsualizar→confirmar que no reproduce el objetivo del analisis no se pone a un clic del cliente. La decision **no** depende de que el cliente resuelva las fechas de los 14 pagos: MH-037 quedo resuelto como advertencia, que es lo que se pidio, y no bloquea. Se repone cuando MH-035 pase, con `@(` en vez de `@@(`.
-
-#### Riesgos de liberacion
-
-1. **La regularizacion sigue sin poder correrse.** Unico bloqueante: MH-035. Impacto si se corriera hoy: faltarian $495.200,00 y el saldo quedaria en −$7.004.736,14 en vez de −$7.499.936,14.
-2. **El mecanismo (punto 1) ya esta en produccion** y no depende de esto.
-3. **Las fechas de los 15 pagos de los dos lotes retroactivos siguen sin corregir.** No bloquea el backfill, pero una vez corrido quedan congeladas en los dos ledgers. Conviene que el cliente las revise antes.
-4. **CA-84.10 abierto** en `CCLocal/Index` y en la card del Dashboard. Se cierra en el sprint del saldo inicial.
-5. **CA-84.9 quedo fijado contra una cifra incorrecta** (heredada de la corrida 1 de QA). Corregirla antes de la proxima re-verificacion, para que el criterio no contradiga a la implementacion correcta.
-
-#### Checklist de merge (delta)
-
-- [x] MH-036 cerrado, verificado con SQL contra produccion
-- [x] MH-037 cerrado (advertencia con listado, 2 lotes), verificado con SQL
-- [x] "La misma consulta en los dos pasos" verificado por codigo
-- [x] Policy del controller intacta; link fuera del sidebar
-- [x] Build 0 errores; `git status --porcelain` vacio
-- [ ] **MH-035 — bloqueante**: piso sobre `PagoOrdenCompra.Fecha`, objetivo 74 / $23.750.495,09
-- [ ] MH-035-b: postear el pago 364 con su fecha de pago, no con la del movimiento
-- [ ] MH-035-c: la reconstruccion suma `Monto`, no `APostear`
-- [ ] `@@(` → `@(` en el bloque comentado del sidebar
-- [ ] CA-84.9: corregir la cifra en `1-analista-funcional.md`
-- [ ] CA-84.10: `CCLocal/Index` + card del Dashboard (sprint del saldo inicial)
-
-**Ultima validacion de reglas cross-proyecto: 2026-09-30** (sin cambios respecto de la corrida 1 del mismo dia).
-
-### Re-verificacion corrida 3 (2026-09-30) — MH-035 cerrado, el desvio NO se acepta
-
-**Veredicto: NO-GO de la regularizacion. Un solo bloqueante, nuevo y barato: MH-038.** El link **no** se repone. Criterios de vuelta en FAIL, contexto nuevo. Build 0 errores; `git status --porcelain` del repo vacio al cerrar.
-
-#### MH-035 — CERRADO en su parte cuantitativa
-
-Replica SQL del backfill con el piso y la fecha sobre `PagoOrdenCompra.Fecha`:
-
-| | Verificado |
-|---|---|
-| Total del periodo | **74 pagos / $23.750.495,09** ✓ |
-| Incorporados | **69 / $21.525.795,09** ✓ |
-| Excluidos | **5 / $2.224.700,00** ✓ |
-| Rubros | efectivo $419.931,32 · transferencia $9.797.494,07 · Mercado Pago $2.954.356,72 ✓ |
-| Lotes MH-037 | 13 / $6.382.868,84 (15:02:43) + 2 / $581.359,08 (15:27:28) ✓ |
-
-**Precision sobre el rubro cheque, para que el criterio no se lea mal:** el panel "por metodo" de la pantalla se calcula sobre las lineas **a incorporar**, asi que va a mostrar cheque **$8.354.012,98**, no $10.578.712,98. Los $10.578.712,98 son el total del **periodo** para cheque, y se reconstruyen con los 5 excluidos: $8.354.012,98 + $2.224.700,00 = $10.578.712,98 ✓. Las dos cifras son correctas y miden cosas distintas; CA-84.8 deberia decir explicitamente que el objetivo de $23.750.495,09 es el del **periodo reconstruido**, no el monto a postear.
-
-Los dos menores de la corrida 2 tambien estan cerrados: la reconstruccion ahora suma ya posteado + pendiente + excluido (`MontoYaPosteado`), asi que la identidad cierra despues de una corrida parcial; y el bloque comentado del sidebar pasa a `@(` con la nota de por que va simple. Y el defecto secundario que habia marcado (un egreso fechado antes del piso) queda cerrado **por construccion**, porque el mismo campo decide inclusion y fecha: el razonamiento del implementador acá es correcto y se acepta.
-
-#### El desvio de CA-84.1 — NO se acepta. Es defecto (MH-038, medium)
-
-El desvio esta bien declarado y el argumento de coherencia interna es valido, pero **es una falsa disyuntiva**: no hay que elegir entre `mov.Fecha` (vencimiento) y `p.Fecha` (entrega del cheque), porque **la fecha correcta ya esta guardada** — `Cheques.FechaAcreditacion`, que es cuando el banco lo cobro y la plata salio de verdad.
-
-Medido sobre los 24 cheques incorporados, contra la acreditacion como patron:
-
-| Candidata | Casos que difieren | Desfasaje promedio | Maximo |
-|---|---|---|---|
-| `PagoOrdenCompra.Fecha` (**la que quedo**) | 19 de 24 | **10,75 dias** | **32 dias** (pago 352: entregado 21/08, acreditado 22/09) |
-| `cheque.FechaVencimiento` (la anterior) | 23 de 24 | **2,38 dias** | 17 dias |
-| `cheque.FechaAcreditacion` | — | **0** | — |
-
-O sea que la correccion cambio un error de 2,4 dias por uno de 10,75. **El alcance del desvio ademas esta subdeclarado**: no son solo cheques — tambien 1 efectivo ($72.604,56, 27 dias) y 1 transferencia ($396.195,84, 5 dias). En total **26 de los 69 incorporados** quedan con fecha distinta a la del ledger hermano.
-
-**Y el efecto material es el que importa:** **9 pagos por $3.197.940,56 quedan imputados a un MES distinto** que el movimiento de proveedor del mismo hecho — el 13% del monto del backfill. Los 8 cheques mas grandes de esa lista se corren de agosto a septiembre; el pago 407 ($564.799,96) se corre de octubre a septiembre. El punto 4 del alcance de CR-84 es **conciliacion por flujo mensual contra el extracto de cada cuenta**: escribir el 13% del backfill en el mes equivocado inutiliza exactamente el uso que el CR viene a habilitar, y lo hace en los dos sentidos (ninguno de los dos ledgers coincide con el otro ni necesariamente con el banco).
-
-Por que se decide **antes** y no despues: la regularizacion es una escritura de una sola corrida sobre 69 filas del ledger. Corregir la fecha despues exige otra migracion de datos sobre un ledger que por diseño es inmutable. El costo del fix ahora es leer un campo que ya existe.
-
-**MH-038 — parte de defecto.** *Severidad:* medium, bloqueante del punto 5 (unico). *Fix sugerido (hipotesis):* para los pagos con cheque, usar `Cheques.FechaAcreditacion` como fecha del egreso, con fallback a `PagoOrdenCompra.Fecha` si es null; el piso puede seguir sobre el mismo campo resultante, que conserva la garantia de "ningun egreso antes del piso" (verificado: las 24 acreditaciones son >= 2026-08-10). *archivos_fix:* `MariHogar.Infrastructure/Services/EgresoPagoProveedorService.cs` (`ArmarBackfillAsync`: traer la acreditacion en la proyeccion de pagos y usarla en `Fecha =` y en el `continue` del piso). *migracion_ef:* no. *Criterio de re-verificacion (vuelve a FAIL):* el total del periodo sigue en 74 / $23.750.495,09 con la reconstruccion 69 + 5; ningun pago con cheque queda fechado antes de su acreditacion; y la cantidad de pagos imputados a un mes distinto del movimiento de proveedor baja de 9 a los que se expliquen unicamente por el desfasaje vencimiento-vs-acreditacion del ledger hermano, que es el CR de fondo y no este.
-
-Queda declarado, porque no se resuelve acá: **la invariante de CA-84.1 no puede cumplirse para cheques historicos** mientras el ledger hermano asiente el vencimiento. Con MH-038 corregido, el egreso de caja va a estar en la fecha **correcta** y el movimiento de proveedor en una **aproximada** — una divergencia que es un sintoma del problema de fondo, no un defecto de CR-84. CA-84.1 debe reenunciarse como "misma fecha y mismo monto en el camino en vivo; en el backfill, la fecha del evento economico en los dos ledgers una vez corregido el asiento del cheque".
-
-#### Dictamen del problema de fondo: SI amerita CR propio, con el impacto medido
-
-El movimiento de CC Proveedor de un cheque se postea con `cheque.FechaVencimiento` (`ChequeService.AcreditarAsync`) bajo el supuesto de que ahi salio el dinero. **El supuesto es falso en el 92% del monto.** Medido sobre el universo completo de cheques acreditados en produccion:
-
-| | |
-|---|---|
-| Cheques acreditados | 29, $10.578.712,98 |
-| Con **vencimiento distinto** al dia de acreditacion | **27, $9.745.379,65 (92% del monto)** |
-| Desfasaje promedio / maximo | **2,56 dias** / **17 dias** |
-| Cheques que **cambian de mes** entre vencimiento y acreditacion | **3, $1.452.133,30** |
-| Caso invertido | pago 407: vencimiento 2026-10-23, **acreditado 2026-09-25** — el ledger asienta en OCTUBRE plata que salio en septiembre |
-
-Impacto declarado en dos lugares, mas alla de la conciliacion: (a) cualquier conciliacion por fecha contra el extracto, que es el punto 4 del alcance de CR-84 y el motivo original de todo este analisis; (b) `ProyeccionFinancieraService`, que proyecta los compromisos de cheques emitidos **por fecha de vencimiento** — correcto para un cheque que todavia no se acredito, pero significa que el mismo cheque se proyecta por vencimiento y despues se asienta por vencimiento, sin que el sistema registre nunca cuando salio la plata. Alcance sugerido del CR: postear el movimiento (en los dos ledgers) con `FechaAcreditacion` y decidir si se corrigen los 27 movimientos historicos. **No es de CR-84** y no debe meterse en este sprint: toca el camino en vivo de un modulo financiero ya deployado.
-
-#### Cobertura de criterios (alcance de esta corrida)
-
-| Criterio | Resultado | Evidencia |
-|---|---|---|
-| CA-84.8 piso derivado y correctamente acotado | **PASS** | 74 / $23.750.495,09 replicado en SQL |
-| CA-84.8 reconstruccion 69 + 5 | **PASS** | $21.525.795,09 + $2.224.700,00 |
-| CA-84.8 (b) idempotencia por saldo neto | **PASS** | sin cambios respecto de la corrida 2 |
-| CA-84.8 (c) misma consulta en los dos pasos | **PASS** | sin cambios respecto de la corrida 2 |
-| CA-84.9 lotes | **PASS** | 2 lotes replicados en SQL con el campo nuevo |
-| **CA-84.1 misma fecha en los dos ledgers (backfill)** | **FAIL** | 26 de 69 con fecha distinta; 9 por $3.197.940,56 en otro mes (MH-038) |
-| CA-84.10 rotulo | **PASS parcial, sigue ABIERTO** | solo la pantalla del backfill; `CCLocal/Index` y Dashboard al sprint del saldo inicial |
-| Menores de la corrida 2 (reconstruccion, `@(`) | **PASS** | `MontoYaPosteado` suma las tres partes; sidebar con `@(` y nota |
-| Egreso fechado antes del piso | **PASS por construccion** | un solo campo decide inclusion y fecha; razonamiento aceptado |
-
-#### Texto propuesto para `32-estandares-qa-implementador.instructions.md` (NO editado)
-
-> **## La fecha con la que un ledger asienta un hecho no siempre es la fecha del hecho (MH-038)**
-> Un hecho economico suele tener varias fechas, y la que el ledger guardo puede no ser ninguna de las correctas. Un cheque a proveedor tiene tres — el dia en que se entrego, el vencimiento y la acreditacion — y solo la tercera es cuando el dinero salio del banco. Antes de elegir con que fecha se asienta un movimiento, o de espejar la de un ledger existente, **enumerar todas las fechas que el hecho tiene** y elegir la que representa el evento economico. Si la correcta ya esta en el modelo, no se acepta ninguna aproximacion: elegir entre dos fechas equivocadas es una falsa disyuntiva, y la coherencia interna ("que el mismo campo decida todo") es una restriccion valida que no elige el campo.
-> **Como verificarlo, barato:** para cada candidata, `AVG(DATEDIFF(<fecha del evento real>, <candidata>))` y `MAX`, mas el `COUNT`/`SUM` de los casos que caen en otro mes (`DATE_FORMAT '%Y-%m'` distinto). El mes es lo que importa: un desfasaje de dias dentro del mismo mes no rompe una conciliacion mensual, y uno de dos dias que cruza el fin de mes si. En marihogar CR-84 esta medicion mostro que la fecha elegida se desviaba 10,75 dias promedio mientras la que reemplazaba se desviaba 2,38, y que el 13% del monto de un backfill quedaba en el mes equivocado.
-> **Y decidirlo antes de escribir:** un backfill de una sola corrida sobre un ledger inmutable no se corrige despues sin otra migracion de datos. La fecha es la decision mas barata de revisar antes y la mas cara de arreglar despues.
-> **Origen:** marihogar, CR-84, 2026-09-30, corrida 3 de QA. Debajo aparecio el problema de modelo: 27 de los 29 cheques acreditados en produccion ($9.745.379,65, el 92% del monto) tienen vencimiento distinto al dia de acreditacion, con uno acreditado 28 dias ANTES de vencer — asi que el ledger asentaba en octubre plata que salio en septiembre. Escalado como CR propio.
-
-#### El link del sidebar
-
-**No se repone.** MH-038 esta abierto y la pantalla escribiria 69 filas con la fecha equivocada en 26 de ellas. Es el ultimo bloqueante y el fix es leer un campo que ya existe, asi que conviene cerrarlo antes de exponer la accion. Se repone con MH-038 cerrado, descomentando el bloque tal cual (ya quedo copiable).
-
-#### Riesgos de liberacion
-
-1. **MH-038 es el unico bloqueante** de la regularizacion. Impacto si se corriera hoy: $3.197.940,56 (13%) en el mes equivocado y 26 de 69 egresos con fecha distinta a la del ledger hermano, sobre un ledger inmutable.
-2. **El mecanismo (punto 1) sigue sano en produccion** y no lo afecta ninguno de estos hallazgos: el camino en vivo postea los dos ledgers con la misma fecha.
-3. **CR nuevo a presupuestar:** la fecha de asiento de los cheques (impacto medido arriba). Afecta conciliacion y proyeccion financiera. No meterlo en este sprint.
-4. **CA-84.1 y CA-84.8 necesitan reenunciado** por el analista: la invariante de fecha no es alcanzable en el backfill mientras el asiento del cheque use el vencimiento, y el objetivo de $23.750.495,09 es del periodo reconstruido y no el monto a postear.
-5. **CA-84.10 abierto**, y las fechas de los 15 pagos de los lotes retroactivos siguen sin corregir (advertido, no bloqueante).
-
-#### Checklist de merge (delta corrida 3)
-
-- [x] MH-035 cerrado: 74 / $23.750.495,09, reconstruccion 69 + 5, verificado en SQL
-- [x] Egreso antes del piso: imposible por construccion
-- [x] Menor de la reconstruccion cerrado (`MontoYaPosteado`)
-- [x] Menor del sidebar cerrado (`@(` + nota)
-- [x] MH-036 y MH-037 siguen PASS con el campo nuevo
-- [x] Build 0 errores; `git status --porcelain` vacio
-- [ ] **MH-038 — bloqueante**: fecha del egreso de un cheque = `FechaAcreditacion`
-- [ ] CA-84.1 / CA-84.8 reenunciados por el analista
-- [ ] CR propio: fecha de asiento de los cheques (27 cheques, $9.745.379,65)
-- [ ] CA-84.10: `CCLocal/Index` + Dashboard (sprint del saldo inicial)
-- [ ] Reponer el link del sidebar (con MH-038 cerrado)
-
-**Ultima validacion de reglas cross-proyecto: 2026-09-30.**
-
-### Re-verificacion corrida 4 (2026-09-30) — MH-038 cerrado. GO CONDICIONADO
-
-**Veredicto: GO CONDICIONADO de la regularizacion. El link SE REPONE.** Criterios de vuelta en FAIL, contexto nuevo. Build 0 errores; `git status --porcelain` del repo sin cambios de QA.
-
-#### MH-038 — CERRADO
-
-Replica SQL independiente con `fechaEfectiva = COALESCE(Cheque.FechaAcreditacion, PagoOrdenCompra.FechaPagoTentativa, PagoOrdenCompra.Fecha)`, piso sobre ese mismo valor:
-
-| | Verificado |
-|---|---|
-| Total del periodo | **74 / $23.750.495,09** ✓ (sin cambio, como reporta el implementador) |
-| Incorporados | **69 / $21.525.795,09** ✓ |
-| Excluidos | **5 / $2.224.700,00** ✓ |
-| Rubros | efectivo $419.931,32 · transferencia $9.797.494,07 · Mercado Pago $2.954.356,72 · cheque $8.354.012,98 ✓ |
-| Divergencia a nivel **dia** contra el ledger hermano | baja de 26 a **23 pagos / $8.054.012,98** — todos cheques |
-| Divergencia a nivel **mes** | baja de 9 / $3.197.940,56 a **2 / $918.799,97** ✓ |
-
-**Los 2 residuales son exactamente los que el implementador dice, y verifique campo por campo que en los dos la caja queda BIEN y el proveedor MAL** (no al reves):
-
-| Pago | Monto | Caja (fecha efectiva) | Proveedor (mov) | Acreditacion | Vencimiento |
-|---|---|---|---|---|---|
-| **407** | $564.799,96 | **2026-09-25** ✓ | 2026-10-23 ✗ | 2026-09-25 | 2026-10-23 |
-| **362** | $354.000,01 | **2026-09-01** ✓ | 2026-08-31 ✗ | 2026-09-01 | 2026-08-31 |
-
-En los dos, la fecha de la caja **es** la acreditacion, o sea el dia real en que salio el dinero, y la del proveedor es el vencimiento. El pago 407 es el caso invertido (acreditado 28 dias **antes** de vencer): el ledger de proveedores asienta en octubre plata que salio en septiembre, y la caja queda bien. **Los 2 residuales se explican unicamente por el desfasaje vencimiento-vs-acreditacion del ledger hermano: son CR-85, no CR-84.** Confirmado.
-
-#### Veredicto 1 — `FechaPagoTentativa` es el campo correcto. SE ACEPTA
-
-No esconde otro supuesto como el del vencimiento, y la diferencia es sustantiva: `ConfirmarPagoAsync` **pisa** ese campo con `HorarioArgentino.Ahora.Date` en el momento de confirmar (CR-63), asi que para un pago Pagado no es una fecha *sugerida* sino **la fecha real de la accion** — es el hecho, no un proxy. El vencimiento del cheque, en cambio, nunca se pisa con nada. Y el campo solo puede estar poblado en ese escenario: `RegistrarPagosAsync` lo fuerza a null si el pago no es programado, y a null tambien para Cheque.
-
-Universo en produccion: **exactamente 2 pagos** con `FechaPagoTentativa` no nula entre los Pagado — **334** (efectivo, $72.604,56, documento 19/08 vs confirmacion 15/09) y **350** (transferencia, $396.195,84, documento 21/08 vs confirmacion 26/08). Son precisamente los 2 casos no-cheque que habian quedado sin resolver, y con el campo nuevo **los dos vuelven a coincidir** con el ledger hermano. El diagnostico del implementador es correcto.
-
-**Riesgo latente a registrar, 0 casos hoy:** `ActualizarFechaPagoTransferenciaAsync` corrige `pago.Fecha` y los movimientos de los dos ledgers, pero **no** toca `FechaPagoTentativa` — y el backfill prefiere `FechaPagoTentativa` sobre `pago.Fecha`. Una transferencia programada, confirmada y despues corregida quedaria con el campo viejo y el backfill la postearia con la fecha stale. Verificado que **el pago 350 no es ese caso** (su `mov.Fecha` es 26/08, igual a la confirmacion, no a `pago.Fecha`), asi que hoy no hay ninguno. La ventana es estrecha: post-deploy el egreso en vivo ya existe y la correccion cascadea a los dos ledgers, asi que solo aplica a un pago historico corregido entre el deploy y la corrida del backfill. **No bloquea**, pero conviene que la correccion de fecha mantenga tambien `FechaPagoTentativa`, o que el backfill se corra antes de habilitar correcciones.
-
-#### Veredicto 2 — `IgnoreQueryFilters` es la decision correcta, pero hoy rescata 0 pagos
-
-El razonamiento es acertado y es el mismo agujero que MH-026: `Cheque` hereda `SoftDestroyable`, el `AppDbContext` aplica `HasQueryFilter(e => e.DeletedAt == null)` a todas esas entidades (`AppDbContext.cs:68-71, 639-641`), y navegar `p.Cheque.*` en la proyeccion habria convertido la consulta en un INNER JOIN filtrado. La consulta aparte lo evita.
-
-**Pero el beneficio medido es nulo**, y conviene decirlo para no confiar en la corrida por un motivo que no aplica: en produccion hay **0 cheques dados de baja**, **0 ordenes de compra dadas de baja con pagos Pagado** y **0 proveedores dados de baja**. El detalle no rescata ningun pago hoy; es correcto a futuro.
-
-**Auditoria de las navegaciones restantes — queda una asimetria, sin impacto hoy.** Recorridas todas las navegaciones del camino del backfill:
-
-| Navegacion | Entidad | Soft-deletable | Efecto | Estado |
-|---|---|---|---|---|
-| consulta aparte de acreditaciones | `Cheque` | si | ninguno, va con `IgnoreQueryFilters` | **corregido** |
-| `p.OrdenCompra!.Estado` (en el `Where`) | `OrdenCompra` | **si** | INNER JOIN filtrado: los pagos de una OC dada de baja se caen **en silencio** | **sin corregir**, 0 casos |
-| `p.OrdenCompra!.Proveedor != null ? ... : null` | `Proveedor` | si | el chequeo de null lo vuelve LEFT JOIN: se pierde el nombre, no la fila | **sano** |
-| `MovimientosCCProveedor` / `MovimientosCCLocal` | — | **no** heredan `SoftDestroyable` (ledgers inmutables, documentado en `AppDbContext.cs:310, 487`) | sin filtro global | **sano** |
-
-O sea: el mismo patron que se corrigio para el cheque **sigue vivo en la navegacion a `OrdenCompra`**. Probablemente una OC dada de baja *deba* quedar fuera del backfill — pero entonces es una decision, no un accidente, y el codigo no la declara. Con 0 casos en produccion no bloquea; corresponde dejarla explicita (filtro sobre una consulta aparte, o un comentario que diga que la exclusion es deliberada).
-
-#### Cobertura de criterios
-
-| Criterio | Resultado | Evidencia |
-|---|---|---|
-| CA-84.8 piso, objetivo y reconstruccion | **PASS** | 74 / $23.750.495,09 = 69 / $21.525.795,09 + 5 / $2.224.700,00, replicado en SQL |
-| CA-84.8 (b) idempotencia por saldo neto | **PASS** | sin cambios desde la corrida 2 |
-| CA-84.8 (c) misma consulta en los dos pasos | **PASS** | sin cambios desde la corrida 2 |
-| CA-84.9 lotes | **PASS** | 2 lotes, replicados |
-| CA-84.1 misma fecha en los dos ledgers (backfill) | **PASS en lo que depende de CR-84** | las 23 divergencias de dia y las 2 de mes son todas atribuibles al asiento por vencimiento del ledger hermano (CR-85). En los 2 casos de mes, la caja tiene la fecha correcta. Queda pendiente el reenunciado del criterio, ya pedido en la corrida 3 |
-| CA-84.10 rotulo | **PASS parcial, sigue ABIERTO** | sprint del saldo inicial |
-| Egreso anterior al piso | **PASS por construccion** | mismo valor decide inclusion y fecha; verificado que las 24 acreditaciones son >= 2026-08-10 |
-| MH-036 / MH-037 con el campo nuevo | **PASS** | excluidos 5 / $2.224.700,00 y los 2 lotes, sin cambio |
-
-#### Condiciones del GO
-
-1. **CA-84.1 y CA-84.8 reenunciados por el analista** (pedido en la corrida 3, sigue pendiente). Es documentacion, no codigo, y no frena la corrida.
-2. **CR-85 levantado** (fecha de asiento de los cheques: 27 de 29 acreditados, $9.745.379,65, el 92% del monto).
-3. **Las dos observaciones de esta corrida registradas**: `FechaPagoTentativa` sin mantener en la correccion de fecha, y la navegacion a `OrdenCompra` sin declarar.
-4. **Decidir el pago 441** (ver abajo).
-
-#### La pregunta de MH-037: la advertencia en pantalla alcanza
-
-**No corresponde condicionar la corrida a que el cliente resuelva las fechas antes**, con una excepcion nominada. El argumento es que la correccion es recuperable por una accion soportada de la aplicacion, a diferencia de MH-038:
-
-- **14 de los 15 pagos de los lotes son Transferencia** ($6.382.868,96), y `ActualizarFechaPagoTransferenciaAsync` **cascadea a los dos ledgers** desde CR-84 (el septimo punto de integracion). O sea que si el backfill corre primero, el cliente todavia puede corregir la fecha desde la pantalla y los dos ledgers se mueven juntos. No hace falta migracion de datos, que era exactamente el argumento por el que MH-038 si tenia que cerrarse antes.
-- **La excepcion es el pago 441** (Mercado Pago, **$581.358,96**, OC 80): ese metodo **no tiene camino de correccion en la UI** — `ActualizarFechaPagoTransferenciaAsync` lo rechaza por diseño (`if (pago.Metodo != MetodoPago.Transferencia)`). Si el backfill corre, su fecha del 30/09 queda congelada en los dos ledgers sin forma de corregirla desde la aplicacion.
-
-**Recomendacion:** correr el backfill sin condicion previa, y decidir el pago 441 antes — o se corrige su fecha a mano, o se acepta explicitamente que queda al 30/09, o CR-85 extiende la correccion de fecha a los otros metodos (que es el lugar natural, porque ya va a tocar la fecha de asiento). Los 14 restantes se pueden corregir cuando el cliente tenga las fechas reales, en cualquier orden.
-
-#### El link del sidebar
-
-**Se repone.** MH-035, MH-036, MH-037 y MH-038 estan cerrados; la pantalla muestra y aplica el mismo numero, ese numero reproduce el objetivo del analisis al centavo, los excluidos y los lotes estan a la vista, y el saldo negativo esta explicado. El bloque quedo copiable con `@(` simple, se descomenta tal cual.
-
-#### Riesgos residuales
-
-1. **2 pagos por $918.799,97 con el ledger de proveedores mal fechado** (362 y 407). La caja queda bien. Se cierra con CR-85.
-2. **23 cheques por $8.054.012,98 con divergencia de dia** (no de mes) entre los dos ledgers, misma causa. No afecta la conciliacion mensual.
-3. **Pago 441 ($581.358,96) sin camino de correccion de fecha.**
-4. **Riesgo latente de `FechaPagoTentativa` stale** (0 casos hoy, ventana entre deploy y corrida).
-5. **Navegacion a `OrdenCompra` sin declarar** (0 casos hoy).
-6. **Concurrencia del backfill** sin cambios: idempotencia por relectura dentro de la transaccion, mitigada del lado de la UI. Accion de un solo Administrador, una sola vez.
-7. **CA-84.10 abierto** hasta el sprint del saldo inicial: despues de correr, la caja va a mostrar un negativo grande rotulado "Saldo actual" en `CCLocal/Index` y en el Dashboard. **Es el riesgo de comunicacion mas concreto del deploy** y conviene avisarlo al cliente junto con el aviso de impacto.
-
-#### Checklist de merge (delta corrida 4)
-
-- [x] MH-038 cerrado: fecha efectiva por tipo de pago, verificado en SQL
-- [x] 74 / $23.750.495,09 = 69 + 5, cuatro rubros reproducidos
-- [x] Los 2 residuales identificados y verificados (caja bien, proveedor mal)
-- [x] `FechaPagoTentativa` aceptado como campo correcto
-- [x] `IgnoreQueryFilters` aceptado; auditoria de navegaciones completa
-- [x] Build 0 errores; `git status --porcelain` sin cambios de QA
-- [x] **Link del sidebar: se repone**
-- [ ] Decidir el pago 441 antes de correr
-- [ ] CA-84.1 / CA-84.8 reenunciados por el analista
-- [ ] CR-85: fecha de asiento de los cheques (+ correccion de fecha para otros metodos)
-- [ ] Observaciones registradas: `FechaPagoTentativa` en la correccion de fecha, navegacion a `OrdenCompra`
-- [ ] CA-84.10: `CCLocal/Index` + Dashboard (sprint del saldo inicial)
-
-**Ultima validacion de reglas cross-proyecto: 2026-09-30.**
-
----
-
-## Auditoria de consistencia cross-pantalla de CR-83 / CR-84 (2026-09-30) — lote unico, numeros financieros en vivo
-
-**Veredicto: GO CONDICIONADO.** El diff de 6 archivos es correcto y mejora la consistencia; se mergea. Lo que condiciona el cierre es **un doble conteo en vivo de $50.000 que no es de codigo** (MH-039, se resuelve anulando un gasto desde la UI) y **el inventario, que NO esta completo** (MH-041). El defecto estructural que se encontro (MH-040) es latente con 0 casos hoy y no bloquea el merge.
-
-Pedido del cliente: *"el margen del periodo y los pagos a las compras deben ser compensados en todos los cards donde se muestra el dato, o sea estos arreglos tienen que estar replicados en todo el sistema"*.
-
-Metodo: revision por codigo + **SQL de solo lectura contra la base REAL de produccion** (`appsettings.Production.json`). **No se levanto la app** (regla del usuario) y **no se toco el repo del sistema**: `git status --porcelain` en `C:/Sistemas/marihogar` devuelve exactamente los 6 archivos del implementador + `tools/RegularizarCaja/` sin cambios de QA.
-
-**Ultima validacion de reglas cross-proyecto: 2026-09-30** — `git log --since=2026-09-30` sobre `32-estandares-qa-implementador.instructions.md` y `docs/qa/regresiones-manuales.yml` no devuelve commits: ninguna regla nueva ni modificada desde la corrida anterior del mismo dia. Se escribieron los items **MH-039 / MH-040 / MH-041** y se regenero `docs/qa/cat_resumen.txt`.
-
-### Linea base reproducida al peso (evidencia de todo lo que sigue)
-
-| Dato declarado | SQL de produccion | Resultado |
-|---|---|---|
-| 23 `CostoCobranza` por $1.301.077,43 | `GROUP BY OrigenTipo` sobre `movimientoscclocal` | **coincide exacto** |
-| 54 `PagoOC` por $14.561.567,17 | idem | **coincide exacto** |
-| Saldo $1.898.914,35 | `SUM(CASE WHEN Tipo=1 THEN Monto ELSE -Monto END)` | **coincide exacto** |
-| 12 gastos anulados | `gastos WHERE Categoria=7 AND Anulado=1` | **son 13, $1.529.000,00** — observacion de documentacion, no defecto |
-
-### 1. Inventario — **INCOMPLETO** (MH-041, low)
-
-El inventario se cerro **por la fuente, no por la UI**: `grep -rln "MovimientosCCLocal" --include=*.cs` excluyendo migraciones da una lista **cerrada** de 6 lectores — `CajaService`, `CCLocalService`, `CostoCobranzaService`, `EgresoPagoProveedorService`, `ProyeccionFinancieraService`, `VentaService`. **Ninguno queda fuera de lo auditado**, asi que la superficie de riesgo del ledger esta cubierta y ahi el implementador tiene razon.
-
-Lo que NO esta completo es la enumeracion de **pantallas**. El barrido independiente de las 75 vistas Razor, 40 servicios y 31 controllers devolvio al menos **19 candidatos a item 17+**. Los que importan:
-
-| # | Lo que falto | Por que cuenta |
-|---|---|---|
-| 17 | **Dashboard · "Ventas del periodo"** (card hero, `Admin.cshtml:48-62`) | Es la card que el cliente mira primero y tiene 4 numeros derivados (total, facturado/no facturado, ticket promedio, variacion vs periodo anterior). Su "facturado / no facturado" sale de `Ventas.Total` (venta emitida) mientras el del item 12 sale del ledger (plata cobrada): **dos desgloses con el mismo rotulo y bases distintas en dos pantallas** — exactamente el genero de defecto del pedido |
-| 19 | **Recalcular costos de cobranza** (`ConfiguracionCostosCobranza/Recalcular.cshtml`) | **LEE el ledger y filtra `OrigenTipo=="CostoCobranza"`.** Es la pantalla que contiene el aviso de doble conteo que MH-039 demuestra que se cumplio al 93% |
-| 34 | **Grafico "Posicion de IVA mes por mes"** (`ObtenerSeriePosicionIvaAsync`) | Metodo y ventana (12 meses fijos) **distintos** de la card del item 7: pueden divergir para el mismo mes y nadie lo contrasto |
-| 35 | **4 cards secundarias de Proyeccion financiera** (`Index.cshtml:257-294`) | Una de ellas es un **cuarto calculo de la deuda a proveedores** (`SaldoPendienteOrdenesCompra`, por documentos). Se contrasto: da **$15.864.097,06**, identico al del ledger del item 4 — **hoy cierra**, pero son dos calculos independientes del mismo numero |
-| 20-21 | **CC Proveedor · saldo adeudado** y **Proveedores/Index · columna Saldo** | Es el item 4 en detalle y en grilla. El **listado** de movimientos excluye OC canceladas por `OrigenTipo`; **el saldo y el acumulado no**, asi que las filas visibles no suman al encabezado |
-| 22-23 | **PagosTarjeta/Index** y **Ventas/Details** | Es donde el costo de cobranza se ve numero por numero: comision, IVA, impuestos y total por pago, mas un **costo estimado** en Create/Details que puede diferir del **posteado** al acreditar. Ningun item cubria el costo de cobranza a nivel venta |
-| 31-33 | **Export a Excel de Proyeccion** (arma sus filas en el controller, no en la vista), **3 generadores de PDF** con montos (uno con **link publico sin autenticacion**) y **notificaciones que imprimen importes** (una imprime el saldo de la caja) | Salidas de numeros financieros fuera de toda pantalla auditada |
-
-Verificado como inexistente, para cerrar el barrido: no hay conciliacion bancaria, comisiones de vendedores, sueldos ni cierre de caja diaria. No hay carpeta `Pages/` ni areas.
-
-### 2. Las 5 "deliberadamente ajenas" — 4 CONFIRMADAS, 1 confirmada en codigo pero con un defecto de datos encima
-
-| Item | Veredicto | Evidencia |
-|---|---|---|
-| **3 · Compras del periodo** | **CONFIRMADA** | `OrdenCompraService.ObtenerResumenFacturacionAsync:48` lee `OrdenesCompra` (`Total`, `Facturada`). `grep -c MovimientosCCLocal` = **0**. Mide compras facturadas; sumarle pagos mezclaria dos preguntas |
-| **4 · Deuda a proveedores** | **CONFIRMADA con datos** (era la que mas importaba) | Los **54** egresos de caja `PagoOC` ($14.561.567,17) tienen **1 a 1** un `Pago` en `movimientosccproveedor` por el **mismo importe**: `sin_pago_proveedor = 0`, `desalineados = 0`, `monto_proveedor = 14.561.567,17`. La deuda **ya esta neta** de ellos. Descontar tambien el egreso de caja restaria **$14.561.567,17 dos veces** sobre una deuda de **$15.864.097,06** — la dejaria en $1,3M, falso. Contraste extra: el calculo por documentos da **el mismo $15.864.097,06**. **El argumento del implementador es correcto** |
-| **5 · Gastos operativos** | **CONFIRMADA en codigo, FAIL en los datos de hoy** | `GastoService.ObtenerTotalPeriodoAsync:199` lee la tabla `Gastos` con `!g.Anulado` y **no toca el ledger** (0 referencias): `PagoOC`/`CostoCobranza` no pueden contaminarla por construccion, y los gastos anulados dejaron de contar. **Pero** el numero que muestra hoy incluye $50.000 que son costo de cobranza → **MH-039** |
-| **8 / 15 · Inventario y capital inmovilizado** | **CONFIRMADA** | `grep -c MovimientosCCLocal InventarioService.cs` = **0**. Es valuacion de stock (`PrecioCompra` x existencias), responde "cuanta plata esta quieta", no "cuanta salio" |
-| **10 · Dashboard Vendedor** | **CONFIRMADA** | `Vendedor.cshtml:13-15`, unica cifra `VentasHoyTotal`. Sin caja, egresos, saldo ni margen |
-
-### 3. Proyeccion financiera — el argumento de disjuncion es **FALSO**, y el defecto que el implementador declaro es **real**
-
-**El "disjuntos por construccion" no se sostiene (MH-040, medium, latente).** El argumento se verifico, no se acepto:
-
-- *En los datos de hoy, se sostiene*: los **24** cheques que tienen egreso `PagoOC` en el ledger estan **todos** en `Estado=2 (Acreditado)`; **0** cheques `Pendiente` tienen egreso posteado. Y los egresos `PagoOC` existen solo para pagos en `Estado=2 (Pagado)`: **0** para `Pendiente`, asi que `PagosCompraProgramados` tambien es disjunto. **PASS en datos.**
-- *Estructuralmente, NO*: `ChequeService.RevertirEstadoAsync` (CR-82, commit `07d9eee`, de hace dos commits) devuelve un cheque Acreditado a **Pendiente**. El ledger es inmutable: el egreso con `Fecha = cheque.FechaVencimiento` **futura** sigue ahi, la reversion se postea con **fecha = hoy** (criterio MH-021, correcto para el ledger) y por lo tanto cae en un **mes distinto del que tiene que compensar**. El cheque vuelve a `ChequesPendientes` del mes del vencimiento, donde el egreso viejo sigue en `EgresosPosteadosFuturos`: `NetoProyectado` descuenta **−2x** el monto del cheque. La disjuncion no es "por construccion": es **por el camino feliz**.
-- Corolario de lectura del mismo bloque: el tramo futuro ramifica por `m.Tipo` y **no por `OrigenTipo`**, asi que un Ingreso de reversion con `OrigenTipo="PagoOC"` o `"CostoCobranza"` que quedara fechado en el futuro entraria en **`CobrosVentaComprometidos`** — rotulado como cobros de venta.
-- **0 casos hoy**: `SELECT ... WHERE Fecha > '2026-09-30 23:59:59'` sobre el ledger devuelve **conjunto vacio** (ninguna fila, de ningun origen).
-
-**`EgresoOperativoEstimado` — el defecto propio que declaro: CONFIRMADO, y el fix es correcto.** `egresoOperativoMensual` se alimenta solo de `OrigenTipo=="Gasto"` (`ProyeccionFinancieraService.cs:157`, con el Ingreso de gasto anulado restando en `:148`), y hasta CR-84 `EgresosPosteadosFuturos` compartia esa base. Netear el total contra ese promedio subestimaria el gasto estimado por el monto de un egreso de compra. El campo nuevo `EgresosGastoPosteadosFuturos` se llena con el mismo `if (m.OrigenTipo == "Gasto")` del lado futuro, que es la condicion simetrica exacta del promedio. **PASS.**
-
-**"Hoy da 0": CONFIRMADO.** No por la razon declarada sino por una mas fuerte: no hay **ninguna** fila de ledger con fecha futura, de ningun origen. El pago 407 ($564.799,96, vto 23/10/2026) tiene su egreso de caja fechado **25/09** (MH-038), confirmado por `MAX(Fecha)` de `PagoOC` = `2026-09-30 13:16:22`. El defecto es **latente, no activo**, y corregirlo ahora es correcto.
-
-**Hallazgo colateral, no reportado**: ese mismo pago 407 tiene su movimiento de **CC Proveedor fechado en octubre** (`2026-10`, 2 pagos por **$906.911,70**) mientras su egreso de **caja** esta en septiembre. **Los dos ledgers del mismo hecho estan en meses distintos por $906.911,70.** Es el CR-85 ya abierto, pero es un sintoma de consistencia cross-pantalla y merece estar en la lista.
-
-### 4. Margen del Dashboard — PASS
-
-- **Misma fuente, mismos parametros, sin recalculo**: `DashboardService.ObtenerMargenBrutoAsync:123` llama `_rentabilidadService.ObtenerAsync(desde, hasta)` — el **mismo metodo y la misma instancia** que alimenta la pantalla de Rentabilidad — y copia `r.CostoCobranza`, `r.MargenNeto`, `r.MargenNetoPorcentaje` **sin recalcular nada**. Para el mismo rango, los dos numeros son identicos **por construccion**, no por coincidencia. El origen del costo (`CostoCobranzaService.ObtenerCostoPeriodoAsync:199`) netea reversiones por `EsReversion` y excluye ventas canceladas (MH-029). **PASS por codigo**; no hay evidencia de runtime porque no se levanta la app.
-- **La alerta mira el neto**: `Admin.cshtml:401` → `if (d.margenNeto < 0 || (d.ventasTotal > 0 && d.margenNetoPorcentaje < 10))`. **PASS.**
-- **Periodo sin ventas con costo posteado**: `RentabilidadService:93-94` devuelve `MargenNeto = -costoCobranza` antes del early return, y el JS cae en la rama `'Sin ventas en el periodo, con X de costo de cobranza'`. El valor grande queda negativo y la card se pinta en rojo. **PASS.**
-- Observacion menor (no defecto): cuando `ventasTotal > 0` y `costoCobranza == 0`, la linea del bruto imprime *"menos $0,00 de costo de cobranza"* y el numero grande es igual al bruto. Ruidoso, no incorrecto.
-
-### 5. Rotulos bajo CA-84.10 — PASS
-
-Los **tres** lugares que muestran el saldo (`Dashboard/Admin.cshtml:120`, `CCLocal/Index.cshtml:24`, `RegularizacionCaja/Index.cshtml:135`) dicen **"Resultado desde la apertura"** con el tooltip *"No es la plata disponible…"*. El grep de `disponible|saldo actual|balance de caja` sobre las 75 vistas **no encuentra ningun rotulo** que prometa disponibilidad: las unicas apariciones son comentarios de codigo, los tooltips que lo niegan, y "Detalle completo de movimientos **disponible** en…" (otro sentido de la palabra). **PASS.**
-
-### 6. El IVA del costo de cobranza — el $0 se confirma; **dictamen: alcance nuevo, no defecto**
-
-**$0 verificado con SQL**: `tasascostocobranza` tiene **19 filas** y **0** con `PorcentajeIva <> 0`; `SUM(CostoIva)` sobre los **23** pagos con costo de cobranza es **0,00** (contra `CostoComision` $1.230.378,52 y `CostoTotalCobranza` $1.301.077,43). El impacto de hoy es exactamente **$0,00**. **PASS.**
-
-**Dictamen: requiere alcance nuevo, y NO es un defecto latente del tipo "se arregla en el proximo sprint".** Tres razones:
-
-1. **No hay dato del cual derivar el credito.** El seed carga el costo como total con IVA incluido si lo lleva, sin desglose. Mientras no haya una liquidacion real que desglose comision e IVA, no hay un numero que computar — no es que el sistema lo tenga y lo ignore.
-2. **No hay hecho imponible registrado.** La posicion de IVA es **base devengado por fecha de comprobante**, y el costo de cobranza **no tiene comprobante propio en el sistema**. Agregar credito fiscal sin comprobante rompe la definicion funcional del reporte, no solo el calculo. Eso es decision del analista, no del implementador.
-3. **Por lo tanto no se puede "dejar listo".** Toca `CalcularCreditoFiscalAsync` **y** la definicion de la base del reporte **y** el modelo (donde vive el comprobante de la liquidacion). Es un CR.
-
-**Pero el riesgo de disparo es real y hay que mitigarlo ahora, barato.** El gatillo no es un deploy: es **una fila de configuracion**. El dia que alguien cargue un `PorcentajeIva <> 0` desde la pantalla de tasas, `CostoIva` empieza a tener valor y la posicion de IVA **subestima el credito fiscal en silencio**, sin que nadie toque codigo. **Recomendacion: un aviso en la pantalla de configuracion de tasas** que diga que el IVA desglosado **no computa credito fiscal todavia**, y que esta pendiente de presupuesto. Es una linea de texto y cierra el unico modo de falla silencioso.
-
-### Defectos
-
-| id | sev | estado | que es |
-|---|---|---|---|
-| **MH-039** | **medium** | **ABIERTO, en vivo** | Gasto **id 520, "COMISION MP", $50.000,00 del 14/09/2026, `Anulado=0`**: unico sobreviviente de los 14 gastos de categoria `ComisionesBancarias`, conviviendo con los $1.301.077,43 de `CostoCobranza`. **El costo de cobranza se cuenta dos veces por $50.000** en Caja mensual (Egresos), Dashboard · Gastos operativos, saldo de CC Local y — el peor — en el **promedio de gasto operativo que proyecta los meses futuros**, asi que un residuo puntual se vuelve gasto recurrente proyectado. La pantalla de Recalcular **avisa en rojo y con el monto** que esto pasaria si no se anulan; se anularon 13 de 14. **No es de codigo**: se cierra anulando el gasto 520 desde Gastos. Lo que si es de codigo es que no hay **verificacion POST-corrida**: ninguna pantalla deja rastro del residuo |
-| **MH-040** | **medium** | **ABIERTO, latente (0 casos)** | La disjuncion declarada de `NetoProyectado` se rompe al revertir la acreditacion de un cheque con vencimiento futuro (CR-82): el egreso futuro sobrevive en el ledger inmutable, la reversion se fecha hoy (otro mes) y el cheque vuelve a `ChequesPendientes` → **−2x el monto**. Alcanzable desde el proximo cheque que se acredite con vencimiento futuro y se revierta. Hipotesis de fix: traer `EsReversion` en el tramo futuro y netear por `OrigenTipo`/`OrigenId`, o excluir las filas cuyo documento ya no justifica el posteo |
-| **MH-041** | **low** | **ABIERTO** | El inventario de 16 pantallas no esta completo: al menos 19 candidatos a item 17+, con 4 que importan de verdad (ver seccion 1). La **superficie del ledger si esta cerrada** (6 lectores, todos auditados), asi que el riesgo es de pantallas que muestran el mismo concepto con otra base, no de pantallas que ignoren los origenes nuevos |
-| obs-1 | — | observacion | **CC Local: las filas visibles no suman al saldo acumulado.** `ListarAsync:52-55` oculta los movimientos de documentos cancelados; `ObtenerSaldosAcumuladosAsync:123` y `ObtenerSaldoActualAsync:138` **no aplican ese filtro**. Medido hoy: **9 movimientos de 3 ventas canceladas, neto −$90.628,00**, invisibles en la lista pero dentro del acumulado. El encabezado y la ultima fila **si coinciden** (los dos sin filtrar); lo que no se puede es reconciliar leyendo la pantalla. Pre-existente, no de este cambio |
-| obs-2 | — | observacion | "12 gastos anulados" en `5-implementador.md`: son **13**, por **$1.529.000,00** |
-| obs-3 | — | observacion | **Los dos ledgers del mismo hecho en meses distintos por $906.911,70**: 2 pagos con movimiento de CC Proveedor en `2026-10` cuyo egreso de caja esta en septiembre (pago 407 y companero). Es **CR-85**, ya abierto, pero es un sintoma de consistencia cross-pantalla y no estaba en el inventario |
-
-### Cobertura del catalogo cross-proyecto aplicado a este lote
-
-| id | aplica | resultado |
-|---|---|---|
-| **MH-004** (invariante facturado + no facturado == total) | si | **PASS**. `ObtenerDesgloseFacturadoAsync:91-130` calcula `noFacturados = totalIngresos − facturados` sobre el **mismo universo** que `ObtenerTotalesAsync`, asi que la igualdad se mantiene **por construccion** sin importar que `OrigenTipo` se agregue. Hoy el lado "no facturado" absorbe los **13 Ingresos de gasto anulado ($1.529.000,00)** y absorberia una reversion de costo de cobranza: correcto, no son cobros a un cliente |
-| **MH-027** (lookup del ledger por clave hermana) | si | **PASS**. `ObtenerNetoPosteadoAsync` y `ObtenerCostoPeriodoAsync` filtran por `OrigenTipo` **y** `OrigenId` y netean por `EsReversion`; ninguno hace `FirstOrDefault` sobre una clave que el origen nuevo volveria ambigua |
-| **MH-029** (documento cancelado no aporta al periodo) | si | **PASS** para costo de cobranza (subquery correlacionada sobre `Ventas.Estado == Cancelada`). **FAIL parcial** para `CajaService.ObtenerTotalesAsync`, que **no** excluye documentos cancelados → ver obs-1. 0 casos de `CostoCobranza`/`PagoOC` de documento cancelado hoy (`PagoOC` de OC cancelada = **0**; `CostoCobranza` de venta cancelada = **0**) |
-| **MH-001** (coleccion local en un `IN`) | si | **PASS**. Los `Contains` del lote son sobre `List<int>` acotados a la pagina o resueltos con subquery correlacionada |
-| **MH-021** (fecha del contramovimiento = hoy) | si | **PASS** como criterio de ledger — y es justamente **la causa** de MH-040 cuando la fila original quedo fechada en el futuro. El criterio es correcto; lo que falta es que el reporte lo compense |
-| **MH-038** (fecha efectiva del hecho) | si | **PASS** en el ledger de caja; el residuo esta en el ledger hermano → obs-3 / CR-85 |
-| **KOI-017** (dos numeros juntos declaran su base) | si | **PASS**. El card muestra neto grande + bruto con su porcentaje + el costo que los separa, cada uno diciendo sobre que se calcula. **Y es la regla que MH-041 incumple a nivel sistema**: el "facturado / no facturado" del item 12 y el del item 17 tienen el mismo rotulo y bases distintas en dos pantallas |
-| **LP-002** (relevar por los dos lados) | si | **PASS en el ledger, FAIL en pantallas**. Los 6 lectores de `MovimientosCCLocal` estan auditados; la enumeracion de cards no cierra → MH-041 |
-| **R-CR80.1** (avisar que un numero cambio de valor) | si | **PASS**. El subtitulo de Caja dice que los egresos incluyen gastos, compras pagadas y costo de cobranza; el aviso de impacto esta escrito en `CajaService:69-76` |
-| **MH-035/036/037** (backfill) | no | fuera del alcance de este lote; cerrados en la corrida 4 |
-
-### Reglas cross-proyecto propuestas (sin editar la instruction)
-
-1. **MH-039** — *Un retroactivo que reemplaza una carga manual necesita verificacion POST-corrida, no solo aviso previo.* Si el sistema pasa a postear solo un hecho que el usuario venia cargando a mano, la corrida termina mostrando **cuantas filas manuales siguen activas en el periodo cubierto** — en 0, o enumeradas. Un aviso previo que depende de una accion manual en otra pantalla se cumple al 93%, y el residuo no deja rastro. Corolario: preguntar siempre **que promedios leen la tabla que el retroactivo toco**, porque un residuo que cae en la base de un promedio se multiplica por la cantidad de meses proyectados.
-2. **MH-040** — *"Disjuntos por construccion" se verifica contra todas las transiciones, incluidas las que vuelven atras.* `ledger inmutable` + `fecha del contramovimiento = hoy` + `fila original fechada en el futuro` = la reversion **no compensa** a la fila original en ningun reporte agrupado por mes. Cada vez que el sistema postea una fila con fecha futura, preguntar que pasa si el hecho se deshace.
-3. **MH-041** — *El inventario de una auditoria cross-pantalla se cierra por la fuente, no por la UI.* `grep -rln <EntidadFuente>` da una lista **cerrada y verificable** de lectores; la lista de cards no. Enumerar cards sirve para **explicar** cada decision, no para **demostrar** que no falta ninguna. Y un "deliberadamente ajeno" se justifica con `grep -c <EntidadFuente> <Servicio>` = 0, que es evidencia barata y no admite interpretacion. Corolario para QA: cuando el pedido es *"que este replicado en TODO el sistema"*, el entregable es *"la fuente tiene N lectores y estos son"* — **la diferencia entre las dos listas ES el hallazgo**.
-4. **Propuesta de guard, no de regla** — cuando un calculo financiero depende de un **porcentaje de configuracion** que hoy esta en 0 y la funcionalidad que lo consume no esta implementada, la pantalla de configuracion lo dice. El gatillo de un defecto no siempre es un deploy: a veces es una fila. (Caso: el IVA del costo de cobranza.)
-
-### Riesgos de liberacion
-
-1. **El $50.000 de MH-039 esta mal en pantalla ahora mismo.** Es el 0,5% de los egresos de septiembre, asi que nadie lo va a ver; pero es exactamente la clase de numero que el cliente pidio arreglar, y esta mal **despues** de la corrida que lo venia a arreglar. Anular el gasto 520 antes de mostrarle las pantallas.
-2. **Los egresos de caja cubren 54 de los 414 pagos a proveedores del historico** (piso del backfill: 10/08/2026). "Caja mensual · Egresos" solo es comparable **desde agosto 2026**; cualquier lectura de un mes anterior muestra un egreso incompleto sin decirlo. No es defecto de este cambio, pero es el malentendido mas probable del cliente.
-3. **MH-040 se dispara con el proximo cheque que se acredite con vencimiento futuro y se revierta.** CR-82 es de hace dos commits, asi que el camino es nuevo y poco transitado: hay tiempo, pero no hay aviso.
-4. **La lista de item 17+ no es cosmetica**: los dos "facturado / no facturado" con bases distintas (items 12 y 17) y el costo de cobranza estimado vs posteado (items 22-23) son el mismo genero de defecto que motivo este pedido. Vuelven al analista.
-
-### Checklist de merge
-
-- [x] Diff de 6 archivos correcto: `MargenNeto`/`CostoCobranza` desde la misma fuente que Rentabilidad, alerta sobre el neto, `EgresosGastoPosteadosFuturos` simetrico al promedio, 3 comentarios obsoletos corregidos
-- [x] Sin migracion EF; build del implementador en 0 errores
-- [x] Linea base de produccion reproducida al peso (23 / 54 / saldo)
-- [x] `git status --porcelain` limpio de cambios de QA en `C:/Sistemas/marihogar`
-- [ ] **Anular el gasto 520 ("COMISION MP", $50.000, 14/09/2026) desde Gastos** — bloquea el cierre de MH-039
-- [ ] MH-040 al implementador (fix latente, sin apuro)
-- [ ] MH-041 + item 17+ al analista (los dos "facturado/no facturado" y el costo estimado vs posteado son decisiones funcionales)
-- [ ] Aviso en la pantalla de tasas de costo de cobranza: el IVA desglosado no computa credito fiscal todavia
-- [ ] Presupuestar el IVA del costo de cobranza como CR (toca `CalcularCreditoFiscalAsync` + la base del reporte + el modelo del comprobante)
-- [ ] CR-85 sigue abierto y ahora tiene un numero de contraste: $906.911,70 en 2 pagos con los dos ledgers en meses distintos
-
-**Ultima validacion de reglas cross-proyecto: 2026-09-30.**
-
----
-
 ## CR-86 frente A (2026-10-02) — lote 1 de 3: "cuanto me cobraron" + reporte de solapados
 
 **Alcance del lote:** `ConfiguracionCostosCobranza/Index` (filtro de rango, columna "Cobrado en el periodo",
@@ -1263,7 +211,7 @@ replicando el WHERE del servicio en SQL en vez de confiar en el total de la pant
 | CA-86.2 — tarjetas por plataforma, Σ = Σ columna | **PASS** | MP $768.568,20 (11 pagos) / Payway $517.869,27 (8) / BancoDirecto $14.639,96 (4); Σ = $1.301.077,43 = Σ columna. *Observacion:* el rotulo en pantalla de `BancoDirecto` es "Directo a la cuenta bancaria" (`PlataformasDeCobro.Etiqueta`), no "Banco Directo" como dice el criterio — es el rotulo unico del sistema, se acepta |
 | CA-86.3 — coincide exacto con Rentabilidad | **PASS** | `ConfiguracionCostosCobranzaController.Resumen` llama al **mismo** `ObtenerCostoPeriodoAsync` que `RentabilidadService:94`, con las mismas fechas truncadas a `.Date`. Identicos por construccion, no por coincidencia. Total SQL $1.301.077,43 = linea base de Rentabilidad ya reproducida en la corrida del 2026-09-30 |
 | CA-86.4 — los 11 pagos sin `FechaAcreditacionEfectiva` caen dentro del periodo | **PASS** | Los 11 pagos ($85.742,36) tienen sus 11 movimientos de ledger entre **2026-09-02 22:12** y **2026-09-28 14:45**, todos dentro de 01/09–30/09, y suman $85.742,36. AC-86.2 se confirma: no hace falta `COALESCE` |
-| CA-86.5 — declara cuantos pagos no tienen tasa (730 en el historial) | **FAIL** | La pantalla declara **726**. Los 4 de diferencia son pagos sin tasa de ventas canceladas, excluidos por el filtro MH-029 de `ObtenerPagosSinTasaPeriodoAsync`. SQL: 730 sin filtro, 726 con filtro, 4 de ventas `Estado=4`. **MH-042** |
+| CA-86.5 — declara cuantos pagos no tienen tasa (criterio reenunciado en **723**) | **PASS** *(corrida 2)* | La pantalla declara **723** = 730 crudo − 6 pagos soft-deleted (filtro global de EF) − 1 pago vivo de venta cancelada. **El 726 de la corrida 1 era un error mio**: replique el WHERE del servicio sin los `HasQueryFilter` de `AppDbContext.cs:675`. Ratificado por el Orquestador el 2026-10-02; **MH-042 queda como defecto de criterio solamente**, la implementacion cuenta bien. Causa raiz escrita como regla cross-proyecto **MH-049**. Ver "Re-verificacion corrida 2" |
 | CA-86.6 — tasa con vigencia cerrada antes del periodo: $0 + rotulo | **BLOCKED** | El rotulo existe y es correcto (`Index.cshtml`, `card-footer`: "o su vigencia ya estaba cerrada antes del rango…"), y el $0 tenue (`ov-vacio`) se ve en 11 de las 19 filas en 2026-09. Pero **no hay ninguna tasa con `VigenteHasta < 2026-09-01`** en produccion (0 de 19): el caso exacto del criterio no es observable con datos reales. Mecanismo verificado por codigo (una tasa fuera del diccionario `porTasa` queda en 0 por default) |
 | CA-86.15 — 80 gastos / $9.113.426,00 agrupados, sin anular nada | **PASS** | SQL sobre las 4 subcategorias del whitelist: **80 / $9.113.426,00** exacto (58/$5.691.530 + 14/$3.076.045 + 6/$247.851 + 2/$98.000). `Solapados` es un `GET` bajo `RequireAdministracion`, **0 `form`, 0 `HttpPost`, 0 accion de anular**: solo links `GET` a `Gastos/Details` e `Index` |
 | CA-86.16 — excluye el gasto 531 y los `cheque` de compras en conjunto | **PASS** | El gasto 531 (subcategoria `cheque`, $617.687,00 del 2026-09-28) queda afuera **por construccion**: la lista es un whitelist explicito de 4 subcategorias que no incluye `cheque`. El pie del reporte lo declara con el monto y el motivo |
@@ -1357,211 +305,162 @@ reproducen al peso; lo que lo condiciona son dos rotulos, no un calculo.
 
 ---
 
-## CR-86 — Lote 3 de 3: impuesto al cheque (Ley 25.413), frente C — 2026-10-02
+---
 
-**Alcance:** `ImpuestoChequeService`, `AlicuotasImpuestoCheque`, `CategoriaGasto.ImpuestosBancarios = 8`,
-`Gasto.ChequeId`, migracion `AddImpuestoChequeCR86`, siembra en `SeedData`, y los dos callers del servicio
-(`ChequeService.AcreditarAsync` / `RevertirEstadoAsync`, `PagoOrdenCompraService.ActualizarFechaPagoAsync`).
-Commit `0e80ff5`. Verificacion por **codigo + SQL contra produccion (solo lectura)** + relectura del extracto
-bancario; sin levantar la app (pedido explicito). Working tree con cambios ajenos a CR-86, no evaluados.
+## CR-86 — Lote 3, corrida 3: desacople del impuesto; el reasiento sale de alcance — 2026-10-02
 
-**Estado de produccion al momento de la corrida:** la migracion **NO esta aplicada** — ultima en
-`__EFMigrationsHistory` es `20260930161626_AddCostoCobranzaPorVenta`; no existe la tabla
-`AlicuotasImpuestoCheque` ni la columna `Gastos.ChequeId`; `Gastos` con `Categoria=8`: **0**. Todo lo que sigue es
-pre-deploy: 0 casos en vivo de cualquiera de los defectos.
+Commit `7c4a424` (8 archivos; el diff contra `e973c7b` arrastra tambien el intermedio `74444d8`, que cerro
+MH-050/051/052/053). Verificacion por codigo + SQL contra produccion, solo lectura, sin levantar la app. Criterios de
+vuelta en FAIL. Build: `Compilacion correcta`, 0 errores, 9 advertencias preexistentes. `git status --porcelain`:
+los 18 archivos ajenos a CR-86 de siempre, cero cambios de QA (el cambio de `GastoService.cs` que declare como ajeno
+en la corrida 2 quedo commiteado en `74444d8`).
 
-### 0. Linea base reverificada de cero (no se acepto el numero del pedido)
+### 1. El desacople: **PASS POR CONSTRUCCION**, no por los datos
 
-Releido `docs/consultaMovimientos.xls` (199 filas, 31/08–30/09/2026) sin usar la medicion previa:
-**17 `CHEQUE DE CAMARA` = $7.412.930,03**, su `IMPUESTO DEBITO - LEY 25413` inmediatamente anterior suma
-**$44.477,57**, y el par da **0,600% exacto con redondeo a 2 decimales en 17 de 17** (0 mismatches con
-tolerancia de medio centavo). La alicuota sembrada de `0.600000` es correcta. **PASS.**
+`ArmarRegularizacionImpuestoAsync` recorre `Cheques` con `Estado == Acreditado && FechaAcreditacion != null &&
+PagoOrdenCompra != null`, ordenado por `FechaAcreditacion`, y **agrega al resultado los 29 sin excepcion**: en el
+cuerpo del `foreach` no hay un solo `continue`, ni un `if` de descarte, ni una precondicion heredada — el unico
+calculo es `PrevisualizarAsync(cheque.Id, cheque.FechaAcreditacion.Value.Date)`. El `continue` del reasiento que en
+la corrida 2 me obligo a demostrar que ninguno de los 19 caia ahi **ya no existe en ningun lado**: se retiro junto
+con el reasiento. Lo que antes era "19 porque los datos acompañan" ahora es **"19 porque el bucle no excluye a
+nadie y las dos condiciones del impuesto las decide `PostearAsync`"**. El `continue` que sigue habiendo esta en
+`PrevisualizarRegularizacionImpuestoAsync`, es sobre el **contador** del DTO y no sobre el universo, y las lineas de
+los 29 se agregan a la grilla **antes** de el.
 
-### 1. Cobertura por criterio
+**Retiro del reasiento — barrido verificado, 0 hallazgos.** `grep -rni` sobre `backfillfechas`,
+`BackfillFechaCheque`, `PrevisualizarBackfillFechas`, `AplicarBackfillFechas`, `SaldoPorFechaProveedor`,
+`SaldoPorFechaCaja`, `ChequesAReasentar` y `Reasent` en `*.cs`, `*.cshtml` y `*.js`: **cero coincidencias**. No
+quedo DTO huerfano, ni accion de controller, ni metodo de interfaz, ni link. `Cheques/Index.cshtml` cambio el link
+a `RegularizarImpuesto` con el rotulo nuevo. Lo unico con nombre parecido que sobrevive es la regularizacion de
+caja de CR-84 (`RegularizacionCajaController`, `RegularizacionCaja/Index.cshtml`, `tools/RegularizarCaja`),
+**intacta** — tal cual lo afirmo el implementador.
 
-| Criterio | Veredicto | Evidencia observada |
+**`SaldoLedgerPorFecha`: intacto, 2 consumidores vivos, MH-044 no se reabrio.** La logica del helper no cambio (el
+diff es solo el doc-comment, que pasa de "los tres caminos" a "los dos" y explica por que se queda). Los dos
+consumidores estan vivos y verificados: `EgresoPagoProveedorService:114` (`.Caja`) y
+`PagoOrdenCompraService:335` (`.Proveedor`). El tercero era el reasiento. **Mi lote no detecta ninguna regresion de
+MH-044 por rebote**: los dos caminos que lo cerraron siguen llamando al mismo helper con el mismo criterio.
+
+### 2. Previsualizacion vs. posteo, caso por caso
+
+**Los criterios NO estan en lugares distintos: estan compartidos.** `PrevisualizarAsync` y `PostearAsync` llaman
+**los mismos tres metodos** — `TieneImpuestoVigenteAsync`, `ObtenerAlicuotaVigenteAsync` y `CalcularImpuesto` —, y
+el monto sale de la misma fila (`PagoOrdenCompra.Monto`) y la fecha del mismo campo
+(`cheque.FechaAcreditacion.Value.Date`), recalculada en el apply desde la misma entidad. El riesgo que señalaste
+—"duplicar las condiciones en el bucle"— **no se materializo**: el bucle no las duplica, y el razonamiento de no
+duplicarlas (evitar la causa de MH-044) se sostiene.
+
+**Hay exactamente UNA asimetria**, y la encontre comparando las dos ramas linea por linea:
+
+| | Previsualizacion | Posteo |
 |---|---|---|
-| **CA-86.10** — $100.000 → $600,00 fechado el dia cargado | **PASS** | `CalcularImpuesto` = `Math.Round(monto * pct / 100m, 2, AwayFromZero)` sobre `decimal(9,6)`: 100000 × 0,600000 / 100 = 600,00 **exacto, sin arrastre** (la division por 100 de un decimal exacto no introduce error). El `Gasto.Fecha = fecha.Date` y el movimiento de ledger reciben **el mismo** `fecha.Date` (`ImpuestoChequeService.cs:116` y `:131`), que es el `fechaDebito` que carga el usuario — `AcreditarAsync` valida server-side que no sea futura ni anterior a `FechaEmision` |
-| **CA-86.11** — reversion anula el gasto, el total baja $600, re-acreditar no duplica | **PASS en el invariante economico, con reserva de redaccion** | `RevertirEstadoAsync:332` llama `AnularAsync`, que pone `Anulado=1` + contramovimiento (PAT-020, no borra). `ObtenerImpuestoPeriodoAsync` y `CobradoEnPeriodo` filtran `!g.Anulado` → el total del periodo baja exactamente el monto. **Reserva:** re-acreditar **si** crea una segunda FILA `Gasto` (la anterior queda anulada); lo que el codigo garantiza es *"a lo sumo un gasto VIGENTE por cheque"* (`TieneImpuestoVigenteAsync`), que es el invariante correcto y el que evita el doble conteo. El criterio escrito ("no genera un segundo gasto") y el comentario de `ChequeService.cs:329` afirman literalmente algo que el codigo no hace. **Pedido al analista: reescribir CA-86.11 como "a lo sumo un gasto vigente por cheque"** |
-| **CA-86.12** — cambiar la alicuota a 1,2% no altera el impuesto ya calculado | **PASS** | `ActualizarAlicuotaAsync` toca **solo** la fila de `AlicuotasImpuestoCheque`; no hay ningun recalculo en todo el servicio. El unico lector de montos (`ObtenerImpuestoPeriodoAsync`) lee la tabla `Gastos`, no la alicuota: el impuesto es un hecho posteado, no una formula. Ademas `CrearAlicuotaAsync` con `CerrarVigenciaAnterior` cierra la anterior en `VigenteDesde - 1 dia`, sin hueco ni solape |
-| **CA-86.13** — los 29 historicos no generan los $63.472 | **PASS** | SQL produccion: los 29 cheques `Estado=2` tienen `FechaAcreditacion` entre **2026-08-21 y 2026-09-30**, 0 sin fecha. La alicuota se siembra con `VigenteDesde = HorarioArgentino.Ahora.Date` (≥ 2026-10-02) → `ObtenerAlicuotaVigenteAsync` no encuentra nada para ninguna de esas fechas → `PostearAsync` devuelve `0m` sin postear. Confirmado que **no hay ningun `if` de fecha de corte** y que no existe otro camino de posteo (`PostearAsync` tiene **un unico caller**: `ChequeService.cs:230`). Monto real del impuesto de esos 29 si se hubiera posteado: **$63.472,26** (suma cheque por cheque sobre $10.578.712,98; el pedido decia $63.472,28) |
-| **CA-86.14** — los 16 pendientes generan $41.522,55 | **FAIL por el numero, PASS por el mecanismo** | SQL produccion: 16 pendientes = **$6.920.424,74** ✔. Pero el impuesto **cheque por cheque** suma **$41.522,56**, no $41.522,55: el criterio aplico 0,6% al total y redondeo una vez ($41.522,548 → ,55), y el sistema redondea **por cheque**, que es lo que hace el banco (verificado en el extracto, 17/17). **El numero correcto es $41.522,56.** Ademas: el techo real depende del dia del deploy — ver riesgo R-L3.1 |
+| sin alicuota vigente a la fecha | `SinAlicuotaVigente` → `aPostear = 0`, cuenta en `ChequesSinAlicuota` | `return 0m` |
+| ya tiene gasto vigente | `YaTieneImpuesto` → `aPostear = 0`, cuenta en `ChequesYaConImpuesto` | `return 0m` |
+| **impuesto calculado = 0,00** | **no existe esta rama**: cuenta en `ChequesAPostear` y suma $0,00 | **`if (impuesto <= 0m) return 0m;`** |
 
-### 2. Maquina de estados del impuesto
+O sea: un cheque cuyo impuesto redondee a $0,00 se **contaria** como "a registrar" en la pantalla y **no se
+postearia**. La pantalla diria "20 cheques / $39.719,67" y el resultado "19 cheques / $39.719,67": el **total
+siempre coincide**, la **cantidad puede no coincidir**. El umbral es un monto de cheque **menor a $0,84**
+(0,6% × 0,84 = 0,0050 → el primer importe que redondea a 0,01). **Medido en produccion: 0 cheques acreditados por
+debajo de $0,84, y el minimo acreditado es $25.425,11** — o sea la asimetria es **inalcanzable con los datos de
+hoy**, con cuatro ordenes de magnitud de margen. Lo declaro como asimetria real y sin impacto, no como defecto: el
+importe nunca divergiria, y la rama solo se alcanza con un cheque de centavos.
 
-| Transicion del cheque | Que le pasa al impuesto | Verificado |
+**Lo que si no coincide por construccion es el SNAPSHOT, no el criterio.** `AplicarImpuestoPendiente()` **no recibe
+ningun parametro**: ni el total, ni la cantidad, ni los ids que la previsualizacion mostro. Son dos requests que
+leen el estado vivo por separado, asi que el doc-comment que promete *"una sola fuente para la previsualizacion y
+para la aplicacion (PAT-012: el paso 2 no puede mirar un universo distinto del que el paso 1 le mostro al
+usuario)"* promete el mismo **metodo**, no el mismo **snapshot**. Y lo mas llamativo: el apply **recalcula la
+previsualizacion completa** (29 `PrevisualizarAsync` dentro de `ArmarRegularizacionImpuestoAsync`) y despues la
+**descarta** (`foreach (var (cheque, pago, _, _) in cheques)`) — la comparacion que falta estaria gratis.
+**No es una regresion de este CR:** verifique que `RegularizacionCajaController.Aplicar()` (CR-84) tiene la misma
+firma sin parametros, asi que es el patron PAT-012 tal como vive en el proyecto. Lo levanto como **MH-054, low**,
+preexistente y declarado.
+
+### 3. Cobertura por criterio
+
+| Criterio | Veredicto | Evidencia |
 |---|---|---|
-| Pendiente → Acreditado | se postea `Gasto(Cat=8, ChequeId)` + Egreso de caja, misma fecha | PASS |
-| Pendiente → Acreditado, sin alicuota vigente a esa fecha | no postea, devuelve `0m`, **no lanza** (CRM-020); el mensaje de exito no menciona impuesto | PASS |
-| Acreditado → Pendiente (reversion) | `Anulado=1` + contramovimiento Ingreso fechado **hoy** (MH-021, mismo criterio que los otros 2 asientos) | PASS |
-| Pendiente → Acreditado otra vez | gasto nuevo vigente; el anulado queda. Neto: **1 vigente** | PASS |
-| Acreditado → Rechazado / Rechazado → Pendiente | nada (un rechazo nunca posteo nada, CR-46). Los 2 cheques `Estado=3` ($698.742) no generan impuesto | PASS |
-| Correccion de la fecha del pago | `ActualizarFechaImpuestoAsync` mueve `Gasto.Fecha` **y** el movimiento de ledger a la misma fecha | PASS en la sincronia, **FAIL en la vigencia** → MH-046 |
+| **CA-86.17** — 19 cheques, $39.719,67, cheque por cheque | **PASS** | SQL produccion al commit: 19 acreditados con `FechaAcreditacion >= 01/09`, $6.619.947,59, **Σ de importes redondeados por fila = $39.719,67** (el camino "0,6% del total" da $39.719,69; el DTO suma `aPostear` ya redondeado, asi que da el primero). Cada uno se postea con **su propia** `FechaAcreditacion`, no con una fecha comun ni con hoy |
+| **CA-86.13** — 10 de agosto sin impuesto | **PASS** | 10 acreditados antes del 01/09, $3.958.765,39; `ObtenerAlicuotaVigenteAsync` no devuelve nada a esas fechas → `PostearAsync` devuelve `0m` sin postear y sin lanzar. Los $23.752,59 quedan afuera. **Y el recorte se ve**: las 10 lineas se listan con `SinAlicuotaVigente` y la grilla muestra los 29, no los 19 |
+| **CA-86.11** — idempotencia visible | **PASS** | `YaTieneImpuesto` → `aPostear = 0` y `ChequesYaConImpuesto++`; la vista deshabilita el boton con `$('#btnAplicar').prop('disabled', d.chequesAPostear === 0)`. Correrlo dos veces: la segunda previsualizacion da 0 a registrar y el apply, si se forzara por POST, devuelve "No habia impuesto pendiente de registrar" porque `PostearAsync` declina los 19. El invariante sigue siendo "a lo sumo un gasto **vigente** por cheque" |
+| **CA-86.8 / punto 9** — reasiento de fechas | **NO APLICA al historico**, por decision del cliente del 02/10/2026 | Retirado del codigo, barrido verificado |
 
-### 3. Los 8 puntos de ataque del pedido
+**El "estado conocido" de `AcreditarAsync` es verdad, no una promesa.** Lo verifique contra produccion: los cheques
+que cruzan de mes entre `FechaVencimiento` (la fecha con la que quedo el asiento) y `FechaAcreditacion` son
+**exactamente los pagos 339, 362 y 407**, y suman **$1.452.133,30** ($533.333,33 + $354.000,01 + $564.799,96). Los
+tres numeros del comentario — los ids, la cantidad y el monto — son correctos. El comentario ademas nombra la fecha
+de la decision, la cita textual del cliente y el puntero a `5-implementador.md`, que es lo que lo hace util cuando
+alguien mida el desfasaje en seis meses.
 
-1. **Doble conteo (R-CR86.1) — la defensa AC-86.4 funciona en el posteo y se puede violar despues.** `PostearAsync` es el unico camino de alta y no tiene fecha de corte imperativa: PASS. Pero `ActualizarFechaPagoAsync` **mueve la fecha del gasto ya posteado sin revalidar la vigencia de la alicuota** → se puede dejar un gasto de `ImpuestosBancarios` fechado antes de `VigenteDesde`, encima de los 58 gastos manuales de $5.691.530,00 (verificado en produccion: subcategoria `Gastos Bancarios PCIA y payway`, **categoria `Otro=6`**, ultimo 06/08/2026). **MH-046, medium.** Hoy sin solape temporal: los manuales terminan en agosto, los automaticos arrancan en octubre.
-2. **Idempotencia y MH-040.** `TieneImpuestoVigenteAsync` corre dentro de la transaccion y cubre re-acreditacion: PASS. **MH-040 NO se extiende al impuesto**: el gasto se fecha con `fechaDebito`, validada `<= hoy` en los dos caminos que la escriben, asi que el impuesto **nunca** genera una fila de ledger con fecha futura, que es la precondicion de MH-040. **Carrera:** el guard es un `SELECT` sin lock; dos `AcreditarAsync` concurrentes sobre el mismo cheque leen `Estado=Pendiente` y postean dos veces — pero eso duplicaria tambien el Pago de CC Proveedor y el egreso de caja, o sea es un agujero **preexistente de todo el metodo**, no de CR-86, y con un solo usuario Administracion. Observacion, sin parte de defecto.
-3. **Gasto y movimiento con la MISMA fecha (MH-038).** Corregido y **medido en produccion**: 534 gastos con su egreso de ledger (`OrigenTipo='Gasto'`, `EsReversion=0`, `Tipo=Egreso`), **3 difieren de dia, 0 de mes**, que es exactamente lo que declaro el implementador. `GastoService.CrearAsync` ahora pasa `gasto.Fecha`; `ImpuestoChequeService.PostearAsync` pasa `fecha.Date` a las dos escrituras. **PASS.**
-4. **La transaccion.** **`PostearAsync` SI hace `SaveChangesAsync` (linea 127)** — el pedido decia que no debia. **Pero la atomicidad se sostiene:** `AcreditarAsync` abre `BeginTransactionAsync` (`ChequeService.cs:187`) y commitea en `:233`, y `CCLocalService.RegistrarMovimientoAsync` **no** tiene `SaveChanges` propio (`:189`), asi que el `SaveChanges` intermedio — necesario para obtener el `Gasto.Id` que es el `OrigenId` del movimiento, igual que `GastoService.CrearAsync` — corre dentro de esa transaccion. Los 4 pasos caen juntos o ninguno: **PASS funcional**, con la salvedad de que el contrato es fragil (nada impide un caller futuro sin transaccion; hoy hay uno solo).
-5. **`ImpuestosBancarios = 8` es agregado puro.** La migracion hace **solo** `AddColumn ChequeId` + `CreateTable AlicuotasImpuestoCheque` + 2 indices + 1 FK `SetNull`; **cero `Sql()`, cero `UPDATE...CASE`**, nada de la clase CR-5 ni de KOI-012 (ningun id de produccion escrito a mano). Distribucion en produccion: categorias 1..7 presentes (410 en `Otro=6`, 14 en `ComisionesBancarias=7`), **0 en 8**. Los valores existentes no se remapean. **PASS.**
-   **Dato del codigo que es falso:** el XMLdoc de `CategoriaGasto.ImpuestosBancarios` dice que los 58 gastos de $5.691.530,00 estan en `ComisionesBancarias`. **Estan en `Otro=6`** (medido). El razonamiento de tener categoria propia sigue valiendo — vale **mas**, porque estan mezclados con 410 gastos de `Otro` —, pero el dato citado hay que corregirlo.
-6. **Siembra en runtime.** `SembrarAlicuotaImpuestoChequeAsync` arranca con `if (await db.AlicuotasImpuestoCheque.AnyAsync()) return;` → idempotente, no re-siembra ni pisa un porcentaje cambiado por el cliente. `VigenteDesde = HorarioArgentino.Ahora.Date` (fecha argentina, no UTC): correcto. **PASS.** Salvedad: si alguna vez se borraran todas las alicuotas, el proximo arranque sembraria con la fecha de **ese** dia y moveria la fecha de corte en silencio.
-7. **CRM-020: nunca lanza.** `PostearAsync` tiene dos salidas tempranas (`alicuota == null`, `ya tiene impuesto vigente`) que devuelven `0m`; ninguna lanza, y `AcreditarAsync` usa el retorno solo para decidir si agrega una frase al mensaje de exito. Una funcion opcional no rompe el flujo que la hospeda. **PASS.**
-8. **Redondeo.** `Math.Round(..., 2, MidpointRounding.AwayFromZero)` sobre `decimal`, nunca `double`; `decimal(9,6)` almacena `0.600000` exacto. Cheque por cheque, igual que el banco. **PASS**, y es lo que produce la diferencia de $0,01 de CA-86.14.
+### 4. Mis defectos anteriores: **los cinco cerrados**
 
-### 4. Catalogo cross-proyecto aplicado
+| Defecto | Prueba al commit `7c4a424` |
+|---|---|
+| **MH-045** | `GastoService.cs:203` — `if (gasto.ChequeId.HasValue)` antes de abrir la transaccion. Sigue siendo el unico metodo destructivo del servicio |
+| **MH-046** | Revalidacion de vigencia en `ActualizarFechaImpuestoAsync` + **el guard que faltaba**: `PagoOrdenCompraService:363`, `if (cheque != null && fechaReal.Date < cheque.FechaEmision.Date)` → error. El remanente que señale esta cerrado |
+| **MH-047** | `GastoService.cs:133`, con la escapatoria correcta `input.ChequeId == null &&`. Exclusion en un solo lugar (`CategoriasGastoSeleccionables`), filtro de `Gastos/Index` intacto |
+| **MH-051** | `PagoOrdenCompraService:418` asigna el retorno a `impuestoAnulado` y el mensaje de exito lo nombra: *"Se anuló el impuesto Ley 25.413 de $ X: a la fecha nueva no hay alícuota vigente…"*. La anulacion silenciosa no existe mas |
+| **MH-052** | `GastoRecurrenteService.cs:98` (alta) **y `:134`** (edicion) — los dos caminos que escriben la categoria validan `EsSeleccionable`. El CRUD hermano quedo cubierto |
 
-| id | Aplica | Resultado |
-|---|---|---|
-| **MH-027** (un `OrigenTipo` nuevo vuelve no-unica la FK al hijo) | si | **PASS.** Se reusa `OrigenTipo="Gasto"` con un `Gasto.Id` **nuevo**, asi que `(OrigenTipo, OrigenId)` sigue identificando una sola fila: SQL en produccion, `GROUP BY OrigenId HAVING COUNT(*)>1` sobre `OrigenTipo='Gasto'` y `EsReversion=0` devuelve **0** en 534 filas. `ActualizarFechaImpuestoAsync` filtra por `OrigenId` + `!EsReversion` + `Tipo=Egreso`: univoco |
-| **MH-040** (disjuncion y transiciones que vuelven atras) | si | **PASS, no se extiende.** El impuesto nunca se fecha en el futuro (`fechaDebito <= hoy` validado en los dos caminos), que es la precondicion del defecto |
-| **MH-038** (la fecha del ledger no es la del hecho) | si | **PASS, cerrado en Gastos.** Medido: 3/534 de dia, 0 de mes, $0 de impacto |
-| **MH-039** (retroactivo que reemplaza carga manual necesita verificacion POST-corrida) | si | **FAIL parcial.** El frente D lista los solapamientos y "no anula nada" (correcto, es read-only), pero **no hay ninguna verificacion post-corrida del periodo que el automatismo cubre**: nada responde "cuantos gastos manuales de banco siguen activos desde `VigenteDesde`". Hoy la respuesta es 0 por el corte temporal, no por una verificacion. Es la misma leccion de MH-039 sin cerrar — se mitiga solo porque el corte es futuro |
-| **MH-035 / MH-036** (backfill de ledger) | no en este lote | Frente B, lote 2 |
-| **KOI-012** (migracion con ids de produccion a mano) | si | **PASS.** 0 sentencias `Sql()` en la migracion |
-| **OLV-019** (la baja de un valor de enum solo en el combo) | si (inverso) | **FAIL** → MH-047: aca el combo no implementa ninguna exclusion del valor reservado al sistema |
-| **OLV-025** (switch de enum con default "util") | si | **PASS.** No hay switch sobre `CategoriaGasto`: las 4 vistas usan `Enum.GetValues`, asi que el valor nuevo se rotula con su propio nombre |
-| **MH-004** (anular un gasto desajusta el desglose) | si | Heredado sin agravante: la anulacion del impuesto usa el mismo PAT-020 que el resto |
-| **MH-003** (fecha futura via POST directo) | si | **PASS.** `AcreditarAsync` revalida server-side `fecha <= hoy` **y** `fecha >= FechaEmision` (REG-004). `ActualizarFechaPagoAsync` valida solo la primera → parte de MH-046 |
-| **MH-019 / MH-033 / MH-034** | no | Sin superficie nueva en este lote |
-
-### 5. Reglas nuevas o modificadas desde la ultima corrida
-
-`git log --since=2026-09-30` sobre `32-estandares-qa-implementador.instructions.md` y `docs/qa/regresiones-manuales.yml`:
-**sin commits**. Ninguna regla nueva ni modificada. El chequeo formal de la corrida lo hizo el lote 1; se reverifico
-aca por ser barato y el resultado coincide. Los items que esta corrida **agrega** al catalogo son MH-045/046/047.
-
-### 6. Partes de defecto emitidos
+### 5. Defecto nuevo
 
 | id | Sev | Resumen | Criterio de re-verificacion (arranca en FAIL) |
 |---|---|---|---|
-| **MH-045** | medium | **El gasto automatico del impuesto se puede anular a mano desde Gastos.** `GastoService.AnularAsync` no mira `Gasto.ChequeId`: el cheque queda Acreditado, el impuesto desaparece del total y de la caja, y **no hay forma de regenerarlo** (`AcreditarAsync` exige `Pendiente`). Subestima el gasto operativo en silencio | Anular desde `Gastos/Index` el gasto de impuesto de un cheque acreditado devuelve error y el gasto sigue con `Anulado=0`; la reversion del cheque si lo anula |
-| **MH-046** | medium | **`ActualizarFechaPagoAsync` puede mover el impuesto a una fecha anterior a `VigenteDesde`**, violando AC-86.4 despues del posteo y metiendo un gasto automatico encima de los 58 manuales de $5.691.530,00. Tampoco valida contra `FechaEmision`, que `AcreditarAsync` si valida | `SELECT COUNT(*) FROM Gastos WHERE Categoria=8 AND ChequeId IS NOT NULL AND Anulado=0 AND Fecha < (SELECT MIN(VigenteDesde) FROM AlicuotasImpuestoCheque)` = **0** despues de ejercitar el camino, y la correccion devuelve error |
-| **MH-047** | low | **`ImpuestosBancarios` es seleccionable en el alta manual** de Gastos y de Gastos Recurrentes (`Enum.GetValues<CategoriaGasto>()` en 4 vistas). Rompe la unica justificacion de la categoria propia ("solo lo que postea el sistema, filtrable de un filtro"); una **plantilla recurrente** de categoria 8 generaria impuesto fantasma mensual | El combo de `Gastos/Create` y `GastosRecurrentes/Create` no ofrece `ImpuestosBancarios`, el filtro de `Gastos/Index` si; un POST con `Categoria=8` al alta devuelve error |
+| **MH-054** | low | **PAT-012 sin token de confirmacion.** `AplicarImpuestoPendiente()` no recibe nada de lo previsualizado: previsualizar y aplicar son dos lecturas independientes del estado vivo, asi que el usuario puede confirmar un universo y aplicarse otro sin que nada lo detecte. El apply ademas recalcula la previsualizacion y la descarta, teniendo la comparacion gratis. **Preexistente y no una regresion**: `RegularizacionCajaController.Aplicar()` (CR-84) tiene la misma firma | Aplicar con cantidad/total esperados distintos de los vigentes devuelve error y no postea nada; el camino feliz sigue igual |
 
-Ninguno es bloqueante del merge: los tres son 0 casos en vivo (la migracion no esta aplicada) y ninguno impide que
-el camino feliz postee bien. **MH-046 si deberia entrar antes de que el cliente use la pantalla de correccion de
-fecha**, porque es la puerta de atras del riesgo numero uno del CR.
+**Observacion sin parte:** la asimetria del `impuesto <= 0m` de la seccion 2 (cantidad previsualizada vs. posteada
+cuando el impuesto redondea a $0,00). Inalcanzable con los datos de hoy — minimo acreditado $25.425,11 contra un
+umbral de $0,84 — y el importe nunca divergiria. Si se arregla MH-054 agregando la comparacion, esta asimetria
+quedaria cubierta de paso.
 
-**Estado de los defectos de la corrida anterior (2026-09-30):** MH-039 (gasto 520, $50.000) y MH-040 siguen
-**ABIERTOS** — fuera del alcance de este lote, no se re-verificaron. MH-041 (inventario) sin cambios.
+### 6. Catalogo cross-proyecto — delta de esta corrida
 
-**Colision de numeracion:** el lote 1 uso **MH-042 y MH-043** en su parte de `6-qa.md` para otros dos hallazgos, que
-al momento de esta corrida **no estaban escritos en el catalogo**. Este lote tomo **MH-045/046/047** y dejo
-042/043 al lote 1 y 044 al lote 2. **El orquestador tiene que reconciliar los ids al consolidar los tres lotes.**
+| id | Resultado |
+|---|---|
+| **MH-044** (criterio duplicado en tres lugares) | **PASS, no se reabrio.** El helper quedo intacto, perdio un consumidor de tres y los dos vivos siguen llamandolo. Y el razonamiento de **no** duplicar las condiciones del impuesto en el bucle nuevo es la aplicacion correcta de la leccion de MH-044 |
+| **PAT-012** (previsualizar → confirmar) | **FAIL a nivel patron** → MH-054 |
+| **MH-039** (verificacion post-corrida visible) | **PASS.** La grilla lista los 29 y rotula los 10 recortados con "Sin alicuota a esa fecha": el recorte es visible, no implicito |
+| **MH-027 / MH-038 / MH-040 / KOI-012 / OLV-019 / OLV-025 / REG-004** | **PASS**, sin cambios respecto de las corridas 1 y 2 |
+| **Codigo muerto / referencias huerfanas tras retirar una pantalla** | **PASS**, barrido de 7 identificadores con 0 hallazgos |
 
-### 7. Riesgos de liberacion
+### 7. Reglas nuevas o modificadas desde la ultima corrida
 
-1. **R-L3.1 — CA-86.14 depende del dia del deploy, y ya hay plata en juego.** La alicuota se siembra con
-   `VigenteDesde` = dia del arranque. El cheque pendiente mas cercano (**id 46, N° 908, $311.019,72**) vence
-   **hoy 02/10/2026**, e impuesto $1.866,12. Si el deploy es hoy, entra; **si es el 03/10 o despues y el usuario
-   carga la fecha real del debito (02/10), no hay alicuota vigente y ese impuesto no se postea**. Peor: el extracto
-   ya muestra `CHEQUE DE CAMARA` por **$342.111,74 debitado el 30/09/2026**, que es exactamente el monto del cheque
-   **id 43 (N° 0141), todavia `Pendiente` en el sistema** — al acreditarlo con su fecha real (30/09) no va a generar
-   su $2.052,67. O sea: el techo de CA-86.14 **no es** $41.522,56 sino lo que quede de los cheques cuyo debito real
-   cae en o despues de `VigenteDesde`. **Decision de negocio, no bug:** o se deploya hoy, o se siembra la alicuota
-   con una `VigenteDesde` retroactiva acordada con el cliente, o se acepta perder los primeros cheques. Hay que
-   decirselo antes del deploy, no despues.
-2. **R-L3.2 — la fecha de corte vive en un dato editable y nadie la vigila.** `VigenteDesde` se puede mover desde
-   `ConfiguracionCostosCobranza` (`ActualizarAlicuotaAsync` **no** tiene ninguna validacion de solape, a diferencia
-   de `CrearAlicuotaAsync`): bajarla a agosto 2026 no recalcula nada hacia atras (correcto, CA-86.12), pero habilita
-   el impuesto para cualquier cheque que se acredite retroactivamente desde ahi. Combinado con MH-046, el corte es
-   una convencion, no una barrera.
-3. **R-L3.3 — `ObtenerVigenteQueSolapaAsync` solo mira el punto `VigenteDesde`.** Si existiera una alicuota con
-   `VigenteDesde` futura y se crea una nueva anterior con `VigenteHasta = null`, el solape no se detecta. El
-   desempate (`OrderByDescending(VigenteDesde).First()`) es determinista, asi que no hay impuesto aleatorio, pero la
-   invariante "nunca dos alicuotas vigentes a la misma fecha" que afirma el comentario **no esta garantizada**.
-4. **R-L3.4 — sin verificacion post-corrida (leccion de MH-039 sin cerrar).** El frente D lista los solapamientos
-   historicos pero nada responde, despues del deploy, "cuantos gastos manuales de banco hay activos desde
-   `VigenteDesde`". Hoy la respuesta es 0 por el corte, no por una verificacion.
+Sin reglas nuevas ni modificadas de terceros desde la corrida anterior del mismo dia. Los items que el catalogo
+incorporo hoy son los de las propias corridas (MH-042..MH-053); esta corrida agrega **MH-054**.
 
-### Checklist de merge (lote 3)
+### Checklist de merge (lote 3, corrida 3)
 
-- [x] Build: `Compilacion correcta`, 0 errores (8 advertencias, todas NU1902 preexistentes de MailKit/MimeKit)
-- [x] `git status --porcelain` del repo bajo prueba sin ningun cambio de QA (solo los 18 archivos ajenos a CR-86 que ya estaban)
-- [x] Migracion revisada: agregado puro, 0 `Sql()`, 0 remapeo de enum, FK `SetNull`
-- [x] Linea base 0,600% reverificada de cero sobre el extracto (17/17 exacto)
-- [x] Los 29 historicos no pueden generar impuesto: verificado por fecha contra SQL de produccion
-- [x] Atomicidad de los 4 asientos: verificada (transaccion unica en `AcreditarAsync`, `CCLocalService` sin `SaveChanges` propio)
-- [x] CRM-020 (nunca lanza) verificado
-- [ ] **Decidir R-L3.1 antes del deploy** (dia del deploy vs. `VigenteDesde`; cheques 46 y 43 con debito real ya ocurrido)
-- [ ] **MH-046** al implementador — deberia entrar antes de habilitar la correccion de fecha al cliente
-- [ ] MH-045 al implementador
-- [ ] MH-047 al implementador (low) — incluye el fix del XMLdoc de `CategoriaGasto` (dice `ComisionesBancarias`, es `Otro`)
-- [ ] **CA-86.14 al analista**: el numero correcto es **$41.522,56** (redondeo por cheque), y el techo depende del deploy
-- [ ] **CA-86.11 al analista**: reescribir como "a lo sumo un gasto **vigente** por cheque"
+- [x] Build 0 errores; `git status --porcelain` sin cambios de QA
+- [x] **Desacople por construccion**: bucle propio, 0 `continue`, 0 precondicion heredada, 0 filtro heredado
+- [x] **Retiro del reasiento**: barrido de 7 identificadores, 0 hallazgos; la regularizacion de caja de CR-84 intacta
+- [x] **`SaldoLedgerPorFecha` intacto, 2 consumidores vivos, MH-044 no reabierto**
+- [x] **Previsualizacion y posteo comparten los 3 metodos de decision**; unica asimetria medida e inalcanzable
+- [x] CA-86.17 = **$39.719,67** en 19 cheques, reproducido fila por fila contra produccion
+- [x] CA-86.13 = **10 cheques / $3.958.765,39** afuera, y **visibles** en la grilla
+- [x] CA-86.11: la previsualizacion muestra 0 a registrar si ya se registro; boton deshabilitado
+- [x] MH-045 / MH-046 / MH-047 / MH-051 / MH-052 **cerrados**, cada uno con su linea de codigo
+- [x] El "estado conocido" de `AcreditarAsync` verificado contra produccion: pagos 339/362/407, **$1.452.133,30** exacto
+- [ ] **MH-054** al implementador (low) — token de confirmacion en PAT-012, extensible a `RegularizacionCaja`
+- [ ] R-L3.2 / R-L3.3 siguen abiertos: `ActualizarAlicuotaAsync` sigue **sin validacion de solape** y
+      `ObtenerVigenteQueSolapaAsync` sigue mirando solo el punto `VigenteDesde`. La invariante "nunca dos alicuotas
+      vigentes a la misma fecha" que el comentario afirma sigue sin estar garantizada. Impacto bajo (el desempate es
+      determinista y el importe ya no se recalcula), pero es la unica afirmacion de este frente que no esta sostenida
+- [ ] Observacion: `ContarChequesSinAlicuota`-equivalente ya no existe como tal, pero el conteo de la grilla sigue
+      siendo "sin alicuota vigente a su fecha" cheque por cheque, que es **mejor** que el conteo "antes de la primera
+      vigencia" que señale en la corrida 2 — ese hueco quedo cerrado de rebote
 
-**Dictamen del lote 3: GO CONDICIONADO.** El frente C esta bien construido: la tasa es correcta y reverificada, el
-redondeo y la atomicidad son los correctos, el enum y la migracion son agregado puro sin riesgo de datos, y la
-defensa AC-86.4 deja afuera a los 29 historicos **por construccion y verificado contra produccion**. Lo que
-condiciona el cierre son dos cosas: **un criterio con el numero mal** (CA-86.14, $41.522,56 y no $41.522,55, mas la
-dependencia del dia del deploy, que es decision de negocio con $2.052,67 ya perdidos sobre la mesa) y **una puerta
-de atras al riesgo numero uno del CR** (MH-046: la fecha de corte es firme al postear y blanda despues). Ninguno
-bloquea el merge; R-L3.1 si bloquea el deploy a ciegas.
+**Dictamen del lote 3, corrida 3: GO.** El desacople que pediste esta **bien por construccion y no por los datos**,
+que era la pregunta: el bucle recorre los 29 acreditados sin heredar nada y la seleccion la hace exclusivamente
+`PostearAsync`, asi que el $39.719,67 ya no depende de que ningun cheque caiga en el `continue` de otro proceso.
+El retiro del reasiento esta completo — 7 identificadores barridos, 0 hallazgos — y `SaldoLedgerPorFecha` quedo
+intacto con sus dos consumidores vivos, asi que **MH-044 no se reabrio de rebote**. Previsualizacion y posteo
+**comparten los tres metodos de decision**, no los duplican: la decision de no repetir las condiciones en el bucle
+fue la correcta y el riesgo que te preocupaba no se materializo; la unica asimetria que existe es la rama
+`impuesto <= 0m`, que divergiria en la cantidad y nunca en el importe, y es inalcanzable con un minimo acreditado de
+$25.425,11 contra un umbral de $0,84. Los cinco defectos que yo habia emitido estan cerrados, cada uno verificado
+en su linea. Lo que queda es **MH-054**, que es el patron PAT-012 del proyecto entero y no una regresion de este CR,
+y la vieja R-L3.2/R-L3.3 sobre el solape de alicuotas, que es la unica afirmacion del frente que todavia no esta
+sostenida por el codigo. Nada de eso bloquea el merge ni el deploy.
 
 **Ultima validacion de reglas cross-proyecto: 2026-10-02.**
-
-
-## CR-86 frente B (CR-85 absorbido) (2026-10-02) — lote 2 de 3: la fecha con la que se asienta un cheque
-
-Commit bajo prueba `0e80ff5`, rama `main`. Metodo: lectura del diff + SQL de solo lectura contra produccion (`db_a7251f_marihog`) + cruce contra el extracto del Banco Provincia (`docs/consultaMovimientos.xls`, 31/08–30/09/2026). `dotnet build`: 0 errores, 8 advertencias NU1902 preexistentes. No se levanto la app (regla del proyecto). No se escribio ni una fila en produccion.
-
-### Cobertura por criterio
-
-| Criterio | Resultado | Evidencia observada |
-|---|---|---|
-| CA-86.7 — CC Proveedor y egreso de caja con la misma fecha, y es la del usuario | **PASS** (por codigo) | `ChequeService.cs:179-230`: `var fecha = fechaDebito.Date` se pasa identico a `RegistrarMovimientoAsync(..., fecha)`, `PostearEgresoAsync(pago, pago.Monto, fecha, ...)` y `PostearAsync(cheque, pago.Monto, fecha, ...)`, los tres dentro del mismo `BeginTransactionAsync`. `fecha` viene de `FormParsing.ParseDateOrNull(fechaDebito)` (`ChequesController.cs:76-84`), o sea del `<input type="date">` del dialogo. Validacion server-side de futuro y de `< FechaEmision` presente (REG-004 cumplido: la UI no es la unica defensa). El valor se guarda sin conversion de zona, coherente con el criterio CR-29 del ledger ("fecha de calendario, no instante"), que es como estan las 40 filas historicas que se midieron. |
-| CA-86.8 — 0 cheques con los dos ledgers en meses distintos | **FAIL (no observado)** | El backfill no se corrio: 0 filas con descripcion "fecha reasentada" en los dos ledgers. QA no escribe en produccion. Lo que SI esta verificado: la linea base del criterio es exacta — los unicos 2 cheques con `MONTH(caja) <> MONTH(proveedor)` son los pagos **362** (prov 31/08, caja 01/09, $354.000,01) y **407** (prov 23/10, caja 25/09, $564.799,96) = **$918.799,97**; y la corrida del backfill lleva los 27 movimientos de proveedor a `FechaAcreditacion`, que es exactamente la fecha que ya tienen los 24 egresos de caja, asi que el resultado aritmetico es 0. Re-verificacion: repetir la consulta de cruce despues de la corrida. |
-| CA-86.9 — la fecha de un pago se corrige desde la UI para todos los metodos | **PASS** | El `@if (p.Metodo == "Transferencia")` que envolvia el lapiz se elimino de `Views/OrdenesCompra/Details.cshtml` (el boton queda en todas las filas) y el guard `pago.Metodo != MetodoPago.Transferencia` se elimino de `PagoOrdenCompraService.ActualizarFechaPagoAsync`. El caso de prueba del criterio es alcanzable: pago **441**, Metodo=3 (Mercado Pago), $581.358,96, OC **80** con `Estado=Recibida` y `DeletedAt` nulo, un solo movimiento no-reversion en CC Proveedor (o sea que no cae en MH-044). **Nota**: el criterio queda cumplido en su letra, pero el mismo cambio que lo cumple es lo que abre MH-044 para los pagos con cheque. |
-
-### Veredicto sobre las dos afirmaciones del implementador
-
-**Afirmacion 1 (el conteo por saldo neto): CONFIRMADA en sus tres partes.**
-
-1. *El conteo obvio da 32/8*. Reproducido exacto. Grupos de fecha distintos de `FechaAcreditacion`: **23** de los 24 cheques con un solo movimiento (el pago **353** ya esta en su fecha: venc = acr = 24/08) + **9** de los 5 cheques con par reversado (339: 19/08 y 28/08; 340: 19/08 y 02/09; 341: solo 19/08; 344: 19/08 y 23/09; 345: 19/08 y 28/09) = **32**. De esos, cruzan de mes: 362 y 407 entre los 23, y 6 entre los 9 (339 ×2, 340, 341, 344, 345) = **8**.
-2. *Los cinco cheques tienen un par Pago+Cargo reversado del 19/08 que hay que valuar en 0*. Verificado fila por fila: pagos **339, 340, 341, 344, 345**, cada uno con un `Pago` no-reversion y un `Cargo` `EsReversion=1` del mismo importe, los dos fechados 2026-08-19 (descripcion "CR-46: reversion de Pago no acreditado"). Neto del dia = 0.
-3. *Por eso cuenta por saldo neto, y eso lo hace idempotente*. Con neto: **27 cambian de dia** (= los 27 / $9.745.379,65 que QA ya habia medido en CR-84 corrida 3) y **3 de mes por $1.452.133,30** = 362 + 407 + **339** ($533.333,33). **El neto no esconde ningun caso real**: en el pago 339 descarta el grupo del 19/08, que esta compensado, y conserva el del 28/08, que es el vivo. La idempotencia es consecuencia del mismo calculo, no un agregado: despues de la corrida el grupo viejo queda neteado en 0 y el grupo nuevo cae en `FechaAcreditacion`, asi que `ArmarBackfillFechasAsync` llega al `if (staleProv.Count == 0 && staleCaja.Count == 0) continue;` y no escribe nada.
-
-**Afirmacion 2 ("el backfill no toca la caja"): CONFIRMADA, pero por una razon peor que la del argumento.** Medido, los 29 cheques y los dos ledgers, fecha por fecha: **24 cheques tienen egreso de caja y en los 24 `DATE(caja) = DATE(FechaAcreditacion)`**, cero excepciones — asi que `staleCaja` sale vacio en los 29 y `MovimientosCajaCorregidos` va a dar 0, y el camino `RevertirEgresoAsync`/`PostearEgresoAsync` del backfill es codigo muerto hoy. Los **5 restantes (339/340/341/344/345, $2.224.700,00) no tienen egreso de caja en absoluto**: son las exclusiones MH-036 que CR-84 declaro a proposito, no un hallazgo nuevo, pero significa que para esos 5 la frase "no toca la caja" se cumple porque no hay caja que tocar. El agujero de $2.224.700,00 en el ledger de caja sigue abierto despues de CR-86 y, por MH-048, el backfill lo vuelve **mas** dificil de cerrar por el camino de CR-84.
-
-### Lo que ataca el lote, punto por punto
-
-| Punto | Resultado | Evidencia |
-|---|---|---|
-| Idempotencia del backfill | **PASS** (por construccion verificada) | Segunda corrida: todo grupo de fecha vieja queda con neto 0 (`Pago` no-rev − `Cargo` rev = 0) y el grupo nuevo coincide con `FechaAcreditacion`, asi que `staleProv` y `staleCaja` salen vacios y el cheque se saltea. Ademas el paso 1 y el paso 2 consumen la **misma** `ArmarBackfillFechasAsync` (PAT-012 bien aplicado, la leccion de MH-035). |
-| Sin `UPDATE` escondido sobre el ledger | **PASS** | `AplicarBackfillFechasAsync` solo llama `RegistrarMovimientoAsync`, `RevertirEgresoAsync` y `PostearEgresoAsync`, los tres `Add`. `grep` de `ExecuteUpdate`/`ExecuteDelete`/`FromSql` en `ChequeService.cs`, `CCProveedorService.cs` y `CCLocalService.cs`: 0 resultados. `cheque.FechaAcreditacion` no se modifica (es la fuente de verdad del reasiento). |
-| MH-028 — la reversion va al periodo original | **PASS** | `ChequeService.cs:544`: `RegistrarMovimientoAsync(..., esReversion: true, "Reversion por ...", fechaVieja)`. El alta va a `objetivo`. La trampa de MH-040 no se repite. |
-| RA-86.3 — call sites de `AcreditarAsync` | **PASS** | Un solo call site: `ChequesController.cs:84`. El unico `Estado = EstadoCheque.Acreditado` de toda la solucion es `ChequeService.cs:190`, dentro de `AcreditarAsync`; el job de notificaciones no transiciona (coherente con CR-7). Build 0 errores, o sea que no quedo ninguna llamada con la firma vieja. |
-| RA-86.4 — regresion del camino de MH-037 | **FAIL → MH-044** | Ver abajo. El camino que QA uso para cerrar MH-037 (corregir a mano la fecha de los 14 pagos de carga retroactiva) sigue funcionando para transferencias, pero al generalizarse quedo roto para los pagos con mas de una fila de ledger. |
-| El cheque rechazado | **PASS** | Los 2 cheques en Rechazado (ids **28** y **30**, pagos **368** y **374**) tienen **0** movimientos en `MovimientosCCProveedor` y **0** en `MovimientosCCLocal`, y su `PagoOrdenCompra` sigue en `Estado=Pendiente`. `RechazarAsync` no se toco en el diff. |
-| Honestidad del entregable | **PASS** | `Views/Cheques/BackfillFechas.cshtml` pone el cartel de exactitud **arriba del boton**, no al pie: "acierta **8 de 13**, contra **1 de 13** del vencimiento … Es una mejora grande, **no es exacta**". Cruce independiente de QA contra el extracto (17 lineas `CHEQUE DE CAMARA`): **8 aciertos inequivocos** de `FechaAcreditacion` (cheques 0139, 0115, 0110, 0107, 0132, 0109, 0099, 0113) contra **1** del vencimiento (0116, 23/09). El cheque **0114** (pago 358, $564.800,00) falla con los dos proxies (extracto 16/09, acreditacion 18/09, vencimiento 15/09): el cartel esta justificado por un caso real. |
-
-### Defectos nuevos
-
-**MH-044 — `major`, EN VIVO HOY (no necesita el backfill).** Al caerse el guard de Transferencia (punto 8), `ActualizarFechaPagoAsync` alcanza los pagos con cheque. Ahi corrige el movimiento de proveedor con `FirstOrDefaultAsync(... !EsReversion && Tipo == Pago)` — **una sola fila, sin `OrderBy`** — mientras `ActualizarFechaEgresoAsync` corrige **todas** las filas de caja con `ToListAsync` + `foreach`. En el pago **339** (cheque #0, OC 20, $533.333,33) las filas no-reversion son la **id 593** (19/08, ya compensada por la reversion id 601) y la **id 625** (28/08, la viva): se mueve la muerta, la viva se queda, y los dos ledgers del mismo hecho vuelven a quedar en meses distintos — la inconsistencia que CR-84 cerro, reabierta por la puerta de al lado. Hoy alcanza a los 5 pagos del par reversado; despues del backfill, a los **27 / $9.745.379,65**. **Criterio de re-verificacion**: corregir la fecha del pago 339 desde `OrdenesCompra/Details` deja la fila de CC Proveedor con saldo neto vigente y el egreso de caja en la misma fecha, y no modifica ninguna fila ya reversada.
-
-**MH-048 — `major`, se materializa al correr el backfill.** El guard MH-036 de `EgresoPagoProveedorService.ArmarBackfillAsync` (`if (mov.Cantidad > 1)`) se evalua **antes** del chequeo de idempotencia (`var yaPosteado = netosCaja...`), asi que un pago con el egreso ya posteado y bien fechado igual cae en la lista de excluidos si su ledger de proveedor tiene mas de una fila no-reversion — que es exactamente lo que el backfill de CR-86 produce por diseno, porque PAT-023 le prohibe el `UPDATE`. Resultado: la pantalla de regularizacion de caja de CR-84 pasa de pedir revision manual de **5 pagos / $2.224.700,00** a pedirla de **28 / $10.278.712,98** (los 27 reasentados mas el pago 341, que ya esta sucio hoy), con un texto que le dice al cliente que no se puede determinar la fecha del egreso — cuando esta determinada y es correcta en los 24 casos medidos. Falsa alarma de $10,2M sobre la pantalla que decide una escritura financiera de una sola corrida. **Criterio de re-verificacion**: correr el backfill de fechas no cambia la lista de excluidos de la regularizacion de caja (sigue en 5 / $2.224.700,00), y ningun pago con neto de caja > 0 aparece en ese bloque.
-
-### Observaciones (no bloquean)
-
-1. **Asimetria de inmutabilidad declarada, pero ahora en el mismo CR.** `ActualizarFechaPagoAsync` corrige el ledger **en el lugar** (excepcion consciente heredada de CR-52/CR-84) y el backfill del mismo CR usa **reversion + alta** (PAT-023). Los dos criterios conviven ahora a dos metodos de distancia sobre la misma tabla, y MH-044/MH-048 son las dos caras de esa convivencia. No es un defecto del frente B; es una decision de arquitectura que conviene cerrar en un solo sentido.
-2. **El agujero de caja de $2.224.700,00 (MH-036) sobrevive a CR-86** y queda mas lejos: los 5 pagos siguen sin egreso y el reordenamiento que pide MH-048 es condicion necesaria para poder incorporarlos alguna vez.
-3. **`Cheque.FechaAcreditacion` no se muestra en ninguna pantalla** (`grep` sobre vistas y DTOs de Web: 0 lecturas). La fecha que el usuario carga no se le devuelve en la grilla de Cheques, asi que un error de tipeo solo se descubre mirando el ledger. Mejora de UI, no defecto.
-4. **Observacion cruzada (lote 3)**: `PagoOrdenCompraService.ActualizarFechaPagoAsync` tambien mueve `Cheque.FechaAcreditacion` y el gasto del impuesto Ley 25.413. Con MH-044 abierto, corregir la fecha de un cheque mueve el impuesto y la caja pero **no** el movimiento de proveedor vivo: el impuesto queda bien fechado respecto de la caja y mal respecto del proveedor. Lo evalua el lote 3; se deja anotado porque el disparador es el cambio del frente B.
-
-### Riesgos de liberacion
-
-- **R1 (alto)** — MH-044 ya esta en produccion en cuanto se deploye el commit: no hace falta correr el backfill ni tocar un cheque viejo; basta que alguien use el lapiz sobre un pago con cheque. Es el defecto que decide el NO-GO.
-- **R2 (alto)** — el backfill es una escritura de una sola corrida sobre un ledger inmutable. Correrlo con MH-048 abierto deja la pantalla de CR-84 pidiendo una revision manual de $10,2M que no corresponde, y corregir eso despues cuesta otra lectura completa del ledger. El orden correcto es: arreglar MH-048, despues correr el backfill.
-- **R3 (medio)** — 3 cheques cambian de mes por $1.452.133,30 (no 2 por $918.799,97: el enunciado de CA-86.8 mide el cruce caja-vs-proveedor y el backfill mide proveedor-vs-acreditacion, y el pago **339** aparece solo en el segundo). Cualquier cierre de agosto/septiembre ya comunicado al cliente cambia. Avisarlo antes, no despues.
-- **R4 (bajo)** — la fecha de los 29 historicos acierta 8 de 13. La pantalla lo dice; el resumen al cliente tambien tiene que decirlo.
-
-### Checklist de merge del lote
-
-- [ ] MH-044 corregido y re-verificado en contexto nuevo sobre el pago 339 (criterio arriba). **Bloqueante.**
-- [ ] MH-048 corregido y re-verificado comparando la lista de excluidos de la regularizacion antes y despues del backfill. **Bloqueante antes de correr el backfill**, no antes del merge del resto.
-- [ ] El backfill se corre **despues** de MH-048, y la corrida se re-verifica con: `MovimientosCajaCorregidos = 0`, 27 cheques reasentados, 0 cruces caja-vs-proveedor de mes (CA-86.8), y una segunda corrida que devuelve 0 cheques a reasentar (idempotencia observada, no solo deducida).
-- [ ] Avisar al cliente los 3 cheques que cambian de mes por $1.452.133,30 antes de la corrida.
-- [x] Build 0 errores.
-- [x] `git status --porcelain` del repo bajo prueba sin cambios de QA.

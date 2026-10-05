@@ -13,4 +13,5 @@ Como usar este archivo (limite duro: 200 lineas o 25KB — lo que llegue antes; 
 
 - [Verificar una vista Razor sin levantar la app](verificacion-vistas-razor.md) — `node --check` sobre el JS embebido, y el object initializer que no parsea en un atributo de tag helper.
 - [Verificar los criterios con numero exacto contra produccion](verificar-criterios-contra-produccion.md) — consulta de solo lectura antes de cerrar la etapa; destapa el agregado mal contado que QA devolveria.
+- [Coleccion local de strings hacia SQL = MH-001](coleccion-local-de-strings-hacia-sql.md) — el gatillo no es el refactor: es cualquier `Contains` de strings que se traduzca a SQL, y deja el endpoint en 500.
 - [El warning CRLF de git es normal](git-crlf-repos-dotnet.md) — copia de trabajo en LF + `autocrlf=true`: no indica que se haya reescrito el archivo.

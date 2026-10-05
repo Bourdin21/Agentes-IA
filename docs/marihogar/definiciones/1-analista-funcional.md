@@ -365,6 +365,25 @@ Se reagrupa por **la pregunta que responde cada número**, no por el orden en qu
 - **S-CR80.1** — Todas las métricas son de **solo lectura** sobre datos existentes: ninguna columna nueva, ninguna migración EF.
 - **S-CR80.2** — El `PrecioCompra` de `OrdenCompraItem` está cargado sin IVA (Subtotal de la OC es "suma de líneas sin impuestos"), igual que `Producto.PrecioCompra`, así que costo y precio de venta se comparan sobre la misma base.
 
+## CR-87 - El aviso de doble conteo del costo de cobranza es casi ciego
+
+**Estado:** levantado 2026-10-02 durante el QA de CR-86, con impacto medido. Pendiente de Discovery. **No es de CR-86: es un defecto ya deployado de CR-83.**
+
+`CostoCobranzaService.PrevisualizarRecalculoAsync` incluye los gastos manuales del rango para avisar del riesgo de doble conteo, filtrando por `Categoria == CategoriaGasto.ComisionesBancarias`. Medido en produccion (2026-10-02), los gastos manuales de comisiones/bancarios vigentes:
+
+| Categoria | Gastos | Monto |
+|---|---|---|
+| `Otro = 6` | **120** | **$11.479.487,00** |
+| `ComisionesBancarias = 7` | **1** | $50.000,00 |
+
+**El aviso ve 1 de 121 gastos, el 0,4% del monto.** El cliente nunca uso la categoria que CR-62 creo para esto: carga en `Otro` y distingue por **subcategoria** de texto libre ("Gastos Bancarios PCIA y payway", "COMISIONES BANCO GALICIA", "cobro cheque").
+
+**Reinterpreta MH-039.** QA habia registrado que en el recalculo *"la pantalla avisaba en rojo con el monto y se cumplio al 93%"*. Ese 93% es sobre el universo que la pantalla **podia** ver, que era de 1 gasto; el universo real era de 121. **El aviso no fallo por poco: no estaba mirando.**
+
+Ratifica por contraste la decision de CR-86 de agrupar el reporte de saneamiento **por subcategoria y no por categoria**: era la unica forma de ver el universo real.
+
+**Candidato a sumar al mismo CR:** los pagos 58, 201 y 203 siguen con `Estado = Pagado` aunque su neto en el ledger sea 0 (hallazgo colateral de MH-053).
+
 ## CR-86 - Comision de cobranza cobrada por periodo + impuesto al cheque (Ley 25.413) en compras
 
 **Estado:** Discovery CERRADO 2026-10-01. **Analisis BLOQUEADO**: 4 preguntas al cliente (P-CR86.1 a P-CR86.4), ninguna respondible desde el codigo. El frente B ademas **depende de CR-85** (abierto).
@@ -530,7 +549,7 @@ Tres consecuencias:
 **B. Fecha de asiento de los cheques (CR-85 absorbido, D4) -- va PRIMERO**
 7. `ChequeService.AcreditarAsync` asienta el movimiento de CC Proveedor y el egreso de caja con **`Cheque.FechaAcreditacion`**, no con `FechaVencimiento`. Los dos ledgers con la misma fecha, que es el dia real de salida.
 8. Correccion de fecha de un pago ya registrado extendida a **todos** los metodos, no solo Transferencia (`ActualizarFechaPagoTransferenciaAsync` cubre hoy un solo metodo; el pago 441 de Mercado Pago quedo sin camino de correccion).
-9. Backfill de los 29 cheques acreditados para reasentar las fechas: **27 filas cambian de dia, 3 de mes por $1.452.133,30.**
+9. ~~Backfill de los 29 cheques acreditados para reasentar las fechas.~~ **FUERA DE ALCANCE por decision del cliente (2026-10-02):** *"dejar los datos de los cheques en produccion como estan, estan cargados por el usuario"*. Las fechas historicas no se tocan. Lo que queda de CR-85 es el camino **en vivo** (punto 7): de aca en adelante cada acreditacion asienta los dos ledgers con la fecha del extracto.
 
 **C. Impuesto al cheque (Ley 25.413)**
 10. Alicuota **parametrizable con vigencia** (S-CR86.3), sembrada en **0,600%** -- medida sobre el extracto, no supuesta. Misma semantica que `TasaCostoCobranza`: no se borra, se le cierra la vigencia.
@@ -560,64 +579,48 @@ Tres consecuencias:
 - **CA-86.2** - Las tarjetas por plataforma dan **Mercado Pago $768.568,20 / Payway $517.869,27 / Banco Directo $14.639,96** para 2026-09, y su suma coincide con la suma de la columna.
 - **CA-86.3** - El total de la pantalla para un mes coincide **exactamente** con el costo de cobranza que informa Rentabilidad para el mismo mes. Si difiere, una de las dos esta mal.
 - **CA-86.4** - Los 11 pagos sin `FechaAcreditacionEfectiva` ($85.742,36) quedan **dentro** del periodo que les corresponde por `Fecha`. Un periodo que los excluya falla el criterio.
-- **CA-86.5** *(ratificado 2026-10-02 en **723**; el 730 original era mio y estaba mal)* - La pantalla declara en texto cuantos pagos del periodo no tienen tasa atribuida. Sobre todo el historial son **723**. Descomposicion cerrada con QA lote 1: **730** crudos **− 6** pagos dados de baja (los agarra el filtro global de EF, `PagoVenta : SoftDestroyable`) **− 1** pago vivo de venta cancelada (el `NOT EXISTS` del servicio, MH-029) **= 723**. Los universos no se solapan: de los 4 pagos sin tasa de ventas canceladas (ids 675, 681, 714, 748), **3 ya estan soft-deleted** por el flujo de cancelacion de MH-020 y estan dentro de los 6; vivo queda solo el **675** ($678.905,78, venta 656). **MH-042 es defecto de criterio solamente: la implementacion cuenta bien.**
+- **CA-86.5** - La pantalla declara en texto cuantos pagos del periodo no tienen tasa atribuida. Sobre todo el historial son **723** = 730 crudos − 6 pagos dados de baja (filtro global de EF, `PagoVenta : SoftDestroyable`) − 1 pago vivo de venta cancelada (`NOT EXISTS`, MH-029). Los universos no se solapan: de los 4 pagos sin tasa de ventas canceladas (675, 681, 714, 748), 3 ya estan soft-deleted y vivo queda solo el 675 ($678.905,78, venta 656).
 - **CA-86.6** - Una tasa con vigencia cerrada antes del periodo muestra $0 **y** el rotulo explica que significa (no se lee como error).
 
 **Frente B / CR-85**
 - **CA-86.7** - Acreditar un cheque postea el movimiento de CC Proveedor y el egreso de caja con **la misma fecha**, y esa fecha es `FechaAcreditacion`. Es el criterio que CA-84.1 no podia alcanzar.
-- **CA-86.8** *(reenunciado 2026-10-02 por QA lote 2: el enunciado original medi­a la cosa equivocada)* - Despues del backfill, **0** cheques acreditados tienen el movimiento de proveedor imputado a un mes distinto del de su acreditacion. **Son 3 cheques por $1.452.133,30** (pagos 362, 407 y **339**), no los 2 por $918.799,97 del enunciado original.
+- **CA-86.8** - **NO APLICA al historico por decision del cliente (2026-10-02).** El backfill de fechas salio del alcance, asi que los cheques ya acreditados **siguen asentados por vencimiento** en la cuenta corriente del proveedor y los **3 casos que cruzan de mes ($1.452.133,30: pagos 362, 407 y 339) quedan asi**. Es un estado **conocido y aceptado**, no un defecto pendiente. Para los cheques que se acrediten de aca en adelante el criterio lo cubre CA-86.7.
   El original medi­a **caja vs proveedor** y el backfill mide **proveedor vs acreditacion**: el pago 339 solo aparece en el segundo, y por eso se habia perdido. Dato que cierra la cuenta: de los 29 cheques acreditados, **24 tienen egreso de caja y los 24 ya lo tienen con `DATE(caja) = DATE(FechaAcreditacion)`** (cero excepciones, es herencia de CR-84); los **5 restantes no tienen egreso en absoluto** ($2.224.700,00, las exclusiones MH-036). O sea **el backfill alinea un solo ledger, el de proveedores**, y la afirmacion del implementador de que "no toca la caja" es **correcta y medida** — para 24 porque ya estan bien, para 5 porque no hay caja que tocar.
 - **CA-86.9** - La fecha de un pago ya registrado se puede corregir desde la UI para **todos** los metodos. Verificable sobre el pago 441 (Mercado Pago), que hoy no tiene camino.
 - **CA-86.10** - Acreditar un cheque de $100.000 genera un gasto de **$600,00** exactos, fechado el dia de la acreditacion.
-- **CA-86.11** *(reenunciado 2026-10-02 por QA lote 3; el enunciado original estaba mal escrito)* - Revertir la acreditacion deja el gasto del impuesto **anulado** y el total del periodo baja $600,00. Re-acreditar deja **a lo sumo un gasto VIGENTE por cheque**: puede existir una fila `Gasto` nueva, con la anterior anulada, porque el ledger es inmutable y PAT-020 prohibe borrar. El enunciado original decia "no genera un segundo gasto", que describe mal el invariante correcto y habria obligado a un `UPDATE` sobre una fila ya posteada. **Lo que no puede pasar es que haya dos gastos de impuesto vigentes para el mismo cheque, ni que el total del periodo los cuente dos veces.**
+- **CA-86.11** - Revertir la acreditacion deja el gasto del impuesto **anulado** y el total del periodo baja $600,00. Re-acreditar deja **a lo sumo un gasto VIGENTE por cheque**: puede existir una fila `Gasto` nueva con la anterior anulada, porque el ledger es inmutable y PAT-020 prohibe borrar. Lo que no puede pasar es que haya dos gastos de impuesto vigentes para el mismo cheque, ni que el total del periodo los cuente dos veces.
 - **CA-86.12** - Cambiar la alicuota a 1,2% con vigencia desde una fecha no altera el impuesto ya calculado de los cheques anteriores.
-- **CA-86.13** - Ningun cheque acreditado antes de la fecha de corte genera gasto de impuesto. Verificable: los 29 historicos no generan los $63.472,28.
-- **CA-86.14** *(corregido 2026-10-02: el numero del criterio estaba mal, no la implementacion)* - Los 16 cheques pendientes ($6.920.424,74), al acreditarse, generan **$41.522,56** en total. El criterio original decia $41.522,55 porque **redondeaba el total una sola vez**; el sistema redondea **por cheque**, que es lo que hace el banco (verificado 17 de 17 en el extracto). La diferencia es $0,01 y la razon es la correcta: el impuesto es un hecho por cheque, no un calculo sobre la suma. **Se verifica cheque por cheque, no contra el total.**
+- **CA-86.13** - Ningun cheque acreditado **antes del 01/09/2026** (la `VigenteDesde` de la alicuota) genera gasto de impuesto. Verificable: los **10** cheques acreditados en agosto ($3.958.765,39) no generan impuesto.
+- **CA-86.14** - Los 16 cheques pendientes ($6.920.424,74), al acreditarse, generan **$41.522,56** en total. El redondeo es **por cheque**, igual que el banco (verificado 17 de 17 en el extracto), no sobre la suma: por eso se verifica cheque por cheque y no contra el total.
+- **CA-86.17** - Los **19 cheques ya acreditados con fecha >= 01/09/2026** ($6.619.947,59) **si** generan su impuesto: **$39.719,67**, cada uno fechado en su propia `FechaAcreditacion`, visible en el gasto y en el movimiento de caja. Se verifica cheque por cheque.
+- **CA-86.18** - Un pago cuyo neto en el ledger de proveedores es 0 queda **excluido** de la correccion de fecha, con un mensaje que diga por que ("este pago fue reversado; su fecha es historica"). Verificable: los pagos **58**, **201** y **203** no son corregibles. En produccion hay 5 grupos con neto total 0.
 
 **Saneamiento**
 - **CA-86.15** - El reporte lista los **80** gastos solapados por **$9.113.426,00**, agrupados por subcategoria, y **no anula ninguno**.
 - **CA-86.16** - El reporte de saneamiento **excluye** el gasto de $617.687,00 del 28/09/2026 y cualquier otro gasto de la subcategoria `cheque` que corresponda a una compra en conjunto con un tercero. Son cargas deliberadas del procedimiento de CR-81, no solapamientos. Verificable: el gasto id 531 no aparece en el reporte.
 
-#### Hallazgo cross-CR: el aviso de doble conteo de CR-83 es casi ciego (2026-10-02)
+#### Vigencia de la alicuota y universo del impuesto (estado vigente)
 
-Surgio verificando una observacion de QA lote 3 y **es mas grave de lo que ese lote reporto**. No es un defecto de CR-86: es un defecto **ya deployado** de CR-83 que CR-86 destapa.
+`VigenteDesde` = **01/09/2026** (decision del cliente). La `VigenteDesde` **es** la fecha de corte: no hay parametro aparte (AC-86.4).
 
-`CostoCobranzaService.PrevisualizarRecalculoAsync` (linea ~526) incluye los gastos manuales del rango para avisar del riesgo de doble conteo, con este filtro:
-```
-.Where(g => g.Categoria == CategoriaGasto.ComisionesBancarias
-```
-Medido en produccion, los gastos manuales de comisiones/bancarios vigentes:
+| | Cheques | Monto | Impuesto 0,6% |
+|---|---|---|---|
+| Acreditados antes del 01/09 — no generan (CA-86.13) | 10 | $3.958.765,39 | — |
+| Acreditados desde el 01/09 — backfill **del impuesto** (CA-86.17) | 19 | $6.619.947,59 | **$39.719,67** |
+| Pendientes — al acreditarse (CA-86.14) | 16 | $6.920.424,74 | **$41.522,56** |
 
-| Categoria | Gastos | Monto |
-|---|---|---|
-| `Otro = 6` | **120** | **$11.479.487,00** |
-| `ComisionesBancarias = 7` | **1** | $50.000,00 |
+**Riesgo de doble conteo del tramo nuevo: nulo, verificado.** Los gastos manuales de comisiones/bancarios terminan el **19/08/2026**; desde el 01/09 hay un solo gasto de esa familia ($50.000,00 del 14/09, "COMISION PERCEPCION MP"), que es comision de Mercado Pago y no impuesto al cheque (MH-039, abierto, otro concepto).
 
-**El aviso ve 1 de 121 gastos, el 0,4% del monto.** El cliente nunca cargo estos gastos en la categoria "Comisiones bancarias" que CR-62 creo para ellos: los carga en `Otro` y los distingue por la **subcategoria** de texto libre ("Gastos Bancarios PCIA y payway", "COMISIONES BANCO GALICIA", "cobro cheque"...).
+**El backfill del impuesto sigue en alcance; el de fechas no.** Son dos pasos independientes y hubo que **desacoplarlos**: el posteo del impuesto vivia dentro del recorrido del reasiento, detras de un `continue` que saltea cheques omitidos, asi que con el reasiento fuera el impuesto tiene recorrido propio sobre los 19. El impuesto se fecha con la `FechaAcreditacion` **ya guardada**, que no se modifica en ninguno de los dos escenarios, asi que no depende del reasiento para quedar bien fechado.
 
-**Esto reinterpreta MH-039.** QA habia escrito que en el recalculo *"la pantalla avisaba en rojo con el monto y se cumplio al 93%"*. El 93% es sobre el universo que la pantalla **podia** ver, que era de 1 gasto. El universo real era de 121. **El aviso no fallo por poco: no estaba mirando.**
-
-Consecuencias:
-- El **reporte de saneamiento de CR-86 agrupa por subcategoria, no por categoria**, y por eso si encuentra los 80 gastos / $9.113.426,00. Esa decision del implementador queda **ratificada**: era la unica forma de ver el universo real.
-- El filtro de `PrevisualizarRecalculoAsync` **hay que corregirlo**, y no es alcance de CR-86. Queda levantado como **CR-87**.
-- Refuerza `AC-86.4` (la fecha de corte por vigencia de alicuota): era la defensa correcta justamente porque la defensa por aviso no funciona.
-
-#### Correcciones de criterio surgidas de QA (2026-10-02)
-Tres criterios de este CR estaban mal **escritos por el analista**, no mal implementados. Se reenuncian arriba y queda registrado para la calibracion del metodo:
-- **CA-86.14** redondeaba el total una vez en vez de por cheque ($0,01). El impuesto es un hecho por cheque.
-- **CA-86.11** pedia "no genera un segundo gasto", que contradice PAT-020 (el ledger no se edita). El invariante correcto es "a lo sumo un gasto **vigente**".
-- **CA-86.5** pedia 730 pagos sin tasa, numero que incluia **6 pagos dados de baja**. **Ratificado en 723** (730 − 6 soft-deleted − 1 de venta cancelada).
-- **CA-86.8** medi­a caja-vs-proveedor cuando el backfill mide proveedor-vs-acreditacion, y por eso se perdia el pago 339: son **3 cheques / $1.452.133,30**, no 2 / $918.799,97.
-
-**Leccion:** un criterio con un numero exacto es la mejor herramienta de QA que tiene este metodo, y por eso un numero mal derivado cuesta una corrida. **Cuatro de los 16 criterios de este CR tenian el numero o el enunciado mal**, y los cuatro por la misma causa: se derivaron midiendo rapido en SQL sin replicar lo que el codigo hace de verdad — el filtro global de soft-delete que EF agrega solo, la exclusion de ventas canceladas, el redondeo por fila en vez de sobre el total, y cual par de ledgers se esta comparando.
-
-**Regla que vale para cualquier proyecto (candidata al catalogo cross-proyecto):** un numero de criterio derivado en SQL crudo sobre una entidad con `HasQueryFilter` **no es el numero que el usuario va a ver**. Hay que sumarle a mano los filtros globales (soft-delete y cualquier otro), o derivarlo por el mismo camino que el codigo. QA lote 1 cayo en el mismo error desde el otro lado (midio 726) y lo reconocio: es un pozo del metodo, no de una persona.
+**El impuesto se cuenta solo en todo el sistema y no hay que tocar pantallas:** ninguna filtra gastos por una lista explicita de categorias (las vistas enumeran con `Enum.GetValues<CategoriaGasto>()`), asi que al ser un `Gasto` con su egreso ya entra en Caja, Cuenta corriente del local, Gastos operativos y el promedio que proyecta los meses futuros. **Limite:** el impuesto **no** va a la cuenta corriente del proveedor — es cargo del banco, no deuda con el proveedor.
 
 #### Reglas de negocio
 - **RN-86.1** - El impuesto de la Ley 25.413 lo cobra el banco el dia del debito en camara. En el sistema, ese dia es `Cheque.FechaAcreditacion`. Ninguna otra fecha describe el hecho.
 - **RN-86.2** - Un gasto de impuesto no existe sin el cheque que lo origina: se crea con el, se anula con el, y nunca se duplica.
 - **RN-86.3** - La alicuota con la que se calculo un impuesto no se reescribe. El costo de un cheque viejo tiene que seguir siendo explicable con la tasa que estaba vigente ese dia.
 - **RN-86.4** - Una pantalla de configuracion que empieza a mostrar hechos consumados tiene que rotular los dos planos. El numero dice que midio y de que universo (corolario de MH-033 / CA-84.10).
+- **RN-86.5** - Lo que tiene neto 0 en un ledger inmutable esta cerrado: no se refecha, no se edita, no se vuelve a abrir. Si hay que rehacerlo, se postea un hecho nuevo.
 
 #### Riesgos actualizados
 - **R-CR86.1 (elevado a ALTO, con monto)** - Doble conteo contra $5.691.530,00 en 58 gastos de "Gastos Bancarios PCIA y payway" que llegan hasta agosto 2026. Mitigacion: fecha de corte (punto 14) + reporte de saneamiento (punto 16). **Sin la fecha de corte este CR empeora los numeros del cliente.**
@@ -1340,6 +1343,12 @@ Pedido explícito del cliente, en paralelo al deploy de CR-44 (19/08/2026): "se 
 **Impacto en capas**: Application (`OrdenCompraInput.Fecha` nuevo, `IOrdenCompraService.RecibirAsync` con parámetro opcional nuevo), Infrastructure (`OrdenCompraService.CreateAsync`/`UpdateAsync`/`RecibirAsync`, helper privado `CalcularFecha` compartido), Web (`OrdenCompraFormViewModel.Fecha`, `OrdenesCompraController.MapInput`/`Edit` GET/`Recibir`, `OrdenesCompra/Create.cshtml` — input de fecha junto al selector de Proveedor, `OrdenesCompra/Details.cshtml` — SweetAlert de fecha en "Marcar recibida"). **Sin migración EF** (ambas columnas ya existían en el esquema desde el sprint original, solo se dejó de hardcodear `DateTime.UtcNow`).
 
 ## Historial de ajustes
+- 2026-10-02: CR-86 — **el backfill de fechas (punto 9) sale del alcance por decision del cliente** ("dejar los datos de los cheques en produccion como estan, estan cargados por el usuario"). **CA-86.8 pasa a NO APLICA al historico**: los 3 cheques que cruzan de mes ($1.452.133,30) quedan asi, como estado conocido y aceptado. El backfill **del impuesto** (CA-86.17, $39.719,67) **si se mantiene** y hubo que desacoplarlo del reasiento, porque el posteo del impuesto vivia detras del `continue` de los cheques omitidos. De CR-85 queda entregado el camino en vivo, no la correccion retroactiva.
+- 2026-10-02: CR-86 — **CA-86.5 ratificado en 723** (el 730 original incluia 6 pagos dados de baja), **CA-86.8 reenunciado en 3 cheques / $1.452.133,30** (el enunciado viejo media caja-vs-proveedor cuando el backfill mide proveedor-vs-acreditacion, y perdia el pago 339), **CA-86.11 reenunciado** ("a lo sumo un gasto vigente"; el viejo contradecia PAT-020) y **CA-86.14 corregido a $41.522,56** (redondeaba el total una vez en vez de por cheque). Los cuatro eran defectos de criterio, no de implementacion; causa comun: derivar el numero en SQL crudo sin replicar los filtros globales de EF, la exclusion de ventas canceladas ni el redondeo por fila. Detalle de cada uno en `trazabilidad.md`.
+- 2026-10-02: CR-86 — **CA-86.13 reenunciado y CA-86.17 agregado** por la decision del cliente de fijar `VigenteDesde` = 01/09/2026 (septiembre tambien se postea: 19 cheques, $39.719,67).
+- 2026-10-02: CR-86 — **CA-86.18 y RN-86.5 agregados** al resolver MH-053: un pago con neto 0 en el ledger no se ofrece para correccion de fecha.
+- 2026-10-02: CR-86 — se retiro el punto 17 del alcance y el riesgo R-CR86.7 (el gasto de $617.687 del 28/09 **no** era un error: compra en conjunto con un tercero, procedimiento de CR-81, verificado contra la base).
+- 2026-10-02: **CR-87 levantado** con el hallazgo de que el aviso de doble conteo de CR-83 ve 1 de 121 gastos.
 
 ### Bloques archivados (2026-09-25)
 
