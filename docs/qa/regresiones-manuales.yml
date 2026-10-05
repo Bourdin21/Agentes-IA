@@ -5086,3 +5086,37 @@ regresiones:
     pruebas_minimas:
       - "Un termino que coincide con una sola fila, uno que no coincide con ninguna, y vacio, en los dos listados."
     regla_preventiva: "Recurrencia de la familia MH-015 / MH-018 / ELV-006: un control que DataTables dibuja por defecto (buscador, encabezado ordenable) es una promesa de comportamiento. Si el server-side no la implementa, hay que apagar el control en la vista. Al auditar un listado server-side, revisar las 3 capacidades por defecto - buscar, ordenar por cada columna y paginar - contra lo que el servicio realmente soporta."
+
+  - id: LP-013
+    modulo: "Caja / cierre mensual y diario (CierresCajaMensuales / CierresCajaDiarios) - correccion de un cierre ya desfasado"
+    titulo: "La guarda de periodo cerrado evita el daño nuevo pero no existe ningun camino para CORREGIR un cierre que ya quedo desfasado del ledger: el total congelado es definitivo y la pantalla no avisa que no coincide"
+    severidad: minor
+    reproducido_en: "La Platense - rama entrega-1-migracion, commit 00f7dd4 (ronda de fixes del Sprint 0), QA re-verificacion del 2026-10-05. Reproducido por SQL sobre laplatense_qa_d9, sobre filas creadas ANTES del fix (LP-009)."
+    pasos:
+      - "Partir de una base donde algun CajaMovimiento tenga CreatedAt POSTERIOR al FechaCierre del cierre mensual que abarca su Fecha (es el daño que dejaba LP-009 antes de corregirse)."
+      - "Abrir /Caja/Mensual?anio=A&mes=M de ese mes y comparar los totales de la pantalla contra la suma real de CajaMovimientos del rango UTC del mes."
+      - "Buscar en la UI alguna forma de reabrir, recalcular o anular ese cierre mensual."
+    sintoma: "La pantalla muestra los totales congelados del cierre (en la reproduccion: 777,77 de egresos en 09/2026) mientras el ledger del mes acumula 8.555,54, y no hay ningun indicador de la diferencia. Tampoco hay accion de reabrir / recalcular / anular el cierre: el unico camino es UPDATE a mano en la base."
+    expectativa: "Dos piezas, ninguna de las dos existe hoy. (a) DETECCION: la pantalla de un periodo cerrado compara el total congelado contra el recalculo y, si difieren, lo dice (el cierre sigue siendo el valor firmado, pero el operador tiene que enterarse). (b) REMEDIO: una accion de Administrador para recalcular (o anular y volver a cerrar) un cierre desfasado, con traza de quien y cuando. Alternativa minima aceptable: dejar la query de deteccion documentada como control de pre/post-deploy, que es lo que se hizo en esta corrida."
+    causa_raiz: "El cierre se diseño como una foto inmutable (CierreCajaDiario / CierreCajaMensual guardan TotalIngresos/TotalEgresos/Saldo materializados) y la unica defensa es la guarda de escritura. Esa guarda ahora es correcta (ValidarPeriodoAbiertoAsync cubre dia y mes en las 6 vias), pero es una defensa hacia adelante: no mira ni repara lo que se posteo cuando la guarda no existia. No hay migracion de datos en el fix, asi que el daño historico queda tal cual."
+    capa: Application
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/CajaMovimientoService.cs
+        motivo: "ObtenerResumenMesAsync / ObtenerResumenDiaAsync: ademas del total del cierre, calcular el recalculo del rango y exponer la diferencia en el DTO cuando el periodo esta cerrado (hoy devuelven `cierre?.TotalIngresos ?? ingresos`, o sea descartan el recalculo cuando hay cierre). Opcional: RecalcularCierreMensualAsync para Administrador."
+      - path: FerreteriaLaPlatense.Web/Views/Caja/Mensual.cshtml
+        motivo: "Mostrar el aviso de desfasaje cuando el DTO lo traiga, al lado de 'Estado del mes: Cerrado'."
+      - path: FerreteriaLaPlatense.Web/Views/Caja/Index.cshtml
+        motivo: "Idem para el cierre diario."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "SELECT m.Id, m.Fecha, m.OrigenTipo, m.Monto, cm.Anio, cm.Mes, cm.FechaCierre FROM CajaMovimientos m JOIN CierresCajaMensuales cm ON m.Fecha >= DATE_ADD(MAKEDATE(cm.Anio,1)+INTERVAL (cm.Mes-1) MONTH, INTERVAL 3 HOUR) AND m.Fecha < DATE_ADD(MAKEDATE(cm.Anio,1)+INTERVAL cm.Mes MONTH, INTERVAL 3 HOUR) WHERE m.CreatedAt > cm.FechaCierre"
+      condicion_falla: "La query devuelve filas (hay movimientos posteados despues del cierre de su propio mes) y la pantalla del periodo no lo indica de ninguna forma."
+    criterio_aceptacion:
+      - "Con un movimiento posteado dentro de un mes ya cerrado (sembrado en la base), /Caja/Mensual de ese mes indica que el total congelado no coincide con el ledger."
+      - "Existe una accion de Administrador para recalcular o anular ese cierre, con traza de usuario y fecha."
+      - "Un periodo cerrado y consistente NO muestra ningun aviso (control negativo)."
+    pruebas_minimas:
+      - "La query de deteccion sobre la base antes y despues del deploy."
+      - "Un mes cerrado consistente y un mes cerrado desfasado, en la misma tanda."
+    regla_preventiva: "Un total materializado en un cierre de periodo es una afirmacion que puede dejar de ser verdadera. Toda pantalla que muestre un agregado congelado tiene que poder compararlo contra el recalculo y decir cuando difieren; y todo fix que agregue la guarda que faltaba tiene que declarar explicitamente si repara el pasado o solo protege el futuro — si solo protege el futuro, la query de deteccion del daño historico es parte del entregable, no un extra de QA."

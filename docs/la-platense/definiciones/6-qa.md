@@ -1,10 +1,232 @@
 # Memoria - QA
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-10-05 (v7 — Sprint 0, lote 1: dia y mes de negocio / D9 **CERRADO**, con 2 defectos `major` nuevos D17-LP-009 y D18-LP-010; lote 3: correccion de `UnidadVenta` + Dashboard/ABC cuentan las ventas Confirmadas; lote 2: cobro/ajuste de CC + D8, rama `entrega-1-migracion`)
+## Ultima actualizacion: 2026-10-05 (v8 — Sprint 0, **RE-VERIFICACION del commit `00f7dd4`: GO**, los 7 defectos `LP-006`..`LP-012` CERRADOS, 1 hallazgo `minor` nuevo `LP-013`; antes: lote 1 dia/mes de negocio D9, lote 3 `UnidadVenta` + Dashboard/ABC, lote 2 cobro/ajuste de CC + D8, rama `entrega-1-migracion`)
 ## Ultima validacion de reglas cross-proyecto: 2026-10-05
 
 ---
+# Sprint 0 — RE-VERIFICACIÓN de los 7 defectos (QA, 2026-10-05, rama `entrega-1-migracion`)
+
+Gate del commit `00f7dd4` "Sprint 0 ronda de fixes: cierre de los 7 defectos de QA" (un solo commit,
+25 archivos, **sin migración EF**). Contexto nuevo: los 7 criterios arrancaron **en FAIL** y se
+re-ejecutaron contra el sistema corriendo; no se leyó la transcripción del implementador, sólo el
+diff y el bloque "Sprint 0 — ronda de fixes de QA" de `5-implementador.md`.
+
+## **GO.** Los 7 defectos quedan CERRADOS. Deja 1 hallazgo `minor` nuevo, no bloqueante (`LP-013`).
+
+## Entorno y metodología
+
+- `dotnet build FerreteriaLaPlatense.slnx` → **0 errores**, 9 advertencias **todas preexistentes**
+  (8 × NU1902 MailKit/MimeKit + CS0114 en `HomeController.StatusCode`).
+- `dotnet ef migrations has-pending-model-changes` → **"No changes have been made to the model since
+  the last migration."** La afirmación del implementador de que no hace falta migración se verificó
+  de forma independiente; la última migración aplicada sigue siendo la D9 del commit anterior.
+- **Navegador real, esta vez sí.** El MCP `playwright` sigue sin estar expuesto en la sesión, pero —
+  corrigiendo el error de método del lote 1 — se instaló `playwright-core` en el scratchpad de QA y
+  se condujo el **Chromium completo** de `ms-playwright/chromium-1243/chrome-win64/chrome.exe`, con
+  `locale: es-AR` y `timezoneId: America/Argentina/Buenos_Aires`. Eso es lo que permitió cerrar
+  `LP-006`, que por HTTP era inverificable. El harness HTTP (cookies de Identity + antiforgery) se
+  usó para las guardas de servidor y las 123 llamadas de regresión.
+- Fixture `laplatense_qa_d9` reutilizado (el clon del lote 1). Línea base fijada antes de probar: se
+  borraron los cierres diarios de 03/10 y 05/10 para dejar hoy abierto, se volvieron las ventas 10 y
+  11 a Borrador y la entrega 2 a NoEntregada. **`laplatense_dev` y producción no se tocaron.**
+- Siembras deliberadas, todas declaradas: un `CierreCajaMensual` de **10/2026** (el mes en curso, que
+  por diseño no se puede cerrar desde la UI) para hacer alcanzable la rama mensual de la guarda en
+  las vías que imputan a "hoy" — **eliminado al terminar**; y un `AjusteStock` con `Fecha` =
+  `2026-10-01 01:44 UTC` para tener un caso nocturno en el historial de stock.
+- **El repo del sistema bajo prueba no se modificó.** `git status --porcelain`: sólo `?? .claude/`,
+  que ya estaba al abrir la sesión.
+
+## Cobertura por defecto re-verificado
+
+| id | sev. | resultado | evidencia observada |
+|---|---|---|---|
+| **LP-009** | `major` | **CERRADO** | Ver la tabla de las 6 vías abajo. 6/6 rechazadas con el mensaje del cierre **mensual**, **cero** filas persistidas, y los 3 controles positivos (mes abierto) siguen aceptando |
+| **LP-010** | `major` | **CERRADO** | Venta 8 (`2026-08-25 01:44:10` UTC = 24/08 22:44 ART): rango `24/08..24/08` → `filtered=1` con `fecha: 2026-08-24T22:44:10.778381`; rango `25/08..25/08` → **0**; búsqueda `24/08/2026` → 1 y `25/08/2026` → 0; `/Ventas/Details/8` → **"24/08/2026 22:44"**; y en el **navegador** la grilla de Ventas dibuja `24/08/2026, 22:44`, el mismo día que Caja. Orden por la columna Fecha sigue funcionando tras materializar la página (12 filas, desc coherente) |
+| **LP-011** | `minor` | **CERRADO** | `?anio=2026&mes=13`, `?anio=0&mes=0`, `?anio=1999&mes=5`, `?anio=2026&mes=-1` → los 4 **HTTP 200**, mensaje "Mes o año inválido (NN/AAAA): se muestra el mes en curso." y la pantalla cae en Octubre 2026. `POST CerrarMes mes=13` → 200 con el mismo mensaje, **ya no 500**. Controles: `?anio=2026&mes=9` → Septiembre 2026 sin mensaje; sin parámetros → mes en curso |
+| **LP-012** | `minor` | **CERRADO** | Los dos buscadores **filtran de verdad**: en cierres diarios `1751,25`/`1751.25`/`1751` → ids `[1]`, `21/08/2026` → `[1]`, `30/09/2026` → `[4]`, `Zzz-nadie` → 0, `QA Super` → 3; en mensuales `2026` → `[1,3]`, `Septiembre`/`septiembre` → `[3]`, `Agosto` → `[1]`, `Marzo` → 0, `96.898,36` → `[3]`. **MH-001 no reproduce** (ver abajo) |
+| **LP-007** | `minor` | **CERRADO** | `POST /Ventas/GuardarBorrador` con `continuar=zzz` → **"Acción no reconocida (\"zzz\"): el borrador se guardó pero la venta NO se cerró. Volvé a usar los botones Confirmar o Confirmar y facturar de la pantalla."**, y la venta 11 **sigue en Borrador** en la base. Control positivo: `continuar=""` → "Borrador de venta guardado correctamente." |
+| **LP-008** | `minor` | **CERRADO** | Los 3 bloques de texto dicen "Confirmada o Facturada", conservan la justificación de `Borrador`/`Anulada`, y coinciden con los 3 predicados reales (`ClasificacionAbcAutomaticaService:86`, `DashboardService:62` y `:111`). Barrido: **cero** ocurrencias de "solo Facturada" / "únicamente Facturada" en esos archivos |
+| **LP-006** | `minor` | **CERRADO (navegador real)** | `window.Fmt.fechaHora('…T00:00:00')` → **`05/10/2026, 00:00`** (antes `12:00:00`); `'…T13:04:22'` → **`05/10/2026, 13:04`** (antes `01:04:22`); `'…T22:44:10'` → `24/08/2026, 22:44`. `Fmt.fecha('2026-09-30T00:00:00')` → `30/09/2026` sin hora. `null`, `''` y `'no-es-fecha'` → string vacío, **nunca "Invalid Date"**. Las 8 grillas lo usan y dibujan 24h (Caja `13:10`/`12:56`/`00:00`, Ventas `22:44`, CC `00:00`, Stock `22:44`) |
+
+### LP-009 — las 6 vías de escritura de caja, una por una
+
+| # | vía | periodo cerrado probado | mensaje observado | persistió algo |
+|---|---|---|---|---|
+| 1 | Venta confirmada (`/Ventas/Confirmar/10`) | mes **10/2026** (sembrado) | "La caja del mes 10/2026 ya tiene cierre mensual: no se puede confirmar la venta. Contactar al administrador." | no — venta 10 sigue `Borrador` |
+| 2 | Gasto alta (`/Gastos/Create`) | mes **09/2026**, día 15/09 abierto | "La caja del mes 09/2026 ya tiene cierre mensual: no se puede registrar un gasto con esa fecha." | no |
+| 3 | Gasto anulación (`/Gastos/Anular/3`) | mes **10/2026** (sembrado) | "…no se puede anular un gasto hoy." | no — gasto 3 sigue `Anulado=0` |
+| 4 | Cobro de CC (`/Clientes/RegistrarCobro`) | 09/2026 y 10/2026 | "…no se puede registrar un cobro con esa fecha." | no |
+| 5 | Movimiento manual (`/Caja/MovimientoManual`) | mes **09/2026**, día 15/09 abierto | "…no se puede registrar un movimiento con esa fecha." | no |
+| 6 | Cierre diario (`/Caja/CerrarDia`) | 16/09 (mes 09 cerrado) y 15/08 (mes 08 cerrado) | "La caja del mes 09/2026 ya tiene cierre mensual: no se puede cerrar un día de ese mes." (ídem 08/2026) | no — ninguna fila nueva en `CierresCajaDiarios` |
+| — | **controles positivos** (mes 10/2026 abierto, día 02/10 abierto) | — | gasto, movimiento manual y cierre diario del 02/10 **aceptados** | sí, como corresponde |
+
+`RegistrarAjusteAsync` **queda afuera con razón, verificado y no asumido**: el ajuste de CC con fecha
+`15/09/2026` (dentro del mes cerrado) **se aceptó** y quedó en `MovimientosCCCliente` (id 7, Origen
+`Ajuste`), y **no apareció ninguna fila nueva en `CajaMovimientos`**. Es decir: no toca Caja, así que
+no le corresponde la guarda. No es un olvido.
+
+### Lo que busqué por mi cuenta y no estaba en el parte
+
+- **Doble conversión en el round-trip del borrador** — riesgo que introduce `MapearDetalle` al
+  proyectar `Fecha = ArgentinaTime.From(venta.Fecha)`, porque ese DTO alimenta
+  `VentaEditableViewModel.Fecha` y la pantalla de Editar lo postea de vuelta. Si `GuardarBorrador`
+  escribiera ese valor, cada guardado correría la venta 3 horas. **Probado, no deducido:** 5
+  guardados consecutivos del borrador 11 → `Fecha` intacta en `2026-09-03 16:20:14.338415`. **PASS.**
+- **Barrido propio de la convención de fechas**, sin confiar en la tabla de 15 propiedades del
+  implementador. `Domain/Entities` tiene **22** propiedades `DateTime` (las 15 de negocio + las de
+  auditoría de `SoftDestroyable`/`ApplicationUser.UpdatedAt`). Clasificación verificada una por una:
+
+| propiedad | semántica | cómo se expone | resultado |
+|---|---|---|---|
+| `CajaMovimiento.Fecha`, `Venta.Fecha`, `AjusteStock.Fecha`, `Entrega.FechaEntregada`, `MovimientoCCCliente.Fecha`, `CierreCajaDiario.FechaCierre`, `CierreCajaMensual.FechaCierre`, `ApplicationUser.CreatedAt` | instante UTC | proyectadas con `ArgentinaTime.From` | **PASS** — verificadas en pantalla: Stock/Historial `2026-10-01 01:44 UTC → 30/09/2026, 22:44`; **Entregas/Details/3 `2026-08-25 02:00 UTC → "ENTREGADA EL 24/08/2026 23:00"`** (caso nocturno real); Users `21/08` y `18/08` |
+| `Gasto.Fecha`, `CierreCajaDiario.Fecha`, `Entrega.FechaProgramada`, `Producto.PrecioOfertaDesde/Hasta`, `Venta.VencimientoCAE` | día calendario argentino | se muestran crudas, con `Fmt.fecha` (sin hora) | **PASS** — correcto no proyectarlas; Gastos dibuja `30/09/2026` y `15/09/2026`, Entregas `21/08/2026` |
+| `Gasto.FechaAnulacion`, `PagoVenta.Fecha` | instante UTC | **no se muestran en ninguna pantalla** | **N/A** — sin exposición, nada que proyectar (si mañana se muestran, van proyectadas) |
+| `Notification.CreatedAt` / `ReadAt` | instante UTC | sólo vía `GetTimeAgo` = `DateTime.UtcNow - CreatedAt` | **PASS** — es un delta, el huso no interviene |
+| `SoftDestroyable.CreatedAt/UpdatedAt/DeletedAt`, `ApplicationUser.UpdatedAt` | auditoría | no se exponen | **N/A** |
+
+  Barridos mecánicos, los tres limpios: **cero** `DateTime.Today` / `DateTime.UtcNow.Date` /
+  `DateTime.Now` / `ToLocalTime` en una decisión de día/mes en toda la app; **cero**
+  `toLocaleString`/`toLocaleDateString` de fecha fuera de `window.Fmt`; ninguna
+  `ConvertTime*Utc` fuera de `ArgentinaTime` salvo los 2 call sites fiscales de AFIP, que reusan
+  `ArgentinaTime.Zone`. **No quedó ninguna convención vieja suelta.**
+- **`CierresCajaMensuales` "sin filas" en el navegador** — era mi selector (`#tablaMensuales`; el real
+  es `#tablaCierresMensuales`). La grilla trae sus 2 filas: `Septiembre 2026 | $ 96.898,36 | $ 777,77
+  | $ 96.120,59 | QA Super`. **No es defecto.**
+- **Dashboard aparentemente en blanco** — también mío: la pantalla rotula `ESTADO DEL DÍA` y mi probe
+  buscaba `Estado del d`. 944 chars, 7 cards, log de consola limpio. **No es defecto** (KOI-014 no
+  reproduce).
+- **CC del cliente 2544 con 1 sola fila** — correcto: los otros 2 movimientos son del cliente 3.
+
+## MH-001 — sexta aparición potencial, cubierta por ejecución
+
+El implementador resolvió el `IN` sobre colección local de string con sub-consulta correlacionada y
+verificó la traducción **sólo con `ToQueryString()`, sin levantar la app ni tocar una base**. En este
+proyecto esa clase de bug apareció siempre al ejecutar y nunca al leer, así que se ejecutó:
+
+- **123 llamadas** a los 6 listados server-side (Ventas, Caja, Gastos, Cierres diarios, Cierres
+  mensuales, Entregas) × 19 términos de búsqueda + 9 combinaciones de filtros y rangos límite de
+  Ventas → **0 respuestas no-JSON, 0 HTTP 500**.
+- Los términos incluyeron texto que pega en la columna del usuario (`QA`, `Super`, `Zzz-nadie`),
+  importes es-AR e invariantes, substrings numéricos, fechas en 3 formatos, nombres de mes, y
+  caracteres hostiles (`'`, `%`, `_`, `a%b`, `'; DROP TABLE x;--`): todos devolvieron 200 y 0 filas
+  sin romper nada.
+- Rangos límite: invertido → 0; fechas basura → se ignoran y devuelve todo; sólo-desde / sólo-hasta
+  coherentes (6 + 7 − 1 fila compartida = 12 = total); `estado=999` → 0.
+
+## Regresión
+
+- **Smoke de 24 pantallas en navegador real: 24/24 HTTP 200**, todas con contenido (375–4.374 chars),
+  y **ningún `pageerror` ni `console.error` en todo el recorrido**.
+- Consistencia cierre guardado vs. recálculo por día de negocio ART: **los 3 cierres diarios
+  coinciden exacto** (21/08, 30/09, 02/10).
+- Los dos cierres **mensuales** siguen desfasados (08/2026 por $2.500,75; 09/2026 por $7.777,77),
+  pero por filas posteadas **antes** del fix — es el daño que dejaba LP-009, no un fallo de la
+  guarda nueva. De ahí sale `LP-013`.
+- Máquina de estados del período de caja, re-recorrida con las transiciones nuevas:
+
+| transición | válida | resultado |
+|---|---|---|
+| Día abierto → movimientos (6 vías) | sí | PASS |
+| Día abierto → Cerrado (en curso / pasado) | sí | PASS |
+| Día abierto → Cerrado (futuro) | no | PASS — rechazado |
+| Día Cerrado → movimiento con esa fecha | no | PASS |
+| **Día de un mes cerrado → Cerrado** | **no** | **PASS — nuevo, rechazado con el mensaje del cierre mensual** |
+| Mes pasado → Cerrado | sí | PASS |
+| Mes en curso / futuro → Cerrado | no | PASS — mensajes distintos para cada caso |
+| Mes Cerrado → Cerrado otra vez | no | PASS |
+| **Mes Cerrado → movimiento dentro del mes (6 vías)** | **no** | **PASS — era el FAIL de la corrida anterior** |
+
+## Criterio 2b — la ventana 21:00–00:00 ART: **lo doy por cubierto**
+
+Pedido explícito del coordinador, así que lo contesto sin ambigüedad: **sí, con esta corrida el
+barrido alcanza, y cierro 2b como PASS.** No es un PASS por lectura de código; se apoya en evidencia
+observada del mecanismo:
+
+1. **7 superficies con instantes nocturnos reales, todas atribuyendo al día argentino correcto**:
+   listado de Caja, cierre diario, cierre mensual, listado de Ventas, detalle de Venta, historial de
+   Stock y detalle de Entrega. El caso `01:44 UTC → 22:44 del día anterior` y el
+   `02:00 UTC → 23:00 del día anterior` se vieron en pantalla, no se dedujeron.
+2. **Fuente única demostrada**: los barridos mecánicos no dejan ninguna otra forma de derivar un día
+   o un mes en toda la app, así que no hay un segundo camino que pueda discrepar del guardado.
+3. La guarda y la imputación salen **de la misma función** (`ArgentinaTime.Hoy` en el guard,
+   `DateTime.UtcNow` proyectado en el movimiento).
+
+Lo que sigue sin observarse es únicamente el reloj de pared: a las 12:51 ART de la corrida,
+`DateTime.Today`, `DateTime.UtcNow.Date` y `ArgentinaTime.Hoy` valen lo mismo y el entorno no puede
+distinguirlos (el reloj del sistema no se toca porque hay agentes commiteando en paralelo; `tzutil` a
+Pacífico no produce divergencia de fecha a esa hora; no hay Docker). Queda como **confirmación
+post-deploy de 3 minutos, no como bloqueante**: en el servidor de pruebas, después de las 21:00 ART,
+cerrar la caja del día e intentar confirmar una venta — tiene que aparecer "La caja del día … ya está
+cerrada".
+
+## Defecto nuevo de esta corrida
+
+### LP-013 — `minor` — No hay forma de corregir un cierre que ya quedó desfasado del ledger
+
+- La guarda nueva protege hacia adelante pero **no repara el pasado** y **no hay migración de datos**
+  en el commit. Sobre las filas que LP-009 dejó entrar antes del fix, `/Caja/Mensual?anio=2026&mes=9`
+  sigue mostrando **$ 777,77 de egresos** mientras el ledger del mes acumula **$ 8.555,54**, sin
+  ningún indicador de la diferencia; y no existe acción de reabrir, recalcular ni anular un cierre.
+  El único camino es `UPDATE` a mano.
+- **No reabre LP-009** (cuyo criterio era bloquear escrituras nuevas, y pasa 6/6). Es el residuo.
+- **Query de detección, para correr sobre la base antes y después del deploy** — devuelve los
+  movimientos posteados después del cierre de su propio mes:
+
+```sql
+SELECT m.Id, m.Fecha, m.OrigenTipo, m.Monto, cm.Anio, cm.Mes, cm.FechaCierre
+FROM CajaMovimientos m
+JOIN CierresCajaMensuales cm
+  ON m.Fecha >= DATE_ADD(MAKEDATE(cm.Anio,1) + INTERVAL (cm.Mes-1) MONTH, INTERVAL 3 HOUR)
+ AND m.Fecha <  DATE_ADD(MAKEDATE(cm.Anio,1) + INTERVAL  cm.Mes    MONTH, INTERVAL 3 HOUR)
+WHERE m.CreatedAt > cm.FechaCierre;
+```
+
+  En el fixture devuelve 3 filas (ids 5, 17, 18). **Si en producción devuelve filas, hay cierres
+  mensuales firmados que no coinciden con el ledger y hay que decidir con Joaquín si se recalculan.**
+  Si devuelve 0, no hay nada que hacer y LP-013 queda como mejora.
+
+## Riesgos de liberación
+
+1. **LP-013** (`minor`): correr la query de detección sobre producción antes de deployar. Es lo único
+   que puede requerir una decisión de negocio en el deploy.
+2. **MH-034** (riesgo de diseño, sigue abierto, no es de este commit): una sola caja para efectivo +
+   transferencia + cheque + depósito no se concilia contra ningún extracto. Escalar al analista antes
+   de que entren Compras.
+3. **MH-033** (riesgo futuro): cuando entren Compras / CC de proveedores, los pagos a proveedores
+   tienen que postear en el ledger de caja.
+4. **`Venta.Fecha` es la fecha de creación del borrador, no la de confirmación** (semántica
+   preexistente, **no** es LP-010, que era la atribución de día de un instante dado). Efecto visible:
+   una venta confirmada hoy desde un borrador del mes pasado entra en la caja de hoy pero no cuenta
+   en "Ventas de hoy" del Dashboard. **Decisión del analista**, no un bug de fecha.
+5. Confirmación post-deploy de 3 minutos del criterio 2b (arriba).
+
+## Estado go/no-go
+
+**GO.** Los 7 defectos (`LP-006` … `LP-012`) están cerrados con evidencia observada, los 2 `major`
+del circuito de dinero incluidos y verificados en las 6 vías de escritura. Build limpio, sin
+migración pendiente, 24 pantallas sin error, 123 llamadas de regresión sin un solo 500, y el barrido
+de la convención de fechas verificado de forma independiente sobre las 22 propiedades `DateTime` del
+dominio. El único hallazgo nuevo es `minor` y se mitiga con una query de pre-deploy.
+
+## Checklist de salida para merge
+
+- [x] `dotnet build` 0 errores; 9 advertencias, todas preexistentes
+- [x] `dotnet ef migrations has-pending-model-changes` → sin cambios de modelo pendientes
+- [x] LP-009 cerrado — 6/6 vías de escritura + 3 controles positivos + `RegistrarAjusteAsync` verificado por diseño
+- [x] LP-010 cerrado — Venta 8 en el día argentino en filtros, buscador, listado y detalle; sin drift de `Venta.Fecha` al guardar el borrador
+- [x] LP-006, LP-007, LP-008, LP-011, LP-012 cerrados con evidencia observada
+- [x] MH-001 cubierto por ejecución (123 llamadas, 0 HTTP 500), no por `ToQueryString()`
+- [x] Barrido independiente de las 22 propiedades `DateTime` del dominio; 3 barridos mecánicos limpios
+- [x] Smoke de 24 pantallas en navegador real, sin errores de consola
+- [x] Máquina de estados del período de caja re-recorrida, incluidas las transiciones nuevas
+- [x] Criterio 2b declarado cubierto, con la confirmación post-deploy anotada
+- [x] `git status --porcelain` del repo bajo prueba limpio (sólo el `?? .claude/` preexistente)
+- [ ] Query de detección de `LP-013` corrida sobre producción antes del deploy ← única acción previa
+- [ ] MH-034 y MH-033 escalados al analista como decisión de diseño (arrastre, no bloquea)
+
+---
+
 # Sprint 0 — LOTE 1: día y mes de negocio (D9) (QA, 2026-10-05, rama `entrega-1-migracion`)
 
 Gate del commit `628cb7a` (ítem 0.3 — `ArgentinaTime` como fuente única del día de negocio) + su
