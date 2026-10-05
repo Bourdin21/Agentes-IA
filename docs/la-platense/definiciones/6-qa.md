@@ -1,7 +1,778 @@
 # Memoria - QA
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-08-24 (v4 — segunda vuelta de QA de Entrega 2, rama `entrega-2`)
+## Ultima actualizacion: 2026-10-05 (v7 — Sprint 0, lote 1: dia y mes de negocio / D9 **CERRADO**, con 2 defectos `major` nuevos D17-LP-009 y D18-LP-010; lote 3: correccion de `UnidadVenta` + Dashboard/ABC cuentan las ventas Confirmadas; lote 2: cobro/ajuste de CC + D8, rama `entrega-1-migracion`)
+## Ultima validacion de reglas cross-proyecto: 2026-10-05
+
+---
+# Sprint 0 — LOTE 1: día y mes de negocio (D9) (QA, 2026-10-05, rama `entrega-1-migracion`)
+
+Gate del commit `628cb7a` (ítem 0.3 — `ArgentinaTime` como fuente única del día de negocio) + su
+migración de datos `20261005151611_D9_NormalizarFechaCajaMovimiento_DiaDeNegocio`. Lote **financiero**,
+1 solo módulo por instrucción 39 §5 (Caja / Gastos / cierres), con la superficie de regresión de
+LP-002 (Ventas, Entregas, Dashboard, Productos, AFIP) cubierta como regresión.
+
+Regla de negocio de referencia: `1-analista-funcional.md`, "Decisiones del cliente del 2026-10-05",
+punto 1 — caja chica se cierra todos los días, caja grande el día 1 sobre el mes anterior ⇒ **día de
+negocio = día calendario en hora Argentina** y **mes de negocio = mes calendario**. No se re-litiga.
+
+## Entorno y metodología
+
+- `dotnet build FerreteriaLaPlatense.slnx` → **0 errores**, 9 advertencias **todas preexistentes**
+  (8 × NU1902 MailKit/MimeKit + CS0114 en `HomeController.StatusCode`).
+- El servidor MCP `playwright` **NO estaba disponible en esta sesión** (`ToolSearch` sobre
+  `mcp__playwright__*` no devuelve nada) y tampoco hay `playwright-core` instalado. Se declara
+  explícitamente y se cayó al procedimiento alternativo de `33-verificacion-automatizada-qa`:
+  **automatización por HTTP real** (harness Node con cookies de Identity + antiforgery) contra la app
+  levantada, más assertions directas sobre la base. **Todo lo que figura como PASS se ejecutó contra el
+  sistema corriendo**, no se leyó del código.
+- **Base aislada.** Al abrir `laplatense_dev` apareció una fila `CajaMovimientos` con
+  `OrigenTipo='CobroCC'` creada a las 15:56 UTC *durante* esta corrida y un usuario
+  `admin.qa@test.local` creado a las 15:52: **otro lote de QA estaba escribiendo la misma base en
+  paralelo**. Para que los totales fueran deterministas se clonó `laplatense_dev` →
+  **`laplatense_qa_d9`** (`mysqldump` + restore, 112.485 productos, 2.993 clientes, 10 movimientos de
+  caja) y la app se levantó contra la copia en `https://localhost:7202` vía
+  `ConnectionStrings__DefaultConnection`. `laplatense_dev` **no se usó para probar**.
+- Único cambio hecho sobre `laplatense_dev`: se reescribió el `PasswordHash` (Identity V3,
+  PBKDF2-HMAC-SHA512, 100k iteraciones) de `qa.super@test.local` y `vendedor.qa@test.local` para poder
+  entrar (no se conocía la contraseña). **No se tocó `no-reply@olvidata.com.ar`.** Credencial QA:
+  `QaD9#2026x`.
+- La migración `...D9_NormalizarFechaCajaMovimiento_DiaDeNegocio` ya estaba **aplicada** en
+  `laplatense_dev` (última fila de `__EFMigrationsHistory`) y viajó en el clon.
+- **El repo del sistema bajo prueba no se modificó.** `git status --porcelain` al cerrar: sólo
+  `?? .claude/`, que ya estaba al abrir la sesión.
+
+## Cobertura por criterio de aceptación
+
+| # | Criterio | Resultado | Evidencia observada |
+|---|---|---|---|
+| 1 | Una venta de las **22:44 ART** del día N aparece en el **arqueo** del día N | **PASS** | `CajaMovimiento` con `Fecha=2026-10-01 01:44:00.123456` UTC (= 30/09 22:44 ART): `POST /Caja/Listar` con `fechaDesde=fechaHasta=2026-09-30` → `recordsFiltered=1`, campo `fecha` = `2026-09-30T22:44:00.123456`. Con `2026-10-01` → `recordsFiltered=0`. Búsqueda global tipeando `30/09/2026` → 1; `01/10/2026` → 0 |
+| 1b | …y en el **cierre** del día N | **PASS** | `POST /Caja/CerrarDia fecha=2026-09-30` → fila `CierresCajaDiarios` Id=4, `Fecha=2026-09-30`, **`TotalIngresos=1234.56`** (es el importe de esa venta de las 22:44) |
+| 2 | Cerrada la caja del día N, el sistema **bloquea** una venta nueva imputada a ese día | **PASS** | `POST /Caja/CerrarDia fecha=2026-10-05` → "Caja del día 05/10/2026 cerrada correctamente."; `POST /Ventas/Confirmar/11` → **"La caja de hoy ya está cerrada: no se puede confirmar la venta. Contactar al administrador."** y la venta queda en Borrador. Control positivo: la misma acción **antes** del cierre (`/Ventas/Confirmar/10`) devolvió "Venta confirmada correctamente." y escribió 2 movimientos de caja |
+| 2b | …**en cualquier horario**, incluida la ventana 21:00–00:00 ART | **BLOCKED — el entorno no puede producir la hora** | Ver "Lo que no se pudo observar". Cobertura indirecta ejecutada: barrido mecánico que prueba que **no queda ningún `DateTime.Today`, `DateTime.UtcNow.Date`, `DateTime.Now` ni `ToLocalTime` en una decisión de día/mes** en toda la app web (único resto: 2 call sites fiscales de AFIP, que ahora reusan `ArgentinaTime.Zone`) |
+| 3 | Un gasto cargado esa misma noche cae en el **mismo día** que la venta | **PASS** | `POST /Gastos/Create Fecha=2026-09-30 Monto=777,77` → aceptado; su `CajaMovimiento` quedó en `2026-09-30 03:00:00` UTC = **00:00 ART del 30/09**, el mismo día de negocio que la venta de las 22:44. El cierre del 30/09 los junta: `TotalIngresos=1234.56` / **`TotalEgresos=777.77`** |
+| 4 | El **cierre mensual** permite cerrar un mes **anterior** al actual | **PASS** | `POST /Caja/CerrarMes anio=2026 mes=9` → `CierresCajaMensuales` Id=3, `TotalIngresos=96.898,36`, `TotalEgresos=777,77`. La pantalla muestra "Septiembre 2026 … Estado del mes **Cerrado por QA Super — 05/10/2026 13:02**" (y ese 13:02 es la proyección ART del `FechaCierre` que la base guarda como 16:02 UTC). **El total de septiembre incluye los $1.234,56 de la venta de las 22:44 del 30/09** — el borde del mes también usa el día de negocio |
+| 5 | El cierre mensual **no** permite el mes en curso ni un mes futuro | **PASS** | `mes=10/2026` → **"El mes 10/2026 todavía está en curso: el cierre mensual se hace a partir del día 1 del mes siguiente."**; `11/2026` y `01/2027` → **"No se puede cerrar la caja de un mes que todavía no ocurrió."** Ninguno creó fila. Re-cierre de `09/2026` → "La caja de ese mes ya fue cerrada." |
+| R1 | La app **levanta** con `ArgentinaTime.Zone` como inicializador estático de todas las fechas | **PASS** | `GET /Account/Login` → **HTTP 200** al primer intento tras el arranque; `GET /` → 200. Las 20 pantallas del smoke devolvieron 200. La cadena de fallback resuelve por el id IANA (`America/Argentina/Buenos_Aires`), que en .NET 8 sobre Windows funciona por ICU |
+
+### Guardas adicionales verificadas (no estaban en los criterios, se probaron igual)
+
+| Caso | Resultado | Evidencia |
+|---|---|---|
+| `CerrarDia` de un día **futuro** | PASS | `fecha=2026-12-31` → "No se puede cerrar la caja de un día que todavía no ocurrió." Sin fila |
+| `CerrarDia` del día **en curso** | PASS | `fecha=2026-10-05` aceptado (es el cierre diario real de la ferretería) |
+| `CerrarDia` de un día **ya cerrado** | PASS | "La caja de ese día ya fue cerrada." Un solo `CierreCajaDiario` por día (verificado contando filas antes/después de cerrar 03/10) |
+| Gasto con fecha **futura** | PASS | `Fecha=2026-12-31` → "La fecha no puede ser futura." |
+| Gasto con fecha de un día **cerrado** | PASS | "La caja del día seleccionado ya está cerrada: no se puede registrar un gasto con esa fecha." **Nada persistido** |
+| Ajuste manual con fecha **futura** / día **cerrado** | PASS | "La fecha no puede ser futura." / "La caja del día seleccionado ya está cerrada: no se pueden registrar movimientos nuevos en esa fecha." **Nada persistido** |
+| Ajuste manual en un día **abierto** | PASS (control positivo) | `Fecha=2026-10-02` → aceptado, persistido en `2026-10-02 03:00:00` UTC = 00:00 ART del 02/10 |
+| Anular gasto con la caja de hoy cerrada | PASS | "La caja de hoy ya está cerrada: no se puede anular un gasto hasta el próximo día hábil." |
+| `EntregaService.Reagendar` con fecha **de hoy** (el caso que `DateTime.UtcNow.Date` rompía después de las 21:00) | PASS | `nuevaFecha=2026-10-05` → "Entrega reagendada correctamente.", `FechaProgramada=2026-10-05`, estado vuelve a Pendiente. `nuevaFecha=2026-10-04` → "La nueva fecha no puede ser anterior a hoy." |
+| Vigencia de oferta por día de negocio (`ProductoService` / `CodigoBarrasLookupService` / `Productos/Edit.cshtml`) | PASS | `GET /Productos/Edit/2491` muestra el badge **"Vigente hoy"**; `GET /Ventas/BuscarProductos?texto=ACOPLE` → 200 con `precioOferta`/`ofertaVigente` en el JSON |
+
+## Integridad de la migración de datos
+
+- Las 4 filas viejas escritas como medianoche calendario (`OrigenTipo` ∈ {Gasto, Ajuste}) quedaron
+  corridas a **03:00:00 UTC**, que es 00:00 ART del mismo día. En la grilla se leen como
+  `2026-08-21T00:00:00` → **21/08**, el día que el usuario había cargado. Antes de la corrección se
+  habrían leído como 20/08 21:00.
+- **No queda ninguna fila sin normalizar**: `SELECT OrigenTipo, COUNT(*) … WHERE TIME(Fecha)=0 AND
+  MICROSECOND(Fecha)=0` → 0 filas.
+- **Consistencia cierre guardado vs. recálculo por día/mes de negocio ART** (query directa sobre la
+  base, rango UTC = día ART + 3h):
+
+| Período | Ingresos guardados / recalculados | Egresos guardados / recalculados |
+|---|---|---|
+| 21/08/2026 (diario, cierre histórico previo a la migración) | 1.751,25 / **1.751,25** | 91.500,50 / **91.500,50** |
+| 30/09/2026 (diario) | 1.234,56 / **1.234,56** | 777,77 / **777,77** |
+| 03/10/2026 (diario, sin movimientos) | 0,00 / **0,00** | 0,00 / **0,00** |
+| 05/10/2026 (diario) | 2.845,67 / **2.845,67** | 0,00 / **0,00** |
+| 09/2026 (mensual) | 96.898,36 / **96.898,36** | 777,77 / **777,77** |
+| 08/2026 (mensual) | 1.751,25 / **1.751,25** | 91.500,50 / **94.001,25 ⚠** |
+
+La única discrepancia (08/2026, $2.500,75) es el gasto del 24/08 cargado **después** del cierre
+mensual del 21/08 — no es un daño de la migración, es el síntoma de **D17 / LP-009** (abajo): el cierre
+mensual es una foto congelada y nada impide seguir posteando dentro del mes cerrado.
+
+## Defectos detectados
+
+### D17 — `major` — Cerrado el mes, el sistema sigue aceptando movimientos dentro de ese mes (`LP-009`)
+
+- **Reproducido por HTTP.** Con `09/2026` ya cerrado, eligiendo el 15/09 (un día **sin** cierre diario):
+  `POST /Caja/MovimientoManual Fecha=2026-09-15 Tipo=Egreso Monto=3333,33` → "Movimiento de caja
+  registrado correctamente."; `POST /Gastos/Create Fecha=2026-09-15 Monto=4444,44` → "Gasto registrado
+  correctamente.". Las dos filas quedaron en `CajaMovimientos` (Id 17 y 18, `Fecha=2026-09-15 03:00`).
+- **Evidencia del daño:** `/Caja/Mensual?anio=2026&mes=9` sigue mostrando **"Egresos del mes $ 777,77"**
+  mientras el ledger de septiembre ya acumula **$ 8.555,54** de egresos. El mes cerrado queda mal por
+  $ 7.777,77 y nada en la UI lo indica.
+- **Causa raíz:** la guarda de período cerrado es `EstaCerradoAsync(diaDeNegocio)`, que sólo consulta
+  `CierresCajaDiarios`. `CierresCajaMensuales` tiene entidad, pantalla y `CerrarMesAsync` propios pero
+  **nunca entró en la guarda de escritura**. Este commit agregó la mitad "no cerrar el mes en curso" y
+  dejó afuera la simétrica "cerrado el mes, no postear dentro".
+- **Por qué es de este lote:** el cierre mensual con guardas es funcionalidad que *este* commit
+  introdujo (criterios 4 y 5). Familia de MH-035 / MH-038 / DN-004.
+
+### D18 — `major` — El mismo hecho aparece fechado en dos días distintos según la pantalla (`LP-010`)
+
+- **Reproducido por HTTP** sobre la Venta 8 (`Fecha = 2026-08-25 01:44:10 UTC` = **24/08 22:44 ART**):
+  `POST /Ventas/Listar` con `fechaDesde=fechaHasta=2026-08-24` → **`recordsFiltered=0`**; con
+  `2026-08-25` → **1**, y el JSON devuelve `fecha: "2026-08-25T01:44:10.778381"` (la grilla la dibuja
+  **25/08/2026 01:44**). Búsqueda global: `24/08/2026` → 0, `25/08/2026` → 1. En la misma tanda,
+  `/Caja/Listar` sobre un instante equivalente devuelve el día argentino real.
+- **Consecuencia:** el arqueo del 24 incluye plata que el listado de Ventas no muestra ese día, y el
+  operador ve dos fechas para el mismo hecho. Se ve además en el Dashboard: **"Ventas de hoy 0 — $ 0,00"**
+  junto a **"Caja de hoy $ 2.845,67"**, aunque $500 de esa caja son de la venta 10 confirmada hoy.
+- **Causa raíz:** el barrido LP-002 no tocó `VentaWorkflowService.ListarAsync` (líneas 77-78:
+  `v.Fecha >= fechaDesde.Value.Date` sobre una columna UTC), ni la proyección `Fecha = v.Fecha` sin
+  `ArgentinaTime.From`, ni el bloque de fecha de `AplicarBusquedaGlobalAsync` — cuyo XML-doc **declara
+  el criterio viejo como intencional**. El código de Ventas no cambió; lo que cambió es que Caja se
+  movió y Ventas no, así que la incoherencia **es nueva**.
+- Nota adicional (no es D18, es semántica preexistente que D18 vuelve visible): `Venta.Fecha` es la
+  fecha de **creación del borrador**, no la de confirmación, así que una venta confirmada hoy desde un
+  borrador de hace un mes entra en la caja de hoy con fecha del mes pasado. Decisión del analista.
+
+### D19 — `minor` — `mes` fuera de rango tira HTTP 500 y vuelve inalcanzable la validación nueva (`LP-011`)
+
+- `GET /Caja/Mensual?anio=2026&mes=13` → **HTTP 500**; `?anio=0&mes=0` → **HTTP 500**.
+  Stack capturado en `Logs/LaPlatense-errors-dev-20261005_001.log`:
+  `System.ArgumentOutOfRangeException: Year, Month, and Day parameters describe an un-representable
+  DateTime.` en `ArgentinaTime.RangoMesUtc` línea 123 ← `ObtenerTotalesMesAsync` ← `ObtenerResumenMesAsync`
+  ← `CajaController.Mensual` línea 134.
+- `POST /Caja/CerrarMes anio=2026 mes=13` devolvió **HTTP 500**: la guarda nueva produce "Mes o año
+  inválido." pero el controller redirige a `Mensual(anio, mes)` con los valores crudos y el GET explota
+  antes de renderizarlo ⇒ **el mensaje agregado en este commit es código muerto**.
+
+### D20 — `minor` — Los listados de cierres dibujan un buscador que no busca (`LP-012`)
+
+- `POST /Caja/CierresListar` con `search[value]` = `24/08/2026`, `25/08/2026` o `30/09/2026` devuelve
+  siempre **`recordsFiltered=3`** (todas las filas). Igual `POST /Caja/MensualListar`. Las dos vistas
+  inicializan el DataTable con `serverSide: true` y **sin `searching: false`**, así que el input se
+  dibuja. Los servicios no tienen ningún `AplicarBusquedaGlobalAsync`. Recurrencia de la familia
+  MH-015 / MH-018 / ELV-006 (control que DataTables promete y el server-side no implementa).
+
+## Partes de defecto emitidos al Implementador
+
+| id | sev. | qué arreglar (hipótesis del catálogo, no instrucción cerrada) | criterio de re-verificación (arranca en FAIL) |
+|---|---|---|---|
+| **LP-009** (D17) | major | `ICajaMovimientoService` + `CajaMovimientoService`: `EstaCerradoElMesAsync(diaDeNegocio)` sobre `CierresCajaMensuales`; llamarlo desde `RegistrarMovimientoManualAsync`, `GastoService.CrearAsync`/`AnularAsync` y `VentaWorkflowService.ConfirmarAsync`. Sin migración EF | Con `09/2026` cerrado, `POST /Caja/MovimientoManual` y `POST /Gastos/Create` con `Fecha=2026-09-15` son **rechazados** con un mensaje que nombra el cierre mensual y **no persisten nada**; un día de un mes abierto sigue aceptando (control positivo); y para **todo** cierre mensual guardado los totales coinciden con el recálculo del rango UTC del mes |
+| **LP-010** (D18) | major | `VentaWorkflowService.ListarAsync`: `ArgentinaTime.RangoDiasUtc` en los filtros + materializar y proyectar `Fecha = ArgentinaTime.From(v.Fecha)`; `AplicarBusquedaGlobalAsync`: `RangoDiaUtc` en vez de `Year/Month/Day` + corregir el XML-doc (LP-008). Sin migración EF | `POST /Ventas/Listar` con `fechaDesde=fechaHasta=2026-08-24` **devuelve** la Venta 8 y con `2026-08-25` **no**; el campo `fecha` del JSON es `2026-08-24T22:44:10`; la búsqueda global por `24/08/2026` la encuentra; y el día que muestran Ventas/Index y Caja/Index para el mismo hecho **coincide**. Regresión: el orden por la columna Fecha sigue funcionando |
+| **LP-011** (D19) | minor | `CajaController.Mensual`: validar `anio`/`mes` (2000..2100, 1..12) antes de llamar al servicio y caer al mes de negocio actual; `CerrarMes`: no redirigir con valores inválidos. Opcional: `RangoMesUtc` valida sus argumentos. Sin migración EF | `GET /Caja/Mensual?anio=2026&mes=13` y `?anio=0&mes=0` devuelven **200**; `POST /Caja/CerrarMes mes=13` deja el mensaje de mes inválido **visible**; el mes válido y el sin-parámetros siguen igual |
+| **LP-012** (D20) | minor | O búsqueda global en `ListarCierresDiariosAsync`/`ListarCierresMensualesAsync` con el patrón `extraIds` que ya usa `ListarAsync`, o `searching: false` en `Cierres.cshtml` y `Mensual.cshtml`. Sin migración EF | `POST /Caja/CierresListar` con una fecha visible devuelve **sólo** las filas de ese día, **o** la vista no dibuja el input. Los filtros de rango/año que ya funcionan siguen funcionando |
+
+Los 4 ítems se crearon en `docs/qa/regresiones-manuales.yml` en esta corrida (el catálogo pasó de 154 a
+158 regresiones; `cat_resumen.txt` regenerado con `scripts/contexto.py resumenes`).
+
+## Estado de los partes de la corrida anterior (lo que este lote cubría)
+
+| id | estado |
+|---|---|
+| **D9** (`major`, 2026-08-24, escalado al Implementador) | **CERRADO.** Los 5 criterios del parte están PASS con evidencia observada; la columna quedó unificada a instante UTC, la migración de datos no dejó filas sin normalizar y los cierres guardados coinciden con el recálculo por día/mes de negocio. Único resto: la ventana 21:00–00:00 no se pudo observar de punta a punta en este entorno (ver abajo) y la unificación quedó **incompleta en Ventas** (D18) |
+
+## Cobertura de la máquina de estados
+
+No hay máquina de estados propia del día/mes de negocio; lo que sí tiene estados es el **período de
+caja**, y se recorrió completo:
+
+| Transición | Válida | Resultado |
+|---|---|---|
+| Día abierto → movimientos (venta / gasto / ajuste) | sí | PASS |
+| Día abierto → **Cerrado** (día en curso) | sí | PASS |
+| Día abierto → Cerrado (día pasado) | sí | PASS (30/09 y 03/10) |
+| Día abierto → Cerrado (día **futuro**) | **no** | PASS — rechazado con mensaje |
+| Día Cerrado → Cerrado otra vez | **no** | PASS — "La caja de ese día ya fue cerrada." |
+| Día Cerrado → movimiento nuevo con esa fecha | **no** | PASS — rechazado en los 4 caminos (venta, gasto, anulación de gasto, ajuste) |
+| Mes pasado → **Cerrado** | sí | PASS |
+| Mes en curso → Cerrado | **no** | PASS — rechazado con el mensaje explicativo |
+| Mes futuro → Cerrado | **no** | PASS — rechazado |
+| Mes Cerrado → Cerrado otra vez | **no** | PASS |
+| **Mes Cerrado → movimiento nuevo dentro del mes** | **no** | **FAIL — D17 / LP-009** |
+
+## Cobertura del catálogo cross-proyecto
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| MH-009 (fecha calendario pura retrocedida 1 día por el converter global) | sí | **PASS — no reproduce** | El mecanismo (`UnspecifiedAsUtcDateTimeConverter`) **no existe** en este proyecto (`Program.cs` sólo agrega `JsonStringEnumConverter`) y las grillas usan `new Date(v).toLocaleString('es-AR')` sobre un valor sin sufijo. Observado: `Gastos/Listar` devuelve `2026-09-30T00:00:00` y la grilla lo dibuja 30/09 |
+| MH-014 (`moment.utc()` sobre un instante real ⇒ +1 día entre 21:00 y 23:59) | sí | **PASS con reserva** | No hay `moment.utc()` en ninguna vista. `Caja/Listar` ya entrega la fecha **proyectada a ART** con `Kind=Unspecified` (sin `Z`) y el navegador la interpreta como local ⇒ correcto en un navegador argentino. **Reserva:** un navegador en otro huso la correría. Riesgo bajo (el cliente opera en el local), anotado en riesgos |
+| MH-001 (`Contains`/`Any` sobre colección local de string contra MySQL ⇒ 500) | sí | **PASS — ejecutado, no leído** | Los dos `usuarioIds.Contains(u.Id)` sobre `List<string>` de `CajaMovimientoService` (líneas 355 y 472) se ejercitaron por los endpoints que los atraviesan: `POST /Caja/CierresListar` y `/Caja/MensualListar` → **HTTP 200 con datos**. Además 12 términos de búsqueda global × 2 listados (texto, enum, importe es-AR/invariante, substring, fecha, inexistente) y 6 filtros de columna: **24/24 HTTP 200**, cero 500 |
+| CRM-019 (`StartsWith`/`EndsWith` traducido a SQL contra MySQL) | sí | **PASS — no reproduce** | No hay `StartsWith`/`EndsWith` en los servicios tocados; las búsquedas usan `Contains` sobre columna (traducible) |
+| LP-002 (ampliar una capacidad sin propagarla a todos sus usos) | sí | **FAIL** | El barrido cubrió Caja/Gastos/Entregas/Dashboard/Productos/AFIP pero dejó **Ventas** con la semántica vieja ⇒ **D18 / LP-010** |
+| LP-003 (decimales que vuelven al servidor en cultura invariante) | sí | **PASS** | `Gastos/Create` renderiza `<input name="__Invariant" value="Monto">` y `value="Fecha"`; los POST con `9.99` / `3333.33` se persistieron exactos |
+| MH-004 (desglose Facturado/No facturado suma menos que el total) | no | **N/A** | `Caja/Mensual` no tiene desglose Facturado/No facturado — sólo Ingresos / Egresos / Saldo |
+| DN-004 (editar un pago mueve el movimiento de caja de un cierre pasado) | no | **N/A** | No existe edición de pagos en La Platense (el pago es inmutable; sólo se anula) |
+| MH-037 / MH-038 (la fecha con la que el ledger asienta un hecho no es la del hecho) | sí | **PASS** | `GastoService.AnularAsync` separa a propósito el instante que persiste (`ahora`) del día de negocio que consulta (`hoy`); el contramovimiento de reversión se fecha en el momento de la anulación, verificado en `CajaMovimientos` (fila de reversión con la hora real, no con la fecha del gasto) |
+| MH-035 (postear en un pasado que un cierre ya había sellado) | sí | **FAIL** | Es exactamente **D17 / LP-009** en su variante mensual |
+| KOI-014 (`getElementById` sin guard deja la pantalla en blanco) | sí | **PASS** | `GET /Dashboard` → 200 y el contenido se renderiza completo ("Estado del día", "Caja de hoy $ 2.845,67 … Cerrada", "Tendencias del mes", "Stock crítico") |
+| MH-033 (el ledger de caja debe registrar TODA salida real de dinero) | **futuro** | **N/A hoy — riesgo anotado** | Compras y CC de proveedores todavía no existen (el propio Dashboard dice "disponible en la próxima entrega"). Cuando entren, los pagos a proveedores tienen que bajar el saldo de caja o el arqueo va a leer plata que no está |
+| MH-034 (un solo ledger para varias cuentas reales no se concilia) | sí | **riesgo confirmado, no defecto de este lote** | Verificado: un gasto con `FormaPago=Transferencia` cae en el **mismo** `CajaMovimientos` que uno en efectivo (fila Id=18, `Tipo=Egreso`). Con una sola caja, una transferencia baja el saldo del "efectivo en el cajón". Es decisión de diseño del analista, no un bug de D9 |
+| KOI-017 (la ventana de dos números dibujados juntos es un dato, no una convención) | sí | **FAIL (como síntoma de D18)** | El Dashboard dibuja "Ventas de hoy 0 / $ 0,00" al lado de "Caja de hoy $ 2.845,67" **sin decir que cada número usa una ventana distinta** (`Venta.Fecha` vs. día de negocio del ledger) |
+| REG-011 / REG-012 / KOI-B01 / KOI-B02 / CRM-021 / CRM-023 / GAN-003 | no | **N/A** | Este lote no agrega entidades, combos, checkboxes, hijos dentro de un padre nuevo ni AJAX con arrays |
+
+## Cobertura de reglas nuevas/modificadas desde la última corrida (2026-08-24)
+
+El campo "Última validación de reglas cross-proyecto" estaba sin setear antes de esta corrida, así que
+se tomó la fecha de la última corrida de QA del proyecto (**2026-08-24**) y se diferenció por índice
+(`contexto.py indice 32` + `cat_resumen.txt` + `git log --since=2026-08-24`). **24 reglas nuevas** en
+`32-estandares-qa-implementador`. De ésas, las que este lote puede disparar:
+
+| regla nueva | origen | resultado | acción |
+|---|---|---|---|
+| MH-033 — el ledger registra toda salida real de dinero | 32 + yml | **N/A hoy** | Compras/CC de proveedores no existen. Riesgo anotado para la entrega que las traiga |
+| MH-034 — un ledger para varias cuentas reales | 32 + yml | **riesgo confirmado** | Reproducido (transferencia y efectivo en el mismo ledger). Escalado al analista, no es defecto de D9 |
+| MH-020 — cancelación de comprobante con pagos: ledger inmutable + reversión acotada | 32 | **PASS** | La anulación de gasto genera contramovimiento fechado en el momento de la anulación, no pisa la fila original |
+| MH-021 — pisar la fecha sugerida con la fecha real de la acción | 32 | **PASS** | `AnularAsync` usa `ahora` (instante real) para `FechaAnulacion` y para el contramovimiento |
+| CRM-019 — `StartsWith`/`EndsWith` contra MySQL | 32 | **PASS — no reproduce** | Sin ocurrencias en los servicios tocados |
+| CRM-017 — un tope tiene que aplicarse en TODOS los caminos que lo consumen | 32 | **FAIL** | Es la forma genérica de **D17 / LP-009**: la guarda de período cerrado no se aplica en el camino mensual |
+| KOI-015 — un helper compartido recibe el filtro como parámetro y proyecta al final | 32 | **PASS** | `ObtenerTotalesDiasAsync` / `ObtenerTotalesMesAsync` delegan en `ObtenerTotalesRangoUtcAsync(desdeUtc, hastaUtc)`: el filtro entra como parámetro y la agregación es única |
+| KOI-016 — guarda de privilegio fail-closed sobre la lista completa de roles | 32 | **no evaluada en este lote** | Permisos no son el alcance de D9; los cubre el lote de Usuarios |
+| KOI-017 — la ventana de una magnitud comparativa es un dato | 32 | **FAIL** | Ver la tabla del catálogo (síntoma de D18) |
+| ELV-008 — la validación de "no puede ser negativo" va sobre los campos que de verdad no pueden | 32 | **N/A** | Este lote no agrega validaciones de signo |
+| REG-011 / REG-012 / VSF-003 / MH-016-017 / KOI-B01 / KOI-B02 / CRM-018 / CRM-020 / CRM-021 / CRM-022 / CRM-023 / CRM-024 / OLV-ALUC-01 / OLV-EVAL-01 | 32 | **N/A** | No hay entidad nueva, combo, backfill, pantalla de stock inline, checkbox+hidden, flag operativo, feature opcional, hijo con padre nuevo, modo sombra, array por AJAX, lote con cupo ni agente conversacional en este lote |
+
+## Lo que no se pudo observar (declarado, no aprobado por interpretación)
+
+**La ventana 21:00–00:00 ART del criterio 2 no es observable en este entorno.** Al momento de la corrida
+eran las **12:51 ART / 15:51 UTC**, y a esa hora `DateTime.Today`, `DateTime.UtcNow.Date` y
+`ArgentinaTime.Hoy` valen los tres `2026-10-05`: el entorno no puede distinguirlos. Las tres vías para
+forzar la divergencia se descartaron a propósito:
+
+- Cambiar el **reloj del sistema**: hay agentes trabajando en paralelo y commiteando; un reloj corrido
+  les corrompe los timestamps.
+- `tzutil /s "Pacific Standard Time"`: cambia el huso pero **no** produce divergencia de *fecha* a las
+  12:51 (PST y ART caen el mismo día a esa hora).
+- Contenedor Linux con `TZ`: **no hay Docker** en la máquina.
+
+Cobertura alternativa ejecutada, y lo que queda pendiente:
+
+- Barrido mecánico sobre toda la solución: **cero** `DateTime.Today`, `DateTime.UtcNow.Date`,
+  `DateTime.Now` y `ToLocalTime` en una decisión de día/mes (los únicos matches son comentarios, el
+  propio helper, los 2 call sites fiscales de AFIP que reusan `ArgentinaTime.Zone`, y
+  `tools/MigracionCatalogo` que es offline y sólo los usa para nombrar un CSV). Ninguna
+  `ConvertTimeToUtc`/`FromUtc` fuera del helper salvo esos 2 de AFIP.
+- La guarda de venta y la imputación del movimiento **derivan ahora de la misma función**
+  (`ArgentinaTime.Hoy` en `VentaWorkflowService.ConfirmarAsync`, `DateTime.UtcNow` proyectado en el
+  movimiento), así que no pueden discrepar por construcción.
+- **Prueba manual de 3 minutos para cerrar 2b** (a ejecutar cuando se pueda tocar el reloj, o
+  directamente a las 22:00 ART en el servidor de pruebas): cerrar la caja del día, intentar confirmar
+  una venta, y verificar que aparece "La caja de hoy ya está cerrada". Si en vez de eso la venta se
+  confirma, 2b vuelve a FAIL.
+
+## Riesgos de liberación
+
+1. **D17 / LP-009 es el riesgo serio del lote** (`major`, financiero). El cierre mensual es la caja
+   grande del cliente: hoy se puede cerrar el mes y seguir metiendo plata adentro sin que nada avise,
+   y la pantalla sigue mostrando el total viejo. **Mitigación hasta el fix:** no cerrar el mes hasta
+   tener la certeza de que no se van a cargar gastos retroactivos de ese mes, y recalcular a mano
+   contra `CajaMovimientos` antes de dar el cierre por bueno.
+2. **D18 / LP-010** (`major`): dos pantallas con dos días para el mismo hecho es confuso para el
+   operador y rompe la conciliación Ventas ↔ Caja justo en el horario de cierre del local.
+   **Mitigación:** para conciliar, usar Caja como fuente de verdad del día, no Ventas.
+3. **Huso del navegador** (MH-014, reserva): las fechas de Caja viajan proyectadas a ART y sin sufijo
+   de zona, así que un navegador configurado en otro huso las correría. Riesgo bajo mientras se opere
+   desde el local. **Mitigación:** verificar el huso de las PC del cliente, o serializar con offset
+   explícito.
+4. **MH-034** (riesgo de diseño, no defecto): una sola caja para efectivo + transferencia + cheque +
+   depósito no se concilia contra ningún extracto. Escalar al analista antes de que entren Compras.
+5. **MH-033** (riesgo futuro): cuando entren Compras / CC de proveedores, los pagos a proveedores
+   tienen que postear en el ledger de caja o el arqueo va a leer como disponible plata que ya salió.
+6. **Aislamiento de la base de desarrollo**: hubo dos lotes de QA escribiendo `laplatense_dev` al mismo
+   tiempo. Para la próxima corrida por lotes, **un clon por lote** (como se hizo acá) o turnos.
+
+## Estado go/no-go
+
+**NO-GO para cerrar el Sprint 0 completo; GO parcial para D9.**
+
+- D9 (el defecto que este lote vino a verificar) está **cerrado**: los 5 criterios pasan con evidencia
+  observada y la migración de datos es íntegra.
+- Pero el lote deja **2 defectos `major` nuevos** (D17 y D18), los dos en el circuito de dinero, y los
+  dos derivados del propio cambio (uno es la mitad que falta de la guarda que el commit introdujo, el
+  otro es el barrido LP-002 incompleto). No corresponde liberar la caja grande con D17 abierto.
+- D19 y D20 son `minor` y no bloquean.
+
+## Checklist de salida para merge
+
+- [x] `dotnet build` 0 errores; las 9 advertencias son preexistentes
+- [x] La aplicación levanta (criterio R1 — `ArgentinaTime.Zone` como inicializador estático)
+- [x] Migración de datos aplicada, sin filas sin normalizar, cierres históricos consistentes
+- [x] Los 5 criterios de aceptación de D9, con evidencia observada
+- [x] Máquina de estados del período de caja recorrida completa (válidas e inválidas)
+- [x] Smoke de 20 pantallas sin 500; 24 combinaciones de búsqueda/filtro sin 500 (MH-001)
+- [x] Barrido mecánico de `DateTime.Today` / `UtcNow.Date` / `Now` / `ToLocalTime`: limpio
+- [x] 4 ítems nuevos en `docs/qa/regresiones-manuales.yml` + `cat_resumen.txt` regenerado
+- [x] `git status --porcelain` del repo bajo prueba limpio (sólo el `?? .claude/` preexistente)
+- [ ] **D17 / LP-009 corregido y re-verificado en contexto nuevo** ← bloqueante
+- [ ] **D18 / LP-010 corregido y re-verificado en contexto nuevo** ← bloqueante
+- [ ] D19 / LP-011 y D20 / LP-012 corregidos (no bloqueantes)
+- [ ] Criterio 2b (ventana 21:00–00:00) cerrado por la prueba manual de 3 minutos
+- [ ] MH-034 y MH-033 escalados al analista como decisión de diseño
+
+---
+
+
+# Sprint 0 — LOTE 3 de QA (2026-10-05, rama `entrega-1-migracion`)
+
+Gate de los commits `3efbe82` (ítem 0.4 — modo correctivo `--solo-unidad-venta`) y `7477550`
+(Dashboard + ABC automática cuentan las ventas `Confirmada`). Corrida por lotes (instrucción 39 §5):
+este lote cubre **2 módulos** — corrección de datos del catálogo y Dashboard/ABC. Los otros ítems del
+Sprint 0 (0.2/D8, 0.3/D9, 0.5 cobro de CC) los cubren otros lotes.
+
+## Entorno y metodología
+
+- `dotnet build tools/MigracionCatalogo` → **0 errores**, 8 advertencias NU1902 preexistentes.
+- App levantada localmente en `https://localhost:7200` contra `laplatense_dev`.
+- El servidor MCP `playwright` **no estaba conectado en esta sesión** (se declara explícitamente, igual
+  que en las dos vueltas de Entrega 2). Se automatizó conduciendo un Chrome real vía `playwright-core`
+  desde Node. **Todo lo marcado PASS acá se observó contra el sistema corriendo.**
+- **Dato de método relevante:** durante la corrida se detectó que **otro proceso estaba escribiendo
+  `laplatense_dev` en paralelo** (la Venta #7 pasó de `Borrador`/cantidad 1 a `Confirmada`/cantidad 50
+  entre dos consultas mías, sin que yo la tocara — hay otros lotes de QA corriendo). Por eso los
+  oráculos numéricos de la ABC se recalcularon **inmediatamente antes** de cada medición en vez de
+  reusar el valor de la consulta anterior. Los criterios del Dashboard no se vieron afectados porque
+  las filas de prueba son del día de hoy y las que movió el otro proceso son de agosto.
+- **Datos de prueba creados y borrados por QA:** 7 Ventas (ids 9001-9007) + 4 ItemsVenta, y un backup
+  temporal de la columna `ClasificacionABCSugerida` (tabla `qa_bk_abc`). Todo **restaurado y verificado**
+  al cierre (ver "Estado de la base al cerrar").
+- `git status --porcelain` en el repo del sistema: **limpio** (solo el `?? .claude/` que ya existía al
+  arrancar la sesión, ajeno a QA). No se escribió ninguna línea en el repo bajo prueba.
+
+## Parte A — Corrección de datos: `UnidadVenta`
+
+| # | Criterio | Resultado | Evidencia observada |
+|---|---|---|---|
+| A1 | No queda **ningún** producto en `Metro` y el total no cambió | **PASS** | `SELECT UnidadVenta, COUNT(*) FROM Productos GROUP BY UnidadVenta` → `1 (Unidad) = 112.471`, `2 (Peso) = 14`, **`3 (Metro)` no devuelve ninguna fila**. Total `112.485`. Coincide exacto con lo reportado |
+| A2 | Los 14 de `Peso` siguen en `Peso` | **PASS** | 14 filas con `UnidadVenta = 2`, listadas una por una (ALAMBRE DE FARDO X 1 KG, electrodos, cloro granulado, varilla de bronce…) |
+| A3 | Los 2.635 candidatos están **listados** y **no modificados** | **PASS** | CSV `Migracion/candidatos-corte-por-metro-20261005-121947.csv`: **2.635 registros únicos** (2.637 líneas físicas; el id 66109 tiene un salto de línea embebido dentro del campo `Nombre`, que va entrecomillado → es un registro RFC4180 válido partido en 2 líneas, no 2 registros). Grupos: cable 804, manguera 535, cadena 534, alambre 276, soga/piola/cuerda 271, tanza 215 = 2.635. Los 2.635 ids se consultaron contra la base: **2.635 encontrados, los 2.635 con `UnidadVenta = 1`** — listados pero no tocados |
+| A4 | El input de cantidad vuelve a `step` 1 para esos productos y sigue aceptando decimales en los fraccionables | **PASS** | `/Ventas/Nueva`, Select2 real. Producto 2324 "ACCES.CABLE CANAL 18 X 21 VARIOS KALOP" (**está en el CSV de candidatos**, o sea venía de `Metro`) → `step="1"`, `checkValidity()` con `2.5` = **false**, con `3` = true. Producto 3597 "ALAMBRE DE FARDO X 1 KG" (`Peso`) → `step="0.001"`, acepta `2.5`. Repetido con el producto 1008 (también del CSV): `step="1"`. El endpoint `/Ventas/BuscarProductos` devuelve `"unidadVenta":"Unidad"` / `"Peso"` (nombre del miembro del enum, por `JsonStringEnumConverter` sin naming policy), que es exactamente lo que compara el JS de la vista |
+| A5 | El modo correctivo **no requiere conexión a SQL Server** | **PASS** | Corrido con una cadena de conexión a SQL Server **deliberadamente inalcanzable** (`Server=NO-EXISTE\INVALIDO;…;Connect Timeout=3`): imprime `Origen (SQL Server): NO SE USA — este modo trabaja solo contra MySQL`, completa el trabajo y sale con **exit code 0**. (Nota: MSSQLSERVER y SQLEXPRESS están corriendo en la máquina, así que la ausencia del servicio no habría probado nada — de ahí la cadena inválida como oráculo) |
+| A6 | El modo es **idempotente**: correrlo dos veces no rompe nada ni duplica el CSV | **PASS** | Segunda corrida sobre la base ya corregida: `No hay productos con UnidadVenta = Metro: nada que corregir`, exit 0, **ningún CSV nuevo** (el `return` temprano va antes de la generación del listado) y la base sin cambios |
+
+**Verificación extra del fix de `MH-001` (variante nueva).** La segunda corrida corta antes del query
+de patrones, así que **no** ejercita el fix. Se sembraron a propósito **2 filas en `Metro`** (producto
+2324, que matchea "CABLE", y producto 1559 "MARTILLO GALPONERO", que no matchea ningún patrón) y se
+volvió a correr el modo: los 6 grupos / 8 patrones `LIKE` corrieron **sin ninguna excepción**, el CSV
+listó solo al 2324 en el grupo `cable`, y las 2 filas pasaron a `Unidad`. Estado restaurado al snapshot
+exacto (mismo `COUNT(*)` y mismo `SUM(Id)` por unidad). **El fix está verificado por ejecución, no por
+lectura.**
+
+## Parte B — Dashboard y clasificación ABC: ventas `Confirmada`
+
+Datos de prueba sembrados (todos del día de negocio argentino 2026-10-05 salvo donde se indica):
+
+| Venta | Estado | `Fecha` (UTC) | Día ART | Total | Ítems |
+|---|---|---|---|---:|---|
+| 9001 | Confirmada | 05/10 14:00 | **hoy** | 1.234,56 | prod 1008 × 7 |
+| 9002 | Confirmada | 05/10 17:00 | **hoy** | 765,44 | — |
+| 9003 | **Borrador** | 05/10 14:30 | hoy | 99.999,00 | prod 2324 × **9.999** |
+| 9004 | **Anulada** | 05/10 14:40 | hoy | 88.888,00 | prod 1559 × **5.555** |
+| 9005 | Facturada | 05/10 15:00 | **hoy** | 500,00 | prod 1008 × 1 |
+| 9006 | Confirmada | 05/10 **02:00** | **04/10** (23:00 ART) | 777,77 | — |
+| 9007 | Confirmada | 06/10 **02:00** | **05/10** (23:00 ART) | 111,11 | — |
+
+| # | Criterio | Resultado | Evidencia observada |
+|---|---|---|---|
+| B1 | Con ventas `Confirmada`, el Dashboard muestra ventas del día **distinto de cero** y coincidente con la suma real | **PASS** | `/Dashboard` renderiza **"Ventas de hoy: 4 · $ 2.611,11"**. Oráculo: 9001+9002+9005+9007 = 1.234,56 + 765,44 + 500,00 + 111,11 = **2.611,11**, cantidad **4**. Coincide exacto |
+| B2 | "Productos más vendidos del mes" incluye los ítems de ventas `Confirmada` | **PASS** | La card "Top productos del mes" muestra **`'PINZA PELA CABLE 7" AUTOMATICA'` → 8**. Oráculo: 7 unidades de la `Confirmada` 9001 + 1 de la `Facturada` 9005 = 8. Sin la `Confirmada` habría mostrado 1 |
+| B3 | La ABC automática por rotación considera las `Confirmada` | **PASS** | Recálculo disparado desde la UI (`/Stock` → "Recalcular clasificación ABC" → SweetAlert2 → submit). Mensaje: *"…1 productos A, 1 B y 112483 C. **5 productos con ventas en el período**."* Oráculo medido justo antes: 5 productos (11683=60u, 67=14u, 1008=8u, 2491=3u, 44969=1u). **Con el criterio viejo (solo `Facturada`) habrían sido 4.** Discriminador decisivo: el **producto 67** aparece **únicamente** en las ventas 12 y 13, las dos `Confirmada`, y quedó con `ClasificacionABCSugerida = 2 (B)`; antes del fix habría quedado en `C` por no tener ninguna venta |
+| B4 | `Borrador` y `Anulada` siguen excluidas de los tres puntos anteriores | **PASS** | (a) Ventas del día: si contaran, el total sería ≈ **$ 191.498** en vez de $ 2.611,11 y la cantidad 6. (b) Top del mes: el prod 2324 (9.999 u, Borrador) y el 1559 (5.555 u, Anulada) **no aparecen** — serían #1 y #2 por lejos. (c) ABC: `ProductosConVenta = 5`, no 7, y 2324/1559 quedaron en **`C`** cuando con 9.999 unidades el 2324 habría sido `A` y habría corrido el Pareto de todo el catálogo. **`Producto.ClasificacionABC` (la manual del cliente) quedó intacta** (99/483/111.903 antes y después) |
+| B5 | El Dashboard respeta el día de negocio argentino | **PASS** | Par de borde construido a propósito: la 9006 (05/10 **02:00 UTC** = 04/10 23:00 ART, **ayer**) quedó **excluida**, y la 9007 (06/10 **02:00 UTC** = 05/10 23:00 ART, **hoy**) quedó **incluida**. Es exactamente el escenario de **D7 / MH-009**, y el corrimiento de día no reaparece. El encabezado dice "lunes 05 de octubre de 2026". `DashboardService` usa `ArgentinaTime.HoyRangoUtc()` y `ArgentinaTime.RangoMesUtc(anio, mes)`, sin ningún `DateTime.Today` |
+
+## Cobertura del catálogo cross-proyecto
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| `MH-001` | **sí** | **PASS** | Quinta aparición (variante `Any()` + `EF.Functions.Like` sobre `string[]` local). Fix verificado **por ejecución** con 2 filas sembradas en `Metro`. Barrido ampliado `grep -rnE "\.(Contains\|Any)\("` sobre toda la solución: los casos restantes son colecciones de `int`/`enum` (seguras, ver `nota_qa_sprint4`) o `string` con el workaround en memoria y el comentario de MH-001 al lado. Se agregó `nota_qa_laplatense_sprint0` al item del YAML (en `32` ya estaba documentado) |
+| `MH-050` | sí | **PASS** | Es el mismo patrón en superficie nueva. No hay ningún `Where(coleccionLocalDeString.Contains(...))` sin workaround en los dos archivos del lote |
+| `LP-001` | **sí** | **PASS** | Es la familia de la Parte B. El predicado se escribe contra el **conjunto explícito de estados consumados** (`Confirmada \|\| Facturada`), no como `!= Borrador`. Verificado funcionalmente con el borrador de 9.999 unidades que la regla manda probar |
+| `LP-002` | **sí** | **PASS** | Barrido completo `grep -rn "EstadoVenta.Facturada"` sobre la solución: 10 sitios. Los 3 de agregación están corregidos; los 7 restantes son correctos por diseño (`VentaWorkflowService` **asigna** el estado y guarda contra re-facturar; `EntregaService` ya aceptaba `Confirmada or Facturada`; `Views/Ventas/Details.cshtml` distingue el badge y el bloque de CAE, que **sí** son solo de `Facturada`). No quedó ningún cuarto sitio |
+| `MH-009` | **sí** | **PASS** | Ver criterio B5. El par 9006/9007 es el test de borde de la familia |
+| `MH-023` | sí | **no reproducible hoy — riesgo latente** | El denominador del Pareto suma `ItemVenta` de productos que podrían estar soft-deleted, mientras la lista a clasificar los excluye. Hoy hay **0 productos con `DeletedAt`**, así que no se puede observar. Queda anotado como riesgo, **no es un defecto de este commit** |
+| `LP-003` | sí | **PASS** | El input de cantidad de la venta se renderiza con `InvariantCulture` vía el helper `num` (`value="1"`, `step="1"` / `"0.001"`); ningún input quedó vacío |
+| `LP-004` | N/A | — | Buscador global de listados, fuera del alcance del lote |
+| `KOI-017` | sí | **PASS con observación** | "Ventas de hoy" y "Caja de hoy" se dibujan lado a lado y **las dos usan la misma ventana** (día de negocio ART: `HoyRangoUtc()` y `ObtenerResumenDiaAsync(ArgentinaTime.Hoy)`), así que no hay el defecto de ventanas distintas. Observación de liberación abajo |
+| `MH-033` | N/A | — | Ledger de caja / cobro de CC: es el ítem 0.5, otro lote |
+| `LP-005`, `LP-006`, `LP-007` | N/A | — | Fuera del alcance del lote |
+
+## Cobertura de reglas nuevas/modificadas desde la última corrida de QA
+
+`6-qa.md` **no tenía** el campo "Ultima validacion de reglas cross-proyecto" (última corrida:
+**2026-08-24**). Según la instrucción, eso obliga a tratar el catálogo vigente como "a validar por
+primera vez" — que es más de lo que cabe en un lote. Se validó el **subconjunto que toca los 2 módulos
+de este lote** y se deja declarado qué quedó afuera, para que el lote que cierre el Sprint 0 lo complete.
+
+| regla | origen | resultado | acción |
+|---|---|---|---|
+| `KOI-017` — la ventana de cada magnitud comparativa es un dato | `32`, 2026-09-23 (nueva) | **PASS con observación** | Ejecutada contra el Dashboard aunque el commit no la dispara |
+| `MH-022` — proyección que estima por promedio un solo lado | `32`/YAML, 2026-09-24 (nueva) | **N/A** | El nivel 2 del Dashboard ("salud financiera") todavía no existe: la card dice "disponible en la próxima entrega". **Hay que volver a correr esta regla cuando se construya** |
+| `MH-023`, `MH-024` — Pareto ABC: denominador y "última venta" | YAML, 2026-09-25 (nuevas) | `MH-023` latente / `MH-024` **N/A** | `MH-024` no aplica: esta ABC no muestra columna "última venta" |
+| `MH-001` variante `Any()` | `32`, 2026-10-05 (modificada hoy) | **PASS** | Verificada por ejecución |
+| `KOI-015`, `KOI-016`, `CRM-017` a `CRM-024`, `MH-020`, `MH-021`, `MH-034`, `ELV-008`, `OLV-*` | `32`, 2026-08-28 a 2026-09-25 | **no validadas en este lote** | No tocan ninguno de los 2 módulos del lote. **Pendiente**: asignarlas a los lotes de Ventas/Caja/CC/Entregas |
+
+## Defectos detectados
+
+### LP-008 — `minor` — El XML-doc y el comentario que justifican el filtro siguen diciendo "solo Facturada" (NO corregido)
+
+- **Severidad:** `minor`. No afecta el comportamiento, pero persiste una **regla de negocio falsa** en el repo.
+- **Pasos:** abrir `ClasificacionAbcAutomaticaService.cs` y leer el XML-doc de la clase (punto 2) y el
+  comentario de bloque anterior al `Where`; comparar con el predicado de la línea 82. Repetir con el
+  XML-doc de `DashboardService.ObtenerTopProductosMesAsync` contra el `Where` de la línea 109.
+- **Evidencia observada:** el XML-doc dice *"Solo cuentan los items de Ventas en estado `Facturada`"*;
+  el comentario de bloque dice *"El filtro por `Estado == Facturada` es imprescindible"*; el XML-doc
+  del Dashboard dice *"sobre Ventas Facturadas"*. Los tres son **prescriptivos** — argumentan a favor
+  del criterio viejo — mientras el código filtra por `(Confirmada || Facturada)`.
+- **Por qué importa:** es el texto que el próximo implementador o QA va a leer como la autoridad sobre
+  qué estados cuentan, y suena más autorizado que el predicado. Es el mismo tipo de trampa que hizo
+  falta corregir en el propio commit (el criterio estaba escrito en un comentario y nadie lo revisó).
+- **Catalogado como `LP-008`** (nuevo, creado en esta corrida).
+
+## Partes de defecto emitidos al Implementador
+
+### Parte 1 — `LP-008`
+
+- **id / severidad / módulo:** `LP-008` / `minor` / documentación en el código de las agregaciones por estado.
+- **`archivos_fix` sugeridos** (hipótesis, no instrucción cerrada):
+  - `FerreteriaLaPlatense.Infrastructure/Services/ClasificacionAbcAutomaticaService.cs` — XML-doc de la
+    clase (≈ líneas 22-24) y comentario de bloque previo al `Where` (≈ líneas 71-78).
+  - `FerreteriaLaPlatense.Infrastructure/Services/DashboardService.cs` — XML-doc de
+    `ObtenerTopProductosMesAsync` (≈ líneas 96-99).
+  - **No borrar el comentario, corregirlo:** la parte que explica por qué `Borrador` y `Anulada` quedan
+    afuera es correcta y es lo valioso (`LP-001`).
+- **`migracion_ef`:** ninguna.
+- **Criterio de re-verificación (arranca en FAIL):** en los dos archivos, ningún comentario ni XML-doc
+  nombra "solo `Facturada`" / "`Estado == Facturada`" como el criterio vigente, **y** sigue escrito el
+  motivo por el que `Borrador` y `Anulada` se excluyen.
+
+## Estado de los partes de la corrida anterior
+
+Los defectos abiertos de la memoria previa (`D8` a `D14`) los cierran los otros lotes del Sprint 0;
+este lote no los re-verificó salvo lo que pisa su alcance: **`D7` (ventana de fechas del Dashboard)
+sigue cerrado** — ver criterio B5.
+
+## Riesgos de liberación y mitigaciones
+
+1. **El modo `--solo-unidad-venta` todavía no se corrió contra producción.** Lo corre Joaquín. Riesgo
+   bajo y acotado: un `UPDATE` de una sola columna, idempotente y verificado. **Mitigación:** backup
+   previo y guardar el CSV de candidatos que sale de la corrida de producción (va a ser otro archivo,
+   con otros ids — los ids de dev **no sirven** para marcar a mano en producción).
+2. **Los 2.635 candidatos siguen en `Unidad`.** Es la regla acordada, no un defecto: hasta que el
+   cliente marque los que de verdad corta al mostrador, un corte de 2,5 m de cable se carga como 2 o 3.
+   **Mitigación:** entregarle el CSV y dejar el listado como tarea pendiente del cliente.
+3. **Los 14 de `Peso` son igual de sospechosos** (el legado no trae el dato). Mismo camino: lista para
+   marcar a mano.
+4. **`KOI-017` / observación del Dashboard:** "Ventas de hoy" y "Caja de hoy" usan la misma ventana,
+   pero son magnitudes distintas (la caja incluye cobros de CC y excluye lo vendido en cuenta
+   corriente) y la pantalla no lo dice. Es muy probable que el cliente lea los dos números juntos y
+   reporte "no cierra". **Mitigación barata:** una línea de ayuda bajo la card de caja. No bloquea.
+5. **`MH-023` latente en la ABC:** el día que haya productos con `DeletedAt`, el denominador del Pareto
+   va a incluir ventas de productos que no están en la tabla clasificada. Hoy son 0.
+6. **Deuda de cobertura de reglas:** 2026-08-24 → 2026-10-05 sin validación de reglas cross-proyecto.
+   Este lote cubrió su subconjunto; el resto queda asignado arriba.
+
+## Estado go/no-go (lote 3)
+
+**GO** para los dos commits. Los 11 criterios de aceptación del lote están en **PASS con evidencia
+observada**, y el único defecto es `LP-008`, `minor` y de documentación — no bloquea el merge, pero
+tiene que entrar antes de que alguien vuelva a tocar esas dos agregaciones.
+
+## Estado de la base de desarrollo al cerrar
+
+- `UnidadVenta`: `Unidad` 112.471 / `Peso` 14 / `Metro` 0, total 112.485 — **idéntico al snapshot de
+  apertura**, mismo `SUM(Id)` por unidad.
+- `ClasificacionABCSugerida`: restaurada desde `qa_bk_abc` a 99 A / 483 B / 111.903 C (**0 diferencias**).
+- `ClasificacionABC` (manual del cliente): nunca se tocó, 99 / 483 / 111.903.
+- Ventas 9001-9007 y sus 4 `ItemsVenta`: **borradas**. Tabla `qa_bk_abc`: **borrada**.
+- CSV de la corrida de prueba de QA en `bin/Debug/net10.0`: **borrado**. El CSV real de la corrida del
+  implementador (`20261005-121947`) quedó intacto.
+
+## Checklist de salida para merge (lote 3)
+
+- [x] `dotnet build` de la herramienta de migración: 0 errores.
+- [x] `Metro` = 0 y total de productos sin cambios, verificado en la base.
+- [x] Los 14 de `Peso` intactos.
+- [x] 2.635 candidatos listados y los 2.635 sin modificar.
+- [x] `step` del input de cantidad: 1 en ex-`Metro`, 0.001 en `Peso`, verificado en pantalla.
+- [x] Modo correctivo sin SQL Server (cadena inválida) e idempotente.
+- [x] Fix de `MH-001` (variante `Any()`) ejercitado por ejecución, no por lectura.
+- [x] Dashboard: ventas del día y top del mes cuentan `Confirmada`, con el número exacto.
+- [x] ABC automática: cuenta `Confirmada`; `ClasificacionABC` manual intacta.
+- [x] `Borrador` y `Anulada` excluidas de los tres cálculos, con discriminadores de 9.999 y 5.555 unidades.
+- [x] Día de negocio ART en el borde 21:00-24:00 (par 9006/9007).
+- [x] Sin errores de consola JS ni HTTP ≥ 500 en toda la corrida.
+- [x] Base de desarrollo restaurada y verificada.
+- [x] `git status --porcelain` limpio en el repo del sistema bajo prueba.
+- [ ] `LP-008` aplicado por el Implementador y re-verificado en contexto nuevo.
+- [ ] Modo correctivo corrido contra producción + CSV de candidatos de producción entregado al cliente.
+
+---
+
+# Sprint 0 — LOTE 2: cobro/ajuste de cuenta corriente + D8 (QA, 2026-10-05, rama `entrega-1-migracion`)
+
+Lote **financiero** (1 módulo por corrida). Commits bajo prueba: `3b4d9fa` (item 0.5, cobro y ajuste de CC) y
+`800db75` (item 0.2, guarda de doble envío en Confirmar). Contexto fresco: no se leyó la transcripción del
+Implementador, sólo el diff y el mensaje de los dos commits.
+
+## Entorno y metodología
+
+- Build: `dotnet build FerreteriaLaPlatense.slnx` → **Compilación correcta, 0 errores** (8 warnings NU1902
+  preexistentes de MailKit/MimeKit).
+- App levantada en `https://localhost:7200`, `ASPNETCORE_ENVIRONMENT=Development`, base `laplatense_dev`.
+- **El servidor MCP `playwright` NO estaba disponible en la sesión** (no expone `mcp__playwright__*`). Se
+  declaró y se cayó a verificación automatizada equivalente: Playwright instalado en el scratchpad de QA,
+  manejando los binarios de Chromium ya presentes en `ms-playwright` (`chrome-headless-shell-1243` y
+  `chromium-1243` completo). **Toda la evidencia de abajo es de navegador real + lectura directa de MySQL**,
+  no revisión de código.
+- Usuarios: `admin.qa@test.local` (rol Administrador, creado para esta corrida y **eliminado al cerrar**),
+  `vendedor.qa@test.local` (Vendedor, preexistente), `no-reply@olvidata.com.ar` (SuperUsuario sembrado).
+- Datos de prueba: cliente 3 (TAVELA) con una deuda de **$ 12.345,67** (importe con centavos a propósito,
+  para ejercitar `LP-003`/`D5`). Ventas 7, 9, 10 y 11 (borradores preexistentes de QA) para la parte B.
+- **El repo del sistema no se tocó.** `git status --porcelain` al cerrar devuelve sólo `?? .claude/`, que ya
+  estaba al arrancar la corrida y no es de QA.
+
+## Parte A — Cobro y ajuste de cuenta corriente
+
+| # | Criterio | Resultado | Evidencia observada |
+|---|---|---|---|
+| A1 | Cobro de $X baja la CC en $X **y** genera un Ingreso de Caja por $X | **PASS** | Cobro de $ 2.345,67 → `MovimientosCCCliente` id 5 (Tipo=Credito, Origen=Pago, 2345.67) + `CajaMovimientos` id 11 (Tipo=Ingreso, 2345.67, `OrigenTipo='CobroCC'`, `OrigenId=5`). Pantalla: "Cobro de $ 2.345,67 registrado. Saldo nuevo: $ 10.000,00". Al cerrar los 2 cobros de la corrida: `SUM(Importe) Origen=Pago = 3095.37` y `SUM(Monto) OrigenTipo='CobroCC' = 3095.37` — **1:1 exacto, sin huérfanos** |
+| A2 | Si una de las dos escrituras falla, **ninguna** queda persistida | **PASS** | Fallo inyectado con un trigger MySQL `BEFORE INSERT ON CajaMovimientos` que hace `SIGNAL` sobre `OrigenTipo='CobroCC'`. Cobro de $ 1.111,11 → pantalla "Error al registrar el cobro: Could not save changes…", **0 filas nuevas** en `MovimientosCCCliente` y en `CajaMovimientos`, saldo intacto en $ 10.000,00. El `AUTO_INCREMENT` saltó de 5 a 7, lo que confirma que el insert de CC se hizo y se **revirtió**. Trigger eliminado al cerrar |
+| A3 | Un ajuste no genera ningún movimiento de Caja | **PASS** | 2 ajustes (Crédito $ 1.500,55 y Débito $ 250,25) → `COUNT(*) CajaMovimientos` **sin cambios** (10 antes, 10 después); las 2 filas de CC quedan con `Origen=Ajuste` |
+| A4 | Un ajuste sin motivo es rechazado | **PASS** | Por UI: jquery-validate bloquea el submit (el SweetAlert2 no llega a abrirse). Salteando la validación de cliente con un `form.submit()` directo y `Motivo="   "` → el server igual repinta el formulario con el error de Motivo. No se persistió nada |
+| A5 | `Vendedor` cobra y **no** ajusta; `Administrador` las dos | **PASS** | Vendedor en `/Clientes/CuentaCorriente/3`: botones = `['Registrar cobro','Volver a Clientes']` (**"Ajuste manual" oculto**). `GET /Clientes/RegistrarAjuste/3` → redirige a `/Account/AccessDenied?ReturnUrl=…`. `POST` directo a `RegistrarAjuste` con un token antiforgery válido suyo → redirect, **0 filas** con `Origen=Ajuste` de su `UsuarioId`. Cobro real como Vendedor → "Cobro de $ 749,70 registrado. Saldo nuevo: $ 8.000,00", fila con su `UsuarioId`. Administrador: `GET` de las dos pantallas → HTTP 200 |
+| A6 | El saldo de la pantalla coincide con la suma real de los movimientos | **PASS** | Tras cobrar y ajustar: pantalla "SALDO ACTUAL $ 8.749,70" y `SUM(CASE WHEN Tipo=1 THEN Importe ELSE -Importe END) = 8749.70`. Tras el cobro del Vendedor: pantalla $ 8.000,00 = DB 8000.00 |
+| A7 | La fecha del movimiento respeta el día de negocio argentino | **PASS** | Movimientos persistidos con el instante UTC real (`2026-10-05 15:56:34`, `16:04:22`), que proyectado a ART cae en el día de negocio **2026-10-05**. El wire de `CuentaCorrienteListar` entrega `"fecha":"2026-10-05T13:04:22.42715"` — ART, **sin sufijo `Z`**, o sea sin doble conversión. El `<input type="date">` de Fecha arranca en `2026-10-05` con `max="2026-10-05"` (= `ArgentinaTime.Hoy`, no `DateTime.Today`) |
+
+### Importes, signos y bordes (lo que el brief pidió mirar expresamente)
+
+- **Cobrar más que la deuda: comportamiento definido y rechazado.** Con `max` quitado del input y $ 99.999,99
+  → "El importe (12.345,67) supera la deuda actual del cliente (12.345,67). Si la diferencia es un pago a
+  cuenta, registrarla como ajuste." No es un hallazgo: la decisión está tomada y además se le indica al
+  usuario el camino alternativo.
+- **No se puede invertir el saldo por un error de signo en el cobro.** Con `min`/`max` quitados e importe
+  `-5000.00` → "El importe del cobro debe ser mayor a cero." El signo del movimiento no lo decide el usuario:
+  el cobro es siempre `Credito` y el ajuste lo deriva del combo Tipo, con el importe siempre positivo.
+- **`LP-003`/`D5` (cultura) — PASS, y era el lugar natural para que reapareciera.** El importe arranca
+  prellenado: el HTML real trae `value="12345.67"`, `max="12345.67"` y el hidden `SaldoActual="12345.67"`,
+  todos en cultura invariante. El input **llega poblado** en el navegador (con `asp-for` puro habría salido
+  `value="12345,67"` y el campo habría quedado vacío sin aviso). Importes con centavos probados de punta a
+  punta: 2345.67, 1500.55, 250.25 y 749.70 se persistieron exactos.
+- **`MH-001` (IN/`Any()` sobre colección local contra MySQL) — no aplica a este lote:** ni el cobro, ni el
+  ajuste, ni el listado de CC filtran por una colección en memoria; los filtros son escalares y el combo de
+  origen es un enum. Los 3 endpoints nuevos y el listado se ejercitaron por navegador sin un solo 500.
+- **`LP-002` (origen nuevo en el ledger de caja) — PASS:** `/Caja` ofrece `CobroCC = "Cobro de cuenta
+  corriente"` en el combo Origen y, filtrando por él, aísla exactamente los 2 cobros de la corrida.
+- Guardas de negocio adicionales verificadas: fecha de caja **cerrada** (2026-08-21) → rechazada; fecha
+  **futura** (2026-12-31) → rechazada; medio `CuentaCorriente` → no se ofrece en el combo.
+
+## Parte B — D8 y guarda de doble envío
+
+| # | Criterio | Resultado | Evidencia observada |
+|---|---|---|---|
+| B1 | Editar la cantidad **sin** guardar borrador y apretar Confirmar → se confirma lo que está en pantalla | **PASS** | Reproducción exacta del D8 original sobre la venta 7: cantidad 1 → **50**, pantalla "$ 76,84" (el bug original facturaba $ 1,54). Tras Confirmar: `Ventas.Id=7` queda Confirmada con **Total = 76.84**, `ItemsVenta.Cantidad = 50.000`. Repetido en la venta 11 (cantidad → 3, pantalla "$ 1.499,99" → `Total = 1499.99`) |
+| B2 | Doble click en Confirmar → la venta se cierra **una sola vez** y no queda guardada como borrador sin confirmar | **PASS** | Venta 11: 3 invocaciones del handler con `jQuery.trigger('click')` (que **ignora** el atributo `disabled`, así que ejercita la guarda de reentrada y no sólo el bloqueo del botón) → **un único POST** observado en la red: `/Ventas/GuardarBorrador` con `continuar=confirmar` (un solo valor, no `confirmar,confirmar`). Resultado: `/Ventas/Details/11`, estado Confirmada. Venta 7, triple click sobre el confirm del SweetAlert2 → también una sola confirmación |
+| B3 | Confirmar descuenta stock, registra Caja y registra CC **exactamente una vez** | **PASS** | Venta 7 (pago Efectivo): stock del producto 11683 `0 → -50` (= 50 exacto, no 100), **1** `CajaMovimiento` Ingreso de 76.84 `OrigenTipo='Venta' OrigenId=7`, CC sin tocar (correcto: no hubo pago en CC). Venta 11 (pago CuentaCorriente): stock del producto 67 `-11 → -14` (= 3 exacto), Caja **sin cambios** (correcto: no entró efectivo), **1** Débito de CC por fila de pago en CC. Venta 10 (Efectivo + CreditoCuotas): exactamente **2** movimientos de caja, uno por pago — sin duplicación |
+| B4 | "Confirmar y facturar" sigue deshabilitado y eso no rompe la pantalla | **PASS (parcial)** | Sin certificado AFIP el botón **no se renderiza** (`@if (afipConfigurado)` en `Editar.cshtml`): `#btnConfirmarYFacturar` tiene `count = 0` en el DOM. La pantalla carga y opera sin errores de consola ni requests fallidos, y `guardarYContinuar` deshabilita un id inexistente sin romperse. **Ver BLOCKED abajo:** la rama `facturar` de la guarda no se puede ejercitar |
+
+### BLOCKED
+
+- **B4b — la rama `facturar` de `guardarYContinuar` es no ejercitable en este entorno.** Sin certificado AFIP
+  el botón no existe en el DOM, así que no hay forma de disparar `continuar=facturar` por el camino de
+  usuario. Queda **BLOCKED por entorno** (no por criterio mal escrito): se re-verifica cuando se cargue el
+  certificado real, y es la verificación que de verdad cierra el riesgo fiscal original de D8.
+
+### Hallazgo sobre la premisa del commit `800db75`
+
+El commit justifica la guarda en que un segundo click posteaba `continuar=confirmar&continuar=confirmar`, el
+`switch` caía en el default y el borrador se guardaba sin cerrar la venta. **Ese camino concreto no se
+reproduce:** se posteó a mano ese POST duplicado sobre la venta 10 (borrador confirmable) y la venta **quedó
+Confirmada**, con sus 2 movimientos de caja correctos — el `SimpleTypeModelBinder` de ASP.NET Core toma el
+primer valor, no la concatenación. La guarda de reentrada **igual es correcta y se queda** (evita dos POST
+independientes y el doble disparo de la UI, y eso sí se verificó en B2); lo que corresponde es dejar
+registrado que el defecto que decía cerrar era otro. El agujero real de esa clase que **sigue abierto** es el
+valor desconocido → `LP-007`.
+
+## Cobertura del catálogo cross-proyecto
+
+| id | aplica | resultado | acción |
+|---|---|---|---|
+| `LP-003` (decimal es-AR en `value` de input numérico) | sí | **PASS** | Las 2 pantallas nuevas usan el helper `num` con `InvariantCulture`; verificado en el HTML real |
+| `D11` / `LP-003` *nota_generalizacion* (hidden decimal parseado ×100) | sí | **PASS** | El hidden `SaldoActual` sale invariante (`12345.67`) y además el Service re-resuelve el saldo desde la base: el valor posteado no decide nada |
+| `LP-002` (origen nuevo en el ledger ⇒ barrer todo lo que lee `OrigenTipo`) | sí | **PASS** | Opción `CobroCC` presente en el filtro de `/Caja` y aislando correctamente |
+| `MH-033` (el ledger de caja registra toda entrada real de dinero) | sí | **PASS** | El cobro del fiado entra como Ingreso real; el ajuste, a propósito, no |
+| `MH-001` (IN/`Any()` sobre colección local en MySQL) | no | N/A | Ningún filtro por colección en el alcance; endpoints nuevos sin 500 |
+| `MH-027` (un `OrigenTipo` nuevo vuelve no-única la FK al hijo) | sí | **PASS con riesgo residual** | Hoy no hay contramovimiento ni reversión de cobro de CC, así que el guard no existe y no puede romperse. **Riesgo para cuando se implemente "anular cobro"** — ver riesgos |
+| `MH-014` (fecha de un instante UTC proyectada de más en el cliente) | sí | **PASS** | El wire entrega ART sin `Z`; el cliente no reconvierte. Pero el **formato** de la hora falla → `LP-006` |
+| `MH-037` (carga retroactiva imputada al día de hoy) | sí | **PASS** | Un cobro con fecha anterior se persiste con `ArgentinaTime.InicioDiaUtc(día)`, no con "hoy" |
+| `REG-010` (visibilidad del botón acompaña al permiso real) | sí | **PASS** | Botón de ajuste oculto para Vendedor **y** `[Authorize]` server-side verificado por `GET` y por `POST` directo |
+| `LP-004` (buscador global se pierde al volver al listado) | sí | no ejecutado | Fuera del alcance del lote (listado de Clientes/Productos, no la CC). Queda para el lote de listados |
+| `LP-001`, `LP-005`, `REG-006`, `REG-008`, `GAN-005`, `GAN-006`, `MH-020/021/044/048`, `DN-003/004` | no | N/A | Módulos fuera del lote (ABC, Details de venta, pagos de compra, facturas de venta, reversión de pagos) |
+
+## Cobertura de reglas nuevas/modificadas desde la última corrida
+
+`6-qa.md` **no tenía** el campo "Ultima validacion de reglas cross-proyecto" (memoria v4, previa a que la
+regla existiera), así que por contrato todo el catálogo vigente contaba como "a validar por primera vez".
+Ese barrido completo es trabajo del **lote 1**, y **esta corrida no recibió su resultado** — se declara el
+hueco en vez de darlo por hecho. Lo que sí se ejecutó acá es el subconjunto que toca la superficie del lote
+(tabla de arriba: `LP-002`, `LP-003`, `MH-001`, `MH-014`, `MH-027`, `MH-033`, `MH-037`, `REG-010`). El campo
+queda inicializado en **2026-10-05** para que la próxima corrida tenga desde dónde diferenciar.
+
+## Defectos detectados
+
+### LP-006 — `minor` — La hora del ledger se muestra en reloj de 12 horas sin AM/PM
+
+- **Pasos:** registrar un cobro de CC pasado el mediodía ART y abrir `/Clientes/CuentaCorriente/{id}`.
+- **Evidencia observada:** la grilla muestra `5/10/2026, 01:04:22` para un movimiento de las **13:04:22 ART**,
+  y `5/10/2026, 12:00:00` para el Débito imputado a las **00:00 ART**. La **fecha** es correcta (el día de
+  negocio se proyecta bien); la **hora** miente y sin AM/PM no se puede desambiguar: la medianoche se lee como
+  mediodía. Mismo efecto en `/Caja`.
+- **No es artefacto del entorno de prueba:** `new Date('2026-10-05T13:04:22').toLocaleString('es-AR')`
+  devuelve `"5/10/2026, 01:04:22"` **idéntico** en `chrome-headless-shell` y en el Chromium completo.
+- **No hay doble conversión de huso:** el wire de `CuentaCorrienteListar` entrega
+  `"fecha":"2026-10-05T13:04:22.42715"`, ya en ART y sin `Z`. El servidor está bien; el defecto es sólo de
+  formato en el cliente.
+- **Por qué importa:** es el ledger que el operador lee para conciliar la caja del día. Dos movimientos
+  separados por 12 horas se muestran con la misma hora.
+- Catalogado como **`LP-006`**. Preexistente también en `/Caja` (no lo introdujo este sprint).
+
+### LP-007 — `minor` — Un `continuar` desconocido guarda el borrador y no cierra la venta, en silencio
+
+- **Pasos:** `POST /Ventas/GuardarBorrador` con el formulario completo de un borrador confirmable y un hidden
+  `continuar=zzz`.
+- **Evidencia observada:** HTTP 200 → redirect a `/Ventas/Editar/9`; el borrador queda guardado con los datos
+  nuevos pero la venta **sigue en Borrador**, sin stock descontado, sin movimiento de Caja y **sin ningún
+  mensaje**. Contraste en la misma corrida: `continuar=confirmar` sobre la misma venta → `/Ventas/Details/9`,
+  Confirmada.
+- **Por qué importa:** es exactamente el síntoma de clase de D8 (la pantalla pide una cosa, el server hace
+  otra, en silencio) del lado del servidor. Hoy sólo se alcanza con un POST fabricado, de ahí `minor`; pero es
+  el agujero que el commit `800db75` se propuso cerrar y la guarda que agregó es **sólo de cliente**.
+- Catalogado como **`LP-007`**.
+
+### D17 — `informativo` — El error de la transacción de cobro se muestra crudo al usuario
+
+Con el fallo inyectado, la pantalla muestra `Error al registrar el cobro: Could not save changes. Please
+configure your entity type accordingly.` — texto interno de EF Core en inglés. El rollback es **correcto**
+(eso es lo que importa y es A2 en PASS); lo que se filtra es el mensaje. Se reporta sin catalogar: es el
+`catch (Exception ex)` de `RegistrarCobroAsync` concatenando `ex.Message`.
+
+### D18 — `informativo` — Un ajuste de Crédito puede dejar el saldo invertido sin ningún aviso
+
+El ajuste no tiene tope contra el saldo (a diferencia del cobro). Es **coherente con el diseño** — el propio
+mensaje de error del cobro dirige el pago a cuenta al ajuste, y la pantalla ya pinta el saldo negativo en
+verde con "a favor" — así que no se reporta como defecto. Se anota porque es la única vía desde la UI para
+dejar un saldo negativo y conviene que esté explícito en la memoria antes de que alguien lo lea como un bug.
+
+### D19 — `informativo` — Confirmar admite pagos que superan el total cuando hay un pago en CC
+
+La guarda de `ConfirmarAsync` es `pagosCC.Count == 0 && sumaPagos < venta.Total - 0.01m`: con un pago en
+cuenta corriente presente, la verificación se saltea **en los dos sentidos**. En la corrida quedó una venta
+con pagos por $ 1.500,00 contra un total de $ 1.499,99 (la pantalla mostró "saldo pendiente $ -0,01" y
+confirmó igual), y la CC del cliente quedó debiendo $ 1.500,00. Es comportamiento **preexistente de Ventas**,
+fuera del alcance de estos dos commits; se anota para el lote de Ventas.
+
+## Partes de defecto emitidos al Implementador
+
+### Parte 1 — `LP-006`
+
+- **Severidad:** minor. **Módulo:** grillas de ledger (CC de clientes y Caja).
+- **Reproducción y evidencia:** ver el defecto arriba.
+- **`archivos_fix` sugeridos (hipótesis, no instrucción cerrada):**
+  `FerreteriaLaPlatense.Web/Views/Clientes/CuentaCorriente.cshtml` y
+  `FerreteriaLaPlatense.Web/Views/Caja/Index.cshtml`, columna `fecha` del DataTable: reemplazar
+  `new Date(v).toLocaleString('es-AR')` por un formateo con reloj de 24 horas explícito (`{ hour12: false }`,
+  o `moment(v).format('DD/MM/YYYY HH:mm:ss')` — moment ya está cargado para el daterangepicker).
+  **No usar `moment.utc()`:** el valor ya viene en ART (ese es el error opuesto, `MH-014`).
+- **`migracion_ef`:** ninguna.
+- **Criterio de re-verificación (arranca en FAIL):** registrar un cobro de CC después del mediodía ART y leer
+  la columna Fecha en `/Clientes/CuentaCorriente/{id}` **y** en `/Caja` filtrando por `CobroCC`: la hora
+  mostrada tiene que ser `>= 13` y coincidir en las dos pantallas; un movimiento imputado a las 00:00 del día
+  de negocio tiene que mostrarse `00:00`, no `12:00`. La fecha (día de negocio) no puede cambiar.
+
+### Parte 2 — `LP-007`
+
+- **Severidad:** minor. **Módulo:** Ventas / `GuardarBorrador`.
+- **Reproducción y evidencia:** ver el defecto arriba.
+- **`archivos_fix` sugeridos (hipótesis):** `FerreteriaLaPlatense.Web/Controllers/VentasController.cs`,
+  `GuardarBorrador`: separar `continuar is null or ""` (guardado normal → `GuardadoOk`) de un valor
+  desconocido (→ `TempData["ErrorMessage"]` explícito, o tipar el parámetro como un enum acotado para que el
+  binder lo rechace antes de entrar a la acción). No tocar `"confirmar"` / `"facturar"`.
+- **`migracion_ef`:** ninguna.
+- **Criterio de re-verificación (arranca en FAIL):** `POST /Ventas/GuardarBorrador` con `continuar=zzz` sobre
+  un borrador confirmable → mensaje de error **visible en pantalla** y la venta sin cerrar; `POST` sin
+  `continuar` sigue guardando con mensaje de éxito; `continuar=confirmar` sigue confirmando. **Regresión
+  obligatoria de B2:** dos invocaciones seguidas de Confirmar siguen produciendo **un** POST y **una** sola
+  confirmación (stock, Caja y CC una vez).
+
+## Estado de los partes de la corrida anterior
+
+| defecto | estado en esta corrida |
+|---|---|
+| **D8** — "Confirmar y facturar" factura datos viejos | **CERRADO** por B1/B2. El fix de fondo fue `a6a78f0` (`guardarYContinuar` postea el form entero); `800db75` agregó la guarda de reentrada. La rama `facturar` queda **BLOCKED** hasta que haya certificado AFIP |
+| **D9** — `CajaMovimiento.Fecha` con dos semánticas | **PASS en el alcance de este lote**: los movimientos nuevos de cobro y ajuste usan `ArgentinaTime` (día de negocio ART) y la guarda de caja cerrada consulta `ArgentinaTime.Hoy`. La verificación a fondo es de otro lote |
+| **D11** — decimal es-AR parseado ×100 en hidden | **PASS en el alcance de este lote**: los hidden decimales de las 2 pantallas nuevas salen invariantes |
+| D10, D12, D13, D14, D16 | fuera del alcance del lote, sin cambios |
+
+## Riesgos de liberación
+
+1. **`MH-027` latente (medio).** El ledger de caja estrenó el origen `CobroCC` con `OrigenId` apuntando al
+   `MovimientoCCCliente`. Hoy la relación es 1:1 y verificada, pero **no existe "anular un cobro"**: cuando se
+   implemente, el contramovimiento va a tener que resolver *cuál* movimiento de caja corresponde, y ese es
+   exactamente el escenario de `MH-027` (un `OrigenTipo` nuevo vuelve no-única la FK al hijo). Mitigación:
+   atar el contramovimiento por `(OrigenTipo, OrigenId)` y nunca por `(VentaId, Monto)`.
+2. **Sin control de concurrencia en el cobro (bajo).** `RegistrarCobroAsync` lee el saldo y después inserta,
+   sin bloqueo ni `RowVersion`: dos cobros simultáneos del mismo cliente pueden pasar los dos la guarda de
+   "no mayor a la deuda" y dejar el saldo negativo. Probabilidad real baja (un mostrador, un cajero), pero el
+   ajuste manual lo corrige, así que no es bloqueante.
+3. **El riesgo fiscal original de D8 no está cerrado del todo (medio).** La rama `facturar` quedó BLOCKED por
+   no haber certificado. Mitigación: **re-verificar B4b como condición de habilitar AFIP**, no después.
+4. **`LP-007` (bajo).** Sólo alcanzable con un POST fabricado, pero deja el server sin red de contención para
+   la clase de bug que el sprint se propuso cerrar.
+
+## Estado go/no-go
+
+**GO** para los dos commits del lote. Los 7 criterios de la parte A y los 4 de la parte B están en PASS con
+evidencia observada; los 2 defectos nuevos son `minor` y ninguno toca la corrección de los importes, de los
+saldos ni de la atomicidad. Condición: `LP-006` y `LP-007` entran al backlog del Implementador y se
+re-verifican en la corrida siguiente, con los criterios de vuelta en FAIL.
+
+## Estado de `laplatense_dev` tras esta vuelta
+
+**Restaurada a su línea base**, verificado por consulta:
+
+- `MovimientosCCCliente` → **0 filas** (igual que al arrancar).
+- `CajaMovimientos` → **9 filas** (ids 1..9, igual que al arrancar).
+- Ventas 7 / 9 / 10 / 11 → de vuelta en **Borrador** con sus totales originales ($ 1,54 / $ 1.100,55 /
+  $ 500,00 / $ 500,00). Los encabezados se recalcularon **con la lógica del propio sistema** (abrir el
+  borrador y "Guardar borrador"), no a mano por SQL.
+- Stock: producto 11683 → `0.000`; producto 67 → `-11.000`.
+- `PagosVenta` restaurados a sus medios, montos y cuotas originales.
+- Usuario `admin.qa@test.local` y su asignación de rol **eliminados**; hash del Vendedor restaurado.
+  `AspNetUsers` de vuelta en 4 filas.
+- Trigger de inyección de fallo **eliminado** (`SHOW TRIGGERS` vacío).
+
+## Pruebas mínimas ejecutadas
+
+1. Build de la solución completa.
+2. Cobro con centavos (parcial), botón "Todo", cobro por el total.
+3. Cobro > deuda, importe negativo, fecha futura, fecha de caja cerrada, medio CuentaCorriente.
+4. Rollback de la transacción con fallo inyectado en la segunda escritura.
+5. Ajuste Crédito y Débito con decimales; ajuste sin motivo (por UI y por POST directo).
+6. Permisos de las 4 acciones nuevas por `GET` y por `POST` directo, con Vendedor y con Administrador.
+7. Grilla de CC (orígenes, fechas, saldo) y filtro `CobroCC` en `/Caja`.
+8. D8: cantidad editada sin guardar + Confirmar, en 2 ventas distintas.
+9. Doble/triple envío de Confirmar, con conteo de POST en la red.
+10. Confirmación con pago en Efectivo, en CuentaCorriente y mixta: stock, Caja y CC una sola vez.
+11. `continuar` ausente / `confirmar` / duplicado / desconocido.
+
+## Checklist de salida para merge
+
+- [x] Build sin errores.
+- [x] Los 7 criterios de aceptación de la parte A en PASS con evidencia observada.
+- [x] Los 4 criterios de la parte B en PASS; la rama `facturar` declarada BLOCKED por entorno.
+- [x] Atomicidad del cobro demostrada con un fallo inyectado, no por lectura de código.
+- [x] Permisos verificados también por POST directo, no sólo por visibilidad del botón.
+- [x] `LP-003`/`D5` (cultura) verificado sobre el HTML real de las 2 pantallas nuevas.
+- [x] `LP-002` verificado: el origen nuevo del ledger es visible y filtrable.
+- [x] 2 defectos nuevos catalogados (`LP-006`, `LP-007`) con parte de defecto y criterio de re-verificación.
+- [x] Base de desarrollo restaurada a su línea base y verificada.
+- [x] `git status --porcelain` del repo del sistema sin cambios de QA.
+- [ ] `LP-006` y `LP-007` aplicados por el Implementador y re-verificados en contexto nuevo.
+- [ ] B4b (`continuar=facturar`) re-verificado al cargar el certificado AFIP — **condición para habilitar AFIP**.
 
 ---
 

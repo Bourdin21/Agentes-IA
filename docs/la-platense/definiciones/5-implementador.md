@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-08-21 (v6 — código de barras múltiple por producto: entidad + gaps cerrados + rollout real a producción)
+## Ultima actualizacion: 2026-10-05 (v7 — Sprint 0: D8 verificado + endurecido, D9 día de negocio centralizado en ArgentinaTime, corrección de UnidadVenta, cobro/ajuste de CC de clientes)
 
 ## Definiciones vigentes
 
@@ -707,7 +707,302 @@ Aplicación de `PAT-016` (regla normativa del design system, ya vigente) sobre l
 7. Botón **"Limpiar filtros"**: tiene que vaciar los controles, vaciar el texto del buscador global (visualmente, no solo los resultados) y, al volver a entrar a la pantalla, no reponer nada.
 8. Regresión: los filtros de columna que ya existían (rango de fechas, combos, desde/hasta de importe) tienen que seguir funcionando igual, y el orden por columna también.
 
+### Sprint 0 — Deuda abierta (2026-10-05, rama `entrega-1-migracion`)
+
+Cierre de los 4 ítems de deuda previos a la Entrega 3, según el bloque "Sprint 0" del
+`4-presupuestador.md`. Las decisiones de negocio venían cerradas con el cliente el 2026-10-05 y no
+se re-litigaron. Un commit por ítem.
+
+#### Resultado del escaneo de reutilización (obligatorio antes de implementar)
+
+Paso 1 (`docs/patrones/cat_resumen.txt`) dio **3 matches directos**, no hizo falta llegar al grep
+dirigido de definiciones de otros proyectos:
+
+| Patrón | Uso en este sprint |
+|---|---|
+| **PAT-010** (ArgentinaTime) | Ya estaba portado al proyecto. **No se construyó nada nuevo**: se amplió el helper existente con el concepto de día/mes de negocio. Catálogo actualizado con la API nueva. |
+| **PAT-001** (Ledger CC) | Base del cobro/ajuste del ítem 0.5. Su entrada tenía `pendiente_verificar: true` — **resuelto en esta misma pasada**: rutas reales confirmadas contra `C:/Sistemas/vino-y-se-fue` (`VinoSeFue.Domain/Entities/CuentaCorriente.cs` + `MovimientoCC.cs` + `MovimientoCCProveedor.cs`). |
+| **PAT-019** (autocompletar con el saldo pendiente) | Aplicado al formulario de cobro: el importe arranca con la deuda completa + botón "Todo", editable para pago parcial. Tercera instancia del patrón en el proyecto. |
+
+Reglas del catálogo aplicadas de forma activa: **LP-002** (barrido completo de usos al ampliar),
+**LP-003** (decimales invariantes en los `value`), **MH-001** (apareció de verdad, ver abajo),
+**MH-033** (el cobro del fiado entra al ledger de caja), **REG-010** (visibilidad del botón
+acompañando al permiso real).
+
+#### Ítem 0.2 — D8: "Confirmar y facturar" no persiste el borrador
+
+**Ya estaba corregido en el commit `a6a78f0`** (2026-09-03, construido y **nunca deployado**). Ese
+commit reemplazó `submitAccion(url)` — que armaba un form nuevo con solo el token antiforgery — por
+`guardarYContinuar(continuar)`, que postea el formulario **entero** a `GuardarBorrador` con un
+hidden `continuar`; el Controller guarda primero y solo sigue a `Confirmar`/`ConfirmarYFacturar` si
+`result.Success`. Aplica a los **dos** botones, que era la parte que el parte de defecto pedía
+verificar. Así que D8 no se volvió a implementar: se **verificó y se endureció**.
+
+Lo que sí se agregó (defecto real encontrado al revisar ese código, no reportado por QA): la
+función **no tenía guarda de doble envío**. Los dos hidden comparten `name="continuar"`, así que un
+segundo click posteaba `continuar=confirmar,confirmar`, el `switch` del Controller caía en el caso
+por defecto (`_`) y **el borrador se guardaba sin cerrar la venta, sin ningún aviso en pantalla** —
+el mismo síntoma de clase que D8 (la pantalla dice una cosa y el server hace otra). Corregido con un
+flag de reentrada, el borrado de cualquier hidden previo y el bloqueo de los tres botones de acción
+hasta que el POST navegue.
+
+#### Ítem 0.3 — D9: día de negocio de la caja
+
+**Definición aplicada:** día de negocio = día **calendario en hora Argentina** (sin corte nocturno)
+y mes de negocio = mes calendario. La base sigue guardando `DateTime` en **UTC**.
+
+La causa raíz medida es que `CajaMovimiento.Fecha` convivía con **dos semánticas en la misma
+columna**: `VentaWorkflowService` y `GastoService.AnularAsync` escribían un instante UTC, mientras
+`GastoService.CrearAsync` y `RegistrarMovimientoManualAsync` escribían una fecha calendario a
+medianoche. Sobre eso, las agregaciones comparaban contra `DateTime.Today` (hora del **SO**, huso
+Pacífico en producción) y las guardas contra `DateTime.UtcNow.Date` (día calendario **UTC**).
+Imposible ser consistente sin unificar primero la columna.
+
+**Decisión:** `CajaMovimiento.Fecha` y `MovimientoCCCliente.Fecha` son **siempre un instante UTC**;
+el día de negocio se **deriva** proyectando a ART. Toda la conversión vive en un único lugar,
+`ArgentinaTime` (ampliación de PAT-010): `Hoy`, `MesActual`, `DiaDeNegocio(utc)`,
+`InicioDiaUtc(día)`, `RangoDiaUtc`, `RangoDiasUtc` (último día **inclusive**, que es lo que espera
+el daterangepicker) y `RangoMesUtc`. Después del cambio **no queda ningún** `DateTime.Today` ni
+`DateTime.UtcNow.Date` en una decisión de día/mes, y **ninguna** `ConvertTimeToUtc`/`FromUtc` fuera
+del helper.
+
+Por **LP-002** se barrieron todos los usos, no solo Caja: `CajaMovimientoService` (filtros del
+listado, búsqueda global por fecha tipeada, `EstaCerradoAsync`, resumen y cierre diario/mensual,
+proyección de la fecha a ART para la grilla), `GastoService` (3 sitios, incluida la separación de
+"instante que se persiste" vs. "día de negocio que se consulta" en `AnularAsync`),
+`VentaWorkflowService` (la guarda de caja cerrada), `CuentaCorrienteClienteService`,
+`CajaController`, `DashboardService` (ya era ART-aware pero armaba la conversión a mano — se pasó a
+`RangoMesUtc`), `EntregaService.ReagendarAsync`, `ProductoService` y `CodigoBarrasLookupService`
+(vigencia de oferta), más los defaults de ViewModels/DTOs y las vistas de Dashboard y Productos.
+
+**Dos hallazgos que el parte de defecto no mencionaba:**
+
+1. **El cierre mensual no tenía ninguna guarda de período.** Dejaba cerrar un mes anterior (bien, es
+   el flujo real del cliente) pero también el mes **en curso** y cualquier mes **futuro**. Cerrar el
+   mes en curso el día 10 congelaría un mes incompleto y bloquearía el resto del mes sin que nadie
+   lo note hasta la primera venta rechazada. Agregada la guarda explícita: mes anterior **sí**, mes
+   en curso **no** (con mensaje que explica que el cierre se hace a partir del día 1 del mes
+   siguiente), mes futuro **no**. Simétricamente, `CerrarDiaAsync` ahora rechaza un día futuro (el
+   día en curso sí se puede cerrar — es el cierre diario de la ferretería).
+2. **`ArgentinaTime.Zone` resolvía la zona con un único `FindSystemTimeZoneById("Argentina Standard
+   Time")`**, que es el id de **Windows** y no existe en Linux. Al volverse este helper la fuente
+   única de **todas** las fechas del sistema, un `TimeZoneNotFoundException` ahí ya no rompería una
+   pantalla: rompería el **arranque de la aplicación** (es un inicializador estático). Se le portó la
+   cadena de fallback que `AfipService` ya tenía resuelta (IANA entonces id de Windows entonces UTC-3
+   custom) y `AfipService` ahora **reusa** `ArgentinaTime.Zone` en vez de mantener su copia.
+
+**Migración de datos:** `20261005151611_D9_NormalizarFechaCajaMovimiento_DiaDeNegocio`, **solo
+datos, sin cambio de esquema**. Suma 3 horas a las filas de `CajaMovimientos` escritas como
+medianoche calendario, para que pasen a ser el instante UTC equivalente a las 00:00 ART del mismo
+día. Sin esto, las filas viejas proyectarían a las 21:00 del día **anterior** y descuadrarían dos
+días a la vez. Discriminador: hora exactamente `00:00:00.000000` **y** `OrigenTipo IN ('Gasto',
+'Ajuste')` — los dos únicos orígenes que podían escribir así (un `DateTime.UtcNow` real no cae nunca
+en la medianoche exacta al microsegundo). `Down` es la reversa exacta. Aplicada a `laplatense_dev`:
+4 de 9 filas corregidas, verificado por consulta directa.
+
+#### Ítem 0.4 — Corrección de datos: `UnidadVenta`
+
+Modo correctivo nuevo `--solo-unidad-venta` en `tools/MigracionCatalogo`, mismo patrón que
+`--solo-codigo-barras` y `--solo-codigo-propio`. **No toca SQL Server**: resuelve y retorna *antes*
+de `sql.OpenAsync()`, porque la base legada ya no existe en la máquina.
+
+Hace dos cosas, en este orden (el listado va **primero**: después del UPDATE ya no se podría
+distinguir cuáles venían de `Metro`):
+
+1. Emite el **listado** de candidatos reales a corte por metro a un CSV, con el grupo detectado.
+   Solo listado: **no cambia nada y no deja nada en `Metro`**.
+2. Pasa **todos** los `Metro` a `Unidad` con un `UPDATE` directo (son ~87k filas; entidad por
+   entidad con tracking tardaría minutos y estamparía auditoría sobre todo el catálogo).
+
+**No se infiere la unidad por palabra clave**, según la regla cerrada. El propio CSV confirma por
+qué: entre los matches de "alambre" aparecen `ABRAZADERA DE ALAMBRE 32-50 MM` y `ALAMBRE 0,9 X 5 KG
+(PRECIO X KILO)`, que no se cortan por metro. Los 14 productos en `Peso` quedan como están. Se
+agregó además un aviso (no una corrección) si alguna fila queda con `UnidadCompra != UnidadVenta` y
+sin `FactorConversion` válido (R4) — el script no inventa el factor; en la corrida real no hubo
+ninguna.
+
+**Números reales de la corrida contra `laplatense_dev`:**
+
+| | Antes | Después |
+|---|---:|---:|
+| `Metro` | 87.542 | **0** |
+| `Unidad` | 24.929 | **112.471** |
+| `Peso` | 14 | 14 |
+
+Candidatos listados (deduplicados: un producto se cuenta una sola vez, en el primer grupo que lo
+toma): cable 804, manguera 535, cadena 534, alambre 276, soga/piola/cuerda 271, tanza 215 — **total
+2.635**, que coincide exactamente con el total previsto en el plan. CSV conservado en
+`Migracion/candidatos-corte-por-metro-20261005-121947.csv`.
+
+**MH-001, quinta aparición en el proyecto — variante nueva.** La primera versión del listado era un
+solo query con `patrones.Any(pat => EF.Functions.Like(p.Nombre.ToUpper(), pat))` sobre un `string[]`
+local. Revienta con `UnreachableException: A RelationalTypeMapping collection type mapping could not
+be found` — mismo defecto de fondo que el `IN` de MH-001, pero por `Any()` + `LIKE`, con un
+**mensaje de error distinto** y, lo más importante, **invisible al grep canónico de la regla**
+(`.Contains(`): no hay ningún `.Contains` en ese código. La encontró la **ejecución real** contra
+`laplatense_dev`, no la revisión. Corregido con una consulta por patrón (parámetro escalar) uniendo
+ids en un `HashSet`. La variante quedó documentada en `MH-001` de
+`32-estandares-qa-implementador.instructions.md`, con el barrido ampliado a
+`grep -rnE "\.(Contains|Any)\("`.
+
+#### Ítem 0.5 — Cobro de cuenta corriente de clientes
+
+Dos acciones nuevas sobre la pantalla que ya existía (`ClientesController.CuentaCorriente`), que
+hasta ahora era **solo de consulta** — los orígenes `Pago` y `Ajuste` del enum no tenían camino desde
+la UI y el cobro del fiado se llevaba por fuera del sistema.
+
+**Cobro** (`RegistrarCobroAsync`): `Credito` con `Origen = Pago` en la CC **más** un `Ingreso` en
+Caja, en **una sola transacción** con dos `SaveChanges` (el primero asigna el Id que se usa como
+`OrigenId` del movimiento de caja — mismo criterio que `GastoService.CrearAsync`). Son dos hechos
+distintos y uno no reemplaza al otro: **MH-033**, el ledger de caja registra toda entrada real de
+dinero y el cobro del fiado es una entrada real. Guardas: importe > 0, no mayor a la deuda, fecha no
+futura, **caja del día no cerrada** (misma guarda que `ConfirmarAsync`), y se rechaza el medio
+`CuentaCorriente` (cobrar la CC con CC no mueve plata, solo rotaría la deuda).
+
+**Ajuste** (`RegistrarAjusteAsync`): `Debito` o `Credito` con `Origen = Ajuste` y **motivo
+obligatorio**. **No toca Caja, a propósito** — un ajuste corrige el ledger de la deuda (una venta
+fiada mal cargada, una bonificación acordada, un arrastre del sistema viejo); meterlo en Caja
+inflaría el arqueo con dinero que nunca se movió. Confirmación SweetAlert2 previa.
+
+**Origen nuevo del ledger de caja: `"CobroCC"`.** Por **LP-002** se barrió todo lo que ya lee
+`OrigenTipo` y se agregó la opción al combo "Origen" del filtro de `Views/Caja/Index.cshtml` — sin
+eso el cobro entraría a la caja pero sería imposible de aislar en la grilla.
+
+**Permisos — se siguió el precedente de la Entrega 2, sin inventar criterio nuevo.** *Cobrar* es
+parte de la operación diaria del mostrador y es exactamente lo que ya hace un Vendedor al confirmar
+una venta (genera un `CajaMovimiento` de `Ingreso` desde un documento de negocio): queda con el
+`RequireVentas` del controller. *Ajustar* mueve el saldo sin respaldo de una operación real, igual
+que el movimiento manual de caja, y ese es Administrador exclusivo (`CajaController` es
+`RequireAdministracion`): el ajuste lleva su propio `[Authorize(Policy = "RequireAdministracion")]`
+en las dos acciones, y el botón se oculta para el Vendedor (**REG-010**: la visibilidad acompaña al
+permiso real, que además está validado en el server).
+
+Las dos pantallas siguen el design system ya aplicado a las 21 existentes (`.ov-form-page`,
+`.ov-page-head`, `.ov-form-actions`, `.ov-required`, Select2 por auto-init global). **LP-003**
+aplicado explícitamente: el importe del cobro arranca **prellenado con la deuda**, así que `asp-for`
+con cultura es-AR habría emitido `value="1234,56"`, el navegador lo habría considerado inválido y
+habría dejado el input **vacío sin ningún mensaje** — se renderiza con `InvariantCulture` vía el
+helper `num` de la vista. No es un riesgo latente acá, es el caso inmediato.
+
+#### Archivos y capas modificadas (Sprint 0)
+
+**Application**
+- `Helpers/ArgentinaTime.cs` — día/mes de negocio + zona por fallback (PAT-010 ampliado).
+- `Interfaces/ICajaMovimientoService.cs` — contrato del día de negocio documentado en la firma.
+- `Interfaces/ICuentaCorrienteClienteService.cs` — `RegistrarCobroAsync`, `RegistrarAjusteAsync`.
+- `DTOs/MovimientoCCClienteDtos.cs` — `CobroCCClienteDto`, `AjusteCCClienteDto`.
+- `DTOs/CajaDtos.cs`, `DTOs/GastoDtos.cs` — defaults al día de negocio.
+
+**Infrastructure**
+- `Services/CajaMovimientoService.cs` — todas las fronteras de día/mes; totales centralizados en `ObtenerTotalesDiasAsync`/`ObtenerTotalesMesAsync`; guardas de período del cierre diario y mensual.
+- `Services/CuentaCorrienteClienteService.cs` — cobro + ajuste, filtros y proyección de fecha; depende ahora de `ICajaMovimientoService`.
+- `Services/GastoService.cs`, `Services/VentaWorkflowService.cs`, `Services/DashboardService.cs`, `Services/EntregaService.cs`, `Services/ProductoService.cs`, `Services/CodigoBarrasLookupService.cs` — día de negocio.
+- `Services/AfipService.cs` — reusa `ArgentinaTime.Zone`, se eliminó su `ResolverTzArgentina` duplicado.
+- `Migrations/20261005151611_D9_NormalizarFechaCajaMovimiento_DiaDeNegocio.cs` — solo datos.
+
+**Web**
+- `Controllers/ClientesController.cs` — 4 acciones nuevas (GET/POST de cobro y de ajuste) + helpers de repintado.
+- `Controllers/CajaController.cs` — día/mes de negocio.
+- `Models/CuentaCorrienteClienteViewModels.cs` — **nuevo**.
+- `Models/CajaViewModels.cs`, `Models/GastoViewModels.cs`, `Models/EntregaViewModels.cs` — defaults.
+- `Views/Clientes/RegistrarCobro.cshtml`, `Views/Clientes/RegistrarAjuste.cshtml` — **nuevas**.
+- `Views/Clientes/CuentaCorriente.cshtml` — botones de acción.
+- `Views/Caja/Index.cshtml` — origen `CobroCC` en el filtro (LP-002).
+- `Views/Ventas/Editar.cshtml` — guarda de doble envío en `guardarYContinuar`.
+- `Views/Dashboard/Index.cshtml`, `Views/Productos/Edit.cshtml` — día de negocio.
+
+**tools**
+- `MigracionCatalogo/Program.cs` — modo `--solo-unidad-venta`.
+
+#### Migraciones EF generadas
+
+`20261005151611_D9_NormalizarFechaCajaMovimiento_DiaDeNegocio` — **solo datos, sin DDL**. Aplicada a
+`laplatense_dev`. **Producción está dos migraciones atrás**: le falta esta y
+`20260903160346_EntregaTres_ConfirmarSinFactura_RecargoCuotas_NotaPago` (el ítem 0.1, que es de
+Joaquín).
+
+#### Evidencia
+
+- **Build de la solución: 0 errores** (`dotnet build FerreteriaLaPlatense.slnx`). Verificado que las
+  vistas Razor **sí** se compilan en el build (comprobado introduciendo a propósito un símbolo
+  inexistente en una `.cshtml`: el build falló; revertido), así que el build limpio también cubre las
+  dos pantallas nuevas.
+- **Grafo de DI validado** con `ValidateOnBuild` + `ValidateScopes` sin levantar la app:
+  `CuentaCorrienteClienteService` resuelve con su dependencia nueva, sin ciclo ni captive dependency
+  (ambos `Scoped`).
+- **Fronteras de día/mes: 8 de 8 verificaciones ejecutadas en verde**, incluido el criterio de
+  aceptación de D9 (instante UTC `2026-09-25 01:44` da día de negocio `2026-09-24`; el arqueo del 24
+  la incluye y el del 25 no; y la venta de las 22:44 del 30/09 cae en el mes de septiembre).
+- **Cobro/ajuste ejercitados contra `laplatense_dev` a nivel Service: 24 de 24 en verde** — el cobro
+  baja la CC y genera exactamente un `Ingreso` de caja con `OrigenTipo="CobroCC"` y `OrigenId`
+  correcto; el ajuste mueve el saldo y **no** genera movimiento de caja; las 4 guardas del cobro
+  rechazan; con la caja cerrada el cobro y el movimiento manual quedan bloqueados; se puede cerrar un
+  mes anterior y **no** el mes en curso ni uno futuro. Las filas de prueba se borraron al final (dev
+  quedó en su línea base: 9 `CajaMovimientos`, 0 `MovimientosCCCliente`).
+- **Ítem 0.4 corrido contra `laplatense_dev`** con los números de la tabla de arriba.
+- **Sin smoke test funcional por navegador** (regla del rol). La verificación en navegador queda en
+  la guía de abajo — ver la nota de discrepancia con el brief en `trazabilidad.md`.
+
+#### Guía de verificación manual (a ejecutar por el cliente/QA, no por el Implementador)
+
+1. **D8** — abrir un borrador de venta, cambiar la **cantidad** de un ítem sin guardar, apretar
+   **Confirmar venta**: la venta queda `Confirmada` con la cantidad **que estaba en pantalla**.
+   Repetir con "Confirmar y facturar". Hacer **doble click** rápido en Confirmar: tiene que confirmar
+   una sola vez, nunca quedar en Borrador guardado.
+2. **D9 (el criterio de aceptación)** — registrar una venta cerca de las **22:44 hora Argentina** y
+   verificar que aparece en el arqueo **de ese día**, no del siguiente. Después **cerrar la caja de
+   ese día** e intentar una venta nueva con esa fecha, a cualquier hora: tiene que quedar bloqueada.
+3. **D9 / mensual** — el **día 1**, cerrar la caja del **mes anterior**: tiene que dejar. Intentar
+   cerrar el **mes en curso**: tiene que rechazar con el mensaje de "todavía está en curso".
+4. **D9 / listados** — mirar la columna Fecha de Caja y de la cuenta corriente: la hora mostrada
+   tiene que ser la hora **argentina** del movimiento. Filtrar por un rango de fechas que incluya un
+   movimiento nocturno y confirmar que cae del lado esperado.
+5. **0.4** — en Catálogo, confirmar que ya **no hay productos en "Metro"** y abrir alguno del CSV de
+   candidatos (ej. un cable) para ver que quedó en "Unidad" a la espera de la marcación manual.
+6. **0.5 / cobro** — cliente con deuda, **Registrar cobro**: el importe viene **prellenado con la
+   deuda**, el botón "Todo" lo repone, un importe mayor a la deuda se rechaza. Guardar y verificar
+   que (a) baja el saldo, (b) aparece el movimiento `Pago` en el historial de la cuenta y (c) aparece
+   un **Ingreso** en Caja filtrable por origen **"Cobro de cuenta corriente"**.
+7. **0.5 / ajuste** — con usuario **Administrador**: registrar un ajuste de crédito con motivo, mueve
+   el saldo y **no** aparece nada en Caja. Intentar sin motivo: rechaza.
+8. **0.5 / permisos** — con usuario **Vendedor**: el botón "Ajuste manual" **no** se ve, y entrar a
+   `/Clientes/RegistrarAjuste/{id}` a mano tiene que dar acceso denegado. "Registrar cobro" **sí**
+   tiene que estar disponible.
+9. **LP-003** — guardar un cobro, volver a abrir el formulario y mirar que los inputs numéricos **no**
+   quedan vacíos.
+
+#### Riesgos y supuestos (Sprint 0)
+
+- **La migración de datos D9 asume el discriminador de la medianoche exacta.** Verificado contra
+  `laplatense_dev` (4 filas, todas legítimas). En producción el volumen es chico pero **conviene
+  mirar el conteo antes de aplicar**: `SELECT OrigenTipo, COUNT(*) FROM CajaMovimientos WHERE
+  TIME_TO_SEC(TIME(Fecha))=0 AND MICROSECOND(Fecha)=0 GROUP BY OrigenTipo`.
+- **`Gasto.Fecha` y `CierreCajaDiario.Fecha` siguen siendo fechas calendario** (día de negocio
+  argentino), no instantes. Es deliberado y está documentado en el código: son columnas de semántica
+  date-only. No se las tocó ni se las debe proyectar.
+- **El ajuste de CC no impacta Caja, por diseño.** Si el cliente lo usa para registrar un cobro real,
+  la caja va a quedar corta. Mitigado en el texto de la pantalla, no por código.
+- **El cobro no registra la cuenta real donde entró la plata** (MH-034). El medio de pago queda en la
+  descripción del movimiento, pero el ledger de caja sigue siendo único y sin dimensión "cuenta".
+  Consistente con lo que ya hace Ventas; si el negocio necesita conciliar, es un cambio de alcance
+  aparte.
+- **No se tocó la vigencia de oferta más allá de cambiar el "hoy"**, ni el circuito AFIP (sigue
+  deshabilitado, sin certificado).
+
+#### Hallazgo fuera de alcance, para decidir (NO corregido)
+
+`DashboardService` cuenta las ventas del día y del mes filtrando **solo**
+`Estado == EstadoVenta.Facturada` (líneas ~62 y ~109). Desde el `a6a78f0` del 2026-09-03,
+`Confirmada` es la forma **normal** de cerrar una venta y la mayoría nunca llega a `Facturada` (más
+aún con AFIP deshabilitado). O sea: el Dashboard muy probablemente muestre **cerca de cero** en
+ventas del día y del mes en cuanto se deploye. Es consecuencia directa del cambio de estados de
+Entrega 3 y **no** es ninguno de los 4 ítems del Sprint 0, así que se dejó intacto a propósito en vez
+de ampliar el alcance por cuenta propia. **Requiere decisión de Joaquín**: lo más probable es que el
+criterio correcto sea `Estado == Confirmada || Estado == Facturada`.
+
+
 ## Historial de ajustes
+- 2026-10-05 (**Sprint 0 - deuda abierta**, rama `entrega-1-migracion`): cerrados los 4 items previos a la Entrega 3. **0.2 (D8)** ya estaba corregido en `a6a78f0` (nunca deployado): verificado el diff y agregada la guarda de doble envio que faltaba (dos hidden `continuar`, el `switch` caia en el default y la venta se guardaba **sin cerrarse, en silencio**). **0.3 (D9)**: la causa raiz era que `CajaMovimiento.Fecha` tenia **dos semanticas en la misma columna** (instante UTC vs. fecha calendario a medianoche), asi que primero se unifico a instante UTC y se derivo el dia de negocio proyectando a ART; toda la conversion quedo en `ArgentinaTime` (PAT-010 ampliado: `Hoy`, `MesActual`, `DiaDeNegocio`, `InicioDiaUtc`, `RangoDiaUtc/DiasUtc/MesUtc`), cero `DateTime.Today`/`UtcNow.Date` en decisiones de dia/mes y cero conversiones fuera del helper; barrido LP-002 sobre Caja, Gastos, Ventas, CC, Dashboard, Entregas, Productos y vistas; migracion **solo de datos** `D9_NormalizarFechaCajaMovimiento_DiaDeNegocio` (+3h a las filas de medianoche de `Gasto`/`Ajuste`, 4 de 9 en dev). Dos hallazgos propios: el **cierre mensual no tenia ninguna guarda de periodo** (dejaba cerrar el mes en curso y meses futuros; ahora mes anterior si, en curso y futuro no) y `ArgentinaTime.Zone` resolvia la zona con el id de **Windows** unicamente, lo que al volverse la fuente unica de las fechas pasaba de romper una pantalla a romper el **arranque de la app** (se le porto la cadena de fallback de `AfipService`, que ahora reusa el helper). **0.4**: modo `--solo-unidad-venta` que **no toca SQL Server** (retorna antes de abrir la conexion); corrido contra `laplatense_dev`: **87.542 `Metro` a 0**, `Unidad` 24.929 a **112.471**, `Peso` 14 sin cambios, y **2.635 candidatos** a corte por metro listados a CSV sin modificarlos (coincide exacto con lo previsto). Ahi aparecio **MH-001 por quinta vez en el proyecto, en variante nueva**: `Any()` + `EF.Functions.Like` sobre `string[]` local, con mensaje de error distinto y **invisible al grep canonico** de `.Contains(`; la encontro la ejecucion real, no la revision; documentada en `32-estandares`. **0.5**: cobro de CC (Credito + Ingreso en caja en una transaccion, MH-033) y ajuste manual (solo CC, **sin** tocar caja, con motivo obligatorio) sobre la pantalla existente; origen nuevo `"CobroCC"` del ledger propagado al filtro de Caja (LP-002); permisos por precedente de Entrega 2 (cobrar = Vendedor, como al confirmar una venta; ajustar = Administrador, como el movimiento manual de caja); PAT-019 y LP-003 aplicados en el formulario. Evidencia: build 0 errores (verificado que las vistas compilan en el build), grafo de DI validado, 8/8 verificaciones de frontera de dia/mes y **24/24** del cobro/ajuste ejercitadas contra `laplatense_dev` (filas de prueba borradas). **Sin deploy**: lo aprueba Joaquin aparte. **Hallazgo fuera de alcance sin corregir, requiere decision**: `DashboardService` cuenta ventas solo con `Estado == Facturada`, asi que con `Confirmada` como cierre normal el Dashboard va a mostrar cerca de cero. Detalle completo en la seccion "Sprint 0 - Deuda abierta" arriba.
 - 2026-08-24 (`PAT-016` en los 6 listados, rama `entrega-2`): implementada la búsqueda global multi-formato (texto + importe + fecha, compuesta vía `extraIds`) y la persistencia de filtros en `Session` en **Ventas, Clientes, Productos, Caja, Gastos y Entregas**. Portado de `delicias-naturales` (`BusquedaHelper.ParsearImportes` + el bloque de `searchValue` de `VentasController.ListarVentas` + la persistencia en `Session` de `ProductosController.Index`) y adaptado a Clean Architecture: helper de parseo en Application, `extraIds` en cada Service de Infrastructure, `Session` en los Controllers de Web. **Sin migración EF ni cambios de Domain** — por eso `LP-002` no aplica. Piezas nuevas: `Application/Helpers/BusquedaHelper.cs`, `Web/Helpers/FiltrosSessionHelper.cs` y el módulo `window.Filtros` en `site.js`. Decisión de escala propia y necesaria: la pasada de substring numérico no se puede resolver en SQL (`MySql.EntityFrameworkCore` no traduce `decimal.ToString()`) y el catálogo tiene ~121.691 productos activos, así que se acotó con `MaxFilasSubstringNumerico = 5000` vía `Take(tope+1)` — sin ese tope, cada tecla en el buscador de Catálogo traía las 121.691 filas; en Productos se acotaron también las sub-queries de valor exacto, porque tipear `0` matcheaba el `Stock` de todo el catálogo. Otras decisiones propias: `Stock` entra por valor pero no por substring; en Entregas se busca `FechaProgramada` (la única visible en la grilla); `InvariantCulture` en el parseo de fecha en vez de `CurrentCulture`; se persiste también el buscador global. Retirado en Clientes y Productos el fallback `texto ?? SearchValue` (ahora son dos cosas distintas, sin pérdida de cobertura). "Limpiar filtros" quedó funcional de punta a punta: vacía controles, vacía el `<input>` del buscador global y manda `limpiar=true` para que el Controller borre las keys de `Session`. Build de la solución en 0 errores. Detalle completo en la sección "PAT-016 — búsqueda global multi-formato + filtros persistidos en Session" arriba.
 - 2026-08-21 (cierre same-day: gaps cerrados + rollout a producción): agregada la navegación `Producto.CodigosBarrasAlternos`, simplificado `CodigoBarrasLookupService` a una sola consulta vía esa navegación + agregado `ProductoLookupDto.CodigoEscaneado`, y cerrado el gap del listado de Catálogo (`ProductoService.ListarAsync` busca/muestra alternos, badge `+N` en la grilla). **Bug real encontrado y corregido en `tools/MigracionCatalogo/Program.cs`**: la inserción de `CodigoBarrasProducto` solo existía en el modo correctivo, nunca en el flujo principal de migración — detectado por ejecución real contra `laplatense_dev` (0 filas en la tabla nueva tras una recarga completa). Corregido con una sección nueva (7b) que resuelve `codigosAlternosPorArticulo` contra `productoPorArticuloKey` ya con Id real. Validado en dev (8.276 alternos / 3.865 productos, "Recarga Aromatizador" con sus 22 códigos) y luego **desplegado a producción real**: backup fresco, migración EF aplicada, modo correctivo corrido (mismas magnitudes que dev), verificado por consulta directa, código publicado vía Web Deploy (`HTTP 200` post-deploy). Agregada regla nueva de proceso a Agentes-IA (`LP-002` en `32-estandares-qa-implementador.instructions.md` + checklist en `26-checklists.instructions.md`): toda modificación del modelo de datos requiere relevar y actualizar TODOS los sitios de uso existentes del campo/entidad extendida, en la misma ronda — no solo el punto de entrada del pedido original. Detalle completo en "Código de barras múltiple — gaps cerrados + rollout real a producción" arriba.
 - 2026-08-21 (código de barras múltiple por producto, rama `entrega-1-migracion`): implementada la entidad `CodigoBarrasProducto` (1 a N con `Producto`, `SoftDestroyable`, reuse directo del patrón `CodigoProveedorProducto`) para los 4.371 artículos que tienen más de un código de barras real de fábrica y que hoy quedaban sin ninguno por "ambiguos". **Índice único sobre `Codigo` solo, deliberadamente NO compuesto** — a diferencia de `CodigoProveedorProducto`, cuyo único es `(ProveedorId, CodigoDelProveedor)`: un código de fábrica identifica al producto y no puede repetirse entre productos, mientras que un código de proveedor sí puede repetirse entre proveedores. La diferencia quedó documentada en el XML-doc de la entidad nueva. `Producto.CodigoBarras` **sin cambios** (sigue siendo el código propio de la impresora interna, 1 por producto). `ICodigoBarrasLookupService.BuscarPorCodigoAsync` mantiene su firma y solo amplía la búsqueda: resuelve primero por el código propio/interno y recién después por los alternos activos. Ficha de Producto (`Edit.cshtml` únicamente, no `Create.cshtml`): sección de solo lectura "Otros códigos de barras válidos", visible solo si el producto tiene alguno, sin ABM (mismo criterio que los códigos de proveedor). Migración `20260821163451_AgregarCodigoBarrasProducto` generada (aditiva pura, 1 tabla nueva) y **no aplicada a ninguna base**. `tools/MigracionCatalogo/Program.cs` no se tocó — el backfill lo hace Joaquín. Build de la solución en 0 errores. Detalle completo en la sección "Código de barras múltiple por producto" arriba.

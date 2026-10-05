@@ -4,6 +4,282 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-05 13:25 - qa-mvc (QA Sprint 0, LOTE 1 — dia y mes de negocio / D9)
+- Etapa: QA (gate del commit `628cb7a`, item 0.3 / D9, + migracion de datos
+  `20261005151611_D9_NormalizarFechaCajaMovimiento_DiaDeNegocio`). Lote **financiero**, 1 modulo
+  (Caja / Gastos / cierres) por instruccion 39 seccion 5, con la superficie LP-002 (Ventas,
+  Entregas, Dashboard, Productos, AFIP) cubierta como regresion.
+- Resultado: **D9 CERRADO** — los 5 criterios de aceptacion PASS con evidencia observada, mas el
+  criterio de arranque de la app (R1). **NO-GO para cerrar el Sprint 0 completo**: el lote deja 2
+  defectos `major` nuevos, los dos en el circuito de dinero y los dos derivados del propio cambio.
+- Metodologia: el servidor MCP `playwright` **no estaba disponible en la sesion** y tampoco hay
+  `playwright-core`; se declaro y se cayo al procedimiento alternativo de la instruccion 33 —
+  **automatizacion por HTTP real** (harness Node con cookies de Identity + antiforgery) contra la
+  app levantada, mas assertions SQL directas. Para aislar la corrida de **otro lote de QA que
+  estaba escribiendo `laplatense_dev` en paralelo** (fila `CobroCC` y usuario `admin.qa` creados
+  durante la corrida), se clono la base a **`laplatense_qa_d9`** y la app se levanto contra la
+  copia en `https://localhost:7202`. Unico cambio sobre `laplatense_dev`: reescritura del
+  `PasswordHash` de `qa.super@test.local` y `vendedor.qa@test.local` (credencial `QaD9#2026x`);
+  no se toco `no-reply@olvidata.com.ar`.
+- Evidencia de los criterios: un `CajaMovimiento` con instante `2026-10-01 01:44 UTC` (= 30/09
+  22:44 ART) se lista y se filtra como **30/09** y entra en el cierre de ese dia
+  (`TotalIngresos=1234.56`); un gasto cargado con fecha 30/09 persiste su movimiento en
+  `2026-09-30 03:00 UTC` (00:00 ART) y cae en el **mismo** cierre (`TotalEgresos=777.77`);
+  cerrada la caja de hoy, `POST /Ventas/Confirmar` responde "La caja de hoy ya esta cerrada…" y la
+  venta queda en Borrador (con control positivo antes del cierre); `CerrarMes` del mes anterior
+  acepta (09/2026: 96.898,36 / 777,77, e **incluye** la venta de las 22:44 del 30/09), el mes en
+  curso y los futuros rechazan con mensajes distintos. Migracion de datos integra: 0 filas sin
+  normalizar y todos los cierres guardados coinciden con el recalculo por dia/mes de negocio ART.
+- Defectos emitidos (partes al Implementador, 4 items **nuevos** en `docs/qa/regresiones-manuales.yml`,
+  catalogo 154 -> 158, `cat_resumen.txt` regenerado):
+  **D17 / LP-009 (`major`)** cerrado el mes, el sistema sigue aceptando movimientos dentro de ese mes
+  — la guarda de periodo cerrado solo consulta `CierresCajaDiarios` y nunca `CierresCajaMensuales`;
+  reproducido: 09/2026 cerrado y aun asi se aceptaron un ajuste de 3.333,33 y un gasto de 4.444,44
+  fechados 15/09, con la pantalla mostrando todavia 777,77 de egresos contra 8.555,54 reales.
+  **D18 / LP-010 (`major`)** la unificacion cambio `CajaMovimiento.Fecha` pero dejo `Venta.Fecha`
+  con la semantica vieja: la Venta 8 (24/08 22:44 ART) se lista y se busca como **25/08** en Ventas
+  y como **24/08** en Caja — barrido LP-002 incompleto, y se ve en el Dashboard ("Ventas de hoy 0 /
+  $ 0,00" junto a "Caja de hoy $ 2.845,67"). **D19 / LP-011 (`minor`)** `GET
+  /Caja/Mensual?anio=2026&mes=13` y `?anio=0&mes=0` dan HTTP 500 en `ArgentinaTime.RangoMesUtc`, y
+  el redirect de `CerrarMes` pasa por ahi, asi que el mensaje "Mes o año invalido." agregado en este
+  commit es codigo muerto. **D20 / LP-012 (`minor`)** los dos listados de cierres dibujan el
+  buscador de DataTables pero el server ignora `search[value]`.
+- Catalogo cross-proyecto: MH-009, MH-014 (con reserva de huso del navegador), MH-001 (ejecutado:
+  24/24 HTTP 200 sobre busqueda global y filtros, incluidos los dos `List<string>.Contains` de
+  `CajaMovimientoService`), CRM-019, LP-003, MH-020, MH-021, KOI-014, KOI-015 → **PASS**.
+  LP-002, MH-035, CRM-017, KOI-017 → **FAIL** (son D17 y D18). MH-034 → **riesgo confirmado** (un
+  gasto por transferencia cae en el mismo ledger que el efectivo); MH-033 → **N/A hoy**, riesgo para
+  cuando entren Compras/CC de proveedores. Ambos escalados al analista, no son defectos de D9.
+- Reglas nuevas desde la ultima corrida (2026-08-24): **24 reglas** agregadas a
+  `32-estandares-qa-implementador`; se ejecutaron las 10 que este lote puede disparar (ver la tabla
+  en `6-qa.md`). Campo "Ultima validacion de reglas cross-proyecto" ya en 2026-10-05.
+- Riesgos/supuestos: **la ventana 21:00-00:00 ART del criterio 2 quedo BLOCKED** — a las 12:51 ART de
+  la corrida `DateTime.Today`, `DateTime.UtcNow.Date` y `ArgentinaTime.Hoy` valen lo mismo, y las tres
+  formas de forzar la divergencia se descartaron a proposito (reloj del sistema: hay agentes
+  commiteando en paralelo; `tzutil` a Pacifico: no produce divergencia de fecha a esa hora; contenedor
+  Linux: no hay Docker). Cobertura alternativa ejecutada: barrido mecanico que confirma **cero**
+  `DateTime.Today` / `UtcNow.Date` / `DateTime.Now` / `ToLocalTime` en una decision de dia/mes en toda
+  la app, y ninguna `ConvertTime*Utc` fuera del helper salvo los 2 call sites fiscales de AFIP. Queda
+  una prueba manual de 3 minutos descripta en `6-qa.md` para cerrarlo. Para la proxima corrida por
+  lotes: **un clon de base por lote**, no compartir `laplatense_dev`.
+- `git status --porcelain` del repo bajo prueba al cerrar: solo `?? .claude/`, que ya estaba al abrir
+  la sesion. **No se escribio una sola linea en `C:/Sistemas/Ferreteria La Platense`.**
+
+### 2026-10-05 12:30 - implementador-dotnet
+- Etapa: Implementacion (Sprint 0 — deuda abierta, prerequisito de la Entrega 3)
+- Cambio: cerrados los 4 items del Sprint 0 sobre `entrega-1-migracion`, un commit por item.
+  **0.2 (D8)**: ya estaba corregido en `a6a78f0` (construido el 2026-09-03, nunca deployado) —
+  `guardarYContinuar` postea el formulario entero a `GuardarBorrador` y solo sigue a
+  Confirmar/Facturar si el guardado fue exitoso, en los dos botones. Se verifico el diff y se
+  agrego la **guarda de doble envio** que faltaba (dos hidden `continuar` hacian que el `switch`
+  cayera en el default: el borrador se guardaba y la venta **no se cerraba, en silencio**).
+  **0.3 (D9)**: unificada la semantica de `CajaMovimiento.Fecha` a instante UTC y centralizada
+  toda frontera de dia/mes en `ArgentinaTime` (PAT-010 ampliado con `Hoy`, `MesActual`,
+  `DiaDeNegocio`, `InicioDiaUtc`, `RangoDiaUtc/DiasUtc/MesUtc`); barrido LP-002 por Caja, Gastos,
+  Ventas, CC, Dashboard, Entregas, Productos y vistas; migracion **solo de datos**
+  `D9_NormalizarFechaCajaMovimiento_DiaDeNegocio`. **0.4**: modo `--solo-unidad-venta` (solo
+  MySQL) corrido contra `laplatense_dev`: 87.542 `Metro` a **0**, `Unidad` 24.929 a **112.471**,
+  `Peso` 14 sin cambios, **2.635 candidatos** a corte por metro listados a CSV sin modificarlos.
+  **0.5**: cobro de cuenta corriente (Credito en CC + Ingreso en Caja en una transaccion) y ajuste
+  manual (solo CC, con motivo obligatorio) sobre la pantalla existente, con origen nuevo
+  `"CobroCC"` del ledger de caja propagado al filtro de Caja.
+- Motivo: cerrar la deuda abierta antes de arrancar la Entrega 3, segun el bloque "Sprint 0" del
+  plan de cierre de alcance aprobado el 2026-10-05. Decisiones de negocio ya cerradas con el
+  cliente, no re-litigadas.
+- Impacto en capas: **Application** (`ArgentinaTime`, 2 interfaces, 2 DTOs nuevos, defaults),
+  **Infrastructure** (8 Services + 1 migracion de datos), **Web** (2 controllers, 1 ViewModel
+  nuevo, 2 vistas nuevas, 5 vistas modificadas), **tools** (modo correctivo nuevo).
+- Reutilizacion: escaneo paso 1 (`cat_resumen.txt`) con 3 matches — **PAT-010** (ampliado, no
+  reconstruido), **PAT-001** (base del ledger; su `pendiente_verificar: true` **resuelto** en esta
+  pasada contra `C:/Sistemas/vino-y-se-fue`) y **PAT-019** (importe prellenado con el saldo).
+  No hizo falta el grep dirigido de definiciones ajenas.
+- Riesgos/supuestos: la migracion D9 discrimina las filas viejas por medianoche exacta
+  (`00:00:00.000000`) + `OrigenTipo IN ('Gasto','Ajuste')` — conviene contar esas filas en
+  produccion antes de aplicar. `Gasto.Fecha` y `CierreCajaDiario.Fecha` siguen siendo fechas
+  calendario a proposito. El ajuste de CC no impacta Caja por diseno. El cobro no registra la
+  cuenta real donde entro la plata (MH-034 sigue abierto, consistente con Ventas).
+  **Sin deploy**: produccion esta dos migraciones atras (esta + `EntregaTres_...` del item 0.1).
+
+### 2026-10-05 13:05 - qa-mvc (QA Sprint 0, LOTE 3 — correccion de `UnidadVenta` + Dashboard/ABC con ventas Confirmadas)
+
+- Etapa: QA (gate de los commits `3efbe82` y `7477550`, rama `entrega-1-migracion`). Corrida por
+  lotes, instruccion 39 seccion 5: 2 modulos, contexto propio.
+- Resultado: **GO**. Los **11 criterios de aceptacion en PASS con evidencia observada** contra el
+  sistema corriendo (`https://localhost:7200`) y contra `laplatense_dev`. **1 defecto nuevo**,
+  `minor`, catalogado como `LP-008`.
+- Parte A (`UnidadVenta`): `Metro` **0**, `Unidad` **112.471**, `Peso` **14**, total **112.485** sin
+  cambios — coincide exacto con lo reportado. CSV con **2.635 registros unicos** (2.637 lineas
+  fisicas: el producto 66109 tiene un salto de linea embebido dentro del campo `Nombre`
+  entrecomillado, o sea un registro RFC4180 valido partido en dos); los **2.635 ids verificados uno
+  por uno en la base, los 2.635 en `Unidad`** — listados y no modificados. `step="1"` observado en
+  pantalla sobre dos productos **que estan en el CSV** (venian de `Metro`) y `step="0.001"` + acepta
+  `2.5` sobre un producto en `Peso`.
+- **No requiere SQL Server: probado con una cadena de conexion deliberadamente inalcanzable**, no por
+  ausencia del servicio (MSSQLSERVER y SQLEXPRESS estan corriendo en la maquina, asi que la ausencia
+  no habria probado nada). Idempotente: segunda corrida es no-op, exit 0, sin CSV nuevo.
+- **El fix de `MH-001` (quinta aparicion, variante `Any()` + `EF.Functions.Like` sobre `string[]`
+  local) se verifico por EJECUCION, no por lectura:** la segunda corrida corta antes del query de
+  patrones, asi que se **sembraron 2 filas en `Metro`** (una que matchea "CABLE" y una que no matchea
+  ningun patron) y se volvio a correr — los 6 grupos / 8 patrones `LIKE` corrieron sin excepcion y el
+  listado salio correcto. Estado restaurado al snapshot exacto.
+- Parte B (Dashboard / ABC): Dashboard muestra **"Ventas de hoy: 4 · $ 2.611,11"**, exacto contra el
+  oraculo. Top del mes muestra el producto de la venta `Confirmada` con **8** unidades. Recalculo ABC
+  disparado desde la UI reporta **"5 productos con ventas en el periodo"** (con el criterio viejo
+  habrian sido 4) y el **producto 67 — que aparece UNICAMENTE en ventas `Confirmada` — quedo en
+  clase `B`**: ese es el discriminador decisivo. `Borrador` y `Anulada` excluidas de los tres
+  calculos, probado con discriminadores de **9.999 y 5.555 unidades** que habrian dominado el Pareto.
+  Dia de negocio ART verificado con el par de borde 02:00 UTC de hoy (= ayer 23:00 ART, excluida) vs.
+  02:00 UTC de manana (= hoy 23:00 ART, incluida) — **`D7`/`MH-009` sigue cerrado**.
+- Defecto nuevo **`LP-008`** (`minor`, no corregido, parte de defecto emitido): el XML-doc y el
+  comentario de bloque que **justifican** el filtro siguen diciendo *"Solo cuentan los items de
+  Ventas en estado `Facturada`"* y *"El filtro por `Estado == Facturada` es imprescindible"*, mientras
+  el codigo filtra por `(Confirmada || Facturada)`. Son comentarios **prescriptivos**, no
+  descriptivos: persiste una regla de negocio falsa en el repo, y es lo que el proximo lector va a
+  tomar como autoridad. Archivos sugeridos: `ClasificacionAbcAutomaticaService.cs` (XML-doc de la
+  clase y comentario previo al `Where`) y `DashboardService.cs` (XML-doc de
+  `ObtenerTopProductosMesAsync`). **No borrar el comentario, corregirlo** — la parte que explica por
+  que `Borrador` y `Anulada` quedan afuera es correcta y es lo valioso (`LP-001`).
+- Memoria del estudio actualizada: **`LP-008` creado** en `docs/qa/regresiones-manuales.yml` +
+  `cat_resumen.txt`, y **`nota_qa_laplatense_sprint0` agregada a `MH-001`** en el YAML con la variante
+  `Any()` y el barrido ampliado (en `32-estandares` ya estaba documentada; en el YAML, que es la via de
+  entrada de QA, faltaba).
+- Hallazgo de metodo a tener en cuenta en corridas paralelas: **otro proceso estaba escribiendo
+  `laplatense_dev` al mismo tiempo** (la Venta #7 paso de `Borrador`/cantidad 1 a `Confirmada`/cantidad
+  50 entre dos consultas mias). Los oraculos numericos de la ABC se recalcularon inmediatamente antes
+  de cada medicion en vez de reusar el valor anterior.
+- Riesgos de liberacion: el modo correctivo todavia **no se corrio contra produccion** (lo corre
+  Joaquin; el CSV de produccion va a tener otros ids, los de dev no sirven para marcar a mano); los
+  2.635 candidatos y los 14 de `Peso` quedan a marcar por el cliente; `MH-023` latente en el
+  denominador del Pareto (hoy 0 productos soft-deleted); `KOI-017` observacion: "Ventas de hoy" y
+  "Caja de hoy" usan la misma ventana pero son magnitudes distintas y la pantalla no lo aclara.
+- Deuda declarada: la validacion de reglas cross-proyecto de este lote es **parcial** — solo el
+  subconjunto que toca sus 2 modulos. `KOI-015`, `KOI-016`, `CRM-017` a `CRM-024`, `MH-020`, `MH-021`,
+  `MH-034`, `ELV-008` y las `OLV-*` quedan asignadas a los lotes de Ventas/Caja/CC/Entregas. `MH-022`
+  hay que correrla cuando se construya el nivel 2 del Dashboard ("salud financiera", hoy inexistente).
+- El servidor MCP `playwright` **no estaba conectado en esta sesion** (declarado): se automatizo
+  conduciendo un Chrome real via `playwright-core` desde Node.
+- **Repo del sistema bajo prueba: no se escribio ninguna linea.** `git status --porcelain` limpio (solo
+  el `?? .claude/` preexistente al arranque de la sesion). Base de desarrollo restaurada y verificada:
+  7 Ventas + 4 `ItemsVenta` de prueba borradas, columna `ClasificacionABCSugerida` restaurada desde
+  backup con **0 diferencias**, tabla de backup y CSV de prueba borrados.
+- Archivos: `docs/la-platense/definiciones/6-qa.md` (bloque "Sprint 0 — LOTE 3 de QA"),
+  `docs/qa/regresiones-manuales.yml`, `docs/qa/cat_resumen.txt`, este registro.
+
+### 2026-10-05 13:10 - qa-mvc (QA Sprint 0, LOTE 2 — cobro/ajuste de CC + D8)
+- Etapa: QA (evaluacion independiente, contexto fresco). Lote **financiero**, 1 modulo.
+- Alcance: commits `3b4d9fa` (item 0.5, cobro y ajuste manual de cuenta corriente de clientes) y
+  `800db75` (item 0.2, guarda de doble envio en Confirmar / Confirmar y facturar), rama
+  `entrega-1-migracion`.
+- Resultado: **GO**. Los **7 criterios de la parte A** y los **4 de la parte B** en PASS con
+  evidencia observada (navegador real + lectura directa de `laplatense_dev`). **1 BLOCKED por
+  entorno** y **2 defectos nuevos `minor`**.
+- Evidencia que vale la pena retener:
+  (1) **Atomicidad del cobro demostrada, no inferida**: se inyecto el fallo con un trigger MySQL
+  `BEFORE INSERT ON CajaMovimientos` que hace `SIGNAL` sobre `OrigenTipo='CobroCC'`. El cobro
+  fallo, **no quedo ni el credito de CC ni el ingreso de caja**, y el salto del `AUTO_INCREMENT`
+  (de 5 a 7) prueba que el insert de CC se hizo y se revirtio. Al cerrar los 2 cobros reales de la
+  corrida: `SUM(Importe) Origen=Pago` = `SUM(Monto) OrigenTipo='CobroCC'` = 3095.37, **1:1 sin
+  huerfanos**. Trigger eliminado.
+  (2) **Permisos verificados tambien por POST directo**, no solo por visibilidad del boton: el
+  Vendedor no ve "Ajuste manual", el `GET` le da `AccessDenied`, y un `POST` a `RegistrarAjuste`
+  con un token antiforgery valido suyo no persiste nada.
+  (3) **`LP-003`/`D5` (cultura) PASS en el lugar donde era inmediato y no latente**: el importe
+  arranca prellenado y el HTML real trae `value="12345.67"` invariante, con el input poblado en el
+  navegador.
+  (4) **D8 CERRADO en su camino `confirmar`**: reproduccion exacta del caso original (venta 7,
+  cantidad 1 -> 50, pantalla "$ 76,84") -> se confirma con `Total = 76.84`, no con el $ 1,54 viejo.
+  Triple disparo del handler con `jQuery.trigger('click')` (que ignora `disabled`, asi que ejercita
+  la guarda de reentrada y no solo el bloqueo del boton) -> **un unico POST** en la red, una sola
+  confirmacion, stock/Caja/CC una sola vez.
+- **Hallazgo de proceso**: la premisa del commit `800db75` **no se reproduce**. El commit justifica
+  la guarda en que un segundo click posteaba `continuar=confirmar&continuar=confirmar` y el `switch`
+  caia en el default dejando el borrador guardado sin cerrar la venta; posteado a mano ese POST
+  duplicado sobre un borrador confirmable, la venta **queda Confirmada** (el `SimpleTypeModelBinder`
+  de ASP.NET Core toma el primer valor, no la concatenacion). La guarda de reentrada es correcta y
+  se queda, pero el agujero de esa clase que **sigue abierto** es otro: un valor **desconocido** de
+  `continuar` guarda el borrador y no cierra la venta en silencio (`LP-007`).
+- Defectos catalogados (partes de defecto emitidos al Implementador, con criterio de
+  re-verificacion que arranca en FAIL):
+  - **`LP-006`** (`minor`) — la hora de los ledgers se renderiza en reloj de 12 horas **sin AM/PM**:
+    un cobro de las 13:04 ART se muestra `01:04:22` y un movimiento de las 00:00 se muestra
+    `12:00:00`. El servidor esta bien (el wire entrega `2026-10-05T13:04:22`, ya en ART y sin `Z`:
+    **no** hay doble conversion, no es `MH-014`); el defecto es solo de formato en
+    `new Date(v).toLocaleString('es-AR')`. Confirmado identico en `chrome-headless-shell` y en
+    Chromium completo, asi que **no es artefacto del entorno de prueba**. Afecta
+    `Clientes/CuentaCorriente.cshtml` y `Caja/Index.cshtml` (en Caja es preexistente).
+  - **`LP-007`** (`minor`) — el `switch` de `continuar` en `GuardarBorrador` cae en el caso por
+    defecto para cualquier valor no reconocido: HTTP 200, borrador guardado, venta sin cerrar, **sin
+    ningun mensaje**. Residual server-side de la clase de D8; la guarda de `800db75` es solo de
+    cliente.
+- BLOCKED: **la rama `facturar` de `guardarYContinuar` no es ejercitable** — sin certificado AFIP el
+  boton no se renderiza, asi que no hay camino de usuario para disparar `continuar=facturar`. Es
+  BLOCKED **por entorno**, no por criterio mal escrito, y es la verificacion que de verdad cierra el
+  riesgo fiscal original de D8: **re-verificarla como condicion de habilitar AFIP**, no despues.
+- Informativos anotados sin catalogar (D17 el mensaje crudo de EF que se filtra a pantalla en el
+  rollback; D18 el ajuste de Credito sin tope, que es coherente con el diseno; D19 `ConfirmarAsync`
+  saltea la verificacion de cobertura de pagos en los dos sentidos cuando hay un pago en CC —
+  preexistente de Ventas, para el lote de Ventas).
+- Nota de herramientas: **el servidor MCP `playwright` no estaba disponible en la sesion**. Se
+  declaro y se cubrio con verificacion automatizada equivalente (Playwright instalado en el
+  scratchpad de QA, reusando los binarios de Chromium ya presentes en `ms-playwright`), no con
+  procedimiento manual ni con revision de codigo.
+- Memoria: `6-qa.md` v5 con el bloque del lote y el campo **"Ultima validacion de reglas
+  cross-proyecto" inicializado en 2026-10-05** (no existia: la memoria v4 es previa a la regla).
+  Catalogo cross-proyecto con los 2 items nuevos y el indice regenerado.
+- Estado de `laplatense_dev`: **restaurada a su linea base y verificada** (CC 0 filas, Caja 9 filas,
+  ventas 7/9/10/11 de vuelta en Borrador con sus totales originales — recalculados con la logica del
+  propio sistema, no por SQL —, stock y pagos restaurados, usuario de prueba eliminado, trigger
+  eliminado).
+- **El repo del sistema bajo prueba no se modifico**: `git status --porcelain` devuelve solo
+  `?? .claude/`, que ya estaba al arrancar la corrida.
+- Pendiente para la corrida siguiente: re-verificar `LP-006` y `LP-007` en contexto nuevo con los
+  criterios de vuelta en FAIL; **recibir del lote 1 el barrido completo de reglas cross-proyecto**,
+  que esta corrida no tuvo y por eso declaro el hueco en vez de darlo por hecho.
+
+### 2026-10-05 12:35 - implementador-dotnet
+- Etapa: Implementacion (hallazgos de proceso del Sprint 0)
+- Cambio: tres aportes a la memoria del estudio, mas dos cosas que **requieren decision de
+  Joaquin**.
+  (1) **MH-001 por quinta vez en el proyecto, en variante nueva**: `patrones.Any(pat =>
+  EF.Functions.Like(...))` sobre un `string[]` local revienta igual que el `IN`, pero con otro
+  mensaje (`UnreachableException: A RelationalTypeMapping collection type mapping could not be
+  found`) y **sin ningun `.Contains(` en el codigo**, asi que el grep canonico de la regla no lo
+  encuentra. Documentada la variante en `32-estandares-qa-implementador.instructions.md` con el
+  barrido ampliado a `grep -rnE "\.(Contains|Any)\("`. La encontro la **ejecucion real** contra
+  `laplatense_dev`, no la revision de codigo.
+  (2) **PAT-010 ampliado** en `docs/patrones/catalogo.yml` con la API de dia/mes de negocio y con
+  la zona resuelta por cadena de fallback (IANA, id de Windows, UTC-3 custom): el helper de
+  la-platense queda como candidato a portar al template base, reemplazando el de blankproject.
+  (3) **PAT-001 confirmado**: `pendiente_verificar` pasado a `false` con las rutas reales, y
+  agregada la-platense como segunda referencia por los dos caminos de alta manual (cobro con
+  impacto en caja vs. ajuste sin impacto) que la version original no tenia.
+- Motivo: obligaciones del rol — resolver los `pendiente_verificar` que se cruzan en la pasada y
+  catalogar lo genuinamente reutilizable antes de cerrar la etapa.
+- Impacto en capas: ninguno (memoria documental del estudio).
+- Riesgos/supuestos: **dos puntos abiertos para Joaquin.**
+  (a) **Hallazgo fuera de alcance, NO corregido**: `DashboardService` cuenta las ventas del dia y
+  del mes filtrando solo `Estado == EstadoVenta.Facturada`. Desde el 2026-09-03 `Confirmada` es la
+  forma normal de cerrar una venta y, con AFIP deshabilitado, casi ninguna llega a `Facturada`: el
+  Dashboard va a mostrar **cerca de cero** en cuanto se deploye. No es ninguno de los 4 items del
+  Sprint 0, asi que se dejo intacto en vez de ampliar el alcance por cuenta propia. Lo mas probable
+  es que el criterio correcto sea `Confirmada || Facturada`.
+  (b) **Discrepancia de proceso entre el brief y el rol, resuelta a favor del rol**: el brief de
+  esta corrida pedia "verificar en navegador real contra `laplatense_dev` antes de declarar nada
+  hecho", mientras `implementador-dotnet.agent.md` prohibe explicitamente al Implementador
+  ejecutar smoke tests funcionales (no levantar la app, no probar flujos por navegador) y define
+  el build limpio + la guia de pasos manuales como la evidencia de cierre. Se siguio el **rol**,
+  que el prompt del agente designa como fuente de verdad. Para no entregar solo "verificado por
+  lectura de codigo" — que es justamente lo que el brief rechaza — se produjo evidencia
+  **ejecutada** sin navegador: build limpio (con la comprobacion de que las vistas Razor si
+  compilan en el build), grafo de DI validado con `ValidateOnBuild`/`ValidateScopes`, **8/8**
+  verificaciones de frontera de dia/mes y **24/24** del cobro/ajuste corridas a nivel Service
+  contra `laplatense_dev` (incluidos los criterios de aceptacion de D9), mas la corrida real del
+  item 0.4. La verificacion por navegador queda en la guia de 9 pasos de `5-implementador.md`.
+  **Si Joaquin quiere que el Implementador haga el smoke test por navegador, hay que cambiar la
+  regla en el `.agent.md`, no pedirlo por brief** — si no, la contradiccion se repite en cada
+  corrida.
+
+
 ### 2026-07-30 09:00 - orquestador / analista-funcional
 - Etapa: Analisis
 - Cambio: Creado el proyecto La Platense a partir del relevamiento presencial. Capturado el alcance completo de 16 módulos y detectada funcionalidad adicional no pedida explícitamente (devoluciones, reservas de stock, NC/ND AFIP, permisos de repartidor, multi-caja, historial de precios, alerta de lista vencida) — pendiente de confirmación con el cliente, no incluida en el presupuesto.
@@ -46,40 +322,12 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Impacto en capas: Datos (`AjusteStock`, campos nuevos en `Producto`), Negocio (`AjusteStockService`, validación de venta con stock negativo permitido en `VentaWorkflowService`), Presentación (pantalla de ajuste de stock, columna de conteo en el importador de migración).
 - Riesgos/supuestos: Stock (Etapa 1) pasó de 6h a 8h; Etapa 3 pasó de 12h a 15h base. **R de Etapa 1+2 bajó de 70,9% a 70,6%** — sigue en Tier 1 pero el colchón sobre el umbral de 70% ya es mínimo; no conviene seguir sumando alcance nuevo de bajo reuse sin revisar este cálculo. Nueva pregunta abierta: quién hace la clasificación ABC (Olvidata en sesión con el cliente, o el cliente solo).
 
-### 2026-07-30 12:00 - analista-funcional / disenador-funcional / arquitecto-mvc / presupuesto-mvc
-- Etapa: Analisis → Diseno → Arquitectura → Presupuesto (ajuste en cadena)
-- Cambio: dos decisiones de Joaquín. (a) **Nuevo alcance confirmado**: el cliente tiene una ticketeadora de código de barras (propios y de fábrica) — se agrega el módulo "Código de barras — etiquetado + lectura en venta" (7h, Etapa 1) para hacer la carga de la venta más dinámica. (b) **Se retira la migración de catálogo como etapa del presupuesto** — el problema de stock que la motivaba ya está resuelto por el módulo de puesta a punto de stock inicial (independiente de la migración); Joaquín va a hacer un segundo relevamiento tras aprobar este presupuesto para evaluar acceso directo a la base de datos actual del cliente, lo que bajaría mucho el costo real de importación frente a depender de un archivo Excel — se cotiza aparte, más adelante.
-- Motivo: alinear el presupuesto con hardware real del cliente (ticketeadora) y no cobrar por adelantado una migración cuya incertidumbre está a punto de resolverse con mejor información (acceso a BD real).
-- Impacto en capas: Datos (`Producto.codigoBarras`), Negocio (`EtiquetaService`, `CodigoBarrasLookupService`; se retira `CatalogoMigracionService` de este alcance), Presentación (impresión de etiquetas, campo de escaneo en venta).
-- Riesgos/supuestos: **R de Etapa 1+2 bajó de 70,6% a 68,5% — el proyecto pasa de Tier 1 (30% descuento) a Tier 2 (15% descuento)**, tal como se había advertido en la ronda anterior (colchón sobre el umbral ya era mínimo). Nueva pregunta abierta: marca/modelo de la ticketeadora (define si la impresión de etiquetas es simple —impresora estándar de Windows— o requiere protocolo propietario ZPL/EPL, más costoso). Total del proyecto actualizado: Etapa 1 ≈ USD 1.649, Etapa 2 ≈ USD 597 — Total ≈ USD 2.246 (la migración queda fuera, se cotiza en una fase posterior).
-
 ### 2026-07-30 12:30 - presupuesto-mvc
 - Etapa: Presupuesto
 - Cambio: Joaquín aclaró que la ticketeadora es manual (no se integra con el sistema) — el módulo de código de barras se simplifica de 7h a 3h (solo vincular el código escaneado al producto, sin generación/impresión de etiquetas). Con eso, R de Etapa 1+2 sube de 68,5% a 69,8% (caso límite, a 0,2 puntos de Tier 1 — se mantiene Tier 2 por criterio estricto, declarado como zona gris). El precio según fórmula/política queda en ≈USD 2.183. **Joaquín fijó el precio final a cobrar en USD 1.800** (override comercial directo, ~17,5% por debajo de la fórmula), aportando su propia estimación de esfuerzo real: 30 horas reloj + USD 200 de tokens IA.
 - Motivo: ticketeadora manual reduce el alcance real; precio de cierre fijado directamente por Joaquín para este cliente.
 - Impacto en capas: Datos (`Producto.codigoBarras` sin cambios), Negocio (se retira `EtiquetaService`, queda solo `CodigoBarrasLookupService`), Presentación (sin pantalla de impresión de etiquetas).
 - Riesgos/supuestos: chequeo de margen con los números de Joaquín (30h reales × USD 35/h + USD 200 tokens = USD 1.250 de piso de referencia) confirma que USD 1.800 da una tasa efectiva realizada de ≈USD 53,3/h — por encima del objetivo de USD 35/h, el override no compromete la rentabilidad esperada. Etapa 1 = USD 1.308 / Etapa 2 = USD 492 / Total = USD 1.800.
-
-### 2026-07-30 13:00 - presupuesto-mvc
-- Etapa: Presupuesto (cierre comercial)
-- Cambio: Joaquín reestructuró el precio final como dos modalidades de pago del **total del proyecto** (ya no desglosado por etapa en el documento del cliente): **USD 1.500 en hasta 3 pagos**, o **USD 1.800 en hasta 12 pagos**. Además, simplificó el mantenimiento a un único plan **PREMIUM** desde el arranque — año 1 sin costo, USD 500/año desde el año 2 (reemplaza la transición PRO→PREMIUM de versiones anteriores).
-- Motivo: cierre comercial — ofrecer flexibilidad de pago al cliente y simplificar el plan de mantenimiento dado que el sistema completo excede ampliamente el rango de tablas de PRO.
-- Impacto en capas: económico/comercial, sin impacto técnico.
-- Riesgos/supuestos: chequeo de margen con los números propios de Joaquín (30h reales + USD 200 tokens IA) confirma que ambas modalidades quedan por encima del objetivo de USD 35/h (≈USD 43,3/h en la de 3 pagos, ≈USD 53,3/h en la de 12 pagos) — ninguna compromete la rentabilidad esperada.
-
-### 2026-07-30 14:00 - orquestador (cierre de presupuesto)
-- Etapa: Presupuesto → Cierre (gate hacia Implementación)
-- Cambio: **Cliente aprobó el presupuesto** — modalidad USD 1.500 en hasta 3 pagos, con plan de mantenimiento PREMIUM (año 1 sin costo).
-- Motivo: aprobación formal del cliente, habilita el inicio de Implementación según la secuencia obligatoria de `CLAUDE.md` ("No iniciar Implementación sin Presupuesto aprobado por el cliente").
-- Impacto en capas: ninguno técnico todavía — gate administrativo.
-- Riesgos/supuestos: quedan preguntas abiertas de `1-analista-funcional.md` (§9) sin cerrar antes de Implementación: quién puede anular una venta facturada (admin/vendedor + límite de tiempo). La migración de catálogo sigue pospuesta a una fase posterior (pendiente el segundo relevamiento con acceso a BD real). Antes de desplegar, revisar capacidad de infraestructura disponible en SmarterASP (cupo de bases de datos 17/20 al 2026-07-30) — ver memoria `project-hosting-sharding-smarterasp.md`.
-
-### 2026-07-30 19:00 - implementador (arranque de infraestructura)
-- Etapa: Implementación (arranque)
-- Cambio: creado el repositorio real del proyecto en `C:\Sistemas\Ferreteria La Platense`, a partir de una copia saneada de `olvidatasoft-crm` (base .NET 10/Identity/EF Core/MySQL del estudio, mismo patrón usado para crear el propio CRM desde KoiDumplings). Se eliminó toda la lógica de negocio específica del CRM (entidades Contacto/CampanaOutbound/IndustriaCatalogo, servicios de bot/WhatsApp/Google Maps, controllers y vistas de Contactos/Chats/Campañas/Industrias/Bot, todas las migraciones EF existentes) y se conservó la infraestructura base reutilizable (Identity, notificaciones in-app, email, exportación, health checks, middleware de errores, layout). Proyecto renombrado de `OlvidataCRM` a `FerreteriaLaPlatense` en carpetas, `.slnx`, `.csproj` y namespaces. Se creó el workspace `C:\Sistemas\Ferreteria La Platense.code-workspace` (folders: proyecto + Agentes-IA).
-- Motivo: pedido explícito de Joaquín — arrancar el desarrollo de La Platense sobre una base técnica actualizada en vez de crear un proyecto desde cero, reutilizando el mismo patrón de "copiar y sanear" ya usado antes en el estudio.
-- Impacto en capas: las 4 capas del proyecto (Domain/Application/Infrastructure/Web) — ver detalle completo en el mensaje de confirmación de borrado (no repetido acá por extensión).
-- Riesgos/supuestos: **se encontraron y corrigieron 3 hallazgos de seguridad reales al hacer la copia**, no relacionados con la limpieza de lógica de negocio en sí: (1) `appsettings.Production.json` tenía credenciales reales del CRM en texto plano (MySQL, SMTP, WhatsApp, Google Maps) — reemplazado por template vacío; (2) `ssl/` tenía la clave privada real del certificado de `portal.olvidata.com.ar` — eliminada; (3) los publish profiles (`Properties/PublishProfiles/*.pubxml`) apuntaban al sitio real del CRM en producción (`olvidatasoft-002-site12`) — eliminados por completo, para que un `dotnet publish` accidental no pise el CRM real. El `.git` original (con remote al repo real del CRM) se reinició limpio, a pedido explícito de Joaquín. Build verificado (`dotnet build`, 0 errores) tras la limpieza y el renombrado. Todavía no hay ninguna entidad ni migración EF de la ferretería — el `AppDbContext` quedó con un comentario placeholder apuntando a `3-arquitecto-mvc.md` para cuando arranque la implementación real de los módulos.
 
 ### 2026-08-10 09:00 - orquestador / implementador (arranque de Implementación)
 - Etapa: Implementacion (planificacion de secuencia de entrega)
@@ -483,7 +731,42 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Motivo: pedido de Joaquín ("manual de usuario con las funcionalidades completas de la etapa entregada, para darle al usuario").
 - Riesgos/pendientes: el manual declara 4 pendientes (cobro de CC, facturación AFIP sin certificado, anulación de venta confirmada, compras/proveedores/notas de crédito). El manual documenta el sistema **tal como está en la rama, no como está en producción**: los cambios del 2026-09-03 todavía no fueron deployados.
 
+### 2026-10-05 - orquestador (plan de cierre de alcance: Entregas 3 a 6)
+- Etapa: 4 - Presupuesto (secuenciacion, sin precio nuevo). Las etapas 0-3 de este alcance ya estaban cerradas desde el 2026-07-30: todos los modulos salen del WBS de Etapa 1 + Etapa 2 aprobado por el cliente.
+- Entregable: `4-presupuestador.md` v8, seccion "Plan de cierre de alcance - Entregas 3 a 6". **59h M restantes, USD 0 de precio nuevo** (Etapa 1 y Etapa 2 ya cobradas dentro de los USD 1.500/1.800).
+- **Estado de partida verificado contra el repo, no contra la memoria** (rama `entrega-1-migracion`, 17 controladores, 24 entidades): `Proveedor` existe solo como catalogo simple minimo de Etapa 3 (sin ABM, sin sidebar, sin CC, sin compras); `AfipService` codificado pero deshabilitado; `EstadoVenta.Anulada` existe en el enum pero **ningun codigo la dispara** (solo se usa como filtro en `VentaWorkflowService:75` y como badge en `Views/Ventas/Details.cshtml:11`) - no hay anulacion de ningun tipo. Las ramas `entrega-2`, `entrega-3` y `migracion-catalogo` no tienen ningun controlador que no este ya en `entrega-1-migracion`.
+- Secuencia: **Sprint 0** (deuda abierta, 8h sin cargo: deploy pendiente de `a6a78f0`, D8, D9, correccion de `UnidadVenta`, cobro de CC de clientes) -> **E3** Proveedores + Compras (18h, cierra Etapa 1, sin gates) -> **E4** CC empleados + CC negocio (9h) -> **E6** Presupuestos PDF + aumento masivo (12h, sin dependencias, valvula de escape) -> **E5** AFIP + devoluciones/NC-ND + anulacion (12h), que se inserta en cuanto llegue el certificado del cliente en vez de bloquear la secuencia.
+- **Cambio de alcance real detectado (unica pieza que se aparta del diseno aprobado):** `1-analista-funcional.md` §6.5 definia la anulacion como `Facturada`->`Anulada` disparada por una NC AFIP, "sin anulacion silenciosa sin comprobante fiscal". Ese diseno es anterior al 2026-09-03, cuando `Confirmada` paso a ser la forma normal de cerrar una venta sin factura. Hoy la mayoria de las ventas reales nunca llegan a `Facturada`, asi que el modulo 17 necesita **dos caminos** (anular `Confirmada` revirtiendo stock/caja/CC sin comprobante fiscal, y anular `Facturada` por NC). No agrega horas; cambia el diseno.
+- **Criterio economico declarado:** Sprint 0 va sin cargo. D8/D9 son defectos (garantia); el cobro de CC de clientes es un gap del modulo 5 ya entregado y cobrado (una CC que no admite cobros esta incompleta, no es un modulo nuevo, no se factura como upsell); la correccion de `UnidadVenta` es consecuencia de Etapa 3 ya cobrada.
+- Motivo: pedido de Joaquin ("armar un plan de desarrollo para terminar el desarrollo completo del sistema").
+- Riesgos/pendientes: **3 decisiones bloqueantes antes de arrancar Sprint 0** - (1) dia de negocio de la caja para cerrar D9, (2) pregunta abierta 7 de `1-analista-funcional.md` §9 (quien anula y con que limite de tiempo), (3) regla de mapeo de `UnidadVenta` para los 87.542 productos migrados como Metro. Ninguna de las tres bloquea E3, que es el bloque mas grande: se puede arrancar en paralelo a la respuesta del cliente. Contexto de los agentes chequeado con `scripts/contexto.py presupuesto la-platense`: los 8 agentes bajo su techo, sin archivado pendiente.
+
+### 2026-10-05 (2) - orquestador / analista-funcional (cierre de los 3 gates del plan + anclaje de reuse en marihogar)
+- Etapa: 1 - Analisis (cierre de decisiones) sobre el plan de `4-presupuestador.md`. Deja el plan **sin ningun gate abierto salvo el certificado AFIP**.
+- **Decision 1 — dia y mes de negocio de la caja (cierra D9).** Respuesta del cliente: la caja chica se cierra todos los dias y la caja grande el dia 1 de cada mes sobre el mes anterior. Lectura funcional: **dia de negocio = dia calendario en hora Argentina** (no hay corte nocturno: la venta de las 22:44 del 24 pertenece al 24) y **mes de negocio = mes calendario**. El fix mantiene UTC en la base pero proyecta a hora Argentina toda frontera de dia/mes. **Derivado a verificar durante el fix, no asumido:** que la guarda del cierre mensual admita cerrar un mes **anterior** al actual — si solo deja cerrar el mes en curso, el flujo real del cliente no entra.
+- **Decision 2 — quien anula una venta (cierra la pregunta abierta 7, abierta desde el 2026-07-30).** La anula el **Administrador o el usuario que la creo**: un vendedor solo sus propias ventas (validando `UsuarioId`), el repartidor no anula. **Supuesto declarado:** sin limite de tiempo propio del sistema — el unico tope real es el de AFIP para la NC de una venta facturada. El cliente no definio el limite; si quiere un tope es una linea de validacion, no un cambio de diseno.
+- **Decision 3 — `UnidadVenta`: el cliente respondio "no se", asi que se resolvio midiendo la base en vez de volver a preguntar.** Medido sobre `laplatense_dev` (catalogo real migrado): 87.542 `Metro` / 24.929 `Unidad` / 14 `Peso`. **La prueba de que el `METRO` del legado es su valor por defecto y no un dato real: 2.898 de los productos marcados `Metro` se llaman a si mismos "Unidad de…", "C/U…" o "x unidad"**, y la muestra aleatoria del grupo devuelve martillos demoledores, puertas plasticas, pinzas y brocas. El script de migracion no tiene ningun error — `MapearUnidad` (`tools/MigracionCatalogo/Program.cs:149`) mapea fielmente lo que el dato dice; el problema es el origen. **Regla acordada:** los 87.542 pasan en bloque a `Unidad` (default seguro, devuelve el `step` a 1 y elimina los decimales de casi todo el catalogo, que es el sintoma que origino esto) + lista de los **2.635 candidatos reales a corte por metro** (cable 804, manguera 535, cadena 534, alambre 283, soga/piola/cuerda 271, tanza 221) para que el cliente marque a mano los que corta al mostrador. Se excluyen a proposito los 4.077 de cano/tubo (se venden por barra entera) y **no se infiere la unidad por palabra clave del nombre** ("cable x 100 mt" es un rollo que se vende por unidad: adivinar meteria un error nuevo donde hoy hay uno conocido). Los 14 `Peso` tambien son sospechosos (en una ferreteria se espera granel por kilo) y se resuelven por el mismo camino, no por inferencia.
+- **Anclaje de reuse confirmado por instruccion explicita de Joaquin: AFIP, NC, circuito de ventas, presupuestos, aumento masivo, proveedores, compras y pagos de compras se toman de `marihogar`** (`C:\Sistemas\marihogar`). Verificado archivo por archivo, no asumido: `ComprobanteAfipService` (incluye NC, migracion `AddNotaCreditoAfip`), `VentaService`, `PagoVentaService`, `ProveedorService`, `OrdenCompraService`, `PagoOrdenCompraService`, `EgresoPagoProveedorService`, `CCProveedorService`, `ChequeService` (echeck/diferidos), `PresupuestoService`, `AumentoMasivoPrecioService` y `CCLocalService` + `CCLocalController`. Tabla completa pieza->origen en `4-presupuestador.md` v9.
+- **Hallazgo del anclaje:** la CC propia del negocio (item 4.2 del plan, Entrega 4) tiene **precedente directo** en `CCLocalService`/`CCLocalController` de `marihogar`, mejor que el `CajaService` de `ganaderia` que asumia el WBS (que la estimaba como 2h reuse + 3h nuevo). No se recotiza — las M del WBS ya estaban ancladas en `marihogar`, asi que la confirmacion valida la estimacion en vez de reducirla; el desvio se refleja en el cierre de calibracion.
+- Entregables: `1-analista-funcional.md` v4 (seccion nueva "Decisiones del cliente del 2026-10-05" + pregunta abierta 7 cerrada) y `4-presupuestador.md` v9 (gates cerrados en Sprint 0 y Entrega 5 + seccion "Anclaje de reutilizacion").
+- Motivo: respuestas de Joaquin a las 3 decisiones bloqueantes planteadas al presentar el plan, mas su instruccion de anclar todo el reuse en `marihogar`.
+- Riesgos/pendientes: **unico gate que queda abierto en todo el plan: el certificado AFIP del cliente** (bloquea E5, no el resto). El supuesto de "sin limite de tiempo para anular" esta declarado y hay que confirmarselo al implementar 5.3. La base legada (`LaPlatense_MigracionAnalisis`, SQL Server local) **ya no existe en la maquina** — se verifico: solo quedan `ConversionDataNetABejerman` y su copia. Si la correccion de `UnidadVenta` necesitara volver al origen, hay que restaurar el `.bak` de `Migracion/` otra vez; la regla acordada no lo necesita porque opera sobre el catalogo ya migrado.
+
 ## Historial de ajustes de alcance
+
+### Bloques archivados (2026-10-05)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-07** — 3 bloques (2026-07-30 a 2026-07-30) → [`trazabilidad-2026-07-2.md`](historial/trazabilidad-2026-07-2.md)
+
+
+### Bloques archivados (2026-10-05)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-07** — 1 bloques (2026-07-30 a 2026-07-30) → [`trazabilidad-2026-07.md`](historial/trazabilidad-2026-07.md)
+
 - 2026-07-30: se descarta el módulo "Cheques 30/60/90 días" como módulo aparte (el cliente no opera con pagos diferidos propios) — se absorbe como campo de forma de pago en Proveedores + Compras.
 - 2026-07-30: mantenimiento acordado previo a este relevamiento (año 1 con Etapa 1 = PRO sin costo; desde Etapa 2 = PREMIUM USD 500/año) se mantiene sin cambios para este proyecto.
 - 2026-07-30: agregado módulo "Devoluciones + Notas de crédito/débito AFIP" (Etapa 2, confirmado por el cliente: aplican devoluciones, no cambios). Migración de catálogo promovida de ítem dentro de Etapa 2 a **Etapa 3 independiente** (~17.000 productos, formato aún no recibido, precio provisional USD 315). Dashboard ampliado de 8h a 12h por pedido explícito del cliente de priorizar diseño y estructura de esa pantalla.
@@ -491,3 +774,35 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - 2026-07-30: agregado módulo "Código de barras — etiquetado con ticketeadora + lectura en venta" (Etapa 1, 7h). **Retirada la migración de catálogo como etapa del presupuesto** (se cotiza aparte más adelante, tras un segundo relevamiento con posible acceso a la base de datos real). Efecto combinado: el proyecto pasa de Tier 1 a Tier 2 (R bajó de 70,6% a 68,5%). Total: Etapa 1 USD 1.649 / Etapa 2 USD 597 / Total USD 2.246.
 - 2026-07-30: ticketeadora confirmada como manual — módulo de código de barras simplificado a 3h (solo vinculación, sin etiquetado). Joaquín fijó el precio final de cierre en **USD 1.800** (Etapa 1 USD 1.308 / Etapa 2 USD 492), por debajo de los ≈USD 2.183 de la fórmula/política estándar, respaldado por su propio chequeo de margen (30h reales + USD 200 tokens IA → tasa efectiva ≈USD 53,3/h).
 - 2026-07-30: precio final reestructurado como dos modalidades de pago del total del proyecto: **USD 1.500 en hasta 3 pagos** o **USD 1.800 en hasta 12 pagos**. Mantenimiento simplificado a un único plan PREMIUM (año 1 gratis, USD 500/año desde el año 2), reemplaza la transición PRO→PREMIUM anterior.
+
+
+### Traza de corrida -- 2026-10-05 / etapa implementacion
+- Reintentos: 2
+- Criterios fallados: D8 (ya venia corregido en a6a78f0: verificado, no reimplementado) D9 0.4 0.5 -- los 4 aplicados, pendientes de re-verificacion de QA
+- Reglas releidas: agents/implementador-dotnet.agent.md (completo) 32-estandares-qa-implementador por indice: LP-002 LP-003 MH-001 MH-020 MH-021 MH-033 MH-034 KOI-001 KOI-B01 ELV-008, 4-presupuestador#Plan-de-cierre-Sprint-0, patrones: cat_resumen + PAT-010 PAT-001 PAT-019 PAT-020
+- Arranque real: 55 KB (~14k tokens)
+- Nota: SPRINT 0, 4 ITEMS, UN COMMIT POR ITEM, SIN DEPLOY. LO PRIMERO QUE CAMBIO EL PLAN: el item 0.2 (D8) YA ESTABA CORREGIDO en a6a78f0, construido el 2026-09-03 y nunca deployado -- el brief describia el codigo viejo. No se reimplemento: se verifico el diff (guardarYContinuar postea el form entero a GuardarBorrador y solo sigue si result.Success, en los DOS botones) y se endurecio con la guarda de doble envio que faltaba, que era un defecto real no reportado: los dos hidden comparten name=continuar, un segundo click posteaba 'confirmar,confirmar', el switch caia en el default y el borrador se guardaba SIN cerrar la venta, en silencio -- el mismo sintoma de clase que D8. LA CAUSA RAIZ DE D9 NO ERA DateTime.Today: era que CajaMovimiento.Fecha tenia DOS SEMANTICAS EN LA MISMA COLUMNA (VentaWorkflowService y GastoService.AnularAsync escribian instante UTC; GastoService.CrearAsync y RegistrarMovimientoManualAsync escribian fecha calendario a medianoche). Sin unificar la columna primero, ser consistente era imposible. Se unifico a instante UTC siempre y el dia de negocio se DERIVA proyectando a ART; toda la conversion quedo en ArgentinaTime (PAT-010 ampliado), cero DateTime.Today/UtcNow.Date en decisiones de dia/mes y cero ConvertTimeToUtc fuera del helper (verificado por grep). Migracion SOLO DE DATOS para las filas viejas de medianoche (+3h, discriminador 00:00:00.000000 + OrigenTipo IN Gasto/Ajuste), porque leidas como UTC caian a las 21:00 del dia ANTERIOR y descuadraban dos dias. DOS HALLAZGOS QUE EL PARTE NO MENCIONABA: (1) el cierre mensual NO TENIA NINGUNA GUARDA DE PERIODO -- dejaba cerrar el mes en curso y meses futuros, no solo 'faltaba permitir el anterior' como suponia el brief; ahora anterior si, en curso no, futuro no, y CerrarDiaAsync rechaza dia futuro. (2) ArgentinaTime.Zone resolvia la zona con el id de WINDOWS unicamente: al volverse la fuente unica de TODAS las fechas, un TimeZoneNotFoundException ahi dejaba de romper una pantalla y pasaba a romper el ARRANQUE de la app (inicializador estatico); se le porto la cadena de fallback que AfipService ya tenia y AfipService ahora reusa el helper. ITEM 0.4 CORRIDO CONTRA laplatense_dev: 87.542 Metro -> 0, Unidad 24.929 -> 112.471, Peso 14 sin tocar, 2.635 candidatos a corte por metro listados a CSV sin modificarlos (coincide EXACTO con el total previsto; los per-grupo del brief sumaban 2.648 porque estaban pre-dedup). El CSV confirma por que la regla de no inferir estaba bien: entre los 'alambre' hay ABRAZADERA DE ALAMBRE y ALAMBRE 0,9 X 5 KG (PRECIO X KILO). MH-001 POR QUINTA VEZ EN EL PROYECTO Y EN VARIANTE NUEVA: Any() + EF.Functions.Like sobre string[] local revienta igual que el IN pero con OTRO mensaje (UnreachableException: A RelationalTypeMapping collection type mapping could not be found) y SIN NINGUN .Contains( en el codigo, asi que el grep canonico de la regla no lo encuentra. La encontro la EJECUCION REAL, no la revision -- documentada en 32-estandares con el barrido ampliado a (Contains|Any). ITEM 0.5: cobro (Credito en CC + Ingreso en Caja en UNA transaccion, MH-033) y ajuste (solo CC, SIN tocar caja a proposito -- un ajuste corrige la deuda, no es plata que se movio; meterlo en caja inflaria el arqueo). Origen nuevo CobroCC del ledger propagado al filtro de Caja por LP-002. Permisos POR PRECEDENTE, sin inventar: cobrar = Vendedor (es lo que ya hace al confirmar una venta, que tambien postea a Caja); ajustar = Administrador (equivale al movimiento manual de caja, que es admin-only). LP-003 no era latente aca sino inmediato: el importe arranca PRELLENADO con la deuda, asi que asp-for en es-AR habria dejado el input vacio sin mensaje. EVIDENCIA EJECUTADA, SIN NAVEGADOR: build 0 errores + comprobado que las vistas Razor SI compilan en el build (metiendo un simbolo inexistente a proposito y revirtiendo), grafo de DI validado con ValidateOnBuild+ValidateScopes, 8/8 fronteras de dia/mes (incluido el criterio de aceptacion: UTC 2026-09-25 01:44 -> dia 24; el arqueo del 24 la incluye y el del 25 no) y 24/24 del cobro/ajuste a nivel Service contra laplatense_dev, con las filas de prueba borradas al final. DISCREPANCIA DE PROCESO QUE DEJO PLANTEADA: el brief pedia verificar en NAVEGADOR real, el .agent.md se lo prohibe explicitamente al Implementador y designa el build limpio + la guia manual como evidencia de cierre. Segui el rol (el prompt lo designa fuente de verdad) y compense con evidencia ejecutada no-navegador para no entregar 'verificado por lectura de codigo', que es lo que el brief rechaza. Si se quiere el smoke por navegador, hay que cambiar la REGLA, no pedirlo por brief: si no, la contradiccion se repite cada corrida. HALLAZGO FUERA DE ALCANCE QUE NO TOQUE: DashboardService cuenta ventas solo con Estado == Facturada, y desde que Confirmada es el cierre normal (y con AFIP apagado) el Dashboard va a mostrar CERCA DE CERO en cuanto se deploye. No es ninguno de los 4 items, asi que lo deje intacto y lo escale en vez de ampliar alcance solo. REINTENTOS: 2 (el modo 0.4 reventó por MH-001 y hubo que reescribir el listado query-por-patron; un comentario inline que me quedo partiendo una expresion y rompio el build de CodigoBarrasLookupService). PAT-001 tenia pendiente_verificar: true y lo RESOLVI en la misma pasada contra C:/Sistemas/vino-y-se-fue, como pide el rol.
+
+
+### Traza de corrida -- 2026-10-05 / etapa qa / lote 2
+- Reintentos: 3
+- Criterios fallados: LP-006, LP-007, B4b-BLOCKED
+- Reglas releidas: qa-mvc.agent.md (completo), cat_resumen+LP-002/LP-003/MH-001/MH-014/MH-027/MH-033/MH-037/REG-010, 6-qa.md#D8-D9-D11
+- Arranque real: 58 KB (~14k tokens)
+- Nota: LOTE 2 FINANCIERO, 2 COMMITS (3b4d9fa cobro/ajuste de CC + 800db75 guarda de doble envio). GO: 7/7 criterios de la parte A y 4/4 de la parte B en PASS con evidencia observada, 1 BLOCKED por entorno, 2 defectos nuevos minor. EL SERVIDOR MCP PLAYWRIGHT NO ESTABA DISPONIBLE: se declaro y se compenso instalando Playwright en el scratchpad de QA y reusando los binarios de Chromium ya presentes en ms-playwright -- toda la evidencia es de navegador real + lectura directa de MySQL, cero 'verificado por lectura de codigo'. LO MAS CARO Y LO QUE MAS VALIO: la atomicidad del cobro no se verifica leyendo el BeginTransaction, se verifica ROMPIENDOLA -- trigger MySQL BEFORE INSERT ON CajaMovimientos con SIGNAL sobre OrigenTipo=CobroCC, el cobro fallo, no quedo ni el credito de CC ni el ingreso de caja, y el salto del AUTO_INCREMENT (5 -> 7) probo que el insert de CC se hizo y se revirtio. Trigger eliminado al cerrar. Cierre contable: SUM(Importe) Origen=Pago = SUM(Monto) OrigenTipo=CobroCC = 3095.37, 1:1 sin huerfanos. HALLAZGO DE PROCESO QUE HAY QUE RETENER: LA PREMISA DEL COMMIT 800db75 NO SE REPRODUCE. El commit dice que un segundo click posteaba continuar=confirmar,confirmar, el switch caia en el default y el borrador se guardaba sin cerrar la venta. Posteado a mano ese POST duplicado sobre un borrador confirmable, la venta QUEDA CONFIRMADA: el SimpleTypeModelBinder de ASP.NET Core toma el PRIMER valor, no la concatenacion. La guarda de reentrada es correcta y se queda (verificada en B2: 3 invocaciones con jQuery.trigger('click'), que ignora disabled, -> UN unico POST y UNA sola confirmacion), pero el defecto que decia cerrar era otro. Moraleja: un parte de defecto que describe una causa raiz hay que ejecutarlo, no aceptarlo -- vale para los del Implementador igual que para los mios. EL AGUJERO REAL DE ESA CLASE SIGUE ABIERTO -> LP-007: cualquier valor desconocido de continuar da HTTP 200, guarda el borrador y NO cierra la venta, sin ningun mensaje; la guarda que se agrego es SOLO DE CLIENTE. LP-006 (nuevo): la hora de los ledgers de CC y Caja sale en reloj de 12 HORAS SIN AM/PM -- un cobro de las 13:04 ART se muestra 01:04:22 y un movimiento de las 00:00 se muestra 12:00:00. CASI LO DESCARTE COMO ARTEFACTO DEL HEADLESS: lo verifique en chrome-headless-shell Y en el Chromium completo y da identico, asi que es real. NO es MH-014: el wire entrega 2026-10-05T13:04:22 ya en ART y SIN sufijo Z, o sea el servidor esta bien y no hay doble conversion -- es solo el formato de toLocaleString('es-AR'). Preexistente tambien en Caja. D8 CERRADO en su camino confirmar (venta 7, cantidad 1->50, pantalla 76,84 -> Total persistido 76.84, no el 1,54 viejo), pero la rama FACTURAR quedo BLOCKED POR ENTORNO: sin certificado AFIP el boton no se renderiza y no hay camino de usuario para disparar continuar=facturar. Esa es la verificacion que de verdad cierra el riesgo fiscal original, asi que hay que RE-VERIFICARLA COMO CONDICION DE HABILITAR AFIP, no despues. 6-qa.md NO TENIA el campo 'Ultima validacion de reglas cross-proyecto' (memoria v4, previa a la regla), asi que por contrato todo el catalogo contaba como a validar por primera vez -- ese barrido es del lote 1 y ESTA CORRIDA NO RECIBIO SU RESULTADO; lo declare como hueco en vez de darlo por hecho y ejecute el subconjunto que toca la superficie del lote. Campo inicializado en 2026-10-05. laplatense_dev restaurada a su linea base y verificada, con el detalle fino de que los encabezados de las ventas se recalcularon ABRIENDO EL BORRADOR Y GUARDANDOLO (logica del propio sistema), no por UPDATE a mano, porque reconstruir Subtotal/TotalIVA por SQL habria dejado totales que el sistema no genera. Repo del sistema intacto: git status --porcelain devuelve solo ?? .claude/, que ya estaba al arrancar. REINTENTOS: 3 (el MCP de playwright ausente y el fallback del executablePath de Chromium, que apunta a chrome-win64 y no a chrome-win; un selector button[type=submit] ambiguo que resolvia a un dropdown-item invisible del layout; y el hash del usuario Vendedor de prueba, que me quedo mal clonado y me hizo leer un 'AccessDenied' que en realidad era un login fallido mio -- NO un defecto de permisos del sistema, casi lo reporte como tal).
+
+
+### Traza de corrida -- 2026-10-05 / etapa qa / lote 3
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: ninguna
+
+
+
+### Traza de corrida -- 2026-10-05 / etapa qa / lote 1
+- Reintentos: 3
+- Criterios fallados: C2b-BLOCKED, LP-009, LP-010, LP-011, LP-012
+- Reglas releidas: 32#LP-002, 32#MH-033, 32#MH-034, 32#KOI-015, 32#KOI-017, 30, 33, 39#5
+- Arranque real: 52 KB (~13k tokens)
+- Nota: LOTE 1 FINANCIERO, 1 COMMIT (628cb7a item 0.3 / D9 + migracion de datos). D9 CERRADO: los 5 criterios del parte original en PASS con evidencia observada, mas el criterio de arranque de la app. PERO NO-GO para cerrar el Sprint 0: el lote deja 2 defectos major nuevos, los dos en el circuito de dinero y los dos derivados del propio cambio. EL MCP DE PLAYWRIGHT NO ESTABA DISPONIBLE (ToolSearch sobre mcp__playwright__* no devuelve nada, y tampoco hay playwright-core); se declaro y se compenso con un harness HTTP en Node (cookies de Identity + antiforgery) mas assertions SQL directas -- cero 'verificado por lectura de codigo'. ERROR DE METODO QUE HAY QUE RETENER: el lote 2 de esta misma corrida SI consiguio navegador real instalando Playwright en su scratchpad y reusando los binarios de ms-playwright; yo no lo intente y me quede en HTTP. Para un lote cuyo sintoma es 'lo que ve el operador' (D18), el navegador habria sido mejor evidencia. LO QUE MAS VALIO: no probar el huso leyendo el codigo sino FORZANDO EL BORDE CON DATOS -- sembrar un CajaMovimiento en 2026-10-01 01:44 UTC (= 30/09 22:44 ART) hace observable el dia de negocio sin tocar el reloj: se lista y se filtra como 30/09, entra en el cierre de ese dia (1234.56) y entra en el mes de septiembre, y el 01/10 devuelve 0. Mismo truco para el gasto de esa noche (persiste en 2026-09-30 03:00 UTC = 00:00 ART) y los dos caen en el MISMO cierre. CONTROL DE INTEGRIDAD QUE ENCONTRO UN BUG SOLO: query que compara cada cierre guardado contra el recalculo por rango UTC del dia/mes de negocio. 4 de 5 coinciden exacto; el que no (agosto, 2500.75 de diferencia) destapo LP-009. Esa query vale como smoke permanente de cualquier modulo de caja. LP-009 (major, NUEVO): cerrado el mes, el sistema SIGUE ACEPTANDO movimientos dentro de ese mes -- la guarda de periodo cerrado es EstaCerradoAsync(dia) y solo consulta CierresCajaDiarios, nunca CierresCajaMensuales. Con 09/2026 cerrado se aceptaron un ajuste de 3333.33 y un gasto de 4444.44 fechados 15/09 y la pantalla sigue mostrando 777.77 de egresos contra 8555.54 reales. El commit agrego la mitad 'no cerrar el mes en curso' y dejo afuera la simetrica. Familia MH-035/MH-038/DN-004, y forma genericade CRM-017. LP-010 (major, NUEVO): UNIFICAR UNA SEMANTICA EN UN LUGAR LA DESUNIFICA DE TODOS LOS QUE NO SE TOCARON. CajaMovimiento.Fecha paso a dia de negocio ART y Venta.Fecha quedo cruda, asi que la Venta 8 (24/08 22:44 ART) se lista y se busca como 25/08 en Ventas y como 24/08 en Caja; el Dashboard lo muestra junto: 'Ventas de hoy 0 / 0,00' al lado de 'Caja de hoy 2.845,67'. El codigo de Ventas NO cambio: la incoherencia es nueva igual. Y su XML-doc DECLARA el criterio viejo como intencional, que es LP-008 otra vez. LP-011 (minor): GET /Caja/Mensual?anio=2026&mes=13 y ?anio=0&mes=0 dan 500 en ArgentinaTime.RangoMesUtc, y CerrarMes redirige ahi, asi que el mensaje 'Mes o anio invalido' que el commit agrego es CODIGO MUERTO -- una guarda del servicio no sirve si el controller redirige despues con los mismos valores invalidos. LP-012 (minor): los 2 listados de cierres dibujan el buscador de DataTables y el server ignora search[value] (familia MH-015/MH-018/ELV-006). LO QUE NO SE PUDO OBSERVAR Y SE DECLARO: la ventana 21:00-00:00 ART del criterio 2. A las 12:51 ART de la corrida DateTime.Today, UtcNow.Date y ArgentinaTime.Hoy valen lo mismo, asi que el entorno NO PUEDE distinguirlos. Las 3 formas de forzarlo se descartaron a proposito: reloj del sistema (hay agentes commiteando en paralelo, un reloj corrido les corrompe los timestamps), tzutil a Pacifico (no produce divergencia de FECHA a esa hora: PST y ART caen el mismo dia) y contenedor Linux con TZ (no hay Docker). Cobertura alternativa: barrido mecanico con CERO DateTime.Today / UtcNow.Date / DateTime.Now / ToLocalTime en una decision de dia/mes en toda la app web, y ninguna ConvertTime*Utc fuera del helper salvo los 2 call sites fiscales de AFIP. Queda prueba manual de 3 minutos escrita en 6-qa.md. MIGRACION DE DATOS INTEGRA: las 4 filas viejas a medianoche quedaron en 03:00 UTC (= 00:00 ART del mismo dia) y 0 filas sin normalizar. AISLAMIENTO: al abrir laplatense_dev aparecio una fila CobroCC creada a las 15:56 UTC DURANTE la corrida y un usuario admin.qa de las 15:52 -- OTRO LOTE DE QA ESCRIBIENDO LA MISMA BASE EN PARALELO. Se clono a laplatense_qa_d9 y se probo contra la copia; laplatense_dev no se uso para probar. PARA LA PROXIMA CORRIDA POR LOTES: UN CLON DE BASE POR LOTE, no compartir laplatense_dev. MH-034 confirmado como riesgo de diseno (un gasto por transferencia cae en el MISMO ledger que el efectivo) y MH-033 como riesgo futuro (cuando entren Compras, los pagos a proveedores tienen que postear en caja); los dos escalados al analista, no son defectos de D9. REINTENTOS: 3 (el 307 de HttpsRedirection con la app bindeada solo a http, que obligo a rebindear con ASPNETCORE_HTTPS_PORT; dos heredocs de bash que se comieron los backslashes de los regex y hubo que pasar los scripts por Write; y la contaminacion de la base, que invalido la primera tanda de totales y obligo a clonar y rehacerla).
+

@@ -1,7 +1,54 @@
 # Memoria - Analista funcional
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-08-17 (v3 — arranque de Analisis de Etapa 3: Migracion de catalogo, segundo relevamiento con acceso real a la base de datos del sistema actual)
+## Ultima actualizacion: 2026-10-05 (v4 — cierre de las 3 decisiones que bloqueaban el plan de cierre de alcance: dia/mes de negocio de la caja, quien anula una venta, regla de UnidadVenta)
+
+## Decisiones del cliente del 2026-10-05 (desbloquean el plan de cierre de alcance)
+
+Las tres respuestas que faltaban para arrancar el Sprint 0 del plan de `4-presupuestador.md` v8.
+
+### 1. Dia y mes de negocio de la caja — cierra el defecto D9
+
+**Respuesta del cliente:** "la caja chica se cierra todos los dias y la caja grande todos los 1 de cada mes se cierra el mes anterior".
+
+**Lectura funcional (lo que esto define, y lo que no):**
+- **Dia de negocio = dia calendario en hora Argentina.** No hay corte nocturno ni jornada que cruce la medianoche: si la caja chica se cierra todos los dias, la venta de las 22:44 del 24 pertenece al 24 y tiene que entrar en el cierre de ese dia. Eso es exactamente lo que D9 rompe hoy (la muestra como del 25).
+- **Mes de negocio = mes calendario.** El cierre mensual se hace el dia 1 sobre el mes **ya terminado**, no sobre el mes en curso.
+- **Consecuencia tecnica del fix (no es una decision del cliente, es como se implementa):** se mantiene `DateTime` en UTC en la base, pero toda frontera de dia/mes (agrupaciones, filtros, la guarda de "caja cerrada" y los `DateTime.Today` de `GastoService`) se calcula proyectando a hora Argentina. Hoy `GastoService` mezcla `DateTime.Today` (lineas 172 y 255) con `DateTime.UtcNow` (linea 226): esa mezcla es el defecto.
+- **A verificar durante el fix (derivado de la respuesta, no asumido):** que el cierre mensual permita cerrar un mes **anterior** al actual. Si la guarda actual solo deja cerrar el mes en curso, el flujo real del cliente (cerrar el 1 el mes que paso) no entra.
+
+### 2. Quien puede anular una venta — cierra la pregunta abierta 7
+
+**Respuesta del cliente:** la anula **el Administrador o el usuario que la creo**. Un vendedor puede anular sus propias ventas, no las de otro.
+
+**Permiso resultante:** `Administrador` sin restriccion de autoria; `Vendedor` solo sobre ventas cuyo `UsuarioId` coincida con el propio. `Repartidor` no anula.
+
+**Supuesto declarado (el cliente no lo definio, se asume y se le confirma al implementarlo):** **no hay limite de tiempo** propio del sistema — el unico limite real es el que imponga AFIP para emitir la NC de una venta ya facturada. Si el cliente quiere un tope (ej. solo el mismo dia), es un cambio de una linea en la validacion, no de diseno.
+
+### 3. Regla de mapeo de `UnidadVenta` — el cliente respondio "no se", se resolvio con los datos
+
+**El cliente no tenia la respuesta, asi que se midio contra la base en vez de volver a preguntar** (`laplatense_dev`, catalogo real migrado):
+
+| Hallazgo | Numero |
+|---|---:|
+| Productos migrados como `Metro` | 87.542 (78%) |
+| Productos migrados como `Unidad` | 24.929 |
+| Productos migrados como `Peso` | 14 |
+| De los `Metro`, los que en su **propio nombre** dicen "Unidad de…", "C/U…" o "x unidad" | **2.898** |
+| De los `Metro`, candidatos reales a venta por metro cortado (cable, manguera, cadena, alambre, soga/piola/cuerda, tanza) | **2.635** |
+
+**Conclusion:** el `METRO` del legado es su **valor por defecto**, no un dato real. La muestra aleatoria del grupo `Metro` devuelve martillos demoledores, puertas plasticas, pinzas, brocas y tornillos; y 2.898 de esos productos se llaman a si mismos "Unidad de…" o "C/U…". El script de migracion no tiene ningun error: mapea fielmente lo que el dato dice (`MapearUnidad` en `tools/MigracionCatalogo/Program.cs:149`, solo el nombre exacto "METRO" cae en `UnidadMedida.Metro`). El problema es el dato de origen.
+
+**Regla acordada para la correccion (modo correctivo del script, mismo patron que `--solo-codigo-propio`):**
+1. Los 87.542 `Metro` pasan en bloque a **`Unidad`**. Es el default seguro: devuelve el input de cantidad a `step` 1 y hace desaparecer los decimales de casi todo el catalogo — que es el sintoma real que origino esto.
+2. Se le entrega a Joaquin la lista de los **2.635 candidatos a corte por metro** para que el cliente marque los que realmente corta al mostrador. Se excluyen a proposito los 4.077 de "cano/tubo": se venden por barra entera, no cortados.
+3. Los **14 productos en `Peso`** tambien son sospechosos de estar mal (en una ferreteria se espera clavos/tornillos a granel por kilo), pero el legado no trae el dato — se resuelve por el mismo camino: lista para marcar a mano, no inferencia automatica.
+4. **No se infiere la unidad por palabra clave del nombre.** "Cinta teflon … x 20 mt" o "cable x 100 mt" son rollos que se venden por unidad: adivinar por el nombre meteria un error nuevo donde hoy hay uno conocido.
+
+### 4. Anclaje de reutilizacion confirmado por Joaquin: todo lo que falta sale de `marihogar`
+
+Instruccion explicita del 2026-10-05: AFIP, notas de credito, circuito de ventas, presupuestos, aumento masivo, proveedores, compras y pagos de compras **se toman de `marihogar`** (`C:\Sistemas\marihogar`), no se disenan de cero. Verificado que existen ahi: `ComprobanteAfipService` (incluye NC, migracion `AddNotaCreditoAfip`), `VentaService`, `PresupuestoService` + `PresupuestosController`, `AumentoMasivoPrecioService` + `AumentoMasivoPreciosController`, `ProveedorService` + `ProveedoresController`, `OrdenCompraService` + `OrdenesCompraController`, `PagoOrdenCompraService`, `EgresoPagoProveedorService`, `CCProveedorService`, `ChequeService` (echeck/diferidos) y `CCLocalService` + `CCLocalController` (la CC propia del negocio de la Entrega 4). Esto confirma la base de reuse que el WBS ya asumia y la amplia: la CC del negocio tambien tiene precedente directo, no solo el `CajaService` de `ganaderia`.
+
 
 ## Etapa 3 — Migración de catálogo (arranque de Análisis, 2026-08-17)
 
@@ -248,7 +295,7 @@ Ya no se propone un set fijo de antemano — dado que el cliente lo definió com
 4. ~~¿El repartidor ve todas las entregas o solo las asignadas?~~ → **Cerrada: ve todas.**
 5. ~~¿Aplican devoluciones/cambios de mercadería?~~ → **Cerrada: aplican devoluciones, no cambios.**
 6. ~~¿Set exacto de KPIs del dashboard?~~ → **Cerrada parcialmente: se define en sesión de diseño dedicada, no por email — ver §6.6.**
-7. **(Nueva)** ¿Quién puede iniciar la anulación de una venta facturada — solo el admin, o también el vendedor? ¿Hay un límite de tiempo (ej. solo el mismo día)?
+7. ~~¿Quién puede iniciar la anulación de una venta facturada — solo el admin, o también el vendedor? ¿Hay un límite de tiempo?~~ → **Cerrada 2026-10-05: la anula el Administrador o el usuario que la creó.** Sin límite de tiempo propio del sistema (supuesto declarado, ver §"Decisiones del cliente del 2026-10-05").
 8. ~~¿El archivo de migración de catálogo va a incluir el stock actual?~~ → **Ya no aplica: la migración se pospone, se resuelve cuando se cotice esa fase futura.**
 9. ~~¿Quién define la clasificación ABC de productos?~~ → **Cerrada: la hace el cliente por su cuenta. El sistema solo brinda la posibilidad de configurarla (campo editable en el catálogo).**
 10. ~~¿Marca/modelo de la ticketeadora?~~ → **Cerrada: ya no aplica — la ticketeadora es manual, no se integra con el sistema.**

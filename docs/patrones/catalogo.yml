@@ -47,9 +47,17 @@ patrones:
       - vinosefue (replicado para Proveedor, sprint 2026-07-03)
     archivos_referencia:
       - proyecto: vinosefue
-        path: "pendiente confirmar — Domain/Entities/CuentaCorriente.cs y MovimientoCC.cs (o equivalente)"
-        motivo: "Entidad + detalle de movimientos"
-        pendiente_verificar: true
+        path: "VinoSeFue.Domain/Entities/CuentaCorriente.cs + MovimientoCC.cs + MovimientoCCProveedor.cs"
+        motivo: "Entidad + detalle de movimientos (ruta CONFIRMADA 2026-10-05 contra C:/Sistemas/vino-y-se-fue)"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/CuentaCorrienteClienteService.cs (RegistrarCobroAsync, RegistrarAjusteAsync)"
+        motivo: >
+          Ledger de CC con los DOS caminos de alta manual que la version original no tenia: cobro
+          (Credito en la CC + Ingreso en caja, en una sola transaccion) y ajuste (solo CC, sin
+          tocar caja). La distincion es la parte reutilizable: un cobro es plata real que entra
+          (MH-033), un ajuste corrige el ledger de la deuda y NO puede inflar el arqueo.
+        pendiente_verificar: false
     dependencias: []
     notas: >
       Referencia de esfuerzo: reutilizar este patron para una entidad nueva es M ~1-1.5h
@@ -288,6 +296,16 @@ patrones:
       calcula rangos "hoy calendario" para queries EF — reemplaza DateTime.Now/.ToLocalTime(),
       que dependen de la zona horaria del SO del servidor (casi nunca Argentina en hosting
       compartido, causando horas mostradas incorrectas al cliente).
+      AMPLIADO 2026-10-05 (D9 de la-platense) con el concepto de DIA / MES DE NEGOCIO: Hoy,
+      MesActual, DiaDeNegocio(utc), InicioDiaUtc(dia), RangoDiaUtc, RangoDiasUtc (con el ultimo
+      dia INCLUSIVE, que es lo que espera un daterangepicker) y RangoMesUtc. La base sigue
+      guardando UTC y TODA frontera de dia/mes (agrupaciones, filtros, cierres de periodo,
+      guardas de "periodo ya cerrado", listados que muestran fecha) se calcula proyectando con
+      estos metodos: nunca con DateTime.Today (hora del SO del servidor) ni DateTime.UtcNow.Date
+      (dia calendario UTC, que adelanta un dia entre las 21:00 y las 24:00 ART). La zona se
+      resuelve con cadena de fallback (id IANA -> id de Windows -> UTC-3 custom) porque al
+      volverse la fuente unica de las fechas del sistema, un TimeZoneNotFoundException ahi no
+      rompe una pantalla: rompe el arranque de la aplicacion (es un inicializador estatico).
     cuando_usar: >
       Cualquier fecha/hora visible al usuario final, o logica de negocio sensible al dia
       calendario (topes diarios, reportes "de hoy"). Nunca usar DateTime.Now directo en
@@ -300,6 +318,12 @@ patrones:
       - proyecto: blankproject
         path: "BlankProject.Application/Helpers/ArgentinaTime.cs"
         motivo: "Helper ya integrado al template base — ArgentinaTime.Now / .From(utc) / .HoyRangoUtc()"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Application/Helpers/ArgentinaTime.cs"
+        motivo: >
+          Version ampliada con dia/mes de negocio (D9, 2026-10-05) y con la zona resuelta por
+          fallback. Es la que conviene portar al template base, reemplazando la de blankproject.
         pendiente_verificar: false
     dependencias: []
     notas: "Ver seccion dedicada en 10-blankproject-base.instructions.md."

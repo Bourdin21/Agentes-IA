@@ -1,9 +1,109 @@
 # Memoria - Presupuestador
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-08-17 (v7 — Presupuesto real de Etapa 3, migracion de catalogo retomada con datos reales)
+## Ultima actualizacion: 2026-10-05 (v9 — Plan de cierre de alcance con los 3 gates del cliente cerrados y el reuse anclado en `marihogar`; sin precio nuevo)
 
 ## Definiciones vigentes
+
+### Plan de cierre de alcance — Entregas 3 a 6 (2026-10-05)
+
+**Que es:** la secuenciacion de lo que falta construir para cerrar el alcance completo del sistema. **No es un presupuesto nuevo.** Todos los modulos de abajo salen del WBS de Etapa 1 + Etapa 2 ya aprobado por el cliente el 2026-07-30 y **ya cobrado** dentro de los USD 1.500 (3 pagos) / USD 1.800 (12 pagos). Las horas son las M del WBS vigente, sin recotizar.
+
+**Estado de partida (verificado contra el repo el 2026-10-05, rama `entrega-1-migracion`):** 17 controladores, 24 entidades. Construido y en produccion: catalogo, unidades/conversion, stock + ABC + ajustes, codigos de barras multiples, usuarios/roles, ventas Borrador→Confirmada→Facturada, CC de clientes **solo de consulta**, caja diaria/mensual, gastos, entregas, dashboard, configuracion de recargos, migracion de catalogo (112.485 productos + 2.990 clientes). `AfipService` esta codificado pero deshabilitado a proposito (sin certificado del cliente). `Proveedor` existe solo como catalogo simple minimo creado en Etapa 3 — sin ABM, sin sidebar, sin CC, sin compras. `EstadoVenta.Anulada` existe en el enum pero **ningun codigo la dispara**: no hay anulacion de ningun tipo.
+
+#### Sprint 0 — Deuda abierta (prerequisito de todo lo demas, ~8h, SIN CARGO)
+
+| # | Item | M (h) | Por que no se factura |
+|---|---|---:|---|
+| 0.1 | Deploy pendiente del commit `a6a78f0` + migracion EF `EntregaTres_ConfirmarSinFactura_RecargoCuotas_NotaPago` (tabla `RecargosCuota` + `PagosVenta.Nota`) | 0,5 | Entrega ya cerrada, nunca subida |
+| 0.2 | **D8** — "Confirmar y facturar" no persiste el borrador antes de facturar | 1 | Defecto (garantia). **Bloqueante antes de cargar el certificado AFIP** |
+| 0.3 | **D9** — `CajaMovimiento.Fecha`/`GastoService` mezclan `DateTime.Today` y `DateTime.UtcNow`: la venta de las 22:44 se lista como del dia siguiente | 1,5 | Defecto (garantia). **Definicion cerrada 2026-10-05**: dia de negocio = dia calendario en hora Argentina, mes de negocio = mes calendario cerrado el dia 1. Incluye verificar que el cierre mensual admita cerrar un mes anterior al actual |
+| 0.4 | Correccion de datos: 87.542 de 112.485 productos (78%) migrados con `UnidadVenta = Metro` — modo correctivo del script, mismo patron que `--solo-codigo-propio` del 2026-09-02. **Regla cerrada 2026-10-05**: pasan en bloque a `Unidad` (el `METRO` del legado es su default basura — 2.898 de ellos se llaman a si mismos "Unidad de…" o "C/U…") + lista de 2.635 candidatos a corte por metro para marcar a mano | 2 | Consecuencia de Etapa 3 ya cobrada |
+| 0.5 | **Cobro de CC de clientes** — pantalla de registro de pago + ajuste manual, con impacto en Caja. Hoy `RegistrarMovimientoAsync` lo llama solo `VentaWorkflowService`: los origenes `Pago`/`Ajuste` del enum no tienen camino desde la UI y el cobro del fiado se lleva por fuera del sistema | 3 | Gap de alcance ya entregado y cobrado (modulo 5 del WBS, "Ventas + CC clientes"). Una CC que no admite cobros esta incompleta, no es un modulo nuevo |
+| | **Subtotal** | **8** | |
+
+#### Entrega 3 — Proveedores + Compras (cierra Etapa 1 del presupuesto)
+
+| # | Item | Base de reutilizacion |
+|---|---|---|
+| 3.1 | Ampliar `Proveedor` (CUIT, condicion IVA, TC propio, % de descuento, contacto, forma de pago habitual) + migracion EF **aditiva** + ABM propio con entrada de sidebar | La entidad ya existe como catalogo simple: se amplia, no se reemplaza (ver el XML doc de `Proveedor.cs`) |
+| 3.2 | Compra con items, TC propio del proveedor, bonificacion, impacto en stock y en el costo del producto | `marihogar` M12+M13 |
+| 3.3 | Importacion de listas de precios de proveedor (recurrente, distinta de la migracion de una sola corrida de Etapa 3) | Reusa `CodigoProveedorProducto` + el contrato preview→confirmar de `ICatalogoMigracionService` |
+| 3.4 | CC de proveedores + pago con echeck/transferencia | Patron ledger de `MovimientoCCCliente`, ya construido |
+
+**Total: 18h** (modulo 7 del WBS Etapa 1 — 13h reuse + 5h nuevo).
+
+Gates abiertos: **ninguno**. Es el bloque mas grande que falta y el unico pendiente de Etapa 1 — arranca sin esperar nada del cliente.
+
+#### Entrega 4 — Cuentas corrientes y consolidado
+
+| # | Item | M (h) | Base de reutilizacion |
+|---|---|---:|---|
+| 4.1 | CC de empleados (autoservicio: cada empleado ve su sueldo y retiros, nunca los de un companero) | 4 | Patron ledger conocido (1h) + 3h nuevo |
+| 4.2 | CC propia del negocio (consolidado de cierres de caja, ingresos y egresos) | 5 | `ganaderia` CajaService (2h) + 3h nuevo |
+| | **Total (modulos 12 y 13 del WBS Etapa 2)** | **9** | |
+
+Depende de la Entrega 3: la CC de proveedores entra al consolidado del negocio.
+
+#### Entrega 5 — AFIP real + devoluciones/NC-ND + anulacion
+
+| # | Item | Observacion |
+|---|---|---|
+| 5.1 | Habilitar facturacion electronica: certificado real del cliente, homologacion, primera factura real, verificacion del circuito posterior (descuento de stock, CC, caja) que nunca se probo en la practica | Residual del modulo 6 (~3h de las 7h), ya codificado y hardeado contra los 2 bugs reales de `marihogar`. **D8 tiene que estar corregido antes** |
+| 5.2 | Devoluciones de mercaderia con reingreso de stock + NC/ND AFIP vinculada al comprobante original | `ShowroomGriffin` devoluciones |
+| 5.3 | **Anulacion de venta — cambio de alcance real respecto de `1-analista-funcional.md` §6.5** | Ver nota de abajo |
+
+**Total: 12h** (modulo 17 del WBS = 9h + ~3h residuales del modulo 6).
+
+**Nota de alcance (la unica pieza del plan que se aparta del diseno aprobado):** §6.5 definia la anulacion como "transicion `Facturada`→`Anulada` disparada por la emision de una NC, sin anulacion silenciosa sin comprobante fiscal". Ese diseno es de antes del 2026-09-03, cuando `Confirmada` paso a ser la forma normal de cerrar una venta sin factura. Hoy la mayoria de las ventas reales nunca llegan a `Facturada`, asi que hacen falta **dos caminos**: anular una `Confirmada` (reversa de stock, caja y CC, **sin** comprobante fiscal — caso que el diseno original no preveia) y anular una `Facturada` (por NC AFIP, como estaba definido). No agrega horas al modulo 17; cambia su diseno.
+
+Gates abiertos: **solo el certificado AFIP del cliente** (sin el, 5.1 y 5.2 no se pueden cerrar). La pregunta abierta 7 quedo cerrada el 2026-10-05: **anula el Administrador o el usuario que creo la venta** (un vendedor solo sus propias ventas, validando `UsuarioId`; el repartidor no anula), **sin limite de tiempo propio del sistema** — el unico tope real es el que imponga AFIP para la NC de una venta ya facturada.
+
+#### Entrega 6 — Herramientas comerciales
+
+| # | Item | M (h) | Base de reutilizacion |
+|---|---|---:|---|
+| 6.1 | Presupuestos y cotizaciones en PDF | 8 | `marihogar` M4, reuse total |
+| 6.2 | Aumento masivo de precios por categoria / proveedor / marca | 4 | `marihogar` / `ShowroomGriffin`, reuse total |
+| | **Total (modulos 14 y 16 del WBS Etapa 2)** | **12** | |
+
+Sin dependencias de ninguna otra entrega ni del cliente. Es la valvula de escape del plan: si el certificado AFIP se demora, esta entrega se adelanta sin romper nada.
+
+#### Resumen y orden recomendado
+
+| Bloque | M (h) | Gate | Precio |
+|---|---:|---|---|
+| Sprint 0 — deuda abierta | 8 | **ninguno** (las 2 definiciones se cerraron el 2026-10-05) | sin cargo |
+| Entrega 3 — Proveedores + Compras | 18 | ninguno | ya cobrado (Etapa 1) |
+| Entrega 4 — CC empleados + CC negocio | 9 | Entrega 3 | ya cobrado (Etapa 2) |
+| Entrega 6 — Presupuestos PDF + aumento masivo | 12 | ninguno | ya cobrado (Etapa 2) |
+| Entrega 5 — AFIP + devoluciones + anulacion | 12 | **solo el certificado AFIP** (la pregunta abierta 7 se cerro el 2026-10-05) | ya cobrado (Etapas 1 y 2) |
+| **Total restante** | **59** | | **USD 0 de precio nuevo** |
+
+**Orden:** Sprint 0 → E3 → E4 → E6, con E5 insertandose en cuanto llegue el certificado del cliente (no bloquear la secuencia esperandolo). Las 51h del WBS mas las 8h de Sprint 0 cierran el 100% del alcance comprometido: al terminar E5 no queda ningun modulo del presupuesto sin construir.
+
+**Lo que este plan deja deliberadamente afuera** (no esta comprometido ni cotizado): cambios/canjes de mercaderia, integracion con balanzas o ticketeadora de etiquetas, las 217 fichas de clientes reales distintos bajo un mismo CUIT descartadas por el dedupe (decision de Joaquin del 2026-09-28: se cargan a mano cuando aparezcan), y ABM de pantalla para codigos alternos / codigos de proveedor (hoy solo lectura, por decision de alcance).
+
+**Decisiones bloqueantes: las 3 quedaron cerradas el 2026-10-05.** Detalle y evidencia en `1-analista-funcional.md`, seccion "Decisiones del cliente del 2026-10-05". Resumen: (1) dia de negocio = dia calendario en hora Argentina, mes = mes calendario cerrado el dia 1 sobre el mes anterior; (2) anula el Administrador o el usuario que creo la venta, sin limite de tiempo propio del sistema; (3) `UnidadVenta`: el cliente respondio "no se", se resolvio midiendo la base — los 87.542 `Metro` pasan a `Unidad` en bloque y se marcan a mano los 2.635 candidatos reales a corte. **El plan no tiene mas gates que el certificado AFIP de la Entrega 5.**
+
+#### Anclaje de reutilizacion — instruccion de Joaquin del 2026-10-05
+
+Todo lo que falta **se toma de `marihogar`** (`C:\Sistemas\marihogar`), no se disena de cero: AFIP, notas de credito, circuito de ventas, presupuestos, aumento masivo, proveedores, compras y pagos de compras. Verificado que el precedente existe archivo por archivo:
+
+| Pieza del plan | Origen en `marihogar` |
+|---|---|
+| E5 — AFIP + NC/ND | `ComprobanteAfipService.cs`, `AfipService.cs`, `TipoComprobanteAfip.cs`, migracion `20260821143237_AddNotaCreditoAfip`, `ComprobantesAfipController.cs` |
+| E5 — circuito de ventas / anulacion | `VentaService.cs`, `PagoVentaService.cs`, `VentasController.cs` |
+| E3 — Proveedores | `ProveedorService.cs`, `ProveedoresController.cs` |
+| E3 — Compras | `OrdenCompraService.cs`, `OrdenesCompraController.cs` |
+| E3 — Pagos de compras | `PagoOrdenCompraService.cs`, `EgresoPagoProveedorService.cs`, `PagoOrdenCompraVencimientoHostedService.cs`, `ChequeService.cs` (echeck/diferidos) |
+| E3 — CC de proveedores | `CCProveedorService.cs` |
+| E4 — CC propia del negocio | `CCLocalService.cs` + `CCLocalController.cs` (**precedente directo, mejor que el `CajaService` de `ganaderia` que asumia el WBS**) |
+| E6 — Presupuestos PDF | `PresupuestoService.cs`, `PresupuestosController.cs` |
+| E6 — Aumento masivo | `AumentoMasivoPrecioService.cs`, `AumentoMasivoPreciosController.cs` |
+
+Efecto sobre las horas: **ninguno a la baja todavia**. Las M del WBS ya estaban ancladas en `marihogar` (modulo 7 = `marihogar` M12+M13, modulo 14 = M4, modulo 16 = reuse total), asi que esta confirmacion valida la estimacion en vez de reducirla. La unica mejora real es la CC del negocio (item 4.2), que pasa de "3h nuevas sobre `ganaderia`" a tener precedente directo — se refleja en el cierre de calibracion, no en una recotizacion.
+
 
 ### Etapa 3 — Presupuesto real (2026-08-17), reemplaza la referencia provisional
 

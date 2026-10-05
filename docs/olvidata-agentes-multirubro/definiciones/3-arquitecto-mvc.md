@@ -5,6 +5,68 @@
 
 ## Definiciones vigentes
 
+## Arquitectura M32 — La respuesta que se corta deja de matar la tarea (2026-10-05)
+
+Pedido de Joaquín, con un caso real: *«"La respuesta superó el máximo de tokens configurado" ante una conciliación. Desestimar este tope. Es más importante que complete la tarea.»*
+
+### Los datos duros, verificados contra la documentación oficial
+
+Verificado el 2026-10-05 (skill `claude-api`, misma fuente que la regla permanente del precio del token):
+
+- **`claude-sonnet-5` y `claude-opus-5` aceptan hasta 128.000 tokens de salida** por respuesta.
+- **Los SDK exigen streaming para valores grandes de `max_tokens`**, porque si no el pedido se come el timeout de HTTP.
+- **El valor recomendado sin streaming es ~16.000**; **con streaming, ~64.000**.
+- `task_budget` **no es** `max_tokens`: es un techo **advertido** que el modelo ve y administra, y cuenta lo que genera más los resultados de herramienta que lee **en ese turno**. `max_tokens` es un corte **duro** que el modelo **no ve**.
+
+### A-01 — El hallazgo: el tope no es arbitrario, es el precio de no transmitir
+
+`AnthropicSettings.MaxTokens = 16000` es **exactamente** el valor que la documentación recomienda para pedidos **sin streaming**, y `ProveedorModeloAnthropic` **no transmite en ningún lado** (cero `Stream`, cero `GetFinalMessage`). O sea: el número está bien elegido **para la arquitectura que hay**. Subirlo sin más no es «desestimar un tope»: es cambiar un corte por un timeout, que es peor —el timeout no deja ni el trabajo parcial—.
+
+### A-02 — El defecto real, y no es el tope: la tarea muere
+
+`ProcesadorTareas.FinalizarAsync` trata `MotivoFin.MaxTokens` así:
+
+```
+case MotivoFin.MaxTokens:
+    await MarcarFinAsync(tarea, EstadoTarea.Fallida, ct, error: "La respuesta superó el máximo de tokens configurado.");
+```
+
+**`Fallida`, y se perdió todo.** Una conciliación que cruzó 470 líneas de cada lado y se quedó sin lugar en el último párrafo termina igual que una que no arrancó.
+
+**Y el sistema ya sabía que esto estaba mal.** M27 construyó `EnviarConEscalonamientoAsync` con esta promesa escrita en su propio comentario: *«Lo que nunca pasa es que quede `Fallida` y haya que empezar de cero»*. Pero ese escalonamiento cubre el rechazo **por tamaño de entrada**. Por el lado de la **salida**, la tarea sigue muriendo. **Es la misma falla que M27 fue a eliminar, entrando por la otra puerta** — el mismo molde que ya apareció tres veces en M28/M29 (la superficie que relee no sabe lo que la que escribe sí sabe).
+
+### A-03 — La contradicción de 25 a 1
+
+`TaskBudgetTokens = 400_000` contra `MaxTokens = 16_000`. **Le decimos al modelo que tiene 400.000 tokens para la tarea y le cortamos cada respuesta en 16.000.** M27 subió el presupuesto justamente para que el modelo planifique una salida grande —midió **42.884 tokens de salida** en una conciliación real contra la API— y después el corte duro lo mata a los 16.000. Los dos números tienen que ser coherentes o el modelo planifica contra un espacio que no tiene.
+
+### Las tres decisiones
+
+**D-01 — Una respuesta cortada por `max_tokens` NUNCA termina la tarea en `Fallida`. Se continúa.**
+Es el arreglo que resuelve el pedido («que complete la tarea») y **no depende de streaming ni de ningún número**. Cuando el turno vuelve con `max_tokens`:
+- el contenido parcial **se conserva** como paso, con su costo (ya se pagó);
+- se pide **la continuación**: el turno del asistente parcial vuelve a la conversación y el modelo sigue desde donde estaba;
+- se continúa **hasta un tope de continuaciones** (configurable, por defecto **3**), porque una continuación también se paga y corre dentro del control de gasto de M6 como cualquier llamada;
+- agotadas las continuaciones, la tarea queda **terminada y seguible, con lo que haya**, nunca `Fallida`: exactamente el trato que M27 le dio al lado de la entrada.
+
+**D-02 — Se transmite, y el tope sube a 64.000.**
+Es lo que habilita de verdad una respuesta larga. `MaxTokens` pasa de 16.000 a **64.000**, que es el valor recomendado **con** streaming, y el proveedor pasa a usar el camino de stream del SDK tomando el mensaje final. **Sin streaming no se sube el número**: las dos cosas van juntas o no van.
+
+**D-03 — El presupuesto deja de contradecir al corte.**
+Con `MaxTokens` en 64.000, `TaskBudgetTokens` en 400.000 sigue siendo coherente **porque ahora son cosas distintas de verdad**: el presupuesto es el total advertido de la tarea (varios turnos) y el corte es por respuesta. Lo que se agrega es que **la relación quede escrita** en la configuración, para que nadie vuelva a bajar uno sin mirar el otro.
+
+### Lo que NO cambia
+
+- **Ningún valor de M6.** El tope de gasto en dólares sigue siendo el freno real, y cada continuación se cobra como cualquier llamada.
+- El escalonamiento de entrada de M27 (`EnviarConEscalonamientoAsync`) queda intacto: resuelve otro problema.
+- `task_budget` por agente, las banderas beta y `ModelosSinOpcionesAvanzadas`: intactos.
+
+### Riesgos
+
+- **R-01 (alto) — Una continuación automática es una llamada más que nadie pidió.** Mitigación: tope de continuaciones, visible en el paso, y dentro del control de gasto de M6. **El tope por respuesta se cambia por un tope de continuaciones: no se saca el freno, se mueve a donde no pierde trabajo.**
+- **R-02 (alto) — Streaming toca el camino de llamada de TODO el motor.** No es un cambio de pantalla: pasa por ahí cada tarea de cada organización. Mitigación: **va en una tanda propia, después de D-01**, que ya resuelve el pedido por sí sola; y el resultado final tiene que ser **idéntico** al de hoy para una respuesta que no se corta (mismos bloques, mismo uso, mismo costo).
+- **R-03 (medio) — El timeout del cliente.** Con 64.000 de tope y streaming, el pedido puede durar varios minutos. Hay que revisar el timeout del `HttpClient` del SDK: el default son 10 minutos, pero si el proyecto lo bajó, un pedido largo se corta igual y sin trabajo parcial.
+- **R-04 (medio) — Una continuación puede repetir o contradecir lo anterior.** Es el modo de falla conocido de continuar una respuesta cortada. Mitigación: la continuación se pide sin reescribir lo ya dicho, y QA tiene que mirar **el texto pegado**, no solo que no falle.
+
 ## Arquitectura M29 — La casilla de internet y el documento sin cliente (2026-10-02)
 
 Entrada: Diseño M29 cerrado (`2-disenador-funcional.md`, D-01..D-07). Reutilización: el pipeline entero de subida (`SubirInternoAsync`), `adjunto_leer`, la baja, y la casilla ya maquetada dos veces. **Sin antecedente** solo para la purga.

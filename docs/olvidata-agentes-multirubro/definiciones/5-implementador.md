@@ -1,9 +1,212 @@
 ﻿# Memoria - Implementador
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-10-03 (M31 la barra de opciones del chat y la pieza que es el isotipo -- sin migracion) | 2026-10-03 (M30 el menu en seis secciones -- solo de seccion y solo nombres de seccion; sin migracion) | 2026-10-03 (M29d la quinta pantalla: subir sin cliente desde el arranque de una tarea de trabajo -- sin migracion; CIERRA el codigo de M29) | 2026-10-02 (M29c la tarjeta que se conto y no se dejo -- corrida #19, varianza no regresion; solo prompt) | 2026-10-02 (M29b prompt del chat libre vs. corrida #18 -- 4 fallos y 1 error diagnosticados; prompt + 4 casos, sin tocar src) | 2026-10-02 (M29 re-verificacion: OLV-041 y la rama muerta -- CIERRA M29) | 2026-10-02 (M29 ronda de arreglos de QA: OLV-038, OLV-039, OLV-040 -- CIERRA M29) | 2026-10-02 (M29 frente B tanda B2: el dueno del transitorio, la UI del destino y la purga -- CIERRA M29) | 2026-10-02 (M29 frente B tanda B1: documento sin cliente, primera migracion, frontera del portal del cliente) | 2026-10-02 (M29 frente A: la casilla de internet en el chat libre -- sin migracion) | 2026-10-02 (M28 re-verificacion: OLV-035 y OLV-037 aplicados, OLV-036 parado por migracion) | 2026-10-02 (M28 ronda de arreglos de los tres lotes: OLV-030 a OLV-034) | 2026-10-02 (M28 lote 1 de QA: OLV-028 y OLV-029) | 2026-10-02 (M28 tanda 2: la pantalla — autocomplete de menciones, pastillas que ensenan, pieza 3D que se desmonta) | 2026-10-02 (M28 tanda 1b) | 2026-10-02 (M28 tanda 1) | 2026-10-01 (M27)
+## Ultima actualizacion: 2026-10-05 (M32 tanda 1b: una continuacion que falla nunca mata la tarea -- sin migracion) | 2026-10-05 (M32 tanda 1: una respuesta cortada por max_tokens se continua y la tarea ya no muere -- sin migracion) | 2026-10-03 (M31 la barra de opciones del chat y la pieza que es el isotipo -- sin migracion) | 2026-10-03 (M30 el menu en seis secciones -- solo de seccion y solo nombres de seccion; sin migracion) | 2026-10-03 (M29d la quinta pantalla: subir sin cliente desde el arranque de una tarea de trabajo -- sin migracion; CIERRA el codigo de M29) | 2026-10-02 (M29c la tarjeta que se conto y no se dejo -- corrida #19, varianza no regresion; solo prompt) | 2026-10-02 (M29b prompt del chat libre vs. corrida #18 -- 4 fallos y 1 error diagnosticados; prompt + 4 casos, sin tocar src) | 2026-10-02 (M29 re-verificacion: OLV-041 y la rama muerta -- CIERRA M29) | 2026-10-02 (M29 ronda de arreglos de QA: OLV-038, OLV-039, OLV-040 -- CIERRA M29) | 2026-10-02 (M29 frente B tanda B2: el dueno del transitorio, la UI del destino y la purga -- CIERRA M29) | 2026-10-02 (M29 frente B tanda B1: documento sin cliente, primera migracion, frontera del portal del cliente) | 2026-10-02 (M29 frente A: la casilla de internet en el chat libre -- sin migracion) | 2026-10-02 (M28 re-verificacion: OLV-035 y OLV-037 aplicados, OLV-036 parado por migracion) | 2026-10-02 (M28 ronda de arreglos de los tres lotes: OLV-030 a OLV-034) | 2026-10-02 (M28 lote 1 de QA: OLV-028 y OLV-029) | 2026-10-02 (M28 tanda 2: la pantalla — autocomplete de menciones, pastillas que ensenan, pieza 3D que se desmonta) | 2026-10-02 (M28 tanda 1b) | 2026-10-02 (M28 tanda 1) | 2026-10-01 (M27)
 
 ## Definiciones vigentes
+
+# M32 tanda 1b - Una continuacion que falla nunca mata la tarea
+
+Estado: **implementado 2026-10-05; 1 commit local, sin push, sin deploy, SIN MIGRACION.** Repo
+`C:\Sistemas\Olvidata Agentes Multi-rubro`, commit base `43ee06e` (la tanda 1). Entrada: **brief de Joaquin del
+2026-10-05**, un solo pedido: *«Una continuacion que falla NUNCA mata la tarea»*. **Tanda 2 (streaming y MaxTokens
+a 64.000) sigue sin tocarse.**
+
+## Por que, y por que no se pudo probar contra la API real
+
+La tanda 1 continua una respuesta cortada dejando la conversacion **terminando en un mensaje del asistente**
+(prefill). La documentacion oficial, verificada el 2026-10-05, dice textual que los *assistant-turn prefills*
+**deben cambiar y devuelven 400** en una lista de modelos que incluye `claude-sonnet-5` y `claude-opus-5`. Puede que
+la API distinga «continuar un turno pausado» de «prefill» —el camino de `pause_turn` de M14 hace eso y anda en
+produccion— y puede que no. **No se puede comprobar:** la cuenta de Anthropic esta sin saldo, y los tests corren con
+el modelo simulado, que no valida esto. Asi que la tanda 1b no apuesta a que el prefill ande: **hace que no importe**.
+
+## Lo que cambio, por capa
+
+Un solo archivo de produccion: **Infrastructure (`Services/Motor/ProcesadorTareas.cs`)**.
+
+- **La guarda.** La llamada a `EnviarConEscalonamientoAsync` queda dentro de un `try`, con un
+  `catch (Exception ex) when (continuandoCorte && ex is not OperationCanceledException)`. Si la llamada de la
+  continuacion se cae **por el motivo que sea** (400 por prefill, timeout, 429), la tarea termina **`Completada` y
+  seguible** con el texto pegado de los tramos ya pagados, igual que con el tope agotado. No queda `Fallida` **ni
+  vuelve a la cola** a repetir el mismo error hasta `MaxIntentos`.
+- **La guarda es de la continuacion y nada mas.** `continuandoCorte` ya existia (lo puso la tanda 1 para
+  `SinEspacioAlFinal`): el error de una llamada **normal** sigue subiendo a `RegistrarErrorAsync`, que reintenta,
+  porque ahi no hay trabajo entregable esperando y tragarselo esconderia una tarea que fallo. Hay test que lo afirma.
+- **Que queda registrado.** `MensajeContinuacionFallida`, un texto **distinto** al del tope agotado a proposito: asi
+  la base dice **cual de las dos cosas paso** sin depender de los logs, y el dia que se corra contra la API real el
+  prefill se confirma o se descarta **contandolas**. Y un segundo parrafo tecnico, `DetalleDelFallo(ex)`: el nombre
+  del tipo de la excepcion (lo que distingue el 400 de la API de un timeout de red) mas el mensaje recortado a 500.
+  `AnotarNotaDelMotorAsync` acepta ahora un `detalle` opcional que va como **segundo bloque de texto** de la misma
+  nota: va aparte del aviso para la persona y nunca lo reemplaza.
+- **`TerminarCortadaAsync`**: el cierre «cortada pero entregada» (nota + `MarcarFinAsync(Completada)` con el texto
+  pegado + `GuardarYAvisarAsync`) **se extrajo** y lo comparten las dos ramas. Lo unico que cambia entre el tope
+  agotado y la continuacion fallida es el texto, que es como tiene que ser.
+- **`ProximoNumeroAsync`**: el numero del paso de la nota se lee de la base en vez de reusar `siguienteNumero`. Hace
+  falta porque el escalonamiento de A-M27-8 pudo haber dejado **sus propias notas** antes de que la llamada se caiga, y
+  repetir un numero rompe el guardado entero por el indice unico de (tarea, numero). Es un bug que no habria aparecido
+  en los tests y si en produccion.
+- **Tests** -- 2 nuevos en `RespuestaCortadaM32Tests.cs` (la guarda con el proveedor simulado tirando el 400 de
+  prefill; y la narrowness: el error de una llamada que no es continuacion sigue subiendo).
+
+## La consecuencia conocida que queda, y donde se arregla
+
+Si el pedido de la **continuacion** no entra por tamano (un 400 de los tres que `EsConversacionDemasiadoLarga`
+reconoce), no pasa por esta guarda: lo atrapa antes el escalonamiento de M27 dentro de
+`EnviarConEscalonamientoAsync`, que prueba sus tres salidas y, si ninguna entra, deja la tarea `Fallida` **terminada y
+seguible** con todos los tramos guardados como pasos. No se pierde trabajo, pero el estado es `Fallida`. **No se
+arreglo a proposito:** convertirlo exigiria re-marcar el fin despues de que ese metodo ya guardo y aviso, lo que
+duplicaria la notificacion, el aviso de la programacion y el destilado de M25 — peor que la consecuencia. Y el brief
+prohibe tocar `EnviarConEscalonamientoAsync`. El arreglo, si molesta, es alla: pasarle a ese metodo como cerrar.
+
+Sigue en pie la consecuencia de la tanda 1: una tarea **programada** avisa «termino correctamente» sobre una
+respuesta cortada, porque `EjecutorProgramaciones` elige el texto por `== Completada`. El arreglo es **del lado del
+aviso** (`IEjecutorProgramaciones.AvisarFinDeTareaAsync`, que es lo que `TrasFinAsync` llama), no del estado.
+
+## Lo que NO se toco (y se verifico)
+
+`EnviarConEscalonamientoAsync` (su cuerpo: solo se envolvio la llamada), `VerificacionesTexto`, `MaxTokens`, el
+streaming, el proveedor, y **ningun valor de M6**. Sin migracion, sin esquema, sin publicar ni desplegar. **No se
+intento esquivar el prefill** con un mensaje de usuario del tipo «segui»: contamina el hilo y queda en la instantanea.
+
+## Evidencia
+
+- `dotnet build OlvidataAgentes.slnx`: **0 errores** (las 15 advertencias de siempre).
+- `dotnet test tests/OlvidataAgentes.Tests`: **1255/1255 verde**, linea base 1253 + 2 nuevos. **Medido sin pipe.**
+- **Verificado por mutacion**, dos mutaciones: (a) `when (false && continuandoCorte && ...)` -> cae el test de la
+  guarda (la tarea muere); (b) el `detalle` de la nota en `null` -> cae el mismo test por el asserto del registro.
+  Las dos restauradas y la suite completa re-corrida despues.
+- La app **no se levanto** (lo pidio el brief).
+
+## Pruebas minimas para QA
+
+1. **El dia que haya saldo**: una conciliacion real que se corte, contra `claude-sonnet-5`. Si el prefill es el
+   problema, la tarea **igual** termina `Completada` con el primer tramo y deja la nota «el intento de seguirla no
+   salio» con el 400 en el segundo parrafo. Eso es la senal: **si esa nota aparece en todas, el prefill no sirve** y la
+   solucion se decide con la API delante.
+2. La nota en la conversacion: que se lean los dos parrafos y que *Seguir* funcione.
+3. Que una tarea con un error de modelo **que no es continuacion** siga comportandose como siempre (reintentos y
+   `Fallida` al tercero): la guarda no puede haber tapado los errores normales.
+
+## Checklist de merge
+
+- [x] Build limpio y 1255/1255 verde, medido sin pipe.
+- [x] La guarda afirmada por un test con el proveedor simulado fallando, verificado por mutacion.
+- [x] Sin migracion EF y sin cambio de esquema; ningun valor de M6.
+- [x] Sin tocar el cuerpo de `EnviarConEscalonamientoAsync`, `VerificacionesTexto`, el streaming ni `MaxTokens`.
+- [x] Commit local, sin push, sin deploy, sin levantar la app.
+
+
+# M32 tanda 1 - Una respuesta cortada por max_tokens ya no mata la tarea
+
+Estado: **implementado 2026-10-05; 1 commit local, sin push, sin deploy, SIN MIGRACION.** Repo
+`C:\Sistemas\Olvidata Agentes Multi-rubro`, commit base `4c70808`. Entrada: **«Arquitectura M32»**
+(`3-arquitecto-mvc.md` linea 8), decision **D-01** y riesgos **R-01 a R-04**. Instrucciones aplicadas:
+`32-estandares-qa-implementador` por indice. **Tanda 2 (streaming y MaxTokens a 64.000) NO entra aca y no se toco.**
+
+Pedido de Joaquin, con el caso real: *«"La respuesta supero el maximo de tokens configurado" ante una conciliacion.
+Desestimar este tope. Es mas importante que complete la tarea.»*
+
+## Escaneo de reutilizacion
+
+| Fuente | Que se tomo | Grado |
+|---|---|---|
+| Este repo, `EnviarConEscalonamientoAsync` (M27, A-M27-8) | **El molde entero del cierre**: anotar lo que paso con un `NotaDelMotor` en la linea de tiempo donde paso, y dejar la tarea **terminada y seguible** en vez de `Fallida`. Lo unico que no se copio es el estado: M27 se queda en `Fallida` a proposito (una conciliacion que **no se pudo hacer** no puede avisar «termino correctamente»); aca hay trabajo hecho y entregado, asi que va `Completada` | Literal en la forma, invertido en el estado, con el motivo escrito |
+| Este repo, rama `MotivoFin.PausaTurno` del bucle (M14) | **El mecanismo de continuar ya existia**: ante una pausa, el bucle no finaliza, cae al pie y vuelve a llamar con la conversacion rearmada. `ReconstruirConversacion` ya deja el turno parcial como mensaje del **asistente**, asi que la API continua ese mismo mensaje (prefill) y el modelo no reescribe lo ya dicho -- que es la mitigacion de R-04 sin escribir una linea de prompt | Literal: una rama mas en el mismo `if` |
+| Este repo, `LlamadasDelTurno` | El conteo «por turno, desde el ultimo ajuste del autor». Se extrajo `InicioDelTurno` y la cuenta de cortes y el pegado del texto salen del mismo indice | Extraccion sin cambio de comportamiento |
+| `docs/patrones/cat_resumen.txt` | **Sin match**: no hay patron de «continuar una respuesta truncada de un LLM». El antecedente de este mismo repo (M27) es mejor que cualquier patron ajeno | -- |
+
+## El diagnostico, que importa mas que el arreglo
+
+`AnthropicSettings.MaxTokens = 16000` **no era el defecto**: es exactamente el valor que la documentacion recomienda
+para pedidos **sin streaming**, y `ProveedorModeloAnthropic` no transmite en ningun lado. Subirlo sin streaming cambia
+un corte por un **timeout de HTTP**, que es peor porque el timeout no deja ni el trabajo parcial. **El defecto era que
+la tarea moria:** `FinalizarAsync` trataba `MotivoFin.MaxTokens` con `EstadoTarea.Fallida`, asi que una conciliacion
+que cruzo 470 lineas de cada lado y se quedo sin lugar en el ultimo parrafo terminaba igual que una que no arranco.
+**Es la misma falla que M27 fue a eliminar, entrando por la puerta de la salida.**
+
+## Lo que cambio, por capa
+
+- **Application (`Settings/AgentesSettings.cs`)** -- `AnthropicSettings.MaxContinuacionesPorCorte` (default **3**) y
+  `ContinuacionesPorCorte`, que es el valor **saneado** con `Math.Max(0, ...)`. El comentario de `MaxTokens` ahora
+  cuenta por que 16.000 esta bien elegido para la arquitectura que hay, para que nadie lo suba sin transmitir.
+- **Infrastructure (`Services/Motor/ProcesadorTareas.cs`)** -- el corazon. (1) una rama nueva en el `if` del bucle:
+  con `StopReason == MaxTokens`, si los cortes del turno **no** pasaron el tope, **no finaliza**: cae al pie del bucle
+  y vuelve a llamar. (2) Agotado el tope: `NotaDelMotor` con `MensajeRespuestaCortada` y `MarcarFinAsync(Completada)`
+  con el texto pegado. (3) `CortesDelTurno` y `TextoDelTurnoPegado` nuevos, mas `InicioDelTurno` extraido de
+  `LlamadasDelTurno`. (4) `FinalizarAsync` recibe los pasos y el resultado de un `FinTurno` pasa a ser el **texto
+  pegado** del turno, no solo el ultimo tramo; el `case MotivoFin.MaxTokens` **desaparece** (ya no llega). (5)
+  `SinEspacioAlFinal`: la API rechaza el pedido entero si el mensaje del asistente con el que cierra termina en
+  espacios, y un corte por `max_tokens` cae donde cae. Se aplica **solo** en la continuacion y **solo** al pedido: el
+  paso guardado queda intacto, asi que el texto pegado no pierde nada.
+- **Infrastructure (`Services/Motor/ServicioTareas.cs`)** -- 1 condicion: `turno.Respuesta` se **acumula** tambien en
+  un paso cortado por `max_tokens`, pegando sin separador igual que el motor. Sin esto, un turno que termina cortado no
+  mostraba **ninguna** respuesta en la conversacion (solo los pasos), y con continuaciones mostraba solo el ultimo tramo.
+- **Web (`appsettings.json`)** -- la clave declarada con su comentario, al lado de `MaxTokens`.
+- **Tests** -- `RespuestaCortadaM32Tests.cs` nuevo (10 tests, uno por criterio) y
+  `ConversacionTests.Turno_fallido_por_max_tokens_...` **reescrito**: afirmaba literalmente el defecto (`Fallida` y el
+  texto del error viejo). Lo que ese test cuidaba —la alternancia usuario/asistente despues de un turno cortado— se
+  conserva, ahora con el tope en 0 para que el corte cierre el turno en una sola llamada.
+
+## Las decisiones que tome y el brief dejaba abiertas
+
+- **Que significa 0: sin continuaciones.** Es el comportamiento viejo menos la muerte: una sola llamada y la tarea
+  termina con lo que haya, nunca `Fallida`. Un **negativo es lo mismo que 0** (`ContinuacionesPorCorte` lo sanea), que
+  es la guarda que este repo ya tuvo que arreglar dos veces: **un tope raro no puede invertir el comportamiento**. Hay
+  test que lo afirma de los tres lados (el default es 3, el 0 no continua, el -5 tampoco).
+- **Agotado el tope, el estado es `Completada`.** Es lo que pidio el brief («nunca `Fallida`») y es defendible porque
+  **hay entregable**: el texto pegado de todos los tramos queda en `Resultado`. **Consecuencia que dejo anotada:** una
+  tarea **programada** avisa «termino correctamente» (`EjecutorProgramaciones` elige el texto por `== Completada`)
+  sobre una respuesta que quedo cortada. El `NotaDelMotor` lo dice en la conversacion, pero el aviso de la programacion
+  no lo sabe. Es exactamente el motivo por el que M27 se habia quedado en `Fallida`, y en M32 la balanza da para el
+  otro lado porque **aca si hay trabajo hecho**. Si molesta, el arreglo es del lado del aviso, no del estado.
+- **El pegado es sin separador entre tramos.** La continuacion retoma el mismo mensaje del asistente, muchas veces a
+  mitad de palabra: meter un salto de linea inventaria un corte que no existe. Dentro de un mismo tramo, los bloques de
+  texto siguen separandose con linea en blanco, como siempre.
+- **El tope de pasos por turno (`MaxPasos`, 25) no se toco.** Una continuacion cuenta como llamada ahi tambien, y con
+  el tope en 3 nunca se acerca. Si alguien pusiera 30 continuaciones, cortaria el tope de pasos y la tarea quedaria
+  `Fallida` por **esa** guarda: no es un camino nuevo, es la guarda de M3b, y los tramos ya guardados no se pierden.
+
+## Lo que NO se toco (y se verifico)
+
+`EnviarConEscalonamientoAsync` (entrada, M27), `MaxTokens`, `TaskBudgetTokens`, las banderas beta,
+`ModelosSinOpcionesAvanzadas`, el proveedor, el streaming, y **ningun valor de M6**. `VerificacionesTexto` —que
+tambien mira `MotivoFin.MaxTokens`— es del circuito de evaluacion de prompts (M8/M22), corre por su propio ejecutor y
+quedo intacta: ahi un caso de prueba cortado **sigue** siendo un fallo, y corresponde.
+
+## Evidencia
+
+- `dotnet build OlvidataAgentes.slnx`: **0 errores** (las 15 advertencias son las de siempre: NU1902/NU1510 y tres
+  xUnit en tests ajenos).
+- `dotnet test tests/OlvidataAgentes.Tests`: **1253/1253 verde**, linea base 1243 + 10 nuevos. **Medido sin pipe.**
+- **Verificado por mutacion**, cinco mutaciones: (a) `cortes >= tope` en vez de `>` -> cae el test del tope;
+  (b) `ContinuacionesPorCorte` sin `Math.Max` -> cae el test del negativo; (c) el pegado devolviendo solo el ultimo
+  tramo -> caen 4 tests; (d) `SinEspacioAlFinal` desconectado del pedido -> cae el test del tope por el asserto del
+  espacio; (e) la rama de `MaxTokens` revertida al `Fallida` viejo -> **caen los 6 tests de criterio**; (f) el turno
+  mostrando respuesta solo en `FinTurno` -> caen 2. Todo restaurado y la suite completa re-corrida despues.
+- La app **no se levanto**: la verificacion en pantalla de un turno cortado (que se vea la respuesta parcial y la nota)
+  es de QA.
+
+## Pruebas minimas para QA
+
+1. Una conciliacion real larga: que la tarea termine `Completada` con el texto **pegado y legible en la union de los
+   tramos** -- R-04 dice que el modo de falla de continuar es **repetir o contradecir**, asi que hay que leer el texto
+   pegado, no solo que no falle.
+2. La conversacion de un turno cortado y agotado: que se vea la respuesta parcial **como respuesta** del turno, la nota
+   del motor, y que *Seguir* funcione.
+3. `Anthropic:MaxContinuacionesPorCorte` en 0 y en 1 contra el caso real.
+4. Una tarea **programada** que se corte: mirar que dice el aviso (la consecuencia anotada arriba).
+5. Costo: que las continuaciones aparezcan en los pasos y en Consumo, y que el tope de gasto frene en la continuacion
+   como frena en cualquier llamada.
+
+## Checklist de merge
+
+- [x] Build limpio y 1253/1253 verde, medido sin pipe.
+- [x] Un test por criterio, verificado por mutacion.
+- [x] Sin migracion EF y sin cambio de esquema.
+- [x] Sin tocar el proveedor, el streaming ni `MaxTokens` (tanda 2).
+- [x] Ningun valor de M6 modificado; la continuacion pasa por la misma compuerta de gasto.
+- [x] Commit local, sin push, sin deploy.
 
 # M31 - La barra de opciones del chat libre, y la pieza que por fin es la marca
 
