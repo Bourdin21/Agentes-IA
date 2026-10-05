@@ -1,9 +1,118 @@
 # Memoria - Presupuestador
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-10-05 (v9 — Plan de cierre de alcance con los 3 gates del cliente cerrados y el reuse anclado en `marihogar`; sin precio nuevo)
+## Ultima actualizacion: 2026-10-05 (v10 — Revision del plan contra el codigo real de `marihogar`: Entrega 3 reestimada 18h -> 42,5h, entrega nueva de Ventas/Pagos, 2 defectos de produccion)
 
 ## Definiciones vigentes
+
+### Revision del plan contra el codigo real de `marihogar` (2026-10-05, v10)
+
+**Origen:** instruccion de Joaquin — *"quiero que la logica de venta y pagos este hecha como esta en marihogar. tambien los proveedores y compras. marihogar es un proyecto que ya esta en produccion. copiar lo mas que se pueda de ahi."* Antes de implementar se leyo el codigo real de los dos proyectos, por entidad, servicio y vista. Lo que sigue **reemplaza la estimacion de la Entrega 3** y agrega una entrega nueva de Ventas/Pagos.
+
+#### Hallazgo central: "copiar lo mas que se pueda" tomado literal seria destructivo
+
+`marihogar` **no tiene** cuenta corriente de clientes (ni entidad `Cliente`: `Venta.ClienteNombre` es texto libre), **no tiene** IVA por linea (dos precios fijos por producto con el 21% incluido, hardcodeado en 4 puntos de `VentaService`), **no tiene** cantidades decimales (`VentaItem.Cantidad`, `OrdenCompraItem.Cantidad` y `Producto.StockActual` son `int`), **no tiene** unidades de medida ni conversion (0 hits de `UnidadMedida`/`FactorConversion`/`Bulto` en todo el repo) y **no tiene** cierre de caja (su `CajaService` es solo una agregacion del ledger).
+
+La Platense es **mejor** en los cinco puntos y los cinco son requisitos reales de este cliente. Lo que `marihogar` si tiene y aca falta es **el ciclo de cobranza posterior al cierre de la venta** y **todo el modulo de compras**. Ese es el pedido real.
+
+**Confirmacion que despeja la duda principal:** el estado `Confirmada` **no entra en conflicto con marihogar** — alla tampoco se exige factura para cerrar una venta. Su `EstadoVenta` (Pendiente/PagadaParcial/Pagada/Cancelada) no tiene ningun estado "Facturada"; el comprobante fiscal es una entidad aparte (`ComprobanteAfip`) que se emite despues y puede no existir nunca. El criterio del 2026-09-03 queda confirmado, no revisado.
+
+#### Dos defectos de produccion encontrados en el analisis (verificados en el codigo, no reportados por QA)
+
+| # | Defecto | Gravedad |
+|---|---|---|
+| **LP-014** | **Cualquier usuario con la politica `RequireVentas` puede vender a cualquier precio.** `VentasController.GuardarBorrador` (~147-156) pasa `PrecioUnitario` del payload del navegador al DTO y `VentaWorkflowService.GuardarBorradorAsync` lo persiste sin control de rol. `marihogar` tiene exactamente esa puerta (`esAdministrador` en `VentaService.ConfirmarAsync` 407-465 y `EditarAsync` 738-773: un Vendedor **siempre** recalcula desde el producto). Acoplamiento cero: se trae solo. **Abierto en produccion.** |
+| **LP-015** | **Una venta con una linea de cuenta corriente de $1 se confirma y el remanente desaparece.** `VentaWorkflowService.ConfirmarAsync:486`: con cualquier pago de CC presente la verificacion de cobertura se desactiva entera (`pagosCC.Count == 0 && sumaPagos < venta.Total`), y el debito en CC es `pago.Monto` (linea 512), **no el remanente no cubierto**. Sale el stock, la plata no queda ni en caja ni en la deuda del cliente. Esta documentado como intencional, pero lo intencional era permitir fiado, no perder el remanente. **Abierto en produccion.** |
+
+#### Entrega 3 — Proveedores y Compras: el presupuesto de 18h no es realista
+
+Estimacion propia tras leer el codigo real: **42,5h M**, rango 38-46. Es **2,4x** el presupuesto vigente. Las tres razones, en orden de peso:
+
+1. **El item 3.3 (importacion de listas de precios) esta estimado contra una base de reuse que no existe.** El WBS dice que reusa *"el contrato preview→confirmar de `ICatalogoMigracionService`"*. **Verificado: ese tipo no existe en ninguno de los dos repos** — nunca se construyo, pese a figurar como 3h de reuse en el WBS de Etapa 3. Y `marihogar` tampoco tiene importacion de listas: su `tools\ImportarHistorico` se declara en su propia primera linea como *"script de migracion de datos de UNA SOLA VEZ"*, y `AumentoMasivoPrecioService` es aumento por porcentaje a mano, no por archivo. Reuse real: **cero**. Sumado a que las dos listas de muestra reales de `Migracion/` **no comparten ninguna columna de codigo entre si** y una esta en `.XLS` antiguo que ClosedXML no lee, son ~10h por si solas: mas de la mitad del presupuesto completo del modulo.
+2. **El anclaje "marihogar M12+M13" cubre menos de lo que el item 3.2 promete.** Lo que `marihogar` aporta de verdad —y ahi el reuse es genuinamente alto— es proveedores, OC con estados, CC de proveedores, pagos y cheques. Lo que **no** aporta, y el item 3.2 pide explicitamente: unidades de medida con conversion, impacto en el costo del producto (`RecibirAsync` **no toca** `Producto.PrecioCompra`), tipo de cambio propio, % de descuento por proveedor y codigo de proveedor por producto. Son cinco conceptos, ~7h, todos nuevos. Verificado por grep: `CodigoProveedor`, `TipoCambio`, `Moneda` y `Descuento` en `Proveedor` dan **0 hits** en `marihogar`.
+3. **Dos deudas de infraestructura que el modulo activa y no estan presupuestadas.** (a) El ledger de caja de La Platense no tiene `EsReversion`, y los pagos a proveedores tienen varios caminos de reversion que lo necesitan — hoy `GastoService.AnularAsync` simula la reversion con un `Ingreso` sobre el mismo `OrigenId`, con lo cual **un gasto anulado es indistinguible de un ingreso real**. (b) No existe ledger de stock ni metodo delta: los unicos escritores de `Producto.Stock` son `VentaWorkflowService` (resta directa) y `AjusteStockService` (**SET absoluto**, que ademas fuerza `StockVerificado = true`), asi que un ingreso por compra no tiene donde dejar rastro. `marihogar` si tiene `MovimientoStock` + `IStockService` como unico escritor.
+
+**Nota de reuse que aparece recien ahora:** `UnidadMedidaConversionService.ConvertirCompraAVenta` esta escrito, registrado en DI y **nunca llamado desde ningun lado** — su unico call site es `EsFactorConversionValido` en `ProductoService:444`. Compras es el consumidor que ese servicio estaba esperando desde que se construyo.
+
+| # | Pieza | M (h) | Base |
+|---|---|---:|---|
+| 0 | Decision MH-034 + `EsReversion` en `CajaMovimiento` + discriminador de cuenta/medio + backfill + filtro en la grilla | 2,5 | Nuevo, acotado |
+| 1 | `Proveedor` ampliado (CUIT, condicion IVA, contacto, domicilio fiscal, TC propio, % descuento, forma de pago) + romper `CatalogoSimpleServiceBase` + ABM + sidebar | 3,0 | Reuse alto |
+| 2 | CC de proveedores (ledger + saldo acumulado por fila + pantalla) | 2,0 | Patron `MovimientoCCCliente`, ya en el repo |
+| 3 | `OrdenCompra` + items + estados + Create/Details (1.170 lineas de vista, 460 de JS en marihogar) | 6,5 | Reuse alto, volumen real |
+| 4a | Entrada de stock con conversion de unidad | 2,0 | **Sin precedente**: marihogar es `int` y tiene ledger; LP no tiene ninguno de los dos |
+| 4b | Impacto en el costo del producto | 2,5 | **Sin precedente en marihogar** + decision de negocio |
+| 4c | TC propio por proveedor + % descuento + moneda en la compra | 2,5 | **Sin precedente en marihogar** |
+| 5 | Pagos de OC + egreso en caja + `ValidarPeriodoAbiertoAsync` + LP-002 | 3,5 | Reuse alto |
+| 6 | Pagos programados + primer hosted service del repo | 2,0 | Ver riesgo de hosting abajo |
+| 7 | Cheques (entidad, estados, acreditacion con fecha de extracto, cartera, job) | 4,0 | Reuse alto, volumen grande |
+| 8 | **Importacion recurrente de listas de precios** | 10,0 | **Reuse cero** |
+| 9 | Ronda de QA + fixes | 2,0 | Historico del proyecto |
+| | **Total** | **42,5** | |
+| | *Sin el item 8* | *32,5* | |
+
+**Decision de alcance propuesta:** sacar el item 8 de la Entrega 3 y dejarlo como entrega propia con su propio relevamiento, empezando por pedirle al cliente dos o tres listas mas de proveedores reales para ver cuantos esquemas distintos hay. Con eso la Entrega 3 queda en 32,5h M — sigue siendo casi el doble de 18, pero es un bloque coherente, y el item mas riesgoso del plan deja de estar escondido dentro del modulo mas grande.
+
+**Orden de port (cada paso compila, deploya y se prueba solo; nada toca lo que esta en produccion hasta el paso 5):** 0 discriminador de caja → 1 Proveedor + ABM → 2 CC de proveedores → 3 OC sin impacto (el paso mas grande y el mas seguro) → 4 `RecibirAsync` con conversion (primer paso que mueve datos reales) → 5 pagos + egreso en caja (**aca ya impacta el arqueo del cliente: avisarle antes**) → 6 pagos programados → 7 cheques → 8 importacion (aparte) → 9 QA.
+
+#### MH-034: `marihogar` no lo resuelve — tiene el mismo problema
+
+Hay que decirlo antes de cualquier decision de port. `MovimientoCCLocal` de `marihogar` **no tiene `MetodoPago` ni id de cuenta**, y no existe entidad `CuentaBancaria`, `Banco` ni `Conciliacion` en todo el repo. El medio de pago vive **solo en el texto libre de `Descripcion`** (`"Pago de orden de compra #44 (Transferencia)"`). Efectivo, transferencia, Mercado Pago, cheque y deposito caen todos en el mismo pozo. **Su modelo no es portable como solucion porque no hay solucion que portar.**
+
+Lo que si vale traer, y es la parte barata:
+1. **`EsReversion` en el ledger** + el calculo `ObtenerNetoPosteadoAsync` = `Egresos no-reversion − Ingresos reversion`, que es lo que impide reversar dos veces el mismo importe. Se vuelve obligatorio en cuanto entren pagos a proveedores.
+2. **El choke point unico**: `EgresoPagoProveedorService` es el unico lugar que postea y revierte el egreso de un pago a proveedor, y usa **el mismo `OrigenTipo` y el mismo `OrigenId`** en los dos ledgers, asi que un pago se rastrea de uno al otro sin traduccion. Son ~80 lineas de runtime (las otras ~460 del archivo son backfill one-shot de marihogar, no se portan).
+3. **La unica conciliacion que marihogar tiene**, que es manual y por documento: al acreditar un cheque se le **pide al usuario la fecha en que el banco debito**, leida del extracto. La medicion de su CR-86 es elocuente: usar la fecha del click acertaba 8 de 13 contra el extracto real; usar el vencimiento del cheque, 1 de 13.
+
+**El costo es asimetrico y por eso conviene decidirlo ahora:** como paso 0 son ~2,5h M (una columna discriminadora + backfill por `OrigenTipo`/`Descripcion` + filtro en la grilla + partir el arqueo). Despues de que entren miles de pagos a proveedores, es un job de reconstruccion de datos sobre texto libre, con el arqueo del cliente sin conciliar en el medio.
+
+#### Entrega nueva — Ventas y Pagos: traer el ciclo de cobranza de `marihogar`
+
+No estaba en el WBS: el modulo 5 ("Ventas + CC clientes", 23h) se dio por cerrado y esta en produccion. Esto es alineacion de un modulo ya entregado, pedida explicitamente.
+
+**Traer, en este orden (cada paso habilita al siguiente):**
+
+| # | Pieza | Por que en este orden |
+|---|---|---|
+| 1 | **LP-014** gate de precio por rol | Agujero de seguridad abierto hoy. Acoplamiento cero |
+| 2 | **`CancelarAsync`**: reversion de una venta ya cerrada (motivo, contramovimiento de stock, contramovimiento de caja **acotado a lo realmente posteado**, soft-delete de pagos pendientes, guard por Entrega/Comprobante) | Hoy **no existe ninguna anulacion**: `EstadoVenta.Anulada` esta en el enum pero ningun codigo la dispara. Un error de carga en una venta Confirmada en produccion es **irreparable**. Es el gap mas urgente despues del anterior |
+| 3 | `PagoVentaId` + `EsReversion` + `UsuarioId` en `CajaMovimiento` | Precondicion de todo lo demas. Sin `PagoVentaId` no hay forma de revertir una linea de pago puntual: en una venta con dos pagos del mismo monto se revierte el equivocado — **es literalmente el defecto MH-027 que marihogar ya sufrio en produccion** |
+| 4 | Saldo pendiente + sub-estado de cobranza derivado de Σpagos | Hoy no existe el concepto de "cuanto falta cobrar de esta venta" |
+| 5 | `RegistrarPagoAsync` sobre una venta ya cerrada + `EliminarPagoAsync` con guard | Cerrada la venta no hay forma de cobrar el resto |
+| 6 | **Entrega aparte, con presupuesto propio:** acreditacion diferida de tarjeta (+ job + notificacion) y costo real de cobranza con tasas vigentes | Es lo que mas plata mide y lo que mas tablas arrastra. Hoy la caja del dia cuenta como ingreso plata de tarjeta que entra a 30 dias |
+
+**Como se compone con lo que ya hay, sin romperlo:** el estado de La Platense es la **etapa documental** (Borrador/Confirmada/Facturada/Anulada) y el de marihogar es el **grado de cobranza** (Pendiente/PagadaParcial/Pagada). No son excluyentes y **no se reemplaza un enum por el otro**: se conservan las 4 etapas y se agrega un sub-estado de cobranza derivado de Σpagos.
+
+**Dejar como esta, sin tocar:** estado `Confirmada` (marihogar confirma el criterio), cantidad decimal + `UnidadVenta` por linea + conversion, IVA por linea con subtotal c/IVA editable que despeja el precio hacia atras (estrictamente mejor que el de marihogar, que deja el `PrecioUnitario` desactualizado), formula `(1-d+r)`, recargo de cuotas resuelto server-side que suma al total, cierre de caja diario/mensual, y toda la CC de clientes.
+
+**Traer el criterio y no el codigo:** el flag `subtotalManual` de marihogar (que ningun recalculo pise un subtotal tipeado a mano) y su modelo *"`Subtotal` es la fuente de verdad, los `%` son traza"*.
+
+#### Riesgo de regresion sobre datos reales — lo que NO se puede hacer
+
+Produccion tiene la Entrega 2 completa desde 2026-08-24 con actividad real, 2.990 clientes y ~112.000 productos. **AFIP esta deshabilitado, asi que no hay ninguna venta `Facturada`: todo lo cerrado esta en `Confirmada`.**
+
+- **`Ventas.Estado`** — `Confirmada=4` esta al final del enum **a proposito** ("para no reasignar los enteros ya persistidos en produccion", comentario literal en `EstadoVenta.cs`). Si se adoptara el enum de marihogar (`Pendiente=1/PagadaParcial=2/Pagada=3/Cancelada=4`), **cada venta Confirmada se leeria como Cancelada y cada Borrador como Pendiente**. Es el riesgo mas grave y el mas facil de cometer. Todo estado nuevo va al final, numerado explicito.
+- **`ItemVenta.Descuento`/`Recargo`/`Subtotal`** — hay lineas persistidas con `(1-d+r)`. Si se pasara a cascada y algo recalculara subtotales, **el total de esas ventas cambiaria contra la caja y la CC ya posteadas**. Regla: en una venta cerrada, `Subtotal` es dato historico y no se recalcula nunca.
+- **`ItemVenta.Cantidad`** (decimal 3 decimales), **`ItemVenta.UnidadVenta`**, **`Productos.Stock`** (decimal) — pasarlos a `int` trunca cantidades ya vendidas y descuadra el stock. Migracion destructiva, sin vuelta atras.
+- **`PagosVenta.Monto`** — hoy `Monto` es la base y el recargo de cuotas se suma aparte al total y al ingreso de caja. Si se adoptara la convencion de marihogar (recargo embebido en el precio del item), cualquier conciliacion que sume `PagosVenta.Monto` **daria de menos exactamente el recargo**.
+- **`MovimientosCCCliente`** — si se cambia el criterio de cuanto se debita (LP-015), los movimientos viejos quedan con una regla y los nuevos con otra. Lo correcto es exigir cobertura **de ahora en adelante** y **no** recalcular lo pasado.
+- **`Ventas.CAE`** — pasar al modelo `ComprobanteAfip` 1:N (facturacion parcial + NC) es una migracion con backfill. Hoy es **barata** porque no hay ninguna factura real emitida; deja de serlo para siempre en cuanto se emita la primera.
+
+#### Riesgo de hosting (pasos 6 y 7 de la Entrega 3)
+
+La Platense **no tiene ni un hosted service** (verificado: 0 hits de `AddHostedService`) y corre en SmarterASP. `marihogar` usa `BackgroundService` + `PeriodicTimer` con hora fija (03:00/03:10 ART), que depende de que el application pool este vivo a esa hora. Con reciclado por inactividad, el job puede no correr nunca. Antes de portarlo: o se configura el pool como always-running, o se cambia el disparador por un chequeo oportunista al primer request del dia. **No es codigo, es una decision de hosting** — corresponde consultarlo con `olvidata-infra`.
+
+#### Decisiones que requieren a Joaquin
+
+1. **MH-034 / discriminador de caja**: decidirlo como paso 0 (~2,5h) o convivir con una caja sin conciliar. El costo es asimetrico.
+2. **El remanente de una venta fiada (LP-015)**: debitar el remanente completo a la cuenta del cliente, exigir cobertura total, o dejarlo como hoy. *Recomendacion: debitar el remanente — es lo que el cliente realmente debe.*
+3. **El CAE**: quedarse con 1 factura por venta, o pasar a `ComprobanteAfip` 1:N con facturacion parcial y notas de credito. **Barato ahora, caro para siempre despues de la primera factura real.**
+4. **El recargo de cuotas**: *recomendacion: no tocar.* El modelo de La Platense es mejor y cambiar la convencion obliga a elegir entre migrar pagos ya posteados o convivir con dos lecturas.
+5. **El costo del producto en la compra (item 4b)**: si una compra pisa `Producto.PrecioCompra`, y que pasa con el precio de venta cuando lo pisa. En La Platense esta minado: `PrecioCompra` es un campo manual **ya neto de bonificacion**, `Bonificacion` es **texto libre informativo** (`"33+5"`) que no participa de ningun calculo, y aguas abajo cuelgan `PorcentajeRecargo` → `PrecioVenta` → `PrecioOferta`.
+6. **El factor de conversion por producto**: el XML-doc de `UnidadMedidaConversionService` marca como "a validar con el cliente" que el factor sea **fijo por producto**. Si el mismo producto llega en bultos de distinto tamaño segun el proveedor, el factor tiene que moverse a `CodigoProveedorProducto`. **Preguntarlo antes de escribir la migracion del paso 4, no despues.**
+7. **Cheques (paso 7)**: confirmar si la ferreteria paga con cheque propio diferido. El presupuesto pide "echeck/transferencia", que no es necesariamente la cartera de cheques de marihogar (4h).
+8. **El desvio de 18h a 32,5h (o 42,5h con importacion)**: el precio ya esta cobrado dentro de Etapa 1 y el plan declara USD 0 nuevo, asi que **no es un problema de precio sino de margen y de calendario**. Hay que decidir si se absorbe, si se renegocia el item 3.3, o si se recorta alcance (los candidatos naturales son cheques y pagos programados).
+
 
 ### Plan de cierre de alcance — Entregas 3 a 6 (2026-10-05)
 

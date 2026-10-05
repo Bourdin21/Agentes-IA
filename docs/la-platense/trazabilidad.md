@@ -4,6 +4,126 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-05 15:45 - implementador-dotnet (Sprint 0, gate de precio por rol en Ventas)
+
+- Etapa: Implementación. Rama `entrega-1-migracion`, repo `C:\Sistemas\Ferreteria La Platense`.
+  **Sin commit** (cambios en el working tree, a la espera de QA). Base de trabajo `laplatense_dev`;
+  **producción no se tocó** (ni deploy, ni Web Deploy, ni ninguna operación contra
+  `mysql8001.site4now.net`) y el fixture `laplatense_qa_d9` **no se borró ni se modificó**.
+- Alcance: **un solo defecto**. Cualquier usuario con la política `RequireVentas` — incluido el rol
+  `Vendedor` — podía vender a cualquier precio: `VentasController.GuardarBorrador` tomaba
+  `Items[].PrecioUnitario`, `Items[].Descuento` y `Items[].Recargo` del formulario y
+  `VentaWorkflowService.GuardarBorradorAsync` los persistía sin control de rol, así que un vendedor
+  podía postear `PrecioUnitario = 1`, confirmar, y descontar stock y postear Caja y cuenta corriente
+  al precio que eligió. Estaba abierto en producción. **No se amplió a nada más** (hay un plan aparte
+  para el resto).
+- Reutilización (escaneo de la instrucción 39, sección 3): paso 1 `cat_resumen.txt` **negativo** para
+  este caso — lo más cercano, `PAT-021` (modo de precio por ítem) y `PAT-041` (gate de publicación
+  por rol), no es el precedente. El precedente lo traía el brief y se usó tal cual: **`marihogar`**
+  (`C:/Sistemas/marihogar`, ya en producción), `VentaService.ConfirmarAsync` (~407-465) y
+  `EditarAsync` (~738-773), identificado en ese repo como **CR-22**. Se leyó el código real y se
+  copió el criterio, no se desarrolló desde cero. **Patrón nuevo agregado al catálogo:
+  `PAT-050`** — el criterio ya vive en 2 proyectos y no estaba catalogado.
+- Qué se copió: un booleano `esAdministrador` resuelto **exclusivamente** en el Controller con
+  `User.IsInRole` sobre el request autenticado y pasado al Service como dato explícito (el Service
+  no consulta Identity), que es la **única** puerta que habilita leer del payload los campos de
+  precio. Qué **no** se copió, a propósito: la cascada `(1-d/100)*(1+r/100)` de marihogar — acá la
+  fórmula comercial es `(1 - d/100 + r/100)` sobre precio de lista, corregida el 2026-09-03 por
+  pedido de Joaquín, y se dejó intacta — ni su manejo de subtotal, porque el de La Platense (subtotal
+  c/IVA editable que despeja el precio unitario hacia atrás) es mejor y se queda, solo restringido a
+  Administrador.
+- Adaptación a La Platense: `Administrador` y `SuperUsuario` pueden override de precio, descuento,
+  recargo y subtotal, exactamente como hoy; para `Vendedor` y cualquier otro rol/caller el precio lo
+  resuelve el servidor y el descuento y el recargo quedan en 0. Lo que venga en el payload para esos
+  campos **se descarta en silencio**, no con un error (no es un error del usuario: la UI no se lo
+  deja editar). Corolario deliberado: un descuento >100% posteado por un vendedor **no** devuelve el
+  mensaje de validación, se ignora; para un administrador sigue rechazando.
+- **Qué precio es "el del producto".** `VentaWorkflowService.PrecioDeVentaVigente`: `PrecioOferta` si
+  la oferta está vigente hoy (`Producto.EsOfertaVigente(ArgentinaTime.Hoy)`, día de negocio
+  argentino) **y** es `> 0`; si no, `PrecioVenta`. No se copió el `PrecioEfectivo` de marihogar, que
+  es otro modelo. Es la **misma** resolución que ya hacía la pantalla al agregar un ítem
+  (`producto.precioOferta || producto.precioVenta`, sobre el `PrecioOferta` que
+  `ProductoService.BuscarParaVentaAsync` y `CodigoBarrasLookupService.BuscarPorCodigoAsync` ya
+  filtran por vigencia), para que el vendedor termine con el precio que la UI le mostró. **Los dos
+  caminos de la pantalla (buscador Select2 y lector de código de barras) usan la misma resolución y
+  coinciden, así que no hubo que elegir ninguno a dedo.** El `> 0` replica el `||` de JavaScript, que
+  con una oferta en 0 cae igual a `PrecioVenta`: sin eso el servidor cobraría 0 donde la pantalla
+  mostró el precio de lista.
+- **Barrido `LP-002` — puntos de entrada del precio.** Cinco pasadas, no solo el grep obvio (la regla
+  ya había quedado a medias 3 veces en este proyecto):
+  1. `GuardarBorradorAsync` es el **único** punto de entrada del precio: es el único método que
+     escribe `ItemVenta`; `ConfirmarAsync`/`FacturarAsync`/`ConfirmarYFacturarAsync` trabajan sobre
+     lo persistido y `Details.cshtml` es solo lectura.
+  2. **Hallazgo propio:** el input de subtotal c/IVA **no tiene atributo `name`**, así que no se
+     postea nunca — la UI lo despeja sobre `PrecioUnitario` client-side, de modo que el gate de
+     `PrecioUnitario` lo cubre por elevación y un segundo control habría sido código muerto.
+  3. Hermanos semánticos del mismo payload: `Pagos[].PorcentajeRecargoAplicado` ya se resolvía
+     server-side (precedente del mismo patrón dentro del mismo método); `Pagos[].Monto` es lo que el
+     cliente pagó y no un precio; `ClientesController.RegistrarAjuste` ya era `RequireAdministracion`
+     y `RegistrarCobro` queda en `RequireVentas` por decisión previa documentada.
+     **`Items[].PorcentajeIVA` sigue llegando del cliente para cualquier rol** → hueco hermano, ver
+     abajo.
+  4. **Hallazgo propio (patrón de `LP-008`):** `ItemVenta` declaraba la fórmula en **cascada**
+     `(1-Descuento/100)*(1+Recargo/100)` en dos lugares (encabezado de clase y doc de `Subtotal`),
+     cuando la real desde el 2026-09-03 es `(1 - Descuento/100 + Recargo/100)`. Era una regla de
+     negocio **falsa** viviendo en el repo; corregida en la misma pasada.
+  5. Mitad simétrica y vistas/JS: ver los dos puntos siguientes.
+- **Mitad simétrica (decisión consciente, no omisión).** El otro lado del gate es la reapertura de un
+  borrador: si un administrador dejó un override y después un `Vendedor` re-guarda ese mismo
+  borrador, el precio vuelve al del producto y el descuento/recargo a 0. Es la consecuencia de copiar
+  el criterio de marihogar ("para un no-administrador el precio SIEMPRE se recalcula") y se eligió a
+  propósito sobre la alternativa de conservar el valor persistido, que sería un agujero. Verificado
+  por ejecución.
+- Vistas y JS: precio, descuento, recargo y subtotal en `readonly` para el no-administrador, tanto en
+  las filas que renderiza Razor como en las que arma el JS (`agregarFilaItem`), más el texto de ayuda
+  reemplazado. Se usó `readonly` y **no** `disabled` a propósito: un input `disabled` no se postea y
+  rompe los índices contiguos `0..N-1` que exige el model binder de `List<T>`. La UI es cortesía — el
+  control que vale es el del servidor.
+- Reglas aplicadas: **`MH-001`** — la única colección local que llega al SQL de este método es
+  `productoIds` (`List<int>`), que la regla declara explícitamente segura (el problema es específico
+  de colecciones de `string`); no se introdujo ningún `Contains`/`Any` nuevo. **`LP-003`** — no se
+  agregó ningún `value` de input nuevo; los existentes ya usaban el helper `num()` con
+  `InvariantCulture` y quedaron intactos, y el atributo agregado (`readonly`) no transporta decimales.
+- Capas tocadas: Domain (`ItemVenta.cs`, solo documentación), Application (`VentaDtos.cs`,
+  `IVentaWorkflowService.cs`), Infrastructure (`VentaWorkflowService.cs` — el gate y el helper
+  `PrecioDeVentaVigente`), Web (`VentasController.cs`, `VentaViewModels.cs`, `Views/Ventas/Editar.cshtml`).
+- **Migración EF: ninguna.** `dotnet ef migrations has-pending-model-changes` →
+  *"No changes have been made to the model since the last migration"*. No recalcula nada histórico.
+- **Evidencia ejecutada, sin navegador** (regla del `.agent.md`, que prohíbe al Implementador levantar
+  la app o probar por navegador — ver la discrepancia ya registrada en este archivo):
+  `dotnet build` de la solución **0 errores**, 9 advertencias todas preexistentes; prueba de que las
+  vistas Razor **sí** compilan en el build (símbolo inexistente inyectado en `Editar.cshtml` → `error
+  CS0103`, revertido y recompilado limpio); el render del atributo booleano `readonly="@(!esAdministrador)"`
+  verificado **ejecutando** las tres llamadas que emite Razor (`BeginWriteAttribute` /
+  `WriteAttributeValue` / `EndWriteAttribute`, confirmadas en `Editar_cshtml.g.cs` con
+  `EmitCompilerGeneratedFiles`): con `true` emite `readonly="readonly"` y con `false` **omite el
+  atributo entero** — importa porque un `readonly=""` sería verdadero en HTML; y el Service
+  ejercitado **directamente contra `laplatense_dev`** con los dos roles dentro de una transacción
+  revertida al final (**15 checks OK, 0 filas sobrevivientes**, base en su línea base): precio
+  manipulado a $1 → se guardó el `PrecioVenta` del producto; descuento 90% y recargo 50% → 0 y 0;
+  producto con oferta vigente → cobró `PrecioOferta`; administrador → override respetado con la
+  fórmula no-cascada; 10%+10% devuelve el precio original; >100% rechazado para administrador e
+  ignorado para vendedor; y la simétrica confirmada.
+- **Deuda abierta, decisión de Joaquín (no un olvido):** `Items[].PorcentajeIVA` sigue llegando del
+  cliente para cualquier rol. Es el hermano del hueco que se acaba de cerrar y el único que queda: un
+  vendedor que lo postea en 0 baja el total de la venta ~21% sin tocar el precio unitario, porque
+  `RecalcularTotales` suma `Subtotal * PorcentajeIVA / 100`. Se dejó sin tocar porque el brief de
+  esta ronda lo excluyó explícitamente ("el IVA por línea no se toca") y el alcance era un solo
+  defecto. Si el IVA por línea es un dato del producto y no una decisión del vendedor, la corrección
+  es idéntica a la de esta ronda y son tres líneas; si el vendedor tiene que poder elegir la
+  alícuota, hay que decir por qué. Secundario: un `PrecioUnitario` negativo posteado por un
+  administrador no se rechaza en el Service (`GuardarBorrador` no chequea `ModelState.IsValid`);
+  preexistente, no se tocó, marihogar sí lo valida.
+- Reintentos: 3. Dos del arnés y uno de herramienta — `VentaWorkflowService` revienta en el
+  constructor con `IOptions<AfipSettings>` en null (`.Value` en el ctor), así que el arnés necesita
+  `Options.Create(new AfipSettings())` aunque el camino probado no use AFIP; `RazorPageBase.Output`
+  no tiene setter y hay que construir un `ViewContext` completo con su `TextWriter`, más
+  `HtmlEncoder.Default`, para ejercitar el render de un atributo; y `dotnet build` con un `/p:` y una
+  ruta larga detrás de `-v q` se parsea como un segundo proyecto (`MSB1008`).
+- Reglas que hubo que releer: `32-estandares-qa-implementador` secciones `LP-002`, `MH-001` y
+  `LP-003`; el `.agent.md` del rol (evidencia de cierre sin smoke por navegador).
+- Pendiente: **QA debe re-verificar**. Este agente no cierra el defecto.
+
 ### 2026-10-05 14:40 - qa-mvc (QA Sprint 0, RE-VERIFICACION de los 7 defectos — commit `00f7dd4`)
 - Etapa: QA (re-verificacion en contexto nuevo, los 7 criterios arrancando en FAIL).
 - Resultado: **GO.** Los 7 defectos (`LP-006`..`LP-012`) quedan **CERRADOS** con evidencia observada,
@@ -725,6 +845,33 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Motivo: respuestas de Joaquin a las 3 decisiones bloqueantes planteadas al presentar el plan, mas su instruccion de anclar todo el reuse en `marihogar`.
 - Riesgos/pendientes: **unico gate que queda abierto en todo el plan: el certificado AFIP del cliente** (bloquea E5, no el resto). El supuesto de "sin limite de tiempo para anular" esta declarado y hay que confirmarselo al implementar 5.3. La base legada (`LaPlatense_MigracionAnalisis`, SQL Server local) **ya no existe en la maquina** — se verifico: solo quedan `ConversionDataNetABejerman` y su copia. Si la correccion de `UnidadVenta` necesitara volver al origen, hay que restaurar el `.bak` de `Migracion/` otra vez; la regla acordada no lo necesita porque opera sobre el catalogo ya migrado.
 
+### 2026-10-05 (3) - orquestador (revision del plan contra el codigo real de marihogar)
+- Etapa: 1 - Analisis / 4 - Presupuesto (reestimacion). Entregable: `4-presupuestador.md` v10.
+- Origen: instruccion de Joaquin — *"quiero que la logica de venta y pagos este hecha como esta en marihogar. tambien los proveedores y compras. copiar lo mas que se pueda de ahi."* **Se leyo el codigo real de los dos proyectos antes de implementar**, entidad por entidad.
+- **Hallazgo central: tomado literal, "copiar lo mas que se pueda" seria destructivo.** `marihogar` no tiene CC de clientes (ni entidad `Cliente`), no tiene IVA por linea, no tiene cantidades decimales (`VentaItem.Cantidad`, `OrdenCompraItem.Cantidad` y `Producto.StockActual` son `int`), no tiene unidades de medida ni conversion (0 hits de `UnidadMedida`/`FactorConversion`/`Bulto`) y no tiene cierre de caja. La Platense es mejor en los cinco y los cinco son requisitos reales del cliente. Lo que si aporta `marihogar` es el **ciclo de cobranza posterior al cierre de la venta** y **todo el modulo de compras**.
+- **Despeja la duda principal del pedido:** el estado `Confirmada` **no choca con marihogar** — alla tampoco se exige factura para cerrar una venta (su `EstadoVenta` no tiene ningun estado "Facturada"; el comprobante es una entidad aparte que puede no existir nunca). El criterio del 2026-09-03 queda **confirmado**, no revisado.
+- **2 defectos de produccion encontrados en el analisis, no por QA, verificados en el codigo por el orquestador:** **`LP-014`** cualquier usuario con `RequireVentas` puede vender a cualquier precio (`VentasController.GuardarBorrador` pasa `PrecioUnitario` del payload sin control de rol; `marihogar` tiene la puerta `esAdministrador` y aca no existe) — ya delegado a implementacion. **`LP-015`** con cualquier pago de CC presente, `ConfirmarAsync:486` desactiva la verificacion de cobertura **entera** y debita `pago.Monto` en vez del remanente: una venta de $100.000 con una linea de CC de $1 se confirma, sale el stock y $99.999 no quedan ni en caja ni en la deuda del cliente.
+- **Entrega 3 reestimada: 18h -> 42,5h M (2,4x), rango 38-46.** Tres causas: (1) **el item 3.3 esta estimado contra una base de reuse que no existe** — `ICatalogoMigracionService`, declarado en el WBS como "3h reuse", **da 0 hits en los dos repos**, nunca se construyo; y `marihogar` tampoco tiene importacion de listas (su `tools\ImportarHistorico` se declara "de UNA SOLA VEZ"), asi que son ~10h con reuse cero. (2) El anclaje "marihogar M12+M13" no cubre 5 conceptos que el item 3.2 pide: conversion de unidades, impacto en el costo del producto (`RecibirAsync` **no toca** `PrecioCompra`), TC propio, % de descuento por proveedor y codigo de proveedor por producto — `CodigoProveedor`, `TipoCambio` y `Moneda` dan **0 hits** en `marihogar`. (3) Dos deudas de infra no presupuestadas: el ledger de caja no tiene `EsReversion` (hoy un gasto anulado es **indistinguible de un ingreso real**) y no existe ledger de stock ni metodo delta (`AjusteStockService` hace **SET absoluto** y fuerza `StockVerificado`).
+- **Propuesta de alcance:** sacar la importacion de listas de la Entrega 3 y dejarla como entrega propia con relevamiento previo (pedir al cliente 2-3 listas mas de proveedores reales). Entrega 3 queda en 32,5h M, con un orden de port de 9 pasos donde nada toca produccion hasta el paso 5.
+- **`MH-034`: `marihogar` NO lo resuelve, tiene el mismo problema.** Su `MovimientoCCLocal` no tiene `MetodoPago` ni id de cuenta, y no existe `CuentaBancaria`/`Banco`/`Conciliacion` en todo el repo: el medio de pago vive solo en el texto libre de `Descripcion`. Su modelo no es portable porque no hay solucion que portar. Si vale traer: `EsReversion` + `ObtenerNetoPosteadoAsync`, el choke point unico `EgresoPagoProveedorService` (~80 lineas de runtime; las otras ~460 son backfill one-shot), y su unica conciliacion real, que es manual y por documento (al acreditar un cheque se le pide al usuario **la fecha en que el banco debito, leida del extracto** — su medicion: la fecha del click acertaba 8 de 13, el vencimiento del cheque 1 de 13). Costo asimetrico: ~2,5h como paso 0, o un job de reconstruccion sobre texto libre despues de miles de pagos.
+- **Entrega nueva de Ventas/Pagos** (no estaba en el WBS; el modulo 5 se dio por cerrado y esta en produccion): gate de precio por rol -> **`CancelarAsync`** (hoy **no existe ninguna anulacion**: `EstadoVenta.Anulada` esta en el enum pero ningun codigo la dispara, asi que un error de carga en una venta Confirmada en produccion es **irreparable**) -> `PagoVentaId`+`EsReversion`+`UsuarioId` en `CajaMovimiento` (sin `PagoVentaId` se revierte el pago equivocado cuando hay dos del mismo monto: **es el defecto MH-027 que marihogar ya sufrio en produccion**) -> saldo pendiente -> `RegistrarPagoAsync`/`EliminarPagoAsync`. Aparte, con presupuesto propio: acreditacion diferida de tarjeta y costo de cobranza.
+- **Como se compone sin romper nada:** el estado de La Platense es la etapa documental y el de marihogar el grado de cobranza. **No se reemplaza un enum por el otro**: se conservan las 4 etapas y se agrega un sub-estado de cobranza derivado de Σpagos.
+- **Riesgo de regresion declarado tabla por tabla.** El mas grave: `Confirmada=4` esta al final del enum **a proposito** para no reasignar enteros ya persistidos; adoptar el enum de marihogar haria que **cada venta Confirmada se lea como Cancelada**. Tambien: las lineas con `(1-d+r)` persistido, `Cantidad`/`Stock` decimales que un `int` truncaria, y `PagosVenta.Monto` (hoy base, con el recargo sumado aparte: la convencion de marihogar haria que toda conciliacion de nueva data de menos exactamente el recargo).
+- Riesgo de hosting: La Platense **no tiene ni un hosted service** (0 hits de `AddHostedService`) y corre en SmarterASP; el patron de `marihogar` (hora fija 03:00 ART) depende de que el pool este vivo. Consultar con `olvidata-infra` antes de los pasos 6 y 7.
+- Nota de reuse: `UnidadMedidaConversionService.ConvertirCompraAVenta` esta escrito, en DI y **nunca llamado** — Compras es el consumidor que esperaba desde que se construyo.
+- Riesgos/pendientes: **8 decisiones abiertas con Joaquin**, listadas en `4-presupuestador.md` v10 (MH-034, remanente de venta fiada, modelo del CAE —barato ahora, caro para siempre tras la primera factura real—, recargo de cuotas, costo del producto en la compra, factor de conversion fijo por producto vs. por proveedor, cheques propios, y el desvio de 18h a 32,5h que es problema de margen y calendario, no de precio). Sigue pendiente el OK del deploy del Sprint 0.
+
+### 2026-10-05 (4) - orquestador (DEPLOY REAL del Sprint 0 a produccion)
+- Etapa: liberacion. **Ejecutado con autorizacion explicita de Joaquin** ("entregar Sprint 0, commit push deploy con migraciones").
+- Pusheado `a6a78f0..2580f7c` (7 commits) a `origin/entrega-1-migracion` en GitLab.
+- **Correccion del registro: `a6a78f0` YA ESTABA DEPLOYADO.** La memoria y la trazabilidad del 2026-09-03 decian "sin deployar todavia" y ese supuesto se arrastro hasta el plan (item 0.1 del Sprint 0). Verificado contra produccion: la migracion `EntregaTres_ConfirmarSinFactura_RecargoCuotas_NotaPago` ya estaba en `__EFMigrationsHistory`, `RecargosCuota` tiene sus 7 filas y hay **3 ventas en estado `Confirmada`** — un estado que no existe en el codigo viejo, asi que el codigo tambien estaba publicado y el cliente lo venia usando. **Leccion de proceso: el estado de produccion se verifica contra produccion, no contra la memoria del proyecto.**
+- Secuencia ejecutada: (1) **backup** de `db_a7251f_laplaten` via `mysqldump --single-transaction` (33 MB, fuera del repo); (2) **migracion** `20261005151611_D9_NormalizarFechaCajaMovimiento_DiaDeNegocio` aplicada y confirmada en el historial — **no-op real en produccion**: se conto antes de aplicarla y las filas que matchean su predicado (hora 00:00:00.000000 exacta + `OrigenTipo IN ('Gasto','Ajuste')`) eran **0**, porque los unicos 4 movimientos de caja de produccion son de Venta; (3) **build Release** + publicacion via Web Deploy (`msdeploy -verb:sync`, `AppOffline` + `DoNotDeleteRule`, `-allowUntrusted`) — **310 archivos actualizados, exit 0**; (4) sitio verificado `HTTP 200` en `/` y en `/Account/Login`; (5) **modo correctivo `--solo-unidad-venta` corrido contra produccion real**.
+- **Resultado del modo correctivo en produccion, identico a dev**: `Metro` **87.542 -> 0**, `Unidad` 24.929 -> **112.471**, `Peso` **14 sin tocar**, total **112.485 sin cambios** (nada borrado ni duplicado). CSV de **2.635 candidatos a corte por metro** generado contra los Ids **de produccion** (cable 804, manguera 535, cadena 534, alambre 276, soga/piola/cuerda 271, tanza 215) y copiado al escritorio de Joaquin para revision manual. Los Ids de dev no servian: son otros.
+- **Nota sobre el CSV, para cuando se revise**: tiene ruido de las dos clases, que es exactamente por lo que la regla fue "listar y que lo marque una persona" y no inferir por palabra clave. Falsos positivos de producto que no se corta (`ABRAZADERA DE ALAMBRE 32-50 MM`) y, mas interesante, filas que no son `Metro` sino **`Peso`** (`ALAMBRE 0,9 X 5 KG (PRECIO X KILO)`). Esto refuerza la sospecha ya declarada de que los 14 productos en `Peso` son muy pocos para una ferreteria: conviene aprovechar la misma revision manual para marcar los de granel por kilo.
+- Detalle de nota: el script temporal `.cmd` con la password de Web Deploy se borro inmediatamente despues del deploy, segun la regla de `docs/credenciales.local.md`. El publish se copio a una ruta sin espacios porque `msdeploy` no parsea `-source:contentPath` con espacios ni desde bash ni desde PowerShell.
+- Estado de produccion post-deploy, verificado por consulta directa: 112.485 productos, 5 ventas (3 `Confirmada`, 0 `Facturada`), 4 movimientos de caja, 8 migraciones aplicadas.
+- Riesgos/pendientes: **el commit `2580f7c` (LP-014 gate de precio + LP-016 IVA) se deployo sin la re-verificacion de QA** — esta "aplicado, pendiente de re-verificacion", y se subio porque son dos agujeros de seguridad abiertos en produccion y dejarlos un dia mas era peor que el riesgo del fix. **Mandarlo a QA igual, ahora contra produccion.** Queda tambien la confirmacion manual de 3 minutos de la ventana 21:00-00:00 ART (criterio 2b del lote 1), que QA no pudo cubrir por la hora real de la corrida. AFIP sigue deshabilitado a proposito.
+
 ## Historial de ajustes de alcance
 
 ### Bloques archivados (2026-10-05)
@@ -800,4 +947,11 @@ Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-p
 - Reglas releidas: 32#LP-002, 32#MH-001, 30, 33
 - Arranque real: 34 KB (~8k tokens)
 - Nota: RE-VERIFICACION del commit 00f7dd4 (ronda de fixes de los 7 defectos del Sprint 0). GO: los 7 (LP-006..LP-012) CERRADOS con evidencia observada, incluidos los 2 major del circuito de dinero que habian dejado el lote 1 en NO-GO. 1 hallazgo minor nuevo: LP-013. Build 0 errores y 'has-pending-model-changes' -> sin cambios de modelo, verificado por mi y no tomado del parte. ESTA VEZ SI HUBO NAVEGADOR REAL, corrigiendo el error de metodo del lote 1: me quede en HTTP cuando el lote 2 de la misma corrida ya habia demostrado que se podia instalar playwright-core en el scratchpad y reusar el Chromium de ms-playwright. Lo hice (chromium-1243/chrome-win64, locale es-AR, timezone America/Argentina/Buenos_Aires) y ES LO UNICO QUE PERMITIO CERRAR LP-006: el reloj de 12 horas sin AM/PM es inverificable por HTTP, hay que ver el render. window.Fmt probado en el navegador: 00:00:00 -> '05/10/2026, 00:00' (antes 12:00:00), 13:04:22 -> '13:04' (antes 01:04:22), null/''/'no-es-fecha' -> string vacio y nunca 'Invalid Date'. LP-009 cerrado en 6/6 VIAS, no solo la que yo habia reportado, cada una rechazada con el mensaje del cierre MENSUAL y sin persistir nada, mas 3 controles positivos. LA SIEMBRA QUE LO HIZO POSIBLE: la rama mensual de la guarda es INALCANZABLE desde la UI para las vias que imputan a 'hoy', porque CerrarMesAsync prohibe cerrar el mes en curso -- sembre un CierreCajaMensual de 10/2026 en la base, probe venta-confirmada y gasto-anulacion, y lo borre. Sin esa siembra las 2 vias mas importantes quedaban en 'verificado por lectura'. RegistrarAjusteAsync queda afuera VERIFICADO Y NO ASUMIDO: el ajuste de CC con fecha dentro del mes cerrado se acepta y NO aparece ninguna fila nueva en CajaMovimientos. LO QUE MAS VALIO Y NO ESTABA EN EL PARTE: buscar el bug que el PROPIO FIX podia introducir. MapearDetalle ahora proyecta Fecha = ArgentinaTime.From(venta.Fecha), ese DTO alimenta VentaEditableViewModel.Fecha y la pantalla de Editar lo postea de vuelta: si GuardarBorrador escribiera ese valor, CADA GUARDADO CORRERIA LA VENTA 3 HORAS. Probado y no deducido: 5 guardados consecutivos dejan Fecha intacta. Un fix de proyeccion de fechas hay que probarlo en el camino de ESCRITURA, no solo en el de lectura. BARRIDO LP-002 VERIFICADO POR MI CUENTA y no por la tabla del implementador (la regla ya habia fallado 2 veces en el sprint): Domain/Entities tiene 22 propiedades DateTime, no 15; clasificadas una por una, con el caso nocturno real Entregas/Details/3 (2026-08-25 02:00 UTC -> 'ENTREGADA EL 24/08/2026 23:00') visto en pantalla. 3 barridos mecanicos limpios. MH-001 (6ta aparicion potencial) cubierto POR EJECUCION, que es justo lo que el implementador no hizo (verifico solo con ToQueryString(), sin levantar la app): 123 llamadas a los 6 listados x 19 terminos, incluidos ', %, _, a%b y '; DROP TABLE x;-- -> 0 no-JSON, 0 HTTP 500. CRITERIO 2b (ventana 21:00-00:00) DECLARADO CUBIERTO con el razonamiento a la vista: no es PASS por lectura de codigo, son 7 superficies con instantes nocturnos REALES vistas en pantalla atribuyendo al dia argentino correcto + los barridos que no dejan otra forma de derivar un dia + guarda e imputacion desde la misma funcion. Queda confirmacion post-deploy de 3 minutos, no bloqueante. LP-013 (minor, nuevo): la guarda protege hacia adelante pero NO REPARA EL PASADO y no hay migracion de datos, asi que los cierres mensuales que ya quedaron desfasados siguen mostrando el total viejo sin ningun aviso y no existe accion de reabrir/recalcular/anular. Entregable: query de deteccion (JOIN por rango UTC del mes WHERE m.CreatedAt > cm.FechaCierre) PARA CORRER SOBRE PRODUCCION ANTES DEL DEPLOY; en el fixture da 3 filas. TRES FALSOS POSITIVOS MIOS QUE CASI REPORTE: la grilla de cierres mensuales 'sin filas' era mi selector (#tablaMensuales vs #tablaCierresMensuales), el Dashboard 'en blanco' era que rotula ESTADO DEL DIA en mayusculas y mi probe buscaba 'Estado del d', y la CC del cliente 2544 con 1 de 3 movimientos era correcta (los otros 2 son del cliente 3). Antes de escribir un parte, confirmar que el sintoma no es del instrumento. Smoke de 24 pantallas en navegador: 24/24 HTTP 200 y CERO pageerror/console.error. REINTENTOS: 2 (otra vez los heredocs de bash comiendose los backslashes de las rutas de Windows y de los regex -- ya van 4 en la corrida, los scripts van por Write y listo; y el Stock/Historial que parecia vacio hasta que note que la accion exige ?productoId=).
+
+
+### Traza de corrida -- 2026-10-05 / etapa implementacion
+- Reintentos: 3
+- Criterios fallados: ninguno
+- Reglas releidas: 32#LP-002, 32#MH-001, 32#LP-003, agents#implementador-dotnet
+- Nota: Gate de precio por rol en Ventas (un solo defecto): cualquier usuario con RequireVentas podia vender a cualquier precio porque GuardarBorrador tomaba PrecioUnitario/Descuento/Recargo del formulario y el Service los persistia sin control de rol. Copiado el criterio de marihogar CR-22 (VentaService.ConfirmarAsync/EditarAsync, ya en produccion): esAdministrador resuelto SOLO en el Controller con User.IsInRole y pasado al Service como dato explicito del DTO (init, no bindeable), unica puerta que habilita leer esos campos del payload. Para Vendedor y cualquier otro rol/caller el precio sale de PrecioDeVentaVigente (PrecioOferta si EsOfertaVigente(ArgentinaTime.Hoy) y > 0, si no PrecioVenta) y descuento/recargo quedan en 0, descartados EN SILENCIO y no con error. Esa resolucion es la MISMA que ya hacia la pantalla (producto.precioOferta || producto.precioVenta) y los dos caminos de la UI -- buscador Select2 y lector de codigo de barras -- coinciden, asi que no hubo que elegir ninguno a dedo; el > 0 replica el || de JS, sin el el servidor cobraria 0 donde la pantalla mostro el precio de lista. NO se trajo de marihogar la cascada (1-d)*(1+r) (el bug corregido el 2026-09-03) ni su manejo de subtotal. BARRIDO LP-002 en 5 pasadas con 2 HALLAZGOS PROPIOS: (1) el input de subtotal c/IVA no tiene atributo name, no se postea nunca y la UI lo despeja sobre PrecioUnitario client-side, asi que el gate del precio lo cubre por elevacion y un segundo control habria sido codigo muerto; (2) patron de LP-008 otra vez -- ItemVenta declaraba la formula en CASCADA en dos lugares (encabezado de clase y doc de Subtotal) cuando la real desde el 2026-09-03 es (1 - d/100 + r/100): una regla de negocio FALSA viviendo en el repo, corregida en la misma pasada. Mitad simetrica decidida a conciencia y verificada: un Vendedor que re-guarda un borrador pisa el override del administrador (falla segura; conservar el valor persistido seria un agujero). Vistas: readonly y NO disabled por rol en Razor y en el JS, porque un input disabled no se postea y rompe los indices contiguos que exige el model binder de List<T>. MH-001 sin riesgo nuevo (la unica coleccion local es productoIds, List<int>, que la regla declara segura). Sin migracion EF. EVIDENCIA EJECUTADA SIN NAVEGADOR: build 0 errores (9 advertencias preexistentes); prueba de que las vistas Razor SI compilan (simbolo inexistente -> CS0103, revertido); render del atributo booleano readonly verificado EJECUTANDO las tres llamadas que emite Razor (confirmadas en Editar_cshtml.g.cs con EmitCompilerGeneratedFiles) -- true emite readonly=readonly y false OMITE el atributo, que importa porque readonly= vacio seria verdadero en HTML; y el Service ejercitado DIRECTO contra laplatense_dev con los dos roles en una transaccion revertida, 15 checks OK y 0 filas sobrevivientes. DEUDA ABIERTA explicita para Joaquin: Items[].PorcentajeIVA sigue llegando del cliente para cualquier rol (postearlo en 0 baja el total ~21%), excluido a proposito por el brief. Patron nuevo PAT-050 agregado al catalogo (el criterio ya vive en 2 proyectos y no estaba). Produccion y laplatense_qa_d9 sin tocar. Pendiente de re-verificacion de QA.
 
