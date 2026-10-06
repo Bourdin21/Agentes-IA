@@ -3407,3 +3407,102 @@ patrones:
       Lo que NO hubo que tocar, y verificarlo ahorra trabajo: un cierre de periodo con INDICE UNICO sobre
       su clave (Fecha, o Anio mas Mes) ya esta protegido por el motor contra la doble firma. Donde hay un
       unique que sirve, no hace falta lock.
+
+  - id: PAT-060
+    nombre: "Comprobante fiscal PARCIAL 1:N sobre un documento, con la diferencia de impuesto cargada al ledger del cliente"
+    categoria: financiero
+    descripcion: >
+      Un documento (Venta, Remito, Orden) pasa de tener UN comprobante fiscal a tener N, cada uno
+      cubriendo parte de la cantidad pendiente de cada linea. Entidades `ComprobanteX` +
+      `ComprobanteXItem`, estado propio del comprobante (Pendiente/Emitido/Error) porque la emision
+      es una llamada externa que puede fallar DESPUES de que el intento ya existe, y el "ya
+      facturado" de cada linea calculado SUMANDO las lineas vivas de los comprobantes vivos.
+
+      TRES DECISIONES QUE SON EL PATRON, no detalles de implementacion:
+
+      1. NO SE AGREGA UN CONTADOR `CantidadFacturada` EN LA LINEA DEL DOCUMENTO, aunque es lo
+      primero que se piensa y aunque el proyecto de origen lo tenga reservado. Un denormalizado hay
+      que mantenerlo sincronizado en cada emision Y en cada baja de comprobante, y si se
+      desincroniza el tope "no facturar mas que el pendiente" DEJA DE VALER SIN QUE NADA FALLE. La
+      suma de las lineas siempre dice la verdad y no hay nada que optimizar (pocos comprobantes y
+      pocas lineas por documento).
+
+      2. EL CALCULO DEL PENDIENTE LLEVA DOS FILTROS DE SOFT DELETE, y no son redundantes: el query
+      filter global esconde la LINEA borrada, pero NO esconde las lineas de un COMPROBANTE dado de
+      baja entero, porque la baja del padre no toca las filas hijas. Sin el filtro sobre el padre,
+      dar de baja un comprobante deja su cantidad contada como facturada PARA SIEMPRE y el tope
+      bloquea una refacturacion legitima sin que nada explique por que.
+
+      3. EL ESTADO "FACTURADO EN PARTE" ES DERIVADO, no un valor nuevo del enum de estados: se
+      calcula de los comprobantes y sus cantidades, en la MISMA consulta que la pagina del listado
+      (no un N+1). Asi no hay que renumerar enteros ya persistidos ni mantener un estado
+      sincronizado con las cantidades en cada emision.
+
+      LA MITAD QUE NO ES OBVIA, y es la que convierte esto en un patron financiero y no solo
+      fiscal: SI EL DOCUMENTO SE COBRO SIN EL IMPUESTO Y DESPUES SE FACTURA, el comprobante lleva un
+      impuesto que nadie cobro. El documento cerrado NO se recalcula (su total es dato historico y
+      sus pagos ya se postearon), asi que la diferencia se postea como un CARGO NUEVO en el ledger
+      del cliente, con un ORIGEN PROPIO del ledger (nunca "Ajuste", que significa correccion manual)
+      y EN LA MISMA TRANSACCION que el comprobante. El documento queda cobrado por un importe y
+      facturado por otro mayor, y los dos son correctos.
+
+      El movimiento tiene que NOMBRAR el comprobante que lo genero en su descripcion. Es plata que
+      el cliente no pidio y que va a ver en su estado de cuenta: si no puede rastrearla hasta la
+      factura, la lee como un cargo sin motivo.
+
+      Y el importe del cargo que el usuario VIO en pantalla viaja en el POST: el Service lo
+      recalcula y RECHAZA si no coincide. Es la unica forma de convertir "la pantalla se lo mostro"
+      en una garantia en vez de una esperanza.
+    cuando_usar: >
+      Cualquier sistema que facture PARTE de un documento (el caso tipico: se entrega un remito y el
+      cliente pide factura por algunos items), y en particular cuando el documento pudo cobrarse sin
+      el impuesto. Tambien al migrar de "un comprobante por documento" a 1:N: hacerlo ANTES del
+      primer comprobante real, porque mientras los CAE/numeros estan todos en null la migracion es
+      aditiva y sin backfill, y despues es una reconstruccion de datos sobre documentos fiscales.
+    proyecto_origen: >
+      marihogar (ComprobanteAfip + ComprobanteAfipItem + ComprobantesAfipController, en produccion
+      con CAE real) para la mitad 1:N. La mitad del CARGO DE LA DIFERENCIA al ledger del cliente es
+      de la-platense (CR-01/CR-02, 2026-10-06): alla no existe porque no hay venta sin impuesto.
+    proyectos_que_lo_usan:
+      - marihogar (M7, facturacion parcial acumulativa sobre VentaItem)
+      - "la-platense (2026-10-06, CR-02: comprobantes 1:N + el cargo de IVA a la CC del cliente cuando la venta se cobro con Venta.Facturar = false, con OrigenMovimientoCC.DiferenciaIvaFacturacion propio)"
+    archivos_referencia:
+      - proyecto: marihogar
+        path: "MariHogar.Domain/Entities/ComprobanteAfip.cs + ComprobanteAfipItem.cs, Web/Views/ComprobantesAfip/Create.cshtml"
+        motivo: "Version original 1:N; su Create.cshtml ES la pantalla de elegir que items se facturan (grilla con vendida / ya facturada / pendiente / a facturar)"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/FacturacionParcialService.cs + Domain/Entities/ComprobanteAfip{,Item}.cs"
+        motivo: >
+          Variante con el cargo de la diferencia de impuesto al ledger del cliente en la misma
+          transaccion, lock de fila del documento y relectura del ya-facturado bajo lock (PAT-059).
+          Y las TRES adaptaciones que el porteo necesito, que son las que hay que mirar primero:
+          (a) `Cantidad` pasa de `int` a `decimal(18,3)` -- el modelo de origen asume cantidades
+          enteras y aca se venden 2,5 metros; con `int`, facturar 2,5 de 2,5 deja 0,5 pendiente para
+          siempre. (b) EL ERROR QUE NO ESTABA ANTICIPADO Y ES EL MAS FACIL DE COMETER, porque el
+          campo se llama igual en los dos lados: `PrecioUnitario` del comprobante tiene que ser el
+          precio EFECTIVO de la linea (`Subtotal / Cantidad`) y NO el `PrecioUnitario` de lista,
+          cuando el descuento y el recargo del proyecto son PORCENTAJES aplicados en el `Subtotal` y
+          no en el precio -- copiar el de lista emite un comprobante FISCAL por mas plata de la que
+          se vendio en toda linea con descuento, y por menos en toda linea con recargo. En el
+          proyecto de origen el error no existe porque alla la cascada va sobre el precio: es una
+          diferencia de MODELO, no de codigo, y por eso no salta leyendo el original.
+          (c) Hay que agregar la alicuota a la linea del comprobante si el proyecto tiene mas de una
+          (el de origen la tiene hardcodeada).
+        pendiente_verificar: false
+    dependencias:
+      - PAT-001
+      - PAT-006
+      - PAT-059
+    notas: >
+      Verificado EJECUTANDO en la-platense (tools/ArnesVentaSinFacturaYParcial, 50 OK / 0 FALLADAS):
+      facturar 2 de 5 items deja el documento parcial y el segundo intento no puede pasar el
+      pendiente; la suma de los comprobantes reproduce el neto Y el impuesto del documento; el cargo
+      de la diferencia es UN movimiento por el importe exacto, con el comprobante nombrado, y el
+      documento no se recalcula; y N=3 y N=8 emisiones simultaneas del mismo documento dan UN
+      ganador y UN comprobante (sin el lock, los N leen el mismo pendiente y los N emiten -- N
+      comprobantes FISCALES del mismo hecho).
+
+      Al aplicarlo, revisar si el modulo de NOTA DE CREDITO ya definido asume UN comprobante por
+      documento: con 1:N la NC se emite contra un COMPROBANTE y no contra el documento, y ajustar
+      ese contrato antes de construirlo es mucho mas barato que despues de la primera NC real.

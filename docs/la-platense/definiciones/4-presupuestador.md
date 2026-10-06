@@ -1,9 +1,102 @@
 # Memoria - Presupuestador
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-10-05 (v10 — Revision del plan contra el codigo real de `marihogar`: Entrega 3 reestimada 18h -> 42,5h, entrega nueva de Ventas/Pagos, 2 defectos de produccion)
+## Ultima actualizacion: 2026-10-06 (v11 — PRESUPUESTO NUEVO de CR-01 a CR-05: USD 392, el primer precio nuevo del proyecto desde la aprobacion del 2026-07-30. Es alcance NUEVO fuera del WBS cobrado, asi que va por el fork de post-entrega (factor 2.5, M x $16.80, SIN descuento de expansion). 18,68h PERT, riesgo medio, 3 correcciones a la baja en la autocorreccion. LP-014 entra SIN CARGO por garantia. Dependencia de calendario: CR-02 antes de habilitar AFIP)
 
 ## Definiciones vigentes
+
+### Presupuesto de CR-01 a CR-05 (2026-10-06) — alcance NUEVO, fuera del WBS ya cobrado
+
+**Lo primero, porque cambia cómo se lee todo lo demás:** estos 5 CR **no salen del WBS de Etapa 1 + Etapa 2**. Todo el plan de cierre de alcance (Entregas 3 a 6) declara "USD 0 de precio nuevo" porque cada módulo ya estaba aprobado y cobrado dentro de los USD 1.500. **Estos cinco no estaban.** Son capacidades que el cliente pidió el 2026-10-06, y dos de ellas **revierten exclusiones confirmadas por escrito** (cheques diferidos; y el alcance reducido del módulo 13). Son el gatillo de reestimación textual de la instrucción 28: *"cambio de alcance funcional"* y *"cambio de reglas de negocio"*.
+
+#### Clasificación de la fórmula — fork de post-entrega, no Build
+
+Se cotiza con **factor 2.5 / M × $16.80**, no con el factor 4.0 de Build, y **sin descuento de expansión agresiva ni de volumen**. No es una elección: la instrucción 27 lo dice en dos lugares distintos. *"Merge, 'modulo nuevo' post-entrega y el resto de Extras opcionales NO usan esta tabla ni el factor 4.0"*, y el descuento *"NO aplica a Mantenimiento anual, Extras opcionales (...módulo nuevo post-entrega...) ni a Merge sobre sistema propio ya entregado — esos se cotizan siempre a precio de lista, sin descuento: ahí está el margen real del negocio"*. La Platense es un sistema propio ya entregado y en producción desde 2026-08-24.
+
+**Reglas de granularidad aplicadas (las dos, a la baja):**
+- **Regla de granularidad (2026-07-03):** antes de anclar un ítem en los rangos de "módulo nuevo", verificar si es iteración evolutiva que reutiliza un patrón ya resuelto. Aplica a CR-02 (padre/hijos con pantalla de selección — el patrón de `OrdenCompra` + items ya está en el repo), CR-03 y CR-04. **No** se usó "ABM complejo 7,7-11,5h" para CR-02 por esto mismo.
+- **Regla de segunda/tercera ronda (2026-07-08, labipac):** este proyecto ya tuvo varias rondas sobre el mismo sistema y reutiliza su propio AJAX, sus servicios y sus patrones visuales. Se usa el **piso** de la banda, no la mediana. Es lo que bajó CR-01 y CR-03 en la autocorrección de abajo.
+- **Regla nueva del 2026-10-06 (que salió de este mismo proyecto):** verificar que la base de reutilización **existe** antes de cotizarla. Hecho por `find`/`grep` sobre `C:\Sistemas\marihogar`, archivo por archivo: `ComprobanteAfip`, `ComprobanteAfipItem`, `IComprobanteAfipService`, `Views/ComprobantesAfip/{Index,Create,Details}`, `Cheque`, `EstadoCheque`, `CuotaCheque`, `ChequeService`, `ConfiguracionCuotaTarjeta`, `TasaCostoCobranza`. **Todos confirmados.** Es el detonante de la regla (`ICatalogoMigracionService`, cotizado como 3h de reuse sin existir) aplicado por primera vez de forma preventiva.
+
+#### Estimación PERT por ítem
+
+| # | Ítem | O | M | P | PERT | Base de anclaje |
+|---|---|---:|---:|---:|---:|---|
+| 1 | **CR-05** Transferencia como medio de pago de venta | 0,3 | 0,5 | 1,0 | **0,55** | "Agregar campo simple / regla de negocio", piso. Valor de enum + mapeo a caja, sin migración |
+| 2 | **CR-03** Interés por tarjeta × cuotas (catálogo de tarjetas, tabla con vigencia, pantalla de configuración, combo en la venta) | 1,8 | 2,5 | 4,0 | **2,63** | "ABM reutilizando servicios ya existentes" + la pantalla de Configuración ya existe. `RecargoCuota` queda intacto |
+| 3 | **CR-01** Venta sin factura cobrada sin IVA (flag, motor de IVA, totales duales, bloqueo al confirmar) | 2,0 | 2,5 | 4,5 | **2,75** | "Agregar regla de negocio" + campo + migración. P alto a propósito: toca `VentaWorkflowService.ConfirmarAsync`, el método donde se midió LP-038 |
+| 4 | **CR-02** Facturación parcial por ítems (comprobantes 1:N, pantalla de emisión, cargo de IVA en la CC del cliente) | 4,5 | 6,0 | 9,5 | **6,33** | Anclado en el paso 3 de la Entrega 3 (`OrdenCompra` + items + estados + Create/Details, 6,5h, "reuse alto, volumen real"): es el mismo patrón padre/hijos con pantalla de selección |
+| 5 | **CR-04** Plan de echeqs 0/30/60/90/120 (líneas con número y banco, vencimiento calculado, listado, aviso por `PAT-056`) | 3,0 | 4,0 | 6,5 | **4,25** | El paso 7 de la Entrega 3 estimaba la cartera completa en 4,0h. Acá el alcance es **menor** (sin rechazo ni conciliación) y el agregado es el generador de plan |
+| 6 | Ronda de QA + fixes | 1,5 | 2,0 | 3,5 | **2,17** | Histórico del proyecto (2,0h por ronda) |
+| | **Total PERT** | | | | **18,68** | |
+
+**Riesgo: medio (+15%), no alto.** Hay estados críticos y datos reales en producción, que empujarían a alto, pero los tres mitigantes son concretos y verificados: la migración es **aditiva sin un solo `DROP`**, el reuse está confirmado archivo por archivo, y no hay integración externa nueva (AFIP ya está codificado). **La contingencia se aplica UNA sola vez**, dentro de la fórmula `M × $16.80` (= M/2.5 × 1.20 × $35, donde el 1.20 **es** la contingencia): no se suma un 15% aparte. Regla anti-doble contingencia de la instrucción 28.
+
+#### Autocorrección contra históricos (obligatoria, instrucción 28 §6)
+
+Los comparables son del **mismo repo y el mismo proyecto**, que es el anclaje más fuerte posible — mejor que cualquier referencia cross-proyecto.
+
+| Ítem | Referencia | Ratio | Ajuste aplicado |
+|---|---|---:|---|
+| CR-02 | Entrega 3 paso 3 (OC + items + estados + vistas): 6,5h | 0,97 | Ninguno (dentro de 0,85-1,15) |
+| CR-04 | Entrega 3 paso 7 (cartera de cheques): 4,0h | 1,06 | Ninguno |
+| CR-03 | Primera estimación 3,17h | 1,20 | **Bajado de M=3,0 a M=2,5** por la regla de segunda ronda (piso de la banda): la pantalla de Configuración y su patrón de grilla editable ya existen |
+| CR-01 | Primera estimación 3,25h | 1,18 | **Bajado de M=3,0 a M=2,5**, mismo motivo. Se conservó el P alto (4,5) en vez de bajarlo: el riesgo real está en el método, no en el volumen |
+| QA | Histórico 2,0h | 1,29 | **Bajado de M=2,5 a M=2,0** al histórico real del proyecto |
+
+Las tres correcciones fueron **a la baja**, sumando −1,45h de PERT. Es coherente con la alerta de sobreestimación sistemática del dataset y con que las cuatro bases de reuse se verificaron antes de cotizar en vez de después.
+
+#### Precio
+
+| Concepto | Cálculo | USD |
+|---|---|---:|
+| Subtotal de lista | 18,68 h × $16,80 | **314** |
+| Tokens IA (25% del subtotal de lista) | 314 × 0,25 | **78** |
+| Descuento de expansión / volumen | no aplica a post-entrega sobre sistema propio | 0 |
+| **Precio final** | | **USD 392** |
+
+**Desglose a exponer al cliente** (Tokens IA ya distribuido dentro de cada línea, × 1,25 — nunca como línea aparte):
+
+| Área funcional | USD |
+|---|---:|
+| Facturación parcial: elegir qué ítems de una venta se facturan | 133 |
+| Pago a proveedores con echeq a 0/30/60/90/120 días | 89 |
+| Venta con o sin factura (precio sin impuestos cuando no se factura) | 58 |
+| Intereses de tarjeta de crédito configurables por tarjeta y cuotas | 55 |
+| Pruebas funcionales y ronda de ajustes | 46 |
+| Transferencia como medio de pago | 12 |
+| **Total** | **393** |
+
+(La diferencia de USD 1 con el precio final es redondeo por línea; se cobra **USD 392**.)
+
+#### Lo que NO se cobra, y por qué se dice
+
+- **LP-014** — **sin cargo, y ademas sin trabajo: verificado el 2026-10-06 que ya estaba cerrado desde el 2026-10-05 con PASS de QA** (ver `1-analista-funcional.md`, D-CR01.3). No afecta el precio (entraba en cero) pero si el calendario: el lote arranco con un item menos. Lo que sigue es el razonamiento original, que se mantiene porque la exigencia era correcta:
+- ~~**LP-014** (cualquier usuario con `RequireVentas` puede vender a cualquier precio) — **sin cargo, es garantía.** Es un defecto propio abierto en producción, mismo criterio con el que el Sprint 0 absorbió D8 y D9. Entra **dentro** de esta ronda y no después: CR-01 le da al vendedor una palanca que baja el precio legítimamente, y sumarla sobre un agujero de precio sin control es amplificar un defecto en vez de agregar una capacidad.
+- **Impuesto al cheque, impuesto por plataforma e impuesto por gasto** — v2, fuera de este presupuesto (D-CR04.2). Las entidades que se crean ahora se diseñan con lugar para esas alícuotas, así que agregarlas después es aditivo. Ese diseño preventivo ya está dentro de las horas de CR-03 y CR-04.
+- **Costo real de cobranza y acreditación diferida de tarjeta** — declarados fuera del plan el 2026-10-06, con el efecto aceptado por escrito (la caja cuenta como ingreso del día plata de tarjeta que se acredita a 30 días).
+
+#### Tier y perfil de cliente — por qué no se consultó a `olvidata-ceo`
+
+El perfil es el del cliente chico/mediano típico del estudio (ferretería de barrio, proyecto cerrado en USD 1.500 en 3 pagos, PREMIUM año 1 gratis), así que **no se aparta** del caso para el que el criterio por defecto está calibrado y no se activa la regla de consulta por precio atípico. Lo que sí es atípico es otra cosa, y conviene decirlo: el 2026-10-06 Joaquín **absorbió** un desvío de 14,5h en la Entrega 3 (18h → 32,5h), con la instrucción de *"tener en cuenta estos casos de reestructuración a la hora de armar presupuestos"*. Este presupuesto es la primera aplicación de esa instrucción: **estos 5 CR no se absorben, se cotizan**, porque son alcance nuevo y no una reestimación de algo ya vendido.
+
+#### Supuestos, exclusiones y dependencias
+
+**Supuestos:**
+- Las 4 decisiones del 2026-10-06 (D-CR01.1, D-CR01.2, D-CR04.1, D-CR04.2) se mantienen. Un cambio en D-CR01.1 (quién paga el IVA de una factura posterior) **reestima CR-01 y CR-02 juntos**: es lo que define si el total de una venta cerrada puede cambiar.
+- La migración queda aditiva. Si apareciera una columna a reescribir, se reestima.
+
+**Exclusiones:**
+- Cartera de cheques (rechazo, reemplazo, conciliación de extracto).
+- Los tres impuestos de v2.
+- Cheques recibidos de clientes.
+- Costo de cobranza y acreditación diferida de tarjeta.
+
+**Dependencia dura, y es de calendario, no de plata:** **CR-02 tiene que construirse antes de habilitar AFIP.** Mientras no haya un CAE real emitido, pasar a comprobantes 1:N es aditivo y sin backfill; después de la primera factura real es una reconstrucción de datos sobre documentos fiscales. El certificado del cliente es el único gate pendiente de la Entrega 5 y puede llegar en cualquier momento. **Si el certificado llega antes de que CR-02 esté construido, hay que decidir cuál va primero** — y la respuesta barata es CR-02.
+
+#### Gate
+
+**Presupuesto EMITIDO, pendiente de aprobación.** No se inicia Implementación hasta que el cliente apruebe (gate duro de la instrucción 00). LP-014 es la única pieza que puede arrancar sin esa aprobación: es garantía, no alcance nuevo.
 
 ### Revision del plan contra el codigo real de `marihogar` (2026-10-05, v10)
 

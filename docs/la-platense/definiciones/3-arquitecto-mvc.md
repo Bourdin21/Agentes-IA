@@ -1,9 +1,68 @@
 # Memoria - Arquitecto MVC
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-08-17 (v7 — retirado ICatalogoMigracionService: la carga real del catalogo va por script directo, no por la app)
+## Ultima actualizacion: 2026-10-06 (v8 — Arquitectura de CR-01 a CR-05: UNA migracion EF aditiva, sin un solo DROP. Comprobantes 1:N (ventana irreversible: va ANTES de habilitar AFIP), Tarjeta + InteresTarjetaCuota con vigencia dejando RecargoCuota intacto, LineaEcheq colgada del pago programado existente, 3 valores de enum al final y Venta.Facturar con default true. El aviso de echeqs va por PAT-056, NO por el primer AddHostedService del repo. Orden: LP-014 -> CR-05 -> CR-03 -> CR-01 -> CR-02 -> CR-04)
 
 ## Definiciones vigentes
+
+### Arquitectura de CR-01 a CR-05 (2026-10-06)
+
+Entrada: `2-disenador-funcional.md` v7, flujos 11 a 15. Verificado contra el código real del repo (enums, entidades y controladores), no contra la documentación.
+
+#### Impacto por capa
+
+**Datos (el bloque de mayor riesgo — hay 2.990 clientes y ~112.000 productos con actividad real en producción):**
+
+| Cambio | Tipo | Riesgo |
+|---|---|---|
+| `Venta.Facturar` (bool, default **true**) | columna nueva con default | **Bajo.** El default reproduce el comportamiento actual: toda venta histórica queda "con factura", que es lo que fue |
+| `ComprobanteAfip` + `ComprobanteAfipItem` (entidades nuevas, 1:N sobre `Venta`) | tablas nuevas | **Bajo ahora, imposible después.** No hay ninguna factura real emitida (AFIP deshabilitado por falta de certificado), así que `Venta.CAE`/`NumeroComprobante`/`VencimientoCAE` están **todos en null** y no hay backfill que hacer. Después de la primera factura real, esta migración pasa a ser una reconstrucción de datos |
+| `Venta.CAE`, `NumeroComprobante`, `VencimientoCAE` | **se dejan en su lugar, sin uso** | Se marcan obsoletos en el XML-doc apuntando a `ComprobanteAfip`. No se borran en la misma migración que crea las tablas nuevas: borrar columnas y crear el reemplazo en un solo paso deja sin camino de vuelta si algo sale mal |
+| `Tarjeta` (catálogo con baja lógica) + `InteresTarjetaCuota` (tarjeta, cuotas, %, `VigenteDesde`/`VigenteHasta`) | tablas nuevas | **Bajo.** `RecargoCuota` se **mantiene** como está (no se migra ni se borra): sigue resolviendo el caso sin tarjeta y las ventas viejas siguen leyendo su porcentaje. `IRecargoCuotasService` resuelve primero por tarjeta y cae a `RecargoCuota` cuando no hay tarjeta elegida |
+| `PagoVenta.TarjetaId` (nullable) | columna nueva nullable | **Bajo.** Los pagos históricos quedan sin tarjeta, que es la verdad: no se sabe con cuál se cobraron |
+| `LineaEcheq` (número, banco, plazo en días, vencimiento) 1:1 con `PagoOrdenCompra` | tabla nueva | **Bajo.** Se cuelga del pago programado que ya existe; ningún pago histórico la necesita |
+| `MedioPago.Transferencia = 5` | valor nuevo **al final** | **Bajo si se respeta el orden.** `Confirmada = 4` está al final de `EstadoVenta` a propósito "para no reasignar los enteros ya persistidos": el mismo criterio aplica acá y en los dos enums de abajo |
+| `OrigenMovimientoCC.DiferenciaIvaFacturacion = 5` | valor nuevo al final | **Bajo.** Hay que propagarlo a los filtros que listan el ledger — **LP-002**, mismo camino que `CobroCC` ya recorrió |
+| `CuotaCheque` con `Dias0 = 0` y `Dias120 = 120` | valores nuevos | El valor numérico **es** la cantidad de días (criterio de `marihogar`), así que 0 y 120 entran sin reordenar nada |
+
+**Una sola migración EF, aditiva, sin un solo `DROP` ni `ALTER` destructivo.** Ninguna columna existente cambia de tipo, de nombre ni de significado. No hay migración de datos: todos los defaults reproducen el comportamiento actual.
+
+**Negocio:**
+- `VentaWorkflowService` — el cálculo de IVA pasa a depender de `Venta.Facturar`; el precio unitario se recalcula desde el producto cuando el usuario no es Administrador (**LP-014**). Es el servicio más sensible del sistema: es el que la familia de defectos de atomicidad (LP-018/034/035/036/038) acaba de dejar con relectura real bajo lock, y **el cambio tiene que entrar por dentro de ese patrón, no al lado**.
+- `FacturacionParcialService` (nuevo) — emite el comprobante y postea el cargo de IVA en la CC del cliente **en la misma transacción**, con lock de fila y relectura real (`Data/RelecturaBajoLock.cs`, 13 call sites hoy). Facturar dos veces en paralelo la misma venta es exactamente la carrera que el proyecto ya midió en otros cinco lugares.
+- `RecargoCuotasService` — firma nueva `(medio, tarjeta, cuotas, fecha)`; el valor efectivo se sigue congelando en `PagoVenta.PorcentajeRecargoAplicado`, que no se toca.
+- `PlanEcheqService` (nuevo) — genera las N líneas de pago programado en una transacción. **No mueve caja ni cuenta corriente**: reusa `PagoOrdenCompra` en estado `Pendiente`, que ya está construido y probado (y cuya confirmación es justamente donde se encontró LP-035).
+- `AnulacionVentaService` — pasa a operar por comprobante. **Todavía no existe**: se ajusta su contrato ahora para no construirlo dos veces en la Entrega 5.
+- Aviso de vencimiento de echeqs — **`PAT-056`** (chequeo oportunista al primer request del día, idempotencia en la base). **No** se agrega el primer `AddHostedService` del repo: en SmarterASP un job con hora fija puede no correr nunca si el pool se recicla por inactividad.
+
+**Presentación:** venta (control de facturación + combo de tarjeta + precio bloqueado por rol), pantalla nueva de facturación parcial, Configuración > Intereses de tarjeta, bloque de plan de echeqs en el pago a proveedor, listado de echeqs pendientes, y la columna de estado de ventas con el valor "Facturada en parte". Todo con el design system (`ov-filtros`, `ov-tabla-datos`, `ov-vacio`, `ov-celda-secundaria`, `ov-estado-tenue` — instrucción 38).
+
+#### Orden de construcción (cada paso compila, deploya y se prueba solo)
+
+1. **LP-014** (precio por rol) — agujero abierto en producción, acoplamiento cero, y precondición de CR-01: sin esto, CR-01 amplifica el defecto.
+2. **CR-05** transferencia — un valor de enum y su mapeo. El más chico, y valida el camino de "valor nuevo al final" antes de usarlo tres veces más.
+3. **CR-03** interés por tarjeta — tablas nuevas, no toca nada existente. `RecargoCuota` queda intacto.
+4. **CR-01** venta sin factura — primer cambio en el motor de precios de la venta.
+5. **CR-02** facturación parcial — el más grande, y el que depende de CR-01 (el cargo de IVA solo existe si CR-01 existe). **Antes de habilitar AFIP.**
+6. **CR-04** plan de echeqs — independiente de los cinco anteriores; se puede adelantar si conviene.
+
+#### Riesgos técnicos nuevos
+
+- **El orden de CR-02 contra AFIP es la única ventana irreversible del lote.** Mientras no haya un CAE real emitido, la migración a comprobantes 1:N es aditiva y sin backfill. Después de la primera factura, es una reconstrucción de datos sobre documentos fiscales. El certificado del cliente es el único gate de la Entrega 5 y puede llegar en cualquier momento: **CR-02 va antes.**
+- **CR-01 toca `VentaWorkflowService.ConfirmarAsync`**, que es el método donde se acaba de medir LP-038 (postear con el grafo de antes del lock). El cambio del cálculo de IVA tiene que quedar **adentro** de la relectura bajo lock, no antes. Un total calculado antes del lock y posteado después es exactamente la forma del defecto que ya se midió.
+- **LP-037 sigue abierto y es independiente de este lote**, pero comparte el ledger de caja: el cierre de día puede firmar totales en cero mientras hay escritores concurrentes. Agregar medios de pago (CR-05) y cargos nuevos (CR-02) no lo empeora, pero **tampoco se arregla con esto** — necesita la decisión pendiente (lectura de bloqueo por rango vs. fila centinela).
+- **El cargo de IVA en la CC del cliente es un importe que nadie pidió y que aparece en el estado de cuenta.** Si el vendedor no explicó la diferencia, el cliente la ve como un cargo sin motivo. El texto del movimiento tiene que nombrar el comprobante que lo generó, no decir "ajuste".
+- **`ComprobanteAfipItem.Cantidad` es `int` en `marihogar` y acá tiene que ser `decimal`** (3 decimales, como `ItemVenta.Cantidad`). Es el error más fácil de cometer al portar: su modelo entero asume cantidades enteras y La Platense vende 2,5 metros.
+
+#### Mapa de reutilización (verificado archivo por archivo, no por memoria)
+
+| Pieza | Origen en `marihogar` | Grado |
+|---|---|---|
+| CR-02 comprobantes 1:N | `ComprobanteAfip`, `ComprobanteAfipItem`, `EstadoComprobanteAfip`, `IComprobanteAfipService`, `ComprobantesAfipController`, `Views/ComprobantesAfip/{Index,Create,Details}`, migración `20260821143237_AddNotaCreditoAfip` | **Alto** — su `Create` es la pantalla de elegir qué ítems facturar. Adaptar `Cantidad` a decimal |
+| CR-03 interés por tarjeta | `ConfiguracionCuotaTarjeta` (eje cuotas) + `TasaCostoCobranza` (clave Procesador/Metodo/Cuotas + vigencia) | **Alto en estructura**, propósito distinto: allá es costo del negocio, acá interés al cliente |
+| CR-04 echeqs | `Cheque`, `EstadoCheque`, `CuotaCheque`, `ChequeService` (`AcreditarAsync`, `RevertirEstadoAsync`), `Views/Cheques/Index` | **Medio** — se toma el modelo de datos y la grilla, no la cartera ni el `BackgroundService` |
+| CR-01 venta sin IVA | — | **Sin precedente**: el IVA de `marihogar` es 21% hardcodeado en 4 puntos de `VentaService` |
+| LP-014 precio por rol | `VentaService.ConfirmarAsync` / `EditarAsync` (`esAdministrador`) | **Alto**, acoplamiento cero |
 
 ### Componentes por capa
 

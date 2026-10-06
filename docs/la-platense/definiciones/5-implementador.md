@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-10-06 (v20 - VERIFICACION POR EJECUCION de los 6 sitios que `3cf60ab` dio por cerrados sin medir, en `entrega-1-migracion`, commits locales `58c112b`, `6736b9d` y `bb9e21d`, SIN push y SIN deploy. **Los 6 sitios ya estaban escritos** - el mensaje de `3cf60ab` dice lo contrario porque lo redacto el orquestador a ciegas. Al EJECUTARLOS aparecieron **cuatro defectos que no se ven leyendo**: `LP-035` (una lectura comun entre `BeginTransaction` y el lock congela el read view de REPEATABLE READ y TODA relectura posterior lee el pasado - rompia `ConfirmarPagoProgramadoAsync`, 8 de 8 confirmaciones), el **orden de locks invertido en 6 sitios** con un **deadlock reproducido**, `LP-036` (`Repository<T>.DeleteAsync` pisaba TODA la fila con su snapshot: el soft delete generico perdia escrituras ajenas) y `LP-038` (`ConfirmarAsync` posteaba con el grafo cargado ANTES del lock: venta de $ 8.470 con $ 2.420 de caja y 2 de 7 unidades descontadas). **`LP-037` queda ABIERTO y medido**, no arreglado: la reserva del periodo de caja cierra UNA de las dos mitades del descuadre silencioso y su XML-doc afirmaba que cerraba las dos. Arnes nuevo `tools/ArnesSeisSitiosRestantes` (20 OK / 2 FALLADAS = `LP-037`); `ArnesReconciliacionTx` de vuelta en 153 OK / 0. Sin migracion EF)
+## Ultima actualizacion: 2026-10-06 (v21 — **CR-01 (venta sin factura) y CR-02 (facturacion parcial con comprobantes 1:N)** en `entrega-1-migracion`, commits locales `41e4f52` y `b92c455`, SIN push y SIN deploy. **El brief daba `LP-014` por ABIERTO y estaba cerrado desde el 2026-10-05, con PASS de QA** — segunda vez que el punto de partida del orquestador es falso; lo unico que quedaba era un comentario vencido (`LP-008`). UNA migracion aditiva sin un solo `DROP` en su `Up`. Lo que se midio y no se habria visto leyendo: **`Facturar` TIENE que entrar en la guarda de `LP-038`** (contraprueba: sin ese campo, con todas las lineas al 0% de IVA la venta queda Confirmada con la condicion girada, $ 2.000 de caja y 2 unidades descontadas, porque los otros cinco numeros quedan identicos), y **`ComprobanteAfipItem.PrecioUnitario` tiene que ser el precio EFECTIVO y no el de lista** (descuento y recargo viven en el `Subtotal`, no en el precio: copiar el de lista factura mas plata de la que se vendio). Arnes nuevo `tools/ArnesVentaSinFacturaYParcial` (**50 OK / 0 FALLADAS**), cuyo escenario 5 media VACIO en su primera version con 47 OK en pantalla y hubo que volverlo deterministico. Regresion: `ArnesReconciliacionTx` 153 OK / 0, `ArnesSeisSitiosRestantes` 20 OK / 2 (`LP-037`, abierto a proposito). Build 0 errores / 9 advertencias, la linea base exacta)
 
 ## Definiciones vigentes
 
@@ -332,6 +332,71 @@ Repo: `C:\Sistemas\Ferreteria La Platense`, rama `entrega-2` (checkout activo, n
 24. Verificar la card "Próximamente: salud financiera" (nivel 2) — debe mostrarse claramente diferenciada como no disponible todavía, sin datos ni errores.
 25. Verificar gastos del mes por categoría (gráfico), top 5 productos del mes y stock crítico — cada bloque debe navegar al detalle correspondiente (Gastos/Ventas o Productos/Stock) al hacer clic.
 
+### LP-014 / LP-016 — Gate de precio y de alicuota por rol: CERRADO, verificado contra el codigo
+
+**Estado: cerrado desde el 2026-10-05, confirmado por lectura el 2026-10-06.** Esta entrada existe porque el brief de la ronda de CR-01/CR-02 lo declaraba **abierto en produccion**, con numeros de linea, y lo puso como primer item del lote. Era falso en ese HEAD, y QA ya lo habia dado PASS (`6-qa.md`, criterio 4).
+
+Lo que esta efectivamente construido, verificado archivo por archivo:
+
+- `VentasController.GuardarBorrador` resuelve `EsAdministrador` con `User.IsInRole` sobre el `ClaimsPrincipal` del request; **nunca** viaja en el formulario. `GuardarVentaBorradorDto.EsAdministrador` es `init`.
+- `GuardarBorradorAsync` solo lee `PrecioUnitario`/`Descuento`/`Recargo` del payload cuando ese flag es `true`. Para cualquier otro rol (o caller) el precio se recalcula desde el `Producto` y descuento y recargo quedan en 0, **descartando el payload en silencio y sin excepcion** — no es un error del usuario, la UI simplemente no le deja editar esos campos.
+- **LP-016:** el `% de IVA` no se lee del payload para **ningun** rol, administrador incluido: `porcentajeIva = producto.PorcentajeIVA`. La alicuota es un atributo fiscal del producto, no una palanca comercial.
+- La UI acompaña sin ser la garantia: los inputs van `readonly` (no `disabled`, que no se postearia) y el input de IVA **no tiene `name`**, asi que no viaja.
+
+**Lo unico que quedaba era un comentario vencido, y es un `LP-008` de manual:** el bloque de seguridad de `GuardarBorradorAsync` seguia declarando que "el % de IVA de la linea sigue llegando del payload para los dos roles" y lo dejaba como deuda abierta. `LP-016` lo habia cerrado en la misma ronda, unas lineas mas abajo, y nadie actualizo el comentario — una regla de negocio **falsa** viviendo justo en el bloque que alguien va a leer para saber si el agujero esta cerrado. Corregido.
+
+**Por que importa para CR-01:** LP-014 era precondicion real, no ceremonia. Con el gate cerrado, "sin factura" pasa a ser la **unica** forma que tiene un Vendedor de bajar el total — y es una decision comercial explicita, registrada en la venta y visible en el listado, no un numero tipeado que no deja rastro.
+
+### CR-01 — Venta sin factura: `Venta.Facturar` y el IVA por condicion
+
+`Venta.Facturar` (bool, **default `true` en la BASE**, no solo como inicializador de la propiedad: el default de C# no alcanza a las filas que ya existen, y es lo que hace la migracion aditiva y sin backfill — toda venta historica queda "con factura", que es lo que fue). Con `false`, el IVA de **todas** las lineas es 0 y el total es la suma de los netos (R12).
+
+**La regla vive en un solo lugar:** `VentaWorkflowService.CalcularIva(item, facturar)`, invocado desde `RecalcularTotales`. El proyecto ya midio lo que cuesta la alternativa: el barrido `LP-002` del 2026-10-05 encontro la regla de la oferta vigente escrita en **4 lugares**.
+
+**Lo que NO se hace, y es la decision de fondo: no se pisa `ItemVenta.PorcentajeIVA` con 0.** Esa alicuota es el atributo fiscal del producto (`LP-016`) y es exactamente el dato que la facturacion parcial necesita despues para calcular el IVA a cobrarle al cliente. Si se la pisara al vender, el comprobante posterior no tendria de donde sacarla y habria que ir a buscarla al producto, que a esa altura pudo cambiar. **La condicion de la venta decide si el IVA se COBRA; el porcentaje de la linea sigue diciendo cuanto le corresponde a ese producto.** Verificado ejecutando (afirmacion 1.7 del arnes): tras confirmar una venta sin factura, las alicuotas persistidas siguen siendo `[21, 10,50, 21, 10,50, 21]`.
+
+**Se congela al confirmar por construccion, no por un `if`:** `GuardarBorradorAsync` es el unico metodo que la escribe, y sus dos ramas ya garantizan `Estado == Borrador` (el alta la crea asi; la edicion lo exige con la relectura bajo lock). Confirmar/Facturar/Anular no la tocan.
+
+**`Facturar` entra en la guarda optimista de `LP-038` de `ConfirmarAsync`, y esto es lo que mas vale de la entrada.** Es un dato nuevo que **decide** el total que se postea, y `RecalcularTotales` lo lee del grafo cargado **antes** del lock: la forma exacta de `LP-038`. El `Total` solo no alcanza, y se midio: con todas las lineas al 0% de IVA, girar la palanca deja los cinco numeros que la guarda ya comparaba **identicos** (total, cantidad de lineas, suma de unidades, suma de pagos) y la unica diferencia observable es el flag. **Contraprueba ejecutada** (sacar ese campo de la guarda y volver a correr): la venta queda **Confirmada con la condicion girada, $ 2.000 de caja posteados y 2 unidades descontadas de stock**. El daño no es en plata —los importes cuadran— es que la venta queda **mintiendo sobre como se cobro**, y la mentira aparece semanas despues en el estado de cuenta de un cliente, porque es esa condicion la que decide si facturarla le genera un cargo de IVA.
+
+**UI (flujo 11):** control de dos opciones en la **cabecera** junto al cliente, no al pie con los botones — el IVA cambia el precio que el vendedor canta al mostrador, y un control al pie lo obliga a recalcular toda la pantalla despues de haber dicho un numero en voz alta. Dos radios y no un checkbox: "no facturar" obliga a leer una negacion para entender el caso normal. La columna IVA muestra una **raya apagada** (`ov-vacio`, clase nueva en el tema) y no un `0,00`: un cero se lee como "pago cero de IVA" cuando lo que pasa es que **no hay IVA**, y en un comprobante fiscal la diferencia importa. El bloque de totales muestra la segunda cifra ("con factura seria $X", `ov-celda-secundaria`), que es la respuesta a la pregunta del mostrador sin girar el control de ida y vuelta. Aviso tenue de "este cliente tiene CUIT" al vender sin factura: **avisa sin bloquear**, mismo criterio que R10 para el stock sin verificar.
+
+**Detalle que se cerro y es facil de omitir:** el override del "Subtotal c/IVA" del administrador despeja el precio hacia atras dividiendo por `(1 + IVA/100)`. Con la venta sin factura hay que despejar con el **IVA efectivo** (0), o tipear un subtotal le bajaria el precio un 21% sin que haya pedido nada.
+
+### CR-02 — Facturacion parcial: comprobantes 1:N y el IVA que no se cobro
+
+`ComprobanteAfip` + `ComprobanteAfipItem` 1:N sobre `Venta`, portados de `marihogar` (en produccion con CAE real), mas `EstadoComprobanteAfip` y `IFacturacionParcialService`/`FacturacionParcialService`.
+
+**Por que fue ahora y no en la Entrega 5:** AFIP esta codificado pero deshabilitado (falta el certificado del cliente), asi que `Venta.CAE`/`NumeroComprobante`/`VencimientoCAE` estan **todos en null** y la migracion es aditiva y sin backfill. Despues del primer CAE real seria una reconstruccion de datos sobre documentos fiscales. Era la unica ventana irreversible del lote.
+
+**Las tres adaptaciones de `marihogar` que no se pueden omitir:**
+
+1. **`ComprobanteAfipItem.Cantidad` es `decimal(18,3)` y NO `int`.** Su modelo asume cantidades enteras; aca se venden 2,5 metros de cable. Con `int`, facturar 2,5 de 2,5 dejaria **0,5 pendiente para siempre** y el tope del pendiente nunca cerraria. Verificado ejecutando (2.10): 2,5 facturados como 2,500.
+2. **`PrecioUnitario` es el precio EFECTIVO (`ItemVenta.Subtotal / Cantidad`), no el de lista** — y este es el error mas facil de cometer, porque el campo se llama igual en los dos lados. En este proyecto descuento y recargo son **porcentajes que NO estan aplicados en `PrecioUnitario`** sino en `Subtotal` (formula `Cantidad x PrecioUnitario x (1 - d/100 + r/100)`). Copiar el de lista emitiria un comprobante **fiscal** por mas plata de la que se vendio en toda linea con descuento, y por menos en toda linea con recargo. En `marihogar` el error no existe porque alla la cascada va sobre el precio.
+3. **Se agrega `PorcentajeIVA` a la linea del comprobante.** `marihogar` tiene el 21% hardcodeado; este catalogo tiene productos al 21 y al 10,5, y la alicuota con la que se calculo el cargo al cliente tiene que quedar congelada con el documento.
+
+**`ItemVenta.CantidadFacturada` NO se agrega**, aunque `marihogar` la reservo desde su Sprint 2. Un contador denormalizado hay que mantenerlo sincronizado en cada emision y en cada baja de comprobante, y si se desincroniza el tope "no facturar mas que el pendiente" **deja de valer sin que nada falle**. El pendiente se calcula sumando las lineas vivas; una venta tiene pocos comprobantes y pocos items.
+
+**Los dos filtros de soft delete del calculo del pendiente no son redundantes:** el query filter global esconde el `ComprobanteAfipItem` borrado, pero **no** esconde los items de un `ComprobanteAfip` dado de baja entero (la baja del padre no toca las filas hijas). Sin el filtro sobre el padre, dar de baja un comprobante dejaria su cantidad contada como facturada para siempre y el tope bloquearia una refacturacion legitima sin que nada explique por que.
+
+**`Venta.CAE`/`NumeroComprobante`/`VencimientoCAE` se quedan**, marcadas obsoletas en su XML-doc apuntando a `ComprobanteAfip`. Borrar columnas y crear el reemplazo en un solo paso deja sin camino de vuelta. Nadie debe escribirlas.
+
+**"Facturada en parte" es un estado DERIVADO**, no un valor nuevo de `EstadoVenta`: se calcula de los comprobantes vivos y sus cantidades. Asi no hay que renumerar enteros ya persistidos ni mantener un estado sincronizado con las cantidades en cada emision — y es el tercer uso del estado derivado en el proyecto (Presupuesto, y la "factura anulada" de `marihogar` que se infiere de la nota de credito). En el listado se calcula **en la misma consulta que la pagina** (DataTables server-side), no con un N+1. En la grilla solo ese valor lleva color: Confirmada y Facturada son finales, "Facturada en parte" es la que tiene algo pendiente que hacer (instruccion 38).
+
+**El cargo de IVA (D-CR01.1), que es la pieza que no se podia omitir.** `OrigenMovimientoCC.DiferenciaIvaFacturacion = 5`, al final del enum, **propagado a los dos lados del ledger (`LP-002`)**: el combo de origen y el mapa `etiquetasOrigen` de `Views/Clientes/CuentaCorriente.cshtml` — son dos lugares, no uno. Al facturar una venta cobrada sin IVA se postea **un** Debito en la CC del cliente por el IVA **exacto** de los items facturados, **en la misma transaccion** que el comprobante (si fueran dos, un fallo en el medio deja un comprobante fiscal con IVA que nadie cobro, o un cargo sin comprobante que lo explique). **La venta no se recalcula nunca**: ni su total, ni sus subtotales, ni los pagos ya posteados. Queda cobrada por un importe y facturada por otro mayor, **y los dos son correctos**. La `Referencia` **nombra el comprobante** (`"IVA de la factura #3 sobre la venta #2 (cobrada sin IVA)"`) y no dice "ajuste": es plata que el cliente no pidio y que va a ver en su estado de cuenta, asi que si no puede rastrearla hasta la factura que la genero, la lee como un cargo sin motivo.
+
+`ComprobanteAfip.DiferenciaIvaCobrada` **no es redundante con `Iva`** aunque hoy coincidan cuando se postea: `Iva` es un dato fiscal del comprobante, el otro es el registro de que **se genero un cargo al cliente**. Son dos hechos distintos y hay que poder contestar "¿este comprobante le genero deuda?" sin cruzar la condicion de la venta, que vive en otra tabla.
+
+**La validacion de UI "no se puede emitir sin haber visto el importe del cargo" se cierra server-side**, porque desde la vista no se puede garantizar: el importe que el usuario confirmo viaja en el POST, el Service lo recalcula y **rechaza** si no coincide. El JS usa el mismo redondeo comercial por linea que el Service, para que un centavo de diferencia no produzca un rechazo incomprensible.
+
+**Concurrencia (`PAT-059`):** `FacturacionParcialService.EmitirAsync` abre la transaccion **antes de leer**, toma el lock de la fila de la venta como **primera sentencia**, y recien despues lee el ya-facturado (`LP-035`: una lectura comun adelantada congela el read view de REPEATABLE READ y toda relectura posterior lee el pasado). Relectura **real** por `RelecturaBajoLock`, no `ReloadAsync` (`ComprobanteAfip` y `Venta` heredan `SoftDestroyable`). No se bloquean productos (no se lee ni escribe stock) ni `Clientes` (no se decide sobre el saldo: se le suma un Debito, que es escritura ciega sobre un ledger aditivo). Medido: N=3 y N=8 emisiones simultaneas de la misma venta dan **1 ganador, 1 comprobante, y nunca mas cantidad que la vendida**.
+
+**Queda declarado por escrito por que las cantidades vendidas SI se pueden tomar del grafo pre-lock aca** y en `ConfirmarAsync` no: la diferencia es la inmutabilidad. `GuardarBorradorAsync` es el unico que escribe `ItemVenta` y exige `Borrador`; las guardas ya rechazaron Borrador, asi que los items no pueden cambiar. Lo que **si** cambia en la ventana es el ya-facturado, y eso se relee bajo lock.
+
+**Nota de alcance heredada y todavia abierta:** `AnulacionVentaViewModel` e `IAnulacionVentaService` (modulo 16, Entrega 5) asumen **un** comprobante por venta. Con comprobantes 1:N la nota de credito se emite **contra un comprobante**, no contra la venta. Esas dos definiciones quedan superadas y hay que ajustarlas **antes** de construir el modulo 16. `ComprobanteAsociadoId`/`Motivo` de `marihogar` (su CR-55) quedaron deliberadamente fuera de este alcance.
+
+**Lo que NO hace y nadie debe buscar:** no toca stock, no toca caja, no recalcula la venta y **no llama a AFIP**. El comprobante nace y queda en `EstadoComprobanteAfip.Pendiente`, que es el estado **normal** mientras falte el certificado, no una anomalia. Pedir el CAE es el paso que queda para la Entrega 5.
+
 ### Proximos pasos pendientes
 1. QA funcional (`agentes-ia-qa`) sobre la Entrega 2 completa (ola 1 + ola 2).
 2. Aplicar ambas migraciones (`EntregaDos_VentasCCClientesAfip`, `EntregaDos_CajaGastosEntregasDashboard`) contra la base de desarrollo.
@@ -363,175 +428,12 @@ produccion.** Lo que hay que saber sin abrirlo:
 
 ## Reconciliacion de la familia LP-018 / LP-034 en `entrega-1-migracion` (2026-10-06)
 
-Commit local **`a72e3cd`** sobre `entrega-1-migracion`. **Sin push, sin deploy, sin migracion EF.**
-La rama `hotfix-transacciones-ventas` **no se toco**: sigue reflejando exactamente lo publicado.
-
-### Por que NO se mergeo, y es la decision de fondo
-
-El merge base es `2580f7c` y un `git merge` habria chocado en 3 archivos. Se descarto por una
-razon que no es de comodidad:
-
-- **Ninguna rama es superconjunto de la otra.** Desarrollo cubre mas superficie (7 constantes de
-  tabla contra 4, mas los ledgers de proveedores y empleados, la recepcion, la conversion de
-  presupuesto), pero **le faltaban por completo dos de los cinco sitios del hotfix**:
-  `VentaWorkflowService.CancelarBorradorAsync` y `CuentaCorrienteClienteService.RegistrarCobroAsync`
-  **no tenian ni lock ni transaccion**. La premisa del brief ("la cobertura amplia de desarrollo
-  mas el helper del hotfix") era **falsa en esa mitad**: no alcanzaba con agregar el helper, habia
-  que traer dos sitios enteros.
-- **La unidad de reconciliacion es la decision POR ENTIDAD, no el archivo.** Un merge resuelve
-  hunks y declara exito; no puede decidir que `PagoOrdenCompra` necesita el helper, porque
-  **ninguna de las dos ramas lo habia aplicado ahi**. Los 4 servicios que el hotfix nunca toco
-  (`PagoProveedorService`, `PresupuestoService`, `OrdenCompraService`, `AjusteStockService`) son
-  justamente los que tenian la relectura decorativa, y un merge los habria dejado intactos con el
-  arbol limpio.
-- El arnes del hotfix esta escrito contra el esquema de produccion (8 migraciones) y 5 metodos;
-  arrastrarlo al merge habria dado un arnes que no aplica. Se escribio su sucesor.
-
-### RELEVAMIENTO ENTIDAD POR ENTIDAD — el criterio y su resultado
-
-**El criterio:** `ReloadAsync` solo vale si se verifico que **nadie escribe el `DeletedAt` de esa
-entidad**. Si hereda `SoftDestroyable` y alguien lo escribe, el query filter global esconde la fila,
-EF detacha la entidad y los valores quedan en los de **antes** del lock: la relectura parece hecha
-y no relee.
-
-**El grep reproducible** (es el que da el numero, no la lectura):
-`grep -rn "DeletedAt\s*=" --include=*.cs ... | grep -v "== null" | grep -v "!= null"`.
-Escritores reales hoy: `Repository.DeleteAsync` (generico, linea 50) y 6 escrituras directas.
-
-| # | Sitio | Fila(s) bloqueada(s) | Hereda `SoftDestroyable` | ¿Alguien escribe su `DeletedAt`? | Veredicto |
-|---|-------|----------------------|--------------------------|----------------------------------|-----------|
-| 1 | `VentaWorkflowService.ConfirmarAsync` | `Ventas` + `Productos` | si / si | **si** / **si** (`VentaWorkflow:501` · `ProductoService:394` + `:573`) | helper en **las dos** (`Producto` = LP-034) |
-| 2 | `VentaWorkflowService.FacturarAsync` | `Ventas` | si | **si** | helper |
-| 3 | `VentaWorkflowService.AnularAsync` | `Ventas` + `Productos` | si / si | **si** / **si** | helper en las dos |
-| 4 | `VentaWorkflowService.CancelarBorradorAsync` | **ninguna** (no tenia lock) | si | **si** (el mismo metodo) | lock + helper + guarda de "ya cancelada" |
-| 5 | `CuentaCorrienteClienteService.RegistrarCobroAsync` | **ninguna** (no tenia lock) | `Cliente`: si | **si** (`ClienteService:231`) | lock de `Clientes` + re-correr el AGREGADO |
-| 6 | `GastoService.AnularAsync` | `Gastos` | si (por convencion) | **NO** | **`ReloadAsync` se queda**, declarado |
-| 7 | `OrdenCompraService.RecibirAsync` | `OrdenesCompra` + `Productos` | si / si | OC: **NO** · `Producto`: **si** | OC con `ReloadAsync`; productos con helper |
-| 8 | `PagoProveedorService.RevertirPagoAsync` | `PagosOrdenCompra` | si | **si** (`:613`) | helper + guarda |
-| 9 | `PagoProveedorService.ConfirmarPagoProgramadoAsync` | `PagosOrdenCompra` | si | **si** (`:613`) | helper + guarda — **el mas caro** |
-| 10 | `PagoProveedorService.CancelarPagoProgramadoAsync` | **ninguna** (no tenia lock) | si | **si** (el mismo metodo) | lock + helper + guarda |
-| 11 | `PresupuestoService.ConvertirAVentaAsync` | `Presupuestos` | si | **si** (`:496`) | helper |
-| 12 | `PresupuestoService.CancelarBorradorAsync` | **ninguna** (no tenia lock) | si | **si** (el mismo metodo) | lock + helper + guarda |
-| 13 | `CCEmpleadoService.RevertirMovimientoAsync` | `MovimientosCCEmpleado` | **NO hereda** | n/a (sin query filter) | **ya era relectura real**, declarado |
-| 14 | `AjusteStockService.AplicarAjusteAsync` | `Productos` | si | si | **consulta FILTRADA a proposito**: da `null` y falla cerrado |
-
-**El brief hablaba de "7 sitios": son las 7 constantes de tabla, no los metodos.** Los metodos de
-la familia son **14**, y **13** usan el helper o una relectura real declarada.
-
-### Las tres asimetrias deliberadas (defendidas por escrito en su call site)
-
-Estan escritas donde viven porque, si no, el proximo barrido las "arregla" por prolijidad:
-
-1. **`Gasto`** — la baja es el flag `Anulado`, una columna normal que la recarga SI ve. Nadie
-   escribe `Gasto.DeletedAt` (verificado con el grep, no supuesto). El comentario dice **que hacer
-   el dia que se agregue una baja de gastos**.
-2. **La fila de la compra en `RecibirAsync`** — la baja de una compra es `Estado = Cancelada`
-   (`CancelarAsync`), nadie escribe `OrdenCompra.DeletedAt`. **Los productos de esa misma recepcion
-   si van por el helper**: la asimetria esta DENTRO de un metodo.
-3. **`AjusteStockService`** — es el unico sitio donde el query filter juega a favor: la consulta
-   fresca y FILTRADA devuelve `null` si el producto se borro, y el metodo falla cerrado. El helper
-   existe para distinguir "borrada" de "no existe"; este sitio los trata igual.
-
-### Hallazgos propios de esta ronda
-
-**`PagoOrdenCompra` tenia la misma forma que `Venta`, y era peor.**
-`CancelarPagoProgramadoAsync` da de baja una programacion escribiendo `DeletedAt` **y dejando
-`Estado = Pendiente`** — que es **exactamente** el estado que `ConfirmarPagoProgramadoAsync` exige
-para pagar. Los dos caminos **se pisan en el mismo estado** y son dos botones de la misma pantalla,
-asi que la carrera no es teorica. Medido con N=8: **5 exitos** y un pago **BORRADO** con el egreso
-de caja y el `Pago` de deuda ya posteados. La fila sale del saldo comprometido de la compra, asi
-que **la compra se muestra impaga y la plata salio igual**. Y `CancelarPagoProgramadoAsync` no
-tenia ni lock ni transaccion: es la mitad simetrica, y se cerro junto.
-
-**Misma forma en `PresupuestoService.CancelarBorradorAsync`** (mitad simetrica de
-`ConvertirAVentaAsync`): sin lock, y la guarda de "ya dado de baja" no se puede escribir mirando
-`Estado`, que queda en `Borrador`.
-
-**Un bug de relectura incompleta que no es de concurrencia:** `ConvertirAVentaAsync` informa en su
-mensaje de rechazo el numero de la venta que si se creo, y lo leia de **la copia anterior al lock**
-(= `null`). El mensaje salia como *"ya se convirtio en la venta #"*, sin numero. **La relectura
-tiene que traer todo lo que se LEE despues de ella, no solo lo que DECIDE.**
-
-### LP-034 cerrado, y su premisa corregida
-
-`Producto` admite baja y `ProductoService.EliminarAsync` / `EliminarLoteAsync` escriben `DeletedAt`
-**sin guarda de uso**. Se cierra **fallando CERRADO** en los tres escritores de stock
-(`ConfirmarAsync`, `AnularAsync`, `RecibirAsync`): la operacion se rechaza **nombrando el
-producto**, en vez de seguir sin poder escribir el stock. Es un criterio distinto del aviso de
-`UnidadVenta` cambiada (que no bloquea) y la diferencia es deliberada: un cambio de unidad hace que
-el numero sea discutible, un producto borrado hace que **la escritura no ocurra**.
-
-**LO QUE EL ARNES MIDIO NO ES LO QUE EL PARTE DESCRIBIA.** El parte decia *"el descuento de stock
-se pierde en silencio: venta confirmada, plata correcta, stock intacto"*. Con la ventana forzada
-(escenario 10c) y antes del fix, lo que pasa es: la venta se confirma *"correctamente"*, se postean
-los $1.420 de caja y el debito de CC, **y el descuento SI se persiste** (100 -> 98) sobre una fila
-que ninguna consulta ve. **No es que el stock se pierda: es una venta cerrada contra un producto
-que ya no esta en el catalogo**, con su stock movido donde nadie puede verlo ni corregirlo. El
-invariante roto es otro y el fix es el mismo, pero la descripcion habia que corregirla.
-
-**Y un detalle de EF que explica por que el guard de LP-034 solo se alcanza en carrera:**
-`ItemVenta.Producto` es una navegacion **requerida**, asi que si el producto ya estaba borrado al
-cargar la venta, EF descarta **tambien la fila del item** (inner join) y `venta.Items` vuelve
-**vacia** — salta la guarda de "al menos un item" y no la de LP-034. Falla cerrado igual, pero por
-otra puerta. Por eso el escenario secuencial **no alcanza** y hubo que forzar la ventana.
-
-### Evidencia ejecutada — `tools/ArnesReconciliacionTx`
-
-Sucesor de `tools/ArnesHotfixTransacciones` (que vive en la rama publicada y mide 5 metodos sobre
-el esquema de produccion). Base **`laplatense_recon_tx`** — nombre elegido para no disparar la
-guarda del arnes, que **aborta** si la cadena menciona `laplatense_dev`, `laplatense_qa*` o
-`site4now`; levantada con `dotnet ef database update` y **las 14 migraciones de desarrollo**.
-Un scope de DI por competidor (= un `AppDbContext` = una conexion MySQL), **conexion abierta ANTES
-de la barrera**, `Barrier.SignalAndWait()`, **N=3 y N=8** en cada sitio.
-
-| | Afirmaciones OK | FALLADAS |
-|---|---|---|
-| **Con el fix** | **153** | **0** |
-| **Sin el fix** (services revertidos a `bdfd99b`, arnes IDENTICO) | 123 | **30** |
-
-Las 30 que discriminan, con sus numeros:
-
-- **Cobro de cuenta corriente (14 afirmaciones):** con N=8, **8 de 8 exitos** sobre una deuda de
-  $1.000 → **saldo −$7.000** y **$8.000 de ingreso de caja** donde correspondia $1.000.
-- **Venta BORRADA con plata movida (4):** `borrada=True, caja=1, cc=1, stock=98` — el invariante
-  del criterio 8, violado.
-- **Pago programado BORRADO con la plata ya salida (8):** `borrado=True, caja=1 ($777), cc=1`.
-- **LP-034 (4):** confirmacion exitosa contra un producto borrado, con $1.420 posteados.
-
-**ADVERTENCIA METODOLOGICA, declarada y no omitida:** los sitios **11 (recepcion), 12 (confirmar
-pago), 14 (revertir pago), 15 (convertir presupuesto) y 16 (CC empleado)** pasan **tambien sin el
-fix** en la prueba de N-way simple — porque ahi el `ReloadAsync` alcanza cuando no hay una baja
-logica compitiendo. **En esos cinco el cambio es correctitud del mecanismo, no un bug con falla
-medida.** Lo que falla sin el fix son los entrelazados que involucran una baja logica. Decirlo al
-reves seria reportar como logro algo que ya funcionaba (la leccion de la pasada 0).
-
-**Afirmacion que NO discrimina y quedo marcada como tal en el codigo:** el escenario 10b (N-way de
-confirmar contra borrar el producto) pasa con fix y sin fix, porque el borrado **gana siempre la
-barrera** (no toma ningun lock) y la implicacion *"si confirmo, el stock se desconto"* se cumple de
-taquito con `confirmo=False`. Lo que mide LP-034 de verdad es **10c**, con la ventana forzada a
-mano: el arnes toma el lock de la venta, larga la confirmacion, la deja clavada esperando, borra el
-producto y recien entonces suelta el lock.
-
-**Fallas del arnes por si mismo en esta ronda (5, todas del arnes y no del codigo):**
-`LeerEstadoAsync` leia el producto por la consulta filtrada y reventaba con *"Sequence contains no
-elements"* justo en el escenario que borra el producto; el `OrigenTipo` real de los asientos de un
-pago a proveedor es **`PagoOC`** y no `"PagoProveedor"`; el ledger de empleados exige una fila
-**real** en `AspNetUsers` (y `CreatedAt` es NOT NULL sin default); el concepto `Adelanto` mueve caja
-y **exige `MedioPago`**; y la limpieza final chocaba con la FK `RESTRICT` de
-`MovimientosCCProveedor` porque borraba por los dos origenes conocidos y quedaba el saldo inicial.
-
-### Build y estado
-
-`dotnet build` de la solucion: **0 errores**, 9 advertencias **todas preexistentes** (`NU1902` de
-MailKit/MimeKit y el `CS0114` de `HomeController.StatusCode`). Sin migracion EF: **no hay columnas
-nuevas**. Limpieza final del arnes verificada: 0 filas de prueba restantes.
-
-### Pendiente de re-verificacion de QA
-
-- **`LP-034`**: **aplicado, pendiente de re-verificacion**. El cierre lo declara QA.
-- Los sitios 4, 5, 10 y 12 de la tabla (los que no tenian lock) y los 9 que cambiaron de mecanismo
-  de relectura: **aplicados, pendientes de re-verificacion**.
-
+Movido a [`historial/5-implementador-reconciliacion-lp018-lp034.md`](historial/5-implementador-reconciliacion-lp018-lp034.md) el 2026-10-06 (eran 12 KB) para mantener
+este archivo bajo el techo de 150 KB. **Ronda cerrada:** `LP-034` cerrado, los once sitios de la
+familia reconciliados, `ArnesReconciliacionTx` en **153 OK / 0** (reverificado el 2026-10-06 al
+cerrar CR-01/CR-02, sin regresion). **Se lee solo si hace falta el detalle de esa reconciliacion** —
+el patron en si vive en el XML-doc de `BloqueoDeFila`/`RelecturaBajoLock` y en `PAT-059`, que son la
+fuente de verdad.
 
 ## Verificacion por ejecucion de los 6 sitios restantes de la familia de atomicidad (2026-10-06)
 
@@ -756,3 +658,4 @@ Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-p
 - 2026-08-10 (17:30, post-QA/GO de Entrega 1): agregado el rol `Administrador` (todo el sistema salvo `SystemController`, exclusivo de `SuperUsuario`) y cambiado el redirect post-login de `Home` a `Stock`. Modificacion puntual sobre la Entrega 1 ya cerrada y en GO, no una entrega nueva. Sin migracion EF. Build limpio. Detalle completo en la seccion "Ajuste puntual (2026-08-10, post-QA/GO)" arriba y en `trazabilidad.md` (entradas 17:00 y 17:30).
 - 2026-08-10: Creado el plan de 3 entregas funcionales incrementales sobre el WBS ya aprobado (139h), a pedido explícito de Joaquín para dar dinamismo al proyecto y permitir prueba temprana del cliente. Sin cambios de alcance ni de precio — solo reordenamiento de secuencia de entrega respetando dependencias técnicas. Se adelantó el módulo "Entregas a domicilio" (originalmente Etapa 2/módulo 15) a la Entrega 2 para que el Dashboard Corte 1 (nivel día) pueda mostrar entregas pendientes reales. El Dashboard (12h) se fasea en 2 cortes sin agregar horas: nivel 1+3 en Entrega 2, nivel 2 en Entrega 3.
 - 2026-08-10 (cierre Entrega 1): implementados Catálogo (Marca/Modelo/Categoria/Producto), Stock (AjusteStock + alerta visual), Código de barras (lookup service + endpoint de prueba) y roles nuevos (Vendedor/Repartidor). Reutilización de `ShowroomGriffin` (Marca/Modelo/Categoria, AjusteStock/StockController) y `marihogar` (DataTableRequestHelper). Build limpio, migración `EntregaUno_CatalogoStockUsuarios` generada (primera migración real del proyecto) y no aplicada a ninguna base. Ver detalle completo de archivos/riesgos en las secciones arriba.
+- 2026-10-06 (**CR-01 + CR-02**, rama `entrega-1-migracion`, commits `41e4f52` y `b92c455`): **venta sin factura** y **facturacion parcial por items**, las dos entradas nuevas `CR-01` y `CR-02` de la zona vigente, mas `LP-014`/`LP-016` documentado como YA CERRADO. **Lo primero, porque cambia como se lee el resto: el brief declaraba `LP-014` abierto en produccion con numeros de linea, y estaba completo desde el 2026-10-05 y con PASS de QA.** Es la segunda vez en dos rondas que el punto de partida del orquestador es falso (la anterior: `3cf60ab` daba 6 sitios por cerrados sin medir y ya estaban escritos). Verificarlo costo tres `grep`; reimplementarlo habria sido trabajo duplicado sobre el servicio mas sensible del sistema. Lo unico real que quedaba era un `LP-008`: el bloque de seguridad del metodo seguia diciendo que el % de IVA llegaba del payload, cosa que `LP-016` habia cerrado unas lineas mas abajo en la misma ronda. **Dos commits y no tres**, con el motivo escrito: el arquitecto fijo UNA sola migracion aditiva, y esa migracion contiene a la vez la columna de CR-01 y las tablas de CR-02 — partirla serian dos migraciones. **Migracion `EntregaCinco_VentaSinFacturaYComprobantesParciales`: cero `DROP` y cero `ALTER` destructivo en su `Up`** (verificado por grep); los unicos `Drop` estan en el `Down`, que es el camino de vuelta. `Ventas.Facturar` con default `true` **en la base**, porque el inicializador de C# no alcanza a las filas que ya existen. `Venta.CAE`/`NumeroComprobante`/`VencimientoCAE` se dejan, marcadas obsoletas. **EL HALLAZGO QUE NO SE VE LEYENDO, y se midio con contraprueba:** `Facturar` tiene que entrar en la guarda optimista de `LP-038` de `ConfirmarAsync`. El `Total` solo no alcanza — con todas las lineas al 0% de IVA, girar la condicion deja **identicos** los cinco numeros que la guarda ya comparaba, y sacando ese campo la venta queda **Confirmada con la condicion girada, $ 2.000 de caja posteados y 2 unidades descontadas**. El daño no es en plata (los importes cuadran): es que la venta queda mintiendo sobre como se cobro, y eso reaparece semanas despues como un cargo de IVA en el estado de cuenta de un cliente. **SEGUNDO HALLAZGO, el error mas facil de cometer al portar:** `ComprobanteAfipItem.PrecioUnitario` tiene que ser el precio **EFECTIVO** (`Subtotal / Cantidad`) y no el `PrecioUnitario` de lista, porque en este proyecto descuento y recargo son porcentajes aplicados en el **Subtotal** y no en el precio — copiar el de lista emitiria un comprobante **fiscal** por mas plata de la que se vendio en toda linea con descuento. En `marihogar` el error no existe porque alla la cascada va sobre el precio. El riesgo que el arquitecto si habia anticipado (`Cantidad` `int` -> `decimal`) tambien se aplico, y este estaba al lado sin que nadie lo hubiera visto. **Decisiones de modelo:** `ItemVenta.CantidadFacturada` **NO se agrega** aunque `marihogar` la reservo (un contador denormalizado que se desincroniza hace que el tope del pendiente deje de valer sin que nada falle); "Facturada en parte" es estado **derivado** y no un valor nuevo de `EstadoVenta`, calculado en la misma consulta que la pagina del listado y no con un N+1; y el calculo del pendiente lleva **dos** filtros de soft delete porque la baja de un comprobante no toca sus filas hijas. **El cargo de IVA (D-CR01.1):** `OrigenMovimientoCC.DiferenciaIvaFacturacion = 5` al final del enum, propagado a los **dos** lectores del ledger (`LP-002`: combo de origen + mapa `etiquetasOrigen`). Un solo Debito, en la **misma transaccion** que el comprobante, por el IVA exacto, con el comprobante **nombrado** en la `Referencia` y sin recalcular la venta. La validacion de UI "no emitir sin haber visto el importe" se cierra **server-side**: el importe confirmado viaja en el POST y el Service lo recalcula y rechaza si no coincide. **`FacturacionParcialService`** con transaccion antes de LEER, lock de la venta como primera sentencia y el ya-facturado leido **despues** (`LP-035`), relectura real por `RelecturaBajoLock`. Queda escrito por que las cantidades vendidas SI se pueden tomar del grafo pre-lock aca y en `ConfirmarAsync` no: una venta Confirmada es inmutable, una en Borrador no. **Evidencia ejecutada — `tools/ArnesVentaSinFacturaYParcial`, 50 OK / 0 FALLADAS** contra un clon desechable (`laplatense_cr12`, creado y borrado en la corrida; `laplatense_dev` verificada intacta, sin `Facturar` ni tablas nuevas). PF16 con **dos alicuotas** en la misma venta (21 y 10,5: una sola no detectaria un 21% hardcodeado) da IVA 5.250 / total 37.250 con factura y IVA 0 / total 32.000 sin factura, y las alicuotas de las lineas **siguen siendo las del producto**. PF17: 2 de 5 facturados, segundo intento rechazado por el tope, y la suma de los comprobantes reproduce el neto **y** el IVA de la venta. Cargo de IVA: un movimiento de $ 840,00 con el comprobante nombrado, saldo +840,00, venta sin recalcular, pagos intactos; con IVA cobrado, cero movimientos. Concurrencia N=3 y N=8: 1 ganador, 1 comprobante, ningun deadlock crudo. **Y una leccion de arnes que vale mas que una afirmacion:** la primera version del escenario de `LP-038` usaba una barrera, el guardado ganaba el lock **3 de 3**, y el invariante "si quedo Confirmada, su total es coherente" se cumplia **VACIO** — 47 OK en pantalla sin haber probado nada. Se reemplazo por una **ventana deterministica** (una conexion retiene el lock con `FOR UPDATE`, la confirmacion se clava, se gira la condicion y se commitea). Tambien se corrigio una afirmacion que comparaba el stock contra 1000 cuando los escenarios previos ya habian vendido unidades: una falla **del arnes**, de las que hacen perder una hora buscando un defecto inexistente. Regresion: `ArnesReconciliacionTx` **153 OK / 0**; `ArnesSeisSitiosRestantes` **20 OK / 2 FALLADAS**, que son `LP-037` (abierto y medido a proposito, no tocado por este lote). Build **0 errores / 9 advertencias**, la linea base exacta; vistas Razor validadas en build (comprobado con un error deliberado temporal, porque el volcado de archivos generados estaba vencido y el build incremental no las recompilaba). **Fuera de alcance y sin tocar:** CR-03, CR-04, CR-05, los impuestos de v2 y `LP-037`. Commits locales, **SIN push y SIN deploy**.

@@ -1,9 +1,108 @@
 # Memoria - Disenador funcional
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-08-17 (v6 — flujo 10: migracion de catalogo Etapa 3, retomado con datos reales + clasificacion ABC automatica)
+## Ultima actualizacion: 2026-10-06 (v7 — Diseno de CR-01 a CR-05: flujos 11 a 15. Venta con/sin factura, facturacion parcial por items con cargo de IVA a la CC del cliente, interes por tarjeta x cuotas con vigencia, plan de echeqs 0/30/60/90/120 sobre el pago programado existente, y transferencia en la venta. LP-014 entra en la misma ronda que CR-01. AnulacionVentaViewModel e IAnulacionVentaService quedan a ajustar: con comprobantes 1:N la NC es por comprobante, no por venta)
 
 ## Definiciones vigentes
+
+## Diseño funcional de CR-01 a CR-05 (2026-10-06)
+
+Entrada del Análisis: `1-analista-funcional.md` v6, entradas "Faltantes de alcance relevados el 2026-10-06 — CR-01 a CR-05" y "Decisiones de Joaquín del 2026-10-06 que cierran el Análisis". Reglas R12-R16, criterios PF16-PF20, decisiones D-CR01.1, D-CR01.2, D-CR04.1 y D-CR04.2.
+
+**Escaneo de reutilización (instrucción 39 §3), resultado:** precedente de pantalla verificado archivo por archivo en `C:\Sistemas\marihogar` — `Views/ComprobantesAfip/{Index,Create,Details}.cshtml` para CR-02 (su `Create` **es** la pantalla de "elegir qué ítems facturar"), `Views/Cheques/Index.cshtml` para CR-04, y `ConfiguracionCuotaTarjeta` + su pantalla de Configuración para CR-03. Las pantallas se adaptan al design system Olvidata (instrucción 38), no se copian tal cual: `marihogar` no usa `ov-*`.
+
+### Flujo 11 — Venta con o sin factura (CR-01)
+
+**Dónde vive la decisión:** un control de dos opciones en la cabecera de la venta, junto al cliente — **no** al final, junto a los botones. El vendedor elige antes de cargar ítems porque el IVA cambia el precio que le canta al mostrador, y un control al pie obliga a recalcular toda la pantalla después de que ya dijo un número.
+
+**Comportamiento:**
+- Opción **"Con factura"** (default): la venta se comporta exactamente como hoy — IVA por línea, total con IVA.
+- Opción **"Sin factura"**: el IVA de todas las líneas pasa a 0 y el total es la suma de los netos. El recalculo es inmediato y visible en la grilla de ítems: la columna IVA muestra una raya apagada (`ov-vacio`) y no un `0,00`, que se lee como "pagó cero de IVA" en vez de "no hay IVA".
+- El bloque de totales muestra **siempre** las dos cifras cuando la venta es sin factura: *Neto* y, debajo y tenue (`ov-celda-secundaria`), *"con factura serían $X"*. Es el dato que el vendedor necesita para responder "¿y con factura cuánto sale?" sin cambiar el control de ida y vuelta.
+- El recargo por cuotas de tarjeta se calcula **sobre el total resultante** (R12), así que cambiar la marca recalcula también el recargo. Se muestra recalculado antes de confirmar (mismo criterio que PF3).
+- **El control se bloquea al confirmar.** Una venta cerrada no cambia de condición: si hace falta, se factura después por el flujo 12.
+
+**Default y permisos (D-CR01.2):** lo elige el vendedor (R12), pero **el precio unitario deja de ser editable para el rol Vendedor**: se recalcula siempre desde el producto. Hoy cualquier usuario con `RequireVentas` puede tipear el precio que quiera (**LP-014**, abierto en producción) y sumarle a eso una palanca que resta el IVA son dos caminos para bajar el precio sin control. El Administrador conserva el precio editable. Es el precedente de `marihogar` (`VentaService.ConfirmarAsync` / `EditarAsync`), se trae completo y **entra en la misma ronda que CR-01, no después**.
+
+**Estado vacío / caso borde:** una venta sin factura de un cliente con CUIT no se bloquea (el negocio decide, no el sistema), pero la cabecera muestra un aviso tenue de una línea: *"este cliente tiene CUIT"*. Avisar sin bloquear es el mismo criterio que R10 usó para el stock sin verificar.
+
+### Flujo 12 — Facturar parte de una venta (CR-02)
+
+**Punto de entrada:** desde el detalle de la venta, acción *"Facturar"*, disponible mientras quede algo sin facturar. En el listado de ventas la columna de estado deja de ser binaria: *Confirmada*, *Facturada en parte*, *Facturada*. El estado habitual va tenue y **solo "Facturada en parte" lleva color** (instrucción 38: lo normal se susurra, lo excepcional se ve) — es el estado sobre el que hay algo pendiente que hacer.
+
+**Pantalla de emisión (adaptada de `ComprobantesAfip/Create` de marihogar):**
+- Grilla de los ítems de la venta con, por fila: producto, cantidad vendida, **cantidad ya facturada**, **cantidad pendiente** y un campo editable *"cantidad a facturar"* precargado con el pendiente.
+- Tope duro por fila: no se puede pedir más que el pendiente (R13). La validación vive en el Service, no solo en el input.
+- Cabecera del comprobante: tipo (A/B/C, derivado de la condición de IVA del cliente), cliente, y **el total del comprobante calculado en vivo** a medida que se tocan las cantidades.
+- **El bloque del IVA es el punto delicado de toda la pantalla.** Si la venta se cobró sin factura (flujo 11), el comprobante lleva IVA que **no se cobró**. La pantalla lo dice en texto, no en un tooltip: *"esta venta se cobró sin IVA. Al facturar estos ítems se genera un cargo de $X en la cuenta corriente del cliente"*, con el importe exacto y antes de emitir. Confirmar emite el comprobante **y** postea ese cargo, en la misma transacción (D-CR01.1).
+- Si la venta ya se había cobrado con IVA, ese bloque no aparece: no hay diferencia que cobrar.
+
+**Lo que NO se recalcula nunca:** la venta. Ni su total, ni sus subtotales, ni los pagos ya posteados. El IVA que aparece es un **cargo nuevo en la CC del cliente** con su propio origen en el ledger (`OrigenMovimientoCC` nuevo, propagado a los filtros que listan el ledger — LP-002, mismo camino que `CobroCC`). La venta queda cobrada por un importe y facturada por otro mayor, y **los dos son correctos**.
+
+**Nota de alcance que corrige el diseño anterior:** `AnulacionVentaViewModel` y `IAnulacionVentaService` (definidos para el módulo 16) asumen **un** comprobante por venta. Con comprobantes 1:N, la nota de crédito se emite **contra un comprobante**, no contra la venta. Esas dos definiciones quedan superadas por el flujo 12 y hay que ajustarlas antes de construir el módulo 16 (Entrega 5) — es más barato hacerlo ahora que después de la primera NC real.
+
+### Flujo 13 — Interés de tarjeta por tarjeta y cuotas (CR-03)
+
+**Pantalla de configuración** (Configuración > Intereses de tarjeta), al lado de la que ya existe para recargos por cuotas:
+- Grilla de **tarjeta × cuotas** con el % en cada cruce. Filas = tarjetas, columnas = los planes vigentes (1/3/6/9/12/18/24). Es la forma en que el cliente lee el papel que le deja la procesadora, y editar un plan completo de una tarjeta es una fila, no siete pantallas.
+- Set de tarjetas **cerrado y configurable por el admin** (alta/baja lógica), no un enum: el negocio agrega una tarjeta cuando cambia de terminal, y eso no puede requerir deploy. Dar de baja una tarjeta no rompe las ventas que la usan (mismo criterio que `RecargoCuota.Activo`).
+- **Vigencia por fecha** en cada porcentaje (`VigenteDesde`/`VigenteHasta`, patrón que `OrdenCompra` ya usa para sus impuestos): cambiar el coeficiente no reescribe el pasado y permite cargar el aumento del mes que viene por adelantado.
+
+**En la venta:** al elegir *Crédito en cuotas* aparece el combo de **tarjeta** (hoy no existe) y, con tarjeta + cuotas elegidas, el % se resuelve de la tabla y se muestra el recargo **antes de confirmar** (PF18). El vendedor lo puede ajustar a mano para esa venta, igual que hoy; el valor efectivo se congela en `PagoVenta.PorcentajeRecargoAplicado`, que ya existe y **no se toca** — es lo que garantiza que editar la tabla no cambie ninguna venta posteada (R14).
+
+**Fuera de alcance, confirmado (D-CR04.2):** el costo real de cobranza (lo que la terminal le descuenta al negocio) y la acreditación diferida. La tabla se diseña con lugar para esas alícuotas pero no se construyen ahora.
+
+### Flujo 14 — Plan de echeqs a 0/30/60/90/120 (CR-04)
+
+**Alcance (D-CR04.1):** esto NO es una cartera de cheques. Se construye **sobre el pago programado que ya existe** en `PagoOrdenCompra`.
+
+**Pantalla:** en el formulario de pago a proveedor, al elegir forma de pago *Cheque electrónico (echeq)* se habilita un bloque **"Plan de pago"**:
+- Selección múltiple de plazos (0 / 30 / 60 / 90 / 120 días) y, al elegirlos, la pantalla genera **una fila por plazo** con el monto repartido (por defecto en partes iguales, cada monto editable) y el **vencimiento calculado** = fecha del pago + los días del plazo.
+- Cada fila pide **número de cheque y banco** (los dos datos que el pedido nombra). El número se valida como obligatorio y único por banco; el banco es texto libre con autocompletado de los ya usados (no hay catálogo de bancos y crear uno para esto es modelar una hipótesis).
+- El plazo **0 días** es un echeq al día: entra como una fila más del plan, no por otro camino.
+- La suma de las filas tiene que dar el total que se está pagando. Es una validación de Service, con el faltante/sobrante a la vista mientras se tipea.
+
+**Qué mueve plata y cuándo:** ninguna fila mueve caja ni cuenta corriente al crearse — nacen como pago programado `Pendiente`, que es el comportamiento que ya está construido y probado. **La plata sale al confirmar cada fila**, manualmente, por el camino que ya existe (`ConfirmarPagoProgramadoAsync`). El aviso de vencimiento usa el patrón propio **`PAT-056`** (chequeo oportunista al primer request del día, idempotencia en la base), **no** el `BackgroundService` de `marihogar`: La Platense no tiene ni un `AddHostedService` y en SmarterASP un job con hora fija puede no correr nunca.
+
+**La fecha de confirmación — decisión de diseño sobre un dato medido en contra:** la decisión pide la acreditación *"calculada con los x cantidad de días"*. En `marihogar` se midió qué fecha acierta contra el extracto bancario: **el vencimiento del cheque acertó 1 de 13; la fecha que el usuario leyó del extracto, 8 de 13.** Resolución: el vencimiento **se calcula** (es lo pedido) y es el que ordena la grilla y dispara el aviso; al confirmar, la fecha viene **propuesta con ese vencimiento y queda editable**. El camino normal es un click sin tipear nada, y el 61% de los casos en que el banco debitó otro día sigue teniendo arreglo. **Nada se acredita solo.**
+
+**Listado:** los echeqs pendientes se ven en el detalle de la compra y en un listado propio filtrable por proveedor, estado y rango de vencimiento (`ov-filtros` plegado por defecto, contador de filtros puestos — instrucción 38). La fila cuyo vencimiento cae dentro de 7 días se resalta; el resto va tenue.
+
+### Flujo 15 — Transferencia en la venta (CR-05)
+
+Valor nuevo en el combo de medios de pago de la venta, **al final del enum** (los enteros ya están persistidos en producción: ningún valor se intercala ni se reordena). Campo de nota opcional para el número de operación, que ya existe en `PagoVenta.Nota`. En el cierre diario aparece como línea propia, separada del efectivo (PF20) — hoy se carga como Efectivo y el arqueo cuenta como plata en el cajón algo que está en el banco.
+
+### ViewModels nuevos y extendidos
+
+- `VentaEditableViewModel` (extendido): agrega `Facturar` (bool, default true), `TotalConFactura` y `TotalSinFactura` (los dos calculados, para el bloque de totales), `TarjetaId` y la lista de tarjetas en cada `PagoViewModel`. `PrecioUnitario` pasa a ser **solo lectura para el rol Vendedor**.
+- `FacturacionParcialViewModel` (nuevo): venta, tipo de comprobante, datos del cliente, grilla de `ItemFacturableViewModel` (ítem, cantidad vendida, ya facturada, pendiente, a facturar), total del comprobante, y **`DiferenciaIvaACobrar`** con el texto del aviso cuando la venta se cobró sin IVA.
+- `TarjetaInteresViewModel` (nuevo): grilla tarjeta × cuotas con el % en cada cruce y la vigencia de cada valor.
+- `PlanEcheqViewModel` (nuevo): total a cubrir, plazos elegidos, grilla de `LineaEcheqViewModel` (plazo en días, monto, vencimiento calculado, número de cheque, banco), y el faltante/sobrante contra el total.
+- `AnulacionVentaViewModel` — **a ajustar**: pasa a operar sobre un comprobante, no sobre la venta (ver flujo 12).
+
+### Validaciones de UI acordadas (se suman a las vigentes)
+
+- No permitir cambiar la marca "con factura / sin factura" de una venta ya confirmada.
+- No permitir facturar más cantidad que la pendiente de cada ítem — validado en el Service, no solo en el input.
+- No permitir emitir un comprobante parcial sin que el usuario haya visto el importe del cargo de IVA que se va a postear en la CC del cliente (cuando corresponde): el importe está en pantalla, no detrás de un tooltip.
+- No permitir confirmar un plan de echeqs cuya suma no dé el total del pago, ni con una fila sin número de cheque o sin banco.
+- No permitir dos cheques con el mismo número en el mismo banco.
+- El precio unitario de la venta no es editable para el rol Vendedor (bloqueado a nivel de autorización, no solo de UI — mismo criterio que la CC de empleados).
+
+### Contratos funcionales para Services (nuevos y afectados)
+
+- `IVentaWorkflowService` (afectado): el cálculo de IVA pasa a depender de la marca de facturación de la venta; el precio unitario se recalcula desde el producto cuando el usuario no es Administrador.
+- `IFacturacionParcialService` (nuevo): dada una venta y las cantidades elegidas, valida los pendientes, emite el comprobante, y postea el cargo de IVA en la CC del cliente **en la misma transacción**. Devuelve el pendiente actualizado por ítem.
+- `IRecargoCuotasService` (afectado): la firma pasa de `(medio, cuotas)` a `(medio, tarjeta, cuotas, fecha)` — la fecha porque el porcentaje tiene vigencia.
+- `IPlanEcheqService` (nuevo): dado un total, los plazos y la fecha de pago, genera las N líneas de pago programado con sus vencimientos, números y bancos, en una transacción. No mueve caja ni cuenta corriente.
+- `IAnulacionVentaService` (afectado): pasa a operar por comprobante.
+
+### Lo que este diseño deja afuera, explícito
+
+- Cartera de cheques como módulo (rechazo, reemplazo, conciliación de extracto) — D-CR04.1.
+- Impuesto al cheque, impuesto por plataforma e impuesto por gasto — **v2**, con el precedente ya identificado (D-CR04.2). Las entidades nuevas se diseñan con lugar para esas alícuotas.
+- Costo real de cobranza y acreditación diferida de tarjeta — fuera del plan desde el 2026-10-06.
+- Cheques recibidos de clientes — no aplica.
 
 ### Historias de usuario
 
@@ -115,7 +214,7 @@ Base: `1-analista-funcional.md` sección "Etapa 3 — Migración de catálogo" (
 - `VentaEditableViewModel`: lista de `ItemVentaViewModel` (producto, cantidad en `UnidadVenta`, precio unitario editable, %IVA editable, subtotal calculado), lista de `PagoViewModel` (medio de pago, monto, cuotas si aplica, % recargo aplicado), estado (`Borrador`/`Facturada`), cliente (cargado o consumidor final).
 - `ImportacionListaProveedorViewModel`: proveedor, archivo, `TCPropio`, `PorcentajeDescuento`, grilla de preview (producto detectado, precio original, precio recalculado, acción: crear/actualizar/omitir).
 - `CuentaCorrienteEmpleadoViewModel`: solo lectura para el empleado — movimientos (fecha, tipo: sueldo/retiro/gasto, monto, saldo).
-- `AnulacionVentaViewModel`: venta original, ítems a devolver (parcial o total), motivo, preview de la NC antes de emitir.
+- `AnulacionVentaViewModel`: venta original, ítems a devolver (parcial o total), motivo, preview de la NC antes de emitir.  ·  **a ajustar por CR-02** (con comprobantes 1:N la NC es por comprobante, no por venta — ver flujo 12)
 - `DashboardViewModel`: 3 niveles (estado del día, salud financiera, tendencias) — ver flujo 6.
 - `AjusteStockViewModel`: producto, cantidad actual, cantidad nueva, motivo — genera registro auditado.
 - `VentaEditableViewModel` (extendido): campo de escaneo de código de barras que agrega un `ItemVentaViewModel` automáticamente al detectar un código válido.
@@ -148,7 +247,7 @@ Base: `1-analista-funcional.md` sección "Etapa 3 — Migración de catálogo" (
 - `IRecargoCuotasService`: calcula el recargo aplicable según medio de pago y cantidad de cuotas configurada.
 - `IListaPreciosProveedorImportService`: parsea el archivo del proveedor, aplica TC propio + % descuento, devuelve preview antes de persistir.
 - `ICuentaCorrienteEmpleadoService`: expone movimientos de UN empleado, validando que el usuario autenticado sea el dueño de la cuenta o el admin.
-- `IAnulacionVentaService`: valida que la venta esté en estado `Facturada`, coordina devolución de stock + emisión de NC + transición a `Anulada`.
+- `IAnulacionVentaService`: valida que la venta esté en estado `Facturada`, coordina devolución de stock + emisión de NC + transición a `Anulada`.  ·  **a ajustar por CR-02** (pasa a operar por comprobante — ver flujo 12)
 - `IAjusteStockService`: aplica una corrección manual de stock con motivo, genera auditoría (usuario, fecha, valor anterior/nuevo).
 - `ICodigoBarrasLookupService`: resuelve un producto a partir de un código escaneado (propio o de fábrica) para el flujo de venta.
 - ~~`ICatalogoMigracionService`~~ — **retirado 2026-08-17**: la carga del catálogo histórico va por script directo a la base, no por un Service de la app (ver flujo 10, paso 2, corrección de Joaquín).

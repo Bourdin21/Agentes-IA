@@ -1,7 +1,195 @@
 # Memoria - Analista funcional
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-10-05 (v4 — cierre de las 3 decisiones que bloqueaban el plan de cierre de alcance: dia/mes de negocio de la caja, quien anula una venta, regla de UnidadVenta)
+## Ultima actualizacion: 2026-10-06 (v6 — Analisis de CR-01 a CR-05 CERRADO SIN GATES: las 4 preguntas abiertas respondidas el mismo dia. El IVA de una factura posterior lo paga el cliente como cargo en su CC; la marca la elige el vendedor y eso obliga a cerrar LP-014 en la misma ronda; CR-04 queda ACOTADO (numero de cheque, banco y vencimiento calculado, SIN cartera — la Entrega 3 sigue cerrada); los impuestos por cheque/plataforma/gasto pasan a v2)
+
+## Faltantes de alcance relevados el 2026-10-06 — CR-01 a CR-05 (Discovery + Análisis)
+
+**Origen:** chequeo de cobertura pedido por Joaquín el 2026-10-06 — leyó una lista de 10 capacidades de negocio y preguntó si estaban contempladas. Se verificó **contra el código real** de `C:\Sistemas\Ferreteria La Platense` (entidades, enums y controladores), no contra la documentación. Resultado: **5 de las 10 ya están construidas y en producción, 1 estaba parcial y 4 no estaban**.
+
+### Cobertura verificada — lo que YA está (no abre trabajo)
+
+| Pedido | Dónde está hoy |
+|---|---|
+| Gastos del negocio (sueldos, alquiler, generales) | `Gasto` + `CategoriaGasto` (Alquiler/Servicios/Sueldos/Impuestos/Flete/Otro) + `TipoImpactoGasto` (caja chica o mensual). R7 |
+| Cuenta corriente de empleados | `MovimientoCCEmpleado` (ledger Cargo/Pago) + `CCEmpleadoController` + vistas. R6 |
+| Compras a proveedores, CC de proveedores, pagos efectivo/transferencia/cheque/echeq, con o sin IVA | `OrdenCompra` (con `Facturada`, impuestos a 0 forzados cuando es false), `MovimientoCCProveedor`, `PagoOrdenCompra`, `FormaPagoProveedor` |
+| Proveedor con dólar propio | `Proveedor.Moneda` + `Proveedor.TipoCambio`, congelados por documento en `OrdenCompra.Moneda`/`Cotizacion` (R3) |
+| Proveedor con descuento particular | `Proveedor.PorcentajeDescuentoHabitual` + `PorcentajeDescuentoAdicionalHabitual` (cascada "33+5") |
+| Precios de oferta | `Producto.PrecioOferta` + `PrecioOfertaDesde`/`Hasta` + `EsOfertaVigente` |
+| Aumento masivo por proveedor y marca | `AumentoMasivoPrecio` (filtros proveedor/marca/categoría, 2 modos, preview) + controlador y vistas |
+| % de descuento y % de recargo por producto vendido | `ItemVenta.Descuento` / `ItemVenta.Recargo`, fórmula `(1-d+r)` |
+
+### CR-01 — Venta sin factura cobrada sin IVA ("en negro")
+
+**Pedido:** *"el producto se puede vender en negro, sin impuestos; con impuestos"*.
+
+**Estado hoy:** no existe. `ItemVenta.PorcentajeIVA` se aplica **siempre**; el estado `Confirmada` permite cerrar una venta sin emitir comprobante, pero el total incluye el IVA de todos modos. El único lado donde el concepto existe es **compras** (`OrdenCompra.Facturada`, que fuerza los tres impuestos a 0).
+
+**Decisión del cliente (2026-10-06, vía Joaquín):** *la venta sin factura se cobra por el NETO, sin IVA — el total baja.* Se descartaron las otras dos opciones ofrecidas (mismo precio sin comprobante; dos precios por producto).
+
+**Lo que eso define:**
+- La condición "se factura / no se factura" es un atributo **de la venta**, no del producto ni de la línea: el pedido dice "el producto se puede vender en negro" pero lo que decide es el comprobante, y el IVA no se puede discriminar producto por producto dentro de un mismo comprobante.
+- Con la marca en "no factura", el IVA de **todas** las líneas se calcula como 0 y el total es la suma de los netos. Con la marca en "factura", se comporta como hoy.
+- El recargo de cuotas sigue aplicándose sobre el total resultante, no sobre el neto antes de IVA.
+
+**Lo que esto arrastra, y es el punto delicado:** interactúa con CR-02. Si una venta se cobró sin IVA y después se factura parte de sus ítems, el IVA de los ítems facturados **no estaba cobrado**. Ver pregunta abierta 8.
+
+**Precedente:** `marihogar` **no resuelve esto** — su IVA es 21% hardcodeado en 4 puntos de `VentaService` y sus dos precios por producto ya lo traen incluido. Lo más parecido es su `TipoPrecioVentaItem` (Contado/Tarjeta), que es "base de precio elegida por línea" y confirma la forma, no el cálculo. Reuse real: bajo.
+
+### CR-02 — Facturación parcial: elegir qué ítems de un remito se facturan
+
+**Pedido:** *"se puede elegir que se factura y que no se factura de un remito"*.
+
+**Estado hoy:** no existe. La venta tiene **un solo CAE** (`Venta.CAE`, `NumeroComprobante`, `VencimientoCAE`) y la transición es `Confirmada → Facturada` por el total. No hay entidad Remito.
+
+**Decisión del cliente (2026-10-06):** *la venta Confirmada ES el remito; después se factura una parte de sus ítems.* Se descartó el remito como documento aparte previo a la venta, y se descartó "marcar ítems como no facturables" (deja el resto sin poder facturarse nunca).
+
+**Lo que eso define:**
+- Hay que pasar de 1 factura por venta a **comprobantes 1:N** sobre la venta, con ítems propios por comprobante (`ComprobanteAfip` + `ComprobanteAfipItem`).
+- Una venta puede quedar **parcialmente facturada**: hace falta un derivado "qué cantidad de cada ítem ya está facturada" y la validación de que no se facture más que lo vendido.
+- La anulación por NC (R5/R8, módulo 16) pasa a ser por comprobante, no por venta.
+- **Ventana de oportunidad, no preferencia estética:** el presupuestador ya lo dejó anotado (decisión 3 de la v10) — hoy la migración es **barata porque no hay ninguna factura real emitida** (AFIP está deshabilitado por falta de certificado del cliente) y se vuelve cara para siempre después de la primera. Hacerlo **antes** de habilitar AFIP (Entrega 5) es lo que evita un backfill.
+
+**Precedente:** directo y fuerte en `marihogar` — `ComprobanteAfip`, `ComprobanteAfipItem`, `EstadoComprobanteAfip`, `IComprobanteAfipService`, `ComprobantesAfipController` y la migración `20260821143237_AddNotaCreditoAfip`. Reuse alto.
+
+### CR-03 — Interés de tarjeta de crédito por tarjeta Y por cuotas
+
+**Pedido:** *"pagos de ventas con tarjeta de credito se configuran con intereses segun tarjeta y cuotas"*.
+
+**Estado hoy:** **parcial**. `RecargoCuota` (tabla configurable desde Configuración > Recargos por cuotas, R1) resuelve el eje **cuotas** (1/3/6/9/12/18/24) y ya reemplazó al `appsettings.json` de Entrega 2. No existe el eje **tarjeta**: no hay entidad ni enum de tarjeta/procesadora, y `PagoVenta` guarda `MedioPago.CreditoCuotas` + `Cuotas` + `PorcentajeRecargoAplicado` sin decir con qué tarjeta se cobró.
+
+**Lo que falta:** el eje tarjeta/plataforma de cobro, y que el % se resuelva por la **combinación** (tarjeta, cuotas), con vigencia — las procesadoras cambian los coeficientes seguido y un cambio no puede reescribir el recargo de ventas ya posteadas (mismo criterio de congelamiento que ya se aplica en `PagoVenta.PorcentajeRecargoAplicado`, que se conserva).
+
+**Precedente:** `marihogar` tiene la **forma exacta** del dato, con otro propósito: `ProcesadorPago` (Mercado Pago, Payway, Banco Carrefour, Banco Directo, 2ª cuenta de MP) + `TasaCostoCobranza` con clave **(Procesador, Metodo, Cuotas)** y `VigenteDesde`/`VigenteHasta`. Allá mide **lo que le cuesta al negocio cobrar**; acá se pide **lo que se le recarga al cliente**. Son dos lecturas del mismo eje y conviene decidir si se construyen las dos (ver pregunta abierta 9): su medición real —$904.907 vs $104.212 de costo sobre los mismos $5.210.600 de tarjeta— es el argumento de por qué el dato "con qué terminal se cobró" vale por sí solo. Reuse alto en estructura, nuevo en propósito.
+
+### CR-04 — Pago a proveedor con echeq escalonado a 0/30/60/90/120 días
+
+**Pedido:** *"pagos con echeck a 0, 30, 60, 90, 120"*.
+
+**Estado hoy:** **parcial y declaradamente incompleto**. `FormaPagoProveedor.ChequeElectronico` se acepta y mueve la plata, y el pago programado (`PagoOrdenCompra.FechaPagoTentativa` + `EstadoPagoProveedor.Pendiente` + `ConfirmarPagoProgramadoAsync`) permite comprometer una fecha futura y cargar varias líneas a mano. **No hay cartera de cheques**: ni número, ni banco, ni vencimiento, ni acreditación, ni rechazo. El XML-doc de `FormaPagoProveedor` lo declara como simplificación vigente y lo manda al "paso 7".
+
+**Decisión del cliente (2026-10-06):** *plan de pago — una compra se parte en N echeqs escalonados, con seguimiento de acreditación.*  ·  **superada-por: D-CR04.1** (misma fecha — la respuesta final fue una tercera opcion: datos del cheque y vencimiento calculado, SIN cartera) Se descartó "solo elegir la fecha" (lo que ya existe) y se descartó la cartera completa con rechazo y reemplazo y conciliación de extracto.
+
+**Lo que eso define:**
+- Un generador de plan: dado un total y los plazos elegidos (0/30/60/90/120), crea las N líneas de pago programado con sus vencimientos, en un paso.
+- Entidad de cheque con número, banco, emisión, vencimiento y **máquina de estados** Pendiente → Acreditado / Rechazado, con la acreditación **manual** (es la lección medida de `marihogar`: usar la fecha del click acertaba 8 de 13 contra el extracto real; usar el vencimiento del cheque, 1 de 13 — por eso se le pide al usuario la fecha en que el banco debitó).
+- El plazo **0 días** no es un cheque diferido: es un echeq al día. Entra como valor del plan igual que los otros para no obligar a cargarlo por otro camino.
+
+**Esto REVIERTE DOS decisiones ya tomadas, una de ellas del MISMO DÍA — hay que confirmarlo explícitamente antes de presupuestar.**
+
+1. El relevamiento del 2026-07-30 cerró: *"Gestión de cheques diferidos propios (emitidos por el negocio) — el cliente no opera con pagos diferidos, solo echeck/transferencia"*, y el módulo 13 declaró el alcance reducido ("se absorbe como campo de forma de pago dentro de Compras").
+2. **El 2026-10-06, en el cierre de las 22 definiciones pendientes, Joaquín respondió "Cheques: NO. La ferretería no paga con cheque propio diferido", y sobre esa respuesta se declaró que el paso 7 (cartera de cheques, 4h) NO se construye y que la Entrega 3 quedaba COMPLETA** — la primera entrega del plan que cerraba alcance (ver `trazabilidad.md`, entrada "2026-10-06 (3)").
+
+La respuesta del 2026-10-06 **a este relevamiento** es la contraria: plan de echeqs escalonados **con seguimiento de acreditación**. Las dos son del mismo día. Se toma la nueva como vigente (es posterior y más específica: la pregunta anterior decía "cheque propio diferido" y esta dice "echeq a 0/30/60/90/120", que el cliente puede no haber leído como lo mismo), **pero el efecto es que la Entrega 3 deja de estar completa y el paso 7 vuelve al plan.** Es un gatillo de reestimación de la instrucción 28, no un ajuste.
+
+**Precedente:** directo en `marihogar` — `Cheque`, `EstadoCheque`, `CuotaCheque` (hoy 30/60/90: hay que **ampliar a 0 y 120**, agregando valores sin reordenar), `IChequeService`/`ChequeService` con `AcreditarAsync` y `RevertirEstadoAsync` (su CR-82: los estados dejaron de ser terminales para poder corregir un click), `ChequeAcreditacionHostedService` (solo notifica vencimiento, no acredita) y `AlicuotaImpuestoCheque` (impuesto al cheque, a decidir si aplica acá). Reuse alto.
+
+**Riesgo de hosting heredado:** La Platense no tiene **ni un** `AddHostedService` y corre en SmarterASP; el job de vencimiento de `marihogar` depende de que el application pool esté vivo a una hora fija. Ya hay patrón propio para esto (`PAT-056`: chequeo oportunista al primer request del día, idempotencia en la base y no en el scheduler) — se usa ese, no el `BackgroundService`.
+
+### CR-05 — Transferencia como medio de pago de una venta
+
+**Pedido:** implícito en *"y todos los metodos de pago"*.
+
+**Estado hoy:** `MedioPago` de la venta ofrece Efectivo, Débito, CreditoCuotas y CuentaCorriente. **No existe transferencia**, que es un medio real y frecuente, y hoy se carga como Efectivo — eso ensucia el arqueo de caja (plata que no está en el cajón).
+
+**Lo que falta:** valor nuevo al final del enum (nunca intercalado: los enteros ya están persistidos en producción) + su mapeo a `MedioPagoCaja` para que el cierre diario lo separe del efectivo.
+
+### Reglas funcionales nuevas (se suman a R1-R11)
+
+- **R12 (CR-01):** la condición de facturación es un atributo de la venta. Con la venta marcada "no se factura", el IVA de todas sus líneas es 0 y el total es la suma de netos; el recargo por cuotas se calcula sobre ese total. En una venta ya cerrada, `Subtotal` sigue siendo dato histórico y no se recalcula nunca (restricción vigente del modelo de datos).
+- **R13 (CR-02):** una venta admite N comprobantes fiscales, cada uno con sus propios ítems y cantidades. No se puede facturar más cantidad que la vendida de cada ítem. La nota de crédito se vincula al comprobante, no a la venta.
+- **R14 (CR-03):** el % de interés de tarjeta se resuelve por la combinación (tarjeta, cantidad de cuotas) con vigencia por fecha, y queda congelado en el pago al momento de registrarlo. Cambiar la tabla no altera ninguna venta ya posteada.
+- **R15 (CR-04):** un pago a proveedor con echeq puede generarse como plan de N cheques a 0/30/60/90/120 días. Cada cheque tiene número, banco y vencimiento, y su acreditación es **manual**, con la fecha leída del extracto bancario — nunca automática por vencimiento. **Supera la exclusión de cheques diferidos del 2026-07-30 y el alcance reducido del módulo 13.**
+- **R16 (CR-05):** transferencia es un medio de pago de venta propio, separado de efectivo en el arqueo de caja.
+
+### Criterios de aceptación nuevos (se suman a PF1-PF15)
+
+- **PF16 (CR-01):** una venta marcada "no se factura" cierra con IVA 0 en todas sus líneas y su total es la suma de los netos; la misma venta marcada "se factura" cierra con el IVA que corresponde a cada línea.
+- **PF17 (CR-02):** sobre una venta Confirmada de 5 ítems se emite una factura por 2 de ellos; la venta queda parcialmente facturada, el comprobante lista solo esos 2, y un segundo intento no permite facturar más cantidad que la pendiente.
+- **PF18 (CR-03):** el mismo plan de 6 cuotas arroja un recargo distinto según la tarjeta elegida, el valor se muestra antes de confirmar, y editar después la tabla de intereses no cambia el recargo de la venta ya cerrada.
+- **PF19 (CR-04):** una compra de $100.000 se paga con un plan de 4 echeqs a 30/60/90/120; se generan 4 cheques con sus vencimientos, ninguno mueve caja hasta acreditarse, y la acreditación de uno postea el pago en la CC del proveedor con la fecha del extracto, no la del click.
+- **PF20 (CR-05):** una venta cobrada por transferencia aparece en el cierre diario separada del efectivo.
+
+### Preguntas abiertas nuevas (bloquean Diseño de CR-01/CR-02)
+
+- **Pregunta 8 (CR-01 + CR-02, la más importante):** si una venta se cobró **sin IVA** y después se factura parte de sus ítems, ¿qué pasa con el IVA de lo facturado? Opciones: (a) se le cobra la diferencia al cliente y queda un saldo a cobrar en su CC; (b) el negocio lo absorbe y el comprobante se emite con el IVA incluido dentro del precio ya cobrado; (c) una venta no facturada no puede facturarse después — si va a haber factura, se marca desde el principio. **Sin esta respuesta no se puede diseñar ni CR-01 ni CR-02**: define si el total de una venta cerrada puede cambiar, que es lo único que el modelo de datos hoy prohíbe explícitamente.
+- **Pregunta 9 (CR-03) — YA RESPONDIDA, y la respuesta es del 2026-10-06:** el **costo real de cobranza** (lo que la terminal le descuenta al negocio) y la **acreditación diferida de tarjeta** quedaron declarados **fuera del plan** en el cierre de las 22 definiciones, con el efecto aceptado por escrito: *"la caja cuenta como ingreso del día plata de tarjeta que se acredita a 30 días"*. Por lo tanto **CR-03 es solo el interés que se le recarga al cliente**, no el costo del negocio. Se deja anotado que el eje de datos es el mismo (tarjeta, medio, cuotas) y que construir la segunda lectura después cuesta el doble — en `marihogar` la diferencia medida entre terminales fue de 8,7x ($904.907 vs $104.212 sobre los mismos $5.210.600).
+- **Pregunta 10 (CR-04):** ¿aplica el **impuesto al cheque** (Ley 25413) sobre los echeqs, como en `marihogar` (`AlicuotaImpuestoCheque`)? Y ¿el negocio **recibe** cheques de clientes, o solo emite? El pedido habla solo de pagos a proveedores.
+- **Pregunta 11 (CR-01):** ¿la marca "se factura / no se factura" la elige el vendedor en cada venta, o depende del cliente (un cliente con CUIT siempre factura)? Afecta permisos: si la elige el vendedor, decide el precio final, y hoy hay un agujero abierto en producción justamente de precio por rol (LP-014).
+
+### Decisiones de Joaquín del 2026-10-06 que cierran el Análisis de CR-01 a CR-05
+
+Las 4 preguntas abiertas del relevamiento quedaron respondidas el mismo día. Con esto el Análisis **cierra sin gates**, y el único pendiente pasa a ser el presupuesto (los 5 CR son alcance nuevo, fuera del WBS ya cobrado).
+
+#### D-CR01.1 — El IVA de una factura posterior lo paga el cliente (cierra la pregunta 8)
+
+**Respuesta:** *se le cobra la diferencia al cliente y queda un saldo en su cuenta corriente.*
+
+**Lo que eso define, y es la restricción de diseño más fuerte de todo el lote:**
+- **El total de la venta cerrada NO se recalcula.** Sigue vigente la regla del modelo de datos ("en una venta cerrada, `Subtotal` es dato histórico y no se recalcula nunca"): el IVA que aparece al facturar después **no modifica la venta**, se postea como un **cargo nuevo en la CC del cliente**.
+- Ese cargo necesita su propio origen en el ledger (`OrigenMovimientoCC`), distinto de la venta, para que el estado de cuenta diga de qué es la deuda. Mismo criterio de LP-002 que ya se aplicó con `CobroCC`: un origen nuevo se propaga a los filtros que listan el ledger.
+- Si el cliente paga esa diferencia en el acto, es un cobro de CC por el camino que ya existe (Sprint 0, item 0.5). No hace falta un circuito nuevo de cobro.
+- **Consecuencia que hay que aceptar explícitamente:** la venta queda cobrada por un importe y facturada por otro mayor. Los dos números son correctos y no coinciden, así que **cualquier reporte que cruce "lo vendido" con "lo facturado" tiene que leer el comprobante y no la venta.** Es exactamente la clase de desalineación que en el Dashboard ya apareció una vez (contaba solo `Facturada` cuando `Confirmada` pasó a ser el cierre normal).
+
+#### D-CR01.2 — La marca la elige el vendedor, y eso obliga a cerrar LP-014 (cierra la pregunta 11)
+
+**Respuesta:** *la elige el vendedor en cada venta.*
+
+**Lo que arrastra:** con CR-01 vigente, elegir "no se factura" **baja el precio final**. Hoy hay un agujero abierto en producción por el que cualquier usuario con la política `RequireVentas` puede vender a cualquier precio (**LP-014**: `VentasController.GuardarBorrador` pasa `PrecioUnitario` del navegador al DTO sin control de rol). Darle al vendedor una palanca que resta el IVA **sobre** ese agujero es sumar dos formas de bajar el precio sin control.
+
+**Decisión de diseño que se deriva (no es una pregunta nueva):** **LP-014 se cierra en la misma ronda que CR-01**, no después.  ·  **superada-por: D-CR01.3** (ya estaba cerrado desde el 2026-10-05; la exigencia se cumple, el trabajo no existia) El precedente existe y se trae completo (`marihogar` ya recalcula desde el producto cuando el usuario no es administrador, en `VentaService.ConfirmarAsync` y `EditarAsync`). Sin eso, CR-01 amplifica un defecto conocido en vez de agregar una capacidad.
+
+#### D-CR01.3 — LP-014 ya estaba cerrado: supera la premisa de D-CR01.2 (2026-10-06, verificado por el implementador)
+
+**D-CR01.2 afirmaba que LP-014 estaba abierto en produccion y que habia que cerrarlo en la misma ronda que CR-01.** La mitad del razonamiento sigue en pie; el hecho no.
+
+**Verificado contra el repo:** LP-014 **ya estaba cerrado desde el 2026-10-05, con PASS de QA**. Lo unico que quedaba vivo era un comentario vencido en el codigo que afirmaba lo contrario (categoria LP-008: una regla falsa viviendo en el repo), corregido en el commit `41e4f52`. No se reimplemento nada.
+
+**Lo que esto NO cambia:** el razonamiento de D-CR01.2 era correcto y sigue aplicando — CR-01 le da al vendedor una palanca legitima para bajar el precio final, y eso **exige** que el gate de precio por rol este cerrado. La conclusion ("no se construye CR-01 sobre un agujero de precio abierto") se cumple; lo que estaba mal era creer que habia trabajo por hacer para cumplirla.
+
+**Lo que si cambia, y es una leccion de proceso del orquestador, no del implementador:** el brief de implementacion dio LP-014 por abierto **con numeros de linea**, y esos numeros salian del documento de arquitectura (donde se habia relevado el defecto semanas antes), no del archivo actual. **Es la segunda ronda consecutiva en que un brief arranca de una premisa falsa** — la anterior fue `3cf60ab`, que declaro no construidos 6 sitios que ya estaban escritos. El patron es el mismo y la causa tambien: **el estado de un defecto se releva contra el arbol de trabajo en el momento de delegar, no se arrastra del documento que lo descubrio.** Un numero de linea en un brief es una afirmacion sobre el codigo de hoy y hay que tratarla como tal.
+
+#### D-CR04.1 — Echeq con datos del cheque y vencimiento calculado, sin cartera completa (reemplaza la decisión anterior de CR-04)
+
+**Respuesta textual:** *"alcanza con el plan de fechas de pago pero agregar numeros de cheque, banco, acreditacion calculada con los x cantidad de dias"*.
+
+Es una **tercera opción**, intermedia entre las dos que se habían ofrecido, y **reemplaza** la lectura inicial de CR-04 (que había tomado la cartera completa con seguimiento de acreditación).
+
+**Lo que SÍ entra:**
+- Generador de plan: dado el total y los plazos elegidos (0/30/60/90/120), crea las N líneas de pago programado con sus vencimientos en un paso.
+- **Número de cheque y banco** por línea — los dos datos que el pedido nombra explícitamente.
+- **Vencimiento calculado** desde la fecha del pago + los días del plazo. Es lo que pide la respuesta ("acreditación calculada con los x cantidad de días").
+
+**Lo que NO entra:** cartera como módulo propio, circuito de rechazo y reemplazo, y conciliación contra el extracto bancario. La Entrega 3 **no se reabre como módulo**: esto se construye sobre `PagoOrdenCompra`, que ya tiene el pago programado y la confirmación.
+
+**Dato medido que hay que poner sobre la mesa, porque la decisión va en contra de él:** en `marihogar` (CR-86) se midió qué fecha acierta contra el extracto bancario real. **Usar el vencimiento del cheque acertó 1 de 13. Pedirle al usuario la fecha que leyó del extracto acertó 8 de 13.** Por eso allá la acreditación es manual y no automática por vencimiento.
+
+**Cómo se resuelve sin desoír la decisión ni tirar el dato:** el vencimiento se calcula automáticamente (es lo pedido) y es el que manda el aviso y ordena la grilla; **al confirmar el pago, la fecha viene propuesta con ese vencimiento y queda editable**. Así el camino normal es el que pidió Joaquín (un click, sin tipear fechas) y el caso en que el banco debitó otro día sigue teniendo arreglo, que es el 61% de las veces según la medición. **No se automatiza la confirmación**: la plata sale cuando alguien la confirma, igual que hoy.
+
+**Efecto sobre el estado del plan:** la respuesta *"Cheques: NO"* de la entrada `2026-10-06 (3)` **queda vigente en lo que importaba** (no hay cartera de cheques de papel, el paso 7 no se construye como estaba definido). La Entrega 3 **sigue cerrada**; CR-04 es un agregado acotado sobre pagos de compras, no la reapertura del módulo.
+
+#### D-CR04.2 — Impuestos: se diseñan ahora, se implementan en v2 (cierra la pregunta 10)
+
+**Respuesta:** *aplica el impuesto al cheque (Ley 25413), y dejar impuesto por plataforma, impuesto por gasto e impuesto por cheque en compras anotados para una implementación final del producto — versión 2.*
+
+**Lo que eso define:**
+- **Fuera del alcance de CR-01 a CR-05.** No se construye en esta ronda ninguno de los tres: ni el impuesto al cheque, ni el impuesto/costo por plataforma de cobro, ni el impuesto por gasto.
+- **Queda anotado como roadmap de versión 2**, con el precedente ya identificado para cuando entre: `AlicuotaImpuestoCheque` (alícuota configurable con vigencia) y `TasaCostoCobranza` (comisión + IVA + IIBB + Ley 25413 por plataforma/medio/cuotas, con vigencia) de `marihogar`. Los dos usan el mismo patrón de "tasa vigente por fecha" que `OrdenCompra` ya aplica para sus impuestos.
+- **Consecuencia de diseño que sí se respeta ahora, y es la única que cuesta:** las entidades que se creen en esta ronda (la línea de echeq de CR-04 y la tabla de interés por tarjeta de CR-03) **se diseñan con lugar para esas alícuotas**, para que agregarlas en v2 sea aditivo y no una migración con backfill. Es la misma lógica con la que CR-02 conviene hacerse ahora: barato antes del primer dato real, caro después.
+- **El negocio NO recibe cheques de clientes** (no se marcó esa opción): la cartera de entrada no existe ni en v2 por ahora.
+
+#### Estado del Análisis tras estas decisiones
+
+| CR | Estado | Gate |
+|---|---|---|
+| CR-01 venta sin factura sin IVA | **CERRADO** (R12 + D-CR01.1 + D-CR01.2) | ninguno. Arrastra el cierre de LP-014 |
+| CR-02 facturación parcial del remito | **CERRADO** (R13 + D-CR01.1) | ninguno. **Conviene antes de habilitar AFIP** |
+| CR-03 interés por tarjeta y cuotas | **CERRADO** (R14) | ninguno. Solo el interés al cliente, sin costo de cobranza |
+| CR-04 echeq escalonado | **CERRADO con alcance reducido** (R15 + D-CR04.1) | ninguno. Sin cartera; la Entrega 3 sigue cerrada |
+| CR-05 transferencia en la venta | **CERRADO** (R16) | ninguno |
+
+**Preguntas abiertas: ninguna.** Las 4 (8, 9, 10, 11) quedaron respondidas. **Pendiente único: presupuestar** — los 5 CR son alcance nuevo, fuera del WBS de Etapa 1 + Etapa 2 ya cobrado, así que requieren precio y aprobación del cliente antes de implementar.
 
 ## Decisiones del cliente del 2026-10-05 (desbloquean el plan de cierre de alcance)
 
@@ -172,7 +360,7 @@ Para los 3.612 grupos de nombre duplicado con más de un artículo `Activo=1` (l
 10. **Cuenta corriente de empleados**: autoservicio — cada empleado ve su propio sueldo pagado y retiros, gestionado por el admin, visible solo por el propio empleado.
 11. **Presupuestos y cotizaciones en PDF**: cotizar a clientes.
 12. **Entregas a domicilio**: seguimiento (repartidor ve todas); markup configurable como % del valor del producto; distinción entre entrega propia y tercerizada.
-13. **Cheques (30/60/90 días) — alcance reducido**: sin pagos diferidos propios; se absorbe como campo de forma de pago dentro de Compras.
+13. **Cheques (30/60/90 días) — alcance reducido**  ·  **superada-por: CR-04**: sin pagos diferidos propios; se absorbe como campo de forma de pago dentro de Compras.
 14. **Aumento masivo de precios**: por categoría, proveedor o marca en un solo paso.
 15. **Dashboard — "foto completa del negocio" (CONFIRMADO, pantalla más importante del sistema)**: el cliente pidió explícitamente una vista integral en base a todo el modelo de datos, priorizando diseño y estructura por sobre otras pantallas. Ver §6.4 y §6.6 — se trata como la pieza de mayor prioridad de diseño de todo el proyecto, no como un dashboard genérico de KPIs sueltos.
 16. **Devoluciones de mercadería + Notas de crédito/débito AFIP (NUEVO — confirmado 2026-07-30)**: aplican devoluciones de mercadería (NO aplican cambios/canjes por otro producto). La venta facturada puede anularse mediante nota de crédito. Ver §6.5.
@@ -201,6 +389,7 @@ Para los 3.612 grupos de nombre duplicado con más de un artículo `Activo=1` (l
 - R8 (nueva): devolución de mercadería reingresa stock y genera una nota de crédito vinculada a la venta original. No existe flujo de "cambio" (canje por otro producto) — es siempre devolución simple.
 - R9 (nueva): el repartidor ve el listado completo de entregas, no solo las propias asignadas.
 - Permisos: Admin (todo) · Vendedor (ventas, catálogo consulta, stock consulta, su propia CC) · Repartidor (entregas — todas, no solo asignadas —, su propia CC).
+- **R12 a R16 (2026-10-06): ver la entrada "Faltantes de alcance relevados el 2026-10-06 — CR-01 a CR-05"** al principio de este archivo. R15 supera la exclusión de cheques diferidos.
 
 - R10 (nueva): el stock inicial de los productos "A" (mayor rotación/valor) se carga con conteo físico real; los productos "B/C" arrancan en stock 0 o "sin verificar" y se permite venderlos con stock en negativo durante la transición (aviso, no bloqueo), hasta que se reconcilien por conteo cíclico o por uso real.
 - R11 (nueva): un producto puede tener código de barras propio (asignado por el negocio) o reutilizar el de fábrica — el campo es único, sin importar el origen. La venta permite agregar un ítem escaneando su código, sin necesidad de buscarlo manualmente.
@@ -222,6 +411,7 @@ Para los 3.612 grupos de nombre duplicado con más de un artículo `Activo=1` (l
 - PF13 (nueva): un producto sin stock verificado puede venderse igual (stock queda en negativo con aviso), no bloquea la venta.
 - PF14 (nueva): un empleado puede ajustar manualmente el stock de un producto con motivo, y el ajuste queda auditado (quién, cuándo, motivo).
 - PF15 (nueva): al escanear el código de barras de un producto en la pantalla de venta, se agrega automáticamente al carrito (propio o de fábrica, sin distinción para el usuario).
+- **PF16 a PF20 (2026-10-06): ver la entrada CR-01 a CR-05** al principio de este archivo.
 
 ### Supuestos y dependencias
 
@@ -238,7 +428,7 @@ Para los 3.612 grupos de nombre duplicado con más de un artículo `Activo=1` (l
 
 ### Exclusiones confirmadas
 
-- Gestión de cheques diferidos propios (emitidos por el negocio) — el cliente no opera con pagos diferidos, solo echeck/transferencia como forma de pago a proveedores.
+- Gestión de cheques diferidos propios (emitidos por el negocio) — el cliente no opera con pagos diferidos, solo echeck/transferencia como forma de pago a proveedores.  ·  **superada-por: CR-04** (2026-10-06 — el cliente SÍ opera con echeq escalonado a 0/30/60/90/120 y pidió seguimiento de acreditación)
 - Cambios/canjes de mercadería por otro producto — solo devolución simple.
 - Reservas de stock/apartados, historial de precios por producto y alerta de lista de proveedor vencida quedan excluidos del presupuesto hasta confirmación explícita del cliente.
 - Migración de catálogo de productos — pospuesta, se cotiza aparte en una fase posterior (ver módulo 17).
@@ -288,6 +478,8 @@ Ya no se propone un set fijo de antemano — dado que el cliente lo definió com
 - Esto redujo bastante el alcance de este módulo respecto de la versión anterior (que asumía integración con una impresora de etiquetas) — ver `4-presupuestador.md`.
 
 ## 9. Preguntas abiertas (actualizado)
+
+**Preguntas 8 a 11 (2026-10-06, CR-01 a CR-04): ver la entrada "Faltantes de alcance relevados el 2026-10-06"** al principio de este archivo. La **pregunta 8 bloquea el Diseño de CR-01 y CR-02.**
 
 1. ~~¿La venta facturada admite anulación/nota de crédito?~~ → **Cerrada: sí, admite anulación por NC.**
 2. ~~¿Cuál es el archivo/formato real del catálogo?~~ → **Ya no aplica a este presupuesto: la migración se saca como etapa y se cotiza aparte más adelante (ver módulo 17).**

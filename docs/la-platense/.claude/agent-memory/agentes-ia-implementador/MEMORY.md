@@ -1,0 +1,5 @@
+- [Verificar la premisa del brief](feedback_verificar_premisa_brief.md) — dos veces el brief declaró "abierto" algo ya construido; grep antes de planificar
+- [Arnés: la afirmación vacía](feedback_arnes_afirmacion_vacia.md) — "si pasó X entonces Y" pasa gratis cuando X nunca pasa; ventana determinista + contraprueba
+- [Arnés: falla del instrumento](feedback_arnes_falla_del_instrumento.md) — antes de perseguir un defecto, descartar que la afirmación compare contra estado ya consumido
+- [Build: Razor e incremental](feedback_build_razor_incremental.md) — "0 errores" incremental no acredita que las vistas compilen; forzar --no-incremental
+- [Estado de La Platense (Entrega 5)](project_la_platense_estado_entrega5.md) — CR-01/CR-02 sin deploy, AFIP sin certificado, LP-037 abierto a propósito
