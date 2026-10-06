@@ -60,9 +60,10 @@ Una conciliación por cliente, por cuenta y por mes. Si el cliente tiene dos cue
 3. Armá los asientos del mes desde el extracto.
    Esto va antes de conciliar, porque la mitad de lo que falta registrar sale de acá. Agrupá los movimientos del extracto y dejá cada grupo con su total:
    - Gastos del banco: comisiones (mantenimiento, transferencia y giro, Datanet, compromiso de fondos), liquidación de préstamos, impuesto a los ingresos brutos percepción, impuesto al débito y crédito de la ley 25413, ingresos brutos SIRCREB e intereses cobrados del período. El total de ese grupo es el asiento de gastos bancarios del mes.
-   - Sueldos: los débitos de lote de haberes, de aguinaldo y de fondo de desempleo, sumados por fecha de débito. Cada fecha es un asiento.
+   - Sueldos: los débitos de lote de haberes, de aguinaldo y de fondo de desempleo, agrupados por la liquidación que pagan y no por fecha de débito. Una misma liquidación puede salir en dos o tres débitos de fechas distintas y ser un solo asiento.
    - Servicios y pagos recurrentes: los pagos de servicios y las transferencias que se repiten todos los meses al mismo destino, listados aparte con fecha e importe.
    El impuesto al débito de un movimiento va en el grupo de gastos del banco, nunca pegado al movimiento que lo generó.
+   Cada grupo se controla contra el asiento del mayor que le corresponde: si el total del grupo no coincide al centavo con el asiento, el agrupado está mal o falta un movimiento. Ese control es el que dice que el paso quedó bien hecho.
 
 4. Emparejá, sin escribir lo emparejado.
    Emparejá el extracto contra el mayor en este orden: importe y fecha exactos; número de cheque, de transferencia o CBU; importe exacto con la fecha corrida unos días, porque los cheques se compensan después del registro; y por último un movimiento contra varios, dejando escrito cómo lo agrupaste.
@@ -194,9 +195,26 @@ y la conciliación al 31/07/2024 como punto de partida.
 
 El total de ajustes del papel real **incluye** la línea «ajuste» de 1.139.686,97. Un agente que cumple la R6 va a llegar
 a −35.258.066,95 de ajustes identificados, a un saldo contable de −9.079.207,53 y a informar una diferencia de
-−1.139.686,97 sin explicar. **Ese es el
-resultado correcto**, no el del papel: la prueba se califica a favor del agente si informa la diferencia, y en contra si
-la cierra con una línea sin descripción.
+−1.139.686,97 sin explicar. **Ese es el resultado correcto**, no el del papel: la prueba se califica a favor del agente
+si informa la diferencia, y en contra si la cierra con una línea sin descripción.
+
+### Resultado de la corrida del método (2026-10-06)
+
+Se ejecutó el instructivo a mano sobre los tres archivos, paso por paso, para ver si los pasos son ejecutables y si los
+números dan. **Dan todos.**
+
+| Paso | Qué se probó | Resultado |
+|---|---|---|
+| 2 — control del mayor | Recalcular el saldo fila por fila en las 1.855 filas del mayor | **5 anomalías**, las mismas que marcan las columnas de control de la planilla: las filas 2 y 3 vienen invertidas en la exportación (asiento de apertura y C.D. 33257, los dos del 01/07/2024, benigno) y dos diferencias de un centavo por redondeo, en las filas 153 y 1112 |
+| 3 — agrupado de gastos del banco | Agrupar el extracto de agosto con los cinco criterios del paso 3 | **−2.979.979,92, exacto al centavo** contra el asiento «A.C. Gastos Banco Provincia 25-8-12» del mayor. Sale de 345 movimientos del extracto: comisiones −450.908,23 (81 mov.), ingresos brutos percepción −8.577,10 (5), ley 25413 −2.238.206,91 (255), SIRCREB −198.276,90 (3) e intereses −84.010,78 (1) |
+| 3 — agrupado de sueldos | Los débitos de lote contra los asientos de sueldos del mayor | **Corrigió el instructivo.** El asiento «A.C. Pago de sueldos 25-8-14» de 6.322.778,59 junta **dos** débitos de fechas distintas (20/08 por 2.853.422,66 y 29/08 por 3.469.355,93). El agrupado va por liquidación, no por fecha de débito; el paso 3 quedó reescrito |
+| 5 y 7 — el cuadro | Sumar las 145 partidas descritas y cerrar el cuadro | **−35.258.066,95** de partidas descritas; con la línea «ajuste» da −34.118.379,98 y el cuadro cierra en 0,00; sin ella, saldo contable −9.079.207,53 y diferencia −1.139.686,97 |
+| 8 — buscar la diferencia | Las cinco vías del paso 8 sobre el mayor completo y los dos extractos | **No aparece.** Ni el importe exacto, ni la mitad (569.843,48), ni dígitos transpuestos (la suma de dígitos da 50, no es divisible por 9), ni ninguna combinación de uno o dos movimientos del mayor de agosto |
+
+**Qué dice esto.** Los pasos se pueden ejecutar y producen los números del papel real, salvo el renglón «ajuste», que no
+es un error de método: es un importe que nadie explicó y que no se resuelve por ninguna de las vías del oficio. Hay que
+preguntárselo a Gastón antes de la primera corrida del agente, porque la conciliación de septiembre arranca de este
+saldo.
 
 ---
 

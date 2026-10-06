@@ -109,9 +109,27 @@ repos. Detalle completo en `BotPublicitario/CAMPANAS-POR-FRENTE.md`.
 **La regla que ordena todo esto, y que es nueva:**
 
 > **Un frente no entra a la rotación de CONTENIDO hasta tener un caso verificable contra el repo.**
-> La frase de oferta no habilita a publicar un caso: el caso sí. Tener el mensaje listo y no tener
-> con qué respaldarlo es lo que produjo el error de la pieza 6 (corregida el 2026-10-01 por afirmar
-> *"ya lo usa un estudio contable, todos los días"* cuando no era cierto).
+> La frase de oferta no habilita a publicar un caso: el caso sí.
+
+**Pero antes de aplicarla, mirá de qué nivel es la pieza.** La primera versión de esta regla, escrita
+el 2026-10-06, sacó el frente de agentes de la rotación entera — y estaba mal por dos motivos a la
+vez: el repo del caso estaba desactualizado (ver abajo), y además la regla mezclaba tres cosas:
+
+| Nivel | Qué afirma | Qué necesita |
+|---|---|---|
+| **Caso** | "un cliente ya lo usa" | un cliente verificable **y su permiso** |
+| **Producto** | "así funciona" | el producto corriendo y mostrable |
+| **Argumento** | "por qué esto importa" | sólo que sea cierto |
+
+La pieza 6 se cayó el 2026-10-01 por afirmar *"ya lo usa un estudio contable, todos los días"*: eso es
+un **caso**. Un carrusel que explica por qué un prompt no es una regla es **argumento**, y no necesita
+cliente. Aplicar la regla de caso a una pieza de argumento borra contenido legítimo.
+
+> **Y la trampa que costó más caro: el repo puede estar desactualizado.** El 2026-10-06 los tres
+> agentes concluyeron que agentes multirubro no tenía un solo caso, leyendo un metadata que decía
+> *"Discovery en curso"*. Joaquín corrigió que estaba **en producción** desde hacía semanas: el
+> proyecto se construyó sin que nadie tocara su trazabilidad. **Cuando un frente parece no tener
+> caso, preguntá antes de concluir** — la ausencia en el repo no prueba la ausencia en la realidad.
 
 **Esta regla NO prohíbe vender ese frente, y la distinción importa** (lo preguntó Joaquín el
 2026-10-06, porque la primera redacción se prestaba a entender lo contrario):
@@ -133,7 +151,7 @@ simétricas sobre cuatro frentes asimétricos:
 | **Sistemas de gestión** | "Vendas por kilo, por metro o por unidad, el mismo sistema lo entiende." | "software de gestión", "ERP", stack técnico | ✅ 3 casos verificados · 2 de cada 4 martes |
 | **Chatbot de atención** | "Te contesta a las 3 de la mañana y a la mañana ves quién quiere comprar." *(sin validar por Joaquín)* | "IA conversacional"; que resuelve sin humano (es *contesta y deriva*); cualquier tasa de conversión del bot propio | ⚠️ sólo el bot propio · 1 de cada 4 |
 | **Webs que traen consultas** | "Hechas para el teléfono. Ahí te buscan." | "SEO", "UX", "responsive", "presencia digital"; promesas de tráfico | ⚠️ 1 caso con reparos · 1 de cada 4 |
-| **Agentes de IA** | "Sacale una foto…" **(en revisión, ver abajo)** → "Te digo dónde está la diferencia." | "portal multi-tenant", "IA para tu empresa", y **nunca** "la IA hace tu trabajo" | ❌ **fuera de rotación**: cero casos |
+| **Agentes de IA** | "Sacale una foto…" **(en revisión, ver abajo)** → "Te digo dónde está la diferencia." | "portal multi-tenant", "IA para tu empresa", y **nunca** "la IA hace tu trabajo" | ✅ **1 de cada 4** — tiene caso: Contadores BMA en producción |
 
 **La vara de claridad es "sacale una foto y…".** Si una frase de oferta necesita explicación, no
 sirve: se entiende sola o se cambia. La de sistemas, además, no es un slogan: es **linaje de código** —el
@@ -146,9 +164,10 @@ sirve: se entiende sola o se cambia. La de sistemas, además, no es un slogan: e
   disfrazada de caso de cliente. Ningún cliente tiene uno en producción.
 - **Chatbot vs. Agentes se pisan** si no se separa *"atiende afuera"* de *"ordena adentro"*. Van en
   bloques distintos, nunca en la misma pieza.
-- **Agentes:** no se publica contenido de caso hasta que exista uno — pero **sí se vende**, por
-  WhatsApp nominal a la cartera, con demo. Es su canal, no un premio consuelo. Tampoco hay pauta
-  "lista para disparar": el plan dice vender antes de pautar.
+- **Agentes:** tiene caso desde el 2026-10-06 — `contadores-bma-agentes-ia` en producción. Para
+  mostrar **qué hace** todavía faltan los datos finos (qué agentes están activos, desde cuándo, sobre
+  qué integración, y si el cliente autoriza aparecer por rubro). Sin eso se puede decir que existe,
+  no mostrarlo. Pauta: el plan sigue diciendo vender antes de pautar.
 - **Cuidado con "se carga solo"** (verificado el 2026-10-06 contra
   `plan_comercializacion_agentes_multirubro.md:815`): el agente **nunca escribe en la base**, deja un
   borrador pendiente de confirmación que una persona aprueba. Decir "se carga solo" promete una

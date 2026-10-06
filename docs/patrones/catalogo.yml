@@ -3252,6 +3252,99 @@ patrones:
       levantar la app: N scopes de DI independientes (N DbContext, N conexiones), abrir todas las
       conexiones antes de la barrera, soltarlas juntas con un TaskCompletionSource y contar FILAS, no
       respuestas HTTP. Probar con N=3 y N=8.
+    decision_6_el_orden_dentro_de_la_transaccion: >
+      TODOS LOS LOCKS PRIMERO, TODAS LAS LECTURAS COMUNES DESPUES — y es la trampa mas facil de pisar
+      de las seis, porque la pisa cualquier lectura de aspecto inocente metida entre
+      BeginTransaction y el primer lock: un Include para cargar el documento, una guarda de periodo,
+      un contador. En REPEATABLE READ (el default de MySQL y el que usan estos proyectos) LA PRIMERA
+      LECTURA COMUN DE LA TRANSACCION CONGELA EL READ VIEW, y desde ahi TODA relectura —con el lock
+      tomado, con IgnoreQueryFilters, con AsNoTracking— lee de ese snapshot anterior a la espera. El
+      lock serializa perfecto y la relectura devuelve el estado de ANTES del competidor.
+      ES LA TERCERA FORMA DE "LA RELECTURA PARECE HECHA Y NO RELEE" (las otras dos son el ReloadAsync
+      que el query filter vacia, decision 5, y el Estado que no discrimina, decision 4): mismo modo de
+      falla, tres causas distintas, y esta la esconde el motor, asi que no se ve en el diff ni leyendo
+      el metodo entero.
+      MEDIDO en la-platense sobre ConfirmarPagoProgramadoAsync, al que una ronda anterior le habia
+      movido la guarda de periodo ARRIBA de los locks (razonando, con razon, que el orden canonico de
+      TABLAS pone el periodo primero — el razonamiento es cierto y la conclusion falsa, porque esa
+      guarda LEE): con la lectura adelantada, N=3 confirmaciones simultaneas del mismo pago dan 3
+      EXITOS y N=8 dan 8, con un egreso de caja y un Pago de deuda por cada una.
+      LO QUE SI SE PUEDE HACER ANTES DEL LOCK: otro lock. Una lectura FOR UPDATE es una lectura ACTUAL
+      y NO crea el read view — verificado contra MySQL 8.0 con dos sesiones, incluso cuando el FOR
+      UPDATE es sobre otra tabla y no matchea ninguna fila. COROLARIO DE DISEÑO: cuando una guarda
+      necesita reservar algo Y leer para decidir, hay que PARTIRLA EN DOS — la reserva (el lock) sube
+      con los locks, la validacion (la lectura) baja con las lecturas. En la-platense eso es
+      BloquearPeriodoCajaAsync (reserva) separado de ValidarPeriodoAbiertoAsync (valida).
+      Las lecturas ANTERIORES a BeginTransaction no molestan: el read view nace con la primera lectura
+      comun DENTRO de la transaccion, asi que cargar el documento afuera y bloquearlo adentro es
+      correcto y es lo que hace la mayoria de los sitios.
+      COMO SE RELEVA: grepear la ventana BeginTransaction -> primer Bloquear de cada metodo escritor.
+      En la-platense, de 26 caminos escritores la violaban DOS.
+
+    decision_7_la_relectura_tiene_que_traer_todo_lo_que_se_LEE_despues: >
+      No solo lo que DECIDE. Un metodo que toma el lock, relee el Estado y despues postea usando el
+      GRAFO que cargo antes del lock sigue roto, y el lock no lo salva: lo que se persiste son los
+      importes viejos.
+      MEDIDO en la-platense sobre VentaWorkflowService.ConfirmarAsync contra un GuardarBorradorAsync
+      concurrente que agrega una linea: la venta termina CONFIRMADA con 7 unidades y total $ 8.470,
+      con 2 unidades descontadas de stock y $ 2.420 de ingreso de caja. Cinco unidades salen sin
+      registrar su salida y $ 6.050 no estan en ningun ledger — y los importes CIERRAN entre si, que
+      es lo que lo hace invisible.
+      DOS SALIDAS, y conviene elegir a conciencia: (a) recargar de verdad todo lo que se usa, que
+      suele exigir REORDENAR el metodo (si el lock de los hijos necesita ids que salen del padre, hay
+      que obtener esos ids con una lectura DE BLOQUEO para no congelar el read view antes de
+      bloquear — decision 6), o (b) una GUARDA OPTIMISTA: comparar bajo lock los numeros que importan
+      (total, cantidad de lineas, suma de cantidades, suma de pagos) contra la foto previa y fallar
+      CERRADO con mensaje de negocio si cambiaron. (b) es el arreglo chico y preserva el
+      comportamiento; (a) es el rediseño. Si se elige (b), hay que DECLARAR que no cubre una edicion
+      que deje todos esos numeros iguales.
+      OJO CON EL ORDEN DE LA GUARDA OPTIMISTA frente a las otras guardas: si la foto previa se cargo
+      con un Include de una navegacion REQUERIDA, el query filter pudo haber descartado filas HIJAS
+      (es un inner join) y las dos fotos no son comparables en ese caso — la guarda salta antes que la
+      guarda especifica y le tapa el mensaje.
+
+    decision_8_el_soft_delete_generico_puede_pisar_toda_la_fila: >
+      No es un sitio de este patron —el que borra no DECIDE nada sobre una lectura previa— pero
+      produce exactamente el mismo dano, asi que se releva en la misma pasada. Un
+      Repository<T>.DeleteAsync escrito como "entity.DeletedAt = now; _dbSet.Update(entity)" marca
+      TODAS las propiedades como modificadas: el UPDATE reescribe CADA COLUMNA con los valores del
+      snapshot que cargo el que borra, y toda escritura de otro request commiteada entre ese
+      GetByIdAsync y ese SaveChanges se pierde en silencio. Lost update clasico, por la puerta que
+      menos se mira, porque "dar de baja" no parece una operacion que escriba otras columnas. Y es el
+      escritor GENERICO, asi que aplica a TODA entidad del dominio.
+      MEDIDO en la-platense: con el stock ya descontado a 98 por una venta confirmada, un
+      ProductoService.EliminarAsync que habia leido el producto antes lo devolvia a 100 — venta
+      Confirmada, caja posteada, stock INTACTO. Aparecio primero como una falla INTERMITENTE de un
+      arnes (1 de 9 corridas) y despues se reprodujo de forma determinista fabricando la ventana a
+      mano.
+      EL ARREGLO ES NO ESCRIBIR DE MAS: marcar solo DeletedAt como modificado (adjuntando la entidad
+      si viene detached). No un lock. Revisar tambien UpdateAsync del mismo repositorio, que tiene la
+      misma forma y el mismo efecto sobre las columnas que el caller no toco.
+
+    limite_conocido_la_reserva_por_GAP_LOCK_no_serializa_dos_escritores: >
+      LOS GAP LOCKS DE INNODB CONVIVEN ENTRE SI: son puramente inhibitivos, solo impiden INSERT en el
+      hueco. Dos transacciones toman el mismo gap sin esperarse. Eso tiene dos consecuencias y las dos
+      importan al usar este patron para "reservar una fila que todavia no existe" (la variante de
+      periodo/ventana, cuando el dato sobre el que se decide es la AUSENCIA de una fila):
+      (1) BUENA: el orden de adquisicion invertido entre dos escritores es INOFENSIVO mientras la fila
+      no exista, porque nunca se esperan. El deadlock por orden invertido aparece recien cuando la fila
+      YA EXISTE y el FOR UPDATE pasa a ser un lock de registro exclusivo — en la-platense se reprodujo
+      asi (ERROR 1213) entre revertir un pago y confirmar un pago programado, con el dia ya cerrado, y
+      NO se reproduce con el dia abierto. O sea: el mismo codigo es seguro o no segun haya una fila.
+      (2) MALA, y es la que invalida el razonamiento ingenuo: la reserva por gap lock NO protege a un
+      lector que despues INSERTA en funcion de lo que leyo. El que cierra toma su gap, LEE LOS TOTALES,
+      los escritores commitean despues, y su INSERT —que si espera los gaps— graba los totales que ya
+      habia leido. LA ESPERA LLEGA TARDE: habia que serializar la LECTURA, no el INSERT. Medido: un
+      cierre de dia contra 2 y contra 7 escritores concurrentes deja el dia cerrado con totales en 0
+      mientras los movimientos vivos de ese dia suman $ 201 y $ 721, con el arqueo firmado mintiendo y
+      sus numeros internamente coherentes.
+      SI HACE FALTA EXCLUSION REAL entre dos caminos y uno de ellos LEE para decidir, el gap lock no
+      alcanza: hay que bloquear una FILA QUE EXISTE que los dos caminos toquen (fila centinela por
+      periodo, al costo de una tabla y su migracion) o convertir la lectura del que decide en una
+      lectura DE BLOQUEO sobre el rango (sin migracion, pero puede fabricar un deadlock contra el que
+      ya tiene el gap, asi que pide reintento). NO dar por cerrada esta mitad sin medirla.
+
+
     cuando_usar: >
       Antes de escribir — y al revisar — cualquier accion no repetible protegida por una lectura previa:
       reversiones y anulaciones en ledgers inmutables, transiciones de maquina de estados que postean

@@ -15,3 +15,8 @@ Como usar este archivo (limite duro: 200 lineas o 25KB — lo que llegue antes; 
 - [Verificar los criterios con numero exacto contra produccion](verificar-criterios-contra-produccion.md) — consulta de solo lectura antes de cerrar la etapa; destapa el agregado mal contado que QA devolveria.
 - [Coleccion local de strings hacia SQL = MH-001](coleccion-local-de-strings-hacia-sql.md) — el gatillo no es el refactor: es cualquier `Contains` de strings que se traduzca a SQL, y deja el endpoint en 500.
 - [El warning CRLF de git es normal](git-crlf-repos-dotnet.md) — copia de trabajo en LF + `autocrlf=true`: no indica que se haya reescrito el archivo.
+- [Reuse total = la estructura, no la aritmetica](reuse-estructura-no-aritmetica.md) — que preguntar campo por campo antes de copiar un modulo de otro proyecto, y cuando el precedente se puede simplificar.
+- [La entidad del precedente que ya tengo con otro nombre](entidad-del-precedente-que-ya-tengo.md) — preguntar que ROL cumple alla antes de crearla; si ya esta ocupado, construirla deja dos libros del mismo dinero.
+- [Un agregado que tres filas basura pueden secuestrar](agregado-secuestrado-por-outliers.md) — sobre datos migrados, el numero con el que el usuario decide tiene que ser un conteo.
+- [Desviarse de un port "literal" que el brief ordena](desvio-de-un-port-literal.md) — medir el radio de impacto primero; el catalogo puede tener el contra-criterio escrito.
+- [Sonda EF desechable en el scratchpad](sonda-ef-desechable.md) — ejecutar de verdad una consulta LINQ nueva, medir un backfill y probar CONCURRENCIA (N scopes = N conexiones + barrera) sin levantar la app.
