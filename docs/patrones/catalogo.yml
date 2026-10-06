@@ -46,6 +46,7 @@ patrones:
     proyectos_que_lo_usan:
       - vinosefue (replicado para Proveedor, sprint 2026-07-03)
       - "la-platense (2026-10-05, Entrega 3 paso 2: MovimientoCCProveedor + CCProveedorService — el circulo completo, el patron volvio a Proveedor despues de haber pasado por Cliente)"
+      - "la-platense (2026-10-06, Entrega 4 M12: MovimientoCCEmpleado — CUARTO ledger del mismo proyecto. Lo nuevo no es el molde (es el de Proveedor) sino que la identidad de la cuenta es un usuario de Identity y no una entidad de negocio con navegacion, lo que trae MH-001 de lleno y obliga a que la cuenta sea PRIVADA del dueño (ver PAT-017). Y que el movimiento es su propio documento: la identidad para revertir es MovimientoRevertidoId y no el par (OrigenTipo, OrigenId), porque sin documento detras todos los movimientos de un concepto comparten OrigenId = 0 y el neto de ese par sumaria TODOS los adelantos del empleado)"
     archivos_referencia:
       - proyecto: vinosefue
         path: "VinoSeFue.Domain/Entities/CuentaCorriente.cs + MovimientoCC.cs + MovimientoCCProveedor.cs"
@@ -181,6 +182,39 @@ patrones:
       Ver REG-001 en docs/qa/regresiones-manuales.yml — patron de arquitectura derivado
       directamente de ese bug. Codificar esto DESDE EL DISEÑO en cualquier proyecto nuevo
       con MySQL, no esperar a que se reproduzca el bug.
+
+
+      VARIANTE PARA UN PROYECTO QUE *NO* TIENE RowVersion (la-platense, Entrega 6,
+      2026-10-05). Cuando el patron no existe en el proyecto, la salida no es agregar
+      RowVersion a una entidad de 112.485 filas en el medio de otra entrega, ni inventar
+      un tercer mecanismo: casi todo proyecto del estudio tiene una clase base de auditoria
+      con UpdatedAt estampado por el override de SaveChanges (SoftDestroyable en
+      la-platense), y ESE es el criterio equivalente para "cuando se modifico esta fila".
+      El preview devuelve su instante en UTC, el aplicar rechaza fila por fila toda la que
+      tenga UpdatedAt posterior, y cada rechazo se CUENTA en vez de abortar la corrida
+      (con decenas de miles de filas, tirar todo porque alguien edito una deja la pantalla
+      inusable). Dos condiciones que hacen que la variante sirva y no estorbe:
+
+
+      (1) Hace falta una SEGUNDA guarda, de universo, porque UpdatedAt no ve todo: las
+      altas, las bajas y las filas que cambian el campo por el que filtra la operacion
+      SALEN o ENTRAN del conjunto, no quedan "modificadas" dentro de el. Se resuelve
+      mandando el recuento esperado desde el preview y rechazando la corrida completa si el
+      recuento real difiere.
+
+
+      (2) ExecuteUpdateAsync queda DESCARTADO aunque sea una sola sentencia SQL y mucho mas
+      rapido: no dispara SaveChanges, asi que no estampa UpdatedAt y la corrida siguiente se
+      queda sin la marca que este mecanismo usa. Hay que ir por lotes de entidades
+      trackeadas con un SaveChanges por lote y ChangeTracker.Clear() entre lotes (sin eso
+      DetectChanges se vuelve cuadratico). Medido: 112.054 filas en 7,6-8,0 s.
+
+
+      Limite declarado: UpdatedAt es datetime(6), asi que una modificacion en el mismo
+      microsegundo que el preview no se detecta — ventana irrelevante al lado de la que el
+      patron protege (los segundos o minutos que el usuario tarda en revisar la vista
+      previa). Implementacion de referencia:
+      la-platense FerreteriaLaPlatense.Infrastructure/Services/AumentoMasivoPrecioService.cs.
 
   - id: PAT-005
     nombre: "Maquina de estados (workflow generico)"
@@ -665,13 +699,47 @@ patrones:
       Cualquier sistema BlankProject donde el usuario final del negocio (no el staff del cliente)
       necesite ver su propia informacion sin pasar por un empleado — turnos, pedidos, facturas,
       historial clinico, estado de cuenta.
-    proyecto_origen: cma-centro-medico (a confirmar cuando se implemente — todavia en etapa de propuesta, sin cierre real)
-    proyectos_que_lo_usan: []
+    proyecto_origen: "cma-centro-medico (diseño, nunca implementado) — PRIMERA IMPLEMENTACION REAL en la-platense (Entrega 4 M12, 2026-10-06)"
+    proyectos_que_lo_usan:
+      - "la-platense (2026-10-06: autoservicio de la cuenta corriente del EMPLEADO. Primera vez que el patron tiene codigo en el estudio)"
     archivos_referencia:
       - proyecto: cma-centro-medico
-        path: "IPortalPacienteService (contrato: ObtenerMisTurnosAsync(pacienteId), ObtenerMiHistoriaAsync(pacienteId), pacienteId siempre resuelto desde el usuario autenticado)"
-        motivo: "Contrato de referencia del patron, definido en la etapa de diseno/arquitectura"
-        pendiente_verificar: true
+        path: "IPortalPacienteService (contrato de diseño: ObtenerMisTurnosAsync(pacienteId), pacienteId siempre resuelto desde el usuario autenticado)"
+        motivo: "Contrato de referencia del patron, definido en la etapa de diseno/arquitectura. NUNCA se implemento (verificado 2026-09-14 y de nuevo 2026-10-06)."
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Web/Controllers/MiCuentaController.cs (autoservicio) + CCEmpleadoController.cs (administracion) + Application/Interfaces/ICCEmpleadoService.cs"
+        motivo: >
+          La implementacion de referencia, con DOS refinamientos que el diseño original no tenia y que
+          son los que hacen al patron difícil de romper:
+
+          (a) EL AUTOSERVICIO NO DECLARA NINGUN PARAMETRO DE IDENTIDAD. No es que se valide el
+          parametro contra la sesion: es que la accion no tiene ningun `usuarioId`/`id` que el model
+          binder pueda llenar desde la URL, el query string o el form. El id sale del claim y no hay
+          nada que manipular. Es la unica variante de este control que no se rompe olvidandose una
+          validacion. (Los filtros de fecha/tipo SI se leen de la request, porque son filtros de
+          PRESENTACION sobre datos que ya son del usuario; la distincion parametro-de-filtro vs.
+          parametro-de-IDENTIDAD es exactamente lo que define la superficie de IDOR.)
+
+          (b) MINIMO PRIVILEGIO EN LA PROYECCION, NO EN LA VISTA. El listado recibe un flag
+          `incluirQuienRegistro` y en autoservicio el dato de auditoria NO SALE DEL SERVIDOR (viaja en
+          null). No es que la vista no lo dibuje: es que no viaja.
+
+          Y un tercero de forma, que es el que hace auditable el permiso: son DOS CONTROLLERS y no dos
+          acciones del mismo, asi que el permiso se lee en el atributo de la CLASE (`[Authorize]` vs.
+          `[Authorize(Policy = "RequireAdministracion")]`) y no hay que auditar accion por accion. Con
+          un controller mixto, una accion nueva a la que se le olvide el atributo hereda el permiso MAS
+          PERMISIVO de la clase.
+
+          La grilla es un PARTIAL + un .js COMPARTIDO por las dos pantallas, a proposito: si la
+          diferencia entre ellas es de seguridad y no de presentacion, dos copias del markup son dos
+          oportunidades de que deje de ser cierto. (El JS vive en un .js y no en el partial porque un
+          partial de Razor no puede definir `@section Scripts`.)
+
+          Variante respecto del diseño original: aca el usuario del portal es un EMPLEADO del cliente
+          y no el usuario final del negocio, y el patron aplica igual — lo que lo define es el scoping
+          forzado por identidad, no quien es el dueño de los datos.
+        pendiente_verificar: false
     dependencias: []
     notas: >
       Riesgo tecnico central que este patron mitiga: IDOR (un usuario final viendo datos de otro
@@ -682,8 +750,17 @@ patrones:
       registro existe para que el proximo proyecto con esta necesidad (ej. audifonos-bariloche si
       retoma su Etapa 2/portal excluido) no lo diseñe desde cero.
       VERIFICACION 2026-09-14 (arquitecto olvidata-agentes-multirubro): `IPortalPacienteService` no
-      existe en ningun repo de C:\Sistemas — sigue sin codigo; se mantiene pendiente_verificar.
+      existe en ningun repo de C:\Sistemas — seguia sin codigo.
       Principio aplicado en olvidata-agentes-multirubro M2 (organizacion resuelta server-side, ver PAT-027).
+      ESTRENADO CON CODIGO REAL el 2026-10-06 (la-platense, Entrega 4 M12). Lo que la implementacion
+      agrego a la regla original: no alcanza con "resolver el id server-side", hay que NO DECLARAR el
+      parametro — un parametro que existe y se ignora invita a que alguien lo "arregle" para que
+      funcione. Y el minimo privilegio va en la PROYECCION del service, no en la vista. Prueba de
+      aceptacion que conviene repetir en cada aplicacion del patron: invocar el endpoint de
+      autoservicio con el claim de un usuario y el id de OTRO inyectado por varias vias a la vez, y
+      afirmar que las filas devueltas son las del claim. En la-platense se hizo con tres vias
+      (`usuarioId`, `id`, `UsuarioId`) y dos cuentas con saldos distinguibles, para que la prueba no
+      sea vacia.
 
   - id: PAT-018
     nombre: "Reconstruir un dato faltante despejandolo de los totales historicos ya calculados"
@@ -2672,7 +2749,32 @@ patrones:
     proyectos_que_lo_usan:
       - marihogar
       - la-platense
+      - "la-platense (2026-10-06, Entrega 4 M12: TERCERA aplicacion y primera sobre SUELDOS, que el `cuando_usar` ya preveia. EgresoCCEmpleadoService)"
     archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Application/Interfaces/IEgresoCCEmpleadoService.cs + FerreteriaLaPlatense.Infrastructure/Services/EgresoCCEmpleadoService.cs"
+        motivo: >
+          Tercera aplicacion del patron, y la que muestra que su parte valiosa es el OrigenId y no el
+          OrigenTipo. Aca los dos ledgers NO comparten el OrigenTipo —en el del empleado esa columna
+          declara el CONCEPTO (Adelanto/Retiro/PagoSueldo) y en el de caja el MODULO de contrapartida
+          ("CCEmpleado")— y el patron funciona igual, porque lo que une los dos libros sin traduccion ni
+          heuristicas es que el OrigenId es IDENTICO y es el id de la LINEA del ledger. Meter los tres
+          conceptos como tres origenes de caja habria triplicado el combo de la grilla de Caja para
+          distinguir algo que a ese usuario le da igual.
+
+          El aporte propio de esta aplicacion: el patron necesita un paso previo que las dos anteriores
+          no tenian, porque alla TODO pago mueve plata. Aca no: un sueldo DEVENGADO mueve la cuenta
+          corriente y no la caja. Asi que antes del punto unico de egreso hace falta un punto unico de
+          DECISION — `OrigenCCEmpleado.MueveCaja`, el unico codigo que declara si un concepto implica
+          plata que sale, con default `false` elegido a proposito (un egreso que falta se nota porque el
+          arqueo no cuadra contra el efectivo; uno de mas descuadra en silencio y en la direccion que
+          nadie revisa). Sin eso, un `if` por call site termina en un adelanto que baja la cuenta y no
+          sale de la caja, o en un devengamiento que infla el arqueo con plata que todavia no se pago.
+
+          Corolario de permisos que vale para toda aplicacion futura: la guarda de periodo cerrado es
+          ASIMETRICA. La corren solo los conceptos que escriben caja. Lo que decide si hace falta no es
+          si el movimiento escribe el ledger del tercero, es si escribe CAJA.
+        pendiente_verificar: false
       - proyecto: la-platense
         path: "FerreteriaLaPlatense.Application/Interfaces/IEgresoPagoProveedorService.cs + FerreteriaLaPlatense.Infrastructure/Services/EgresoPagoProveedorService.cs"
         motivo: "La version LIMPIA del patron: ~80 lineas, sin el backfill one-shot del original. Es un envoltorio delgado sobre el servicio de caja — no tiene aritmetica propia ni consulta la tabla del ledger por su cuenta; el neto vivo se CONSUME de donde ya vive. Lo que aporta es el OrigenTipo/OrigenId correcto y la disciplina, en un solo lugar"
@@ -2924,3 +3026,291 @@ patrones:
       funciona NO alcanza: hay que verificar la premisa del ENTORNO, no solo la del codigo. Lo que si
       se copio tal cual es su mecanismo de idempotencia, que es justamente la parte que no depende
       del scheduler.
+
+  - id: PAT-057
+    nombre: "Saldo inicial declarado: el punto de partida como movimiento de apertura excluido de los totales del periodo"
+    categoria: financiero
+    descripcion: >
+      Un ledger que se estrena con un sistema nuevo arranca de CERO, y ese cero es inventado: la plata
+      que habia en el cajon y en las cuentas el dia del deploy no esta en ninguna fila. El saldo del
+      ledger entonces no significa "lo que hay", significa "lo que se movio desde que empezamos a
+      registrar" — y nadie lo lee asi, porque la pantalla dice "saldo".
+
+      El patron: una APERTURA por cuenta/dimension (un movimiento del mismo ledger, con su propio
+      OrigenTipo, fecha, motivo obligatorio y usuario), con dos reglas que son el patron entero:
+
+      1. LA APERTURA NO ES ACTIVIDAD DEL PERIODO. Queda EXCLUIDA de todo total de dia y de mes — y por
+         lo tanto de los cierres firmados y de los dashboards que los consumen— pero SI entra en el
+         saldo acumulado. Son dos preguntas distintas ("cuanto se movio" vs. "cuanta plata hay") y la
+         apertura solo contesta la segunda. Sin esta exclusion, el cierre del dia en que se declara el
+         saldo inicial informa que ese dia entraron $ 500.000.
+      2. UNA SOLA VEZ POR CUENTA, y el servicio rechaza el segundo intento. Dos aperturas de la misma
+         cuenta hacen que el "punto de partida" sea una suma de puntos de partida, que no es un
+         concepto — y rompen el aviso de "esta cuenta todavia no tiene saldo inicial". La correccion de
+         una apertura mal cargada va por el ajuste manual del ledger, que es lo que existe para
+         corregirlo.
+
+      Y la mitad que no es codigo: MIENTRAS NO HAYA APERTURA, LA PANTALLA NO LLAMA "SALDO" AL NUMERO.
+      El rotulo dice lo que el numero ES ("movimiento acumulado del sistema") y cada cuenta sin
+      apertura lleva un aviso ACCIONABLE —que nombre la cuenta que falta— en vez de una advertencia
+      generica. Las dos cosas juntas: se da la herramienta Y se dice la verdad hasta que alguien la use.
+    cuando_usar: >
+      Todo ledger que se estrena sobre un negocio que ya venia funcionando: caja, cuenta corriente de
+      un proveedor o de un cliente con deuda de arrastre, stock (ahi el equivalente es PAT-013, que
+      resuelve lo mismo por conteo), cuenta de un empleado con sueldos adeudados. En general, cada vez
+      que el presupuesto diga "mostrar el saldo" de algo que existia antes del sistema.
+
+      El momento de hacerlo es ANTES de construir la pantalla donde el cliente va a leer ese saldo y
+      creerle, no despues de que lo use para decidir.
+    proyecto_origen: "la-platense (Entrega 4, modulo 13, 2026-10-06) — con el criterio de exclusion tomado del CajaService de marihogar, que excluye su OrigenTipo AjusteApertura de los totales del periodo"
+    proyectos_que_lo_usan:
+      - la-platense
+      - "marihogar (la mitad de la exclusion: su CajaService excluye 'AjusteApertura' de los totales del periodo, pero no tiene el rotulo honesto ni la unicidad por cuenta)"
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Application/Helpers/OrigenCajaMovimiento.cs (SaldoInicialCaja + EsApertura) + Infrastructure/Services/CajaMovimientoService.cs (RegistrarSaldoInicialAsync, ObtenerMediosSinSaldoInicialAsync, y la exclusion en ObtenerTotalesRangoUtcAsync / ObtenerTotalesPorMedioRangoUtcAsync)"
+        motivo: >
+          La implementacion completa. El detalle que cuesta encontrar y que hay que copiar: la exclusion
+          vive en UN SOLO predicado invocable (`EsApertura`) consumido por TODOS los lectores de
+          totales, y en este proyecto eran SEIS (resumen del dia, resumen del mes, cierre diario, cierre
+          mensual, arqueo por medio y el dashboard, que consume el resumen del dia). Seis comparaciones
+          repetidas son seis oportunidades de que una quede afuera. Y las DOS consultas de totales
+          —la de los totales generales y la del desglose por medio— tienen que excluir EXACTAMENTE lo
+          mismo: si una excluyera la apertura y la otra no, el pie del cuadro de desglose deja de sumar
+          las tarjetas de arriba y la pantalla se contradice a si misma.
+
+          Otros dos detalles del contrato: el importe PUEDE SER NEGATIVO (una cuenta en descubierto es
+          un punto de partida legitimo, asi que el formulario NO lleva el `min="0.01"` del resto de los
+          importes del sistema) y lo unico que se rechaza es el CERO, que no declara nada. Y la
+          apertura pasa por la guarda de periodo cerrado como cualquier otra escritura del ledger: no
+          se puede declarar un punto de partida dentro de un arqueo ya firmado.
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Web/Views/Caja/Consolidado.cshtml + _SaldoPorMedio.cshtml"
+        motivo: "La mitad de UI del patron: el rotulo que cambia segun haya apertura o no, el aviso accionable que nombra las cuentas que faltan, y el badge por fila. Es la parte que suele quedar afuera y es la que decide si el numero se lee bien"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-051
+    notas: >
+      POR QUE NO ALCANZA CON PONER UNA LEYENDA, que es la salida facil: la leyenda deja el problema
+      intacto con un cartel encima. Al mes nadie la lee y el numero se usa igual para decidir. La
+      leyenda es el COMPLEMENTO del mecanismo mientras el dato no esta cargado, no su reemplazo.
+
+      POR QUE NO ES UN AJUSTE: un ajuste corrige un error del ledger; esto declara un punto de partida
+      que el ledger nunca tuvo. Si se carga como ajuste entra en los totales del periodo y vuelve el
+      problema del cierre que informa un ingreso que no ocurrio. Son dos conceptos y necesitan dos
+      OrigenTipo.
+
+      LO QUE EL PATRON NO RESUELVE: el dato lo tiene que poner una persona, contando el cajon y mirando
+      los extractos. La herramienta no inventa el numero. Conviene decirlo en el reporte de la entrega
+      para que no se de por hecho que "ya esta resuelto" cuando lo que esta es la posibilidad de
+      resolverlo.
+
+  - id: PAT-058
+    nombre: "Cierre firmado contrastado contra su recalculo (el periodo cerrado se muestra con su propia auditoria)"
+    categoria: financiero
+    descripcion: >
+      Un modulo que CIERRA periodos (caja diaria, caja mensual, liquidacion, inventario) congela totales
+      en una fila firmada por un usuario. A partir de ahi ese numero es un acto, no un calculo — y nadie
+      lo vuelve a mirar.
+
+      El patron: la pantalla de consulta muestra, al lado de cada total FIRMADO, el RECALCULO hecho ahora
+      sobre el ledger, con la diferencia y un estado explicito ("cuadra" / "difiere $ X"). Tres reglas:
+
+      1. EL RECALCULO USA EL MISMO CRITERIO CON EL QUE SE FIRMO, no el criterio que hoy parece mejor. Si
+         el cierre congelo totales brutos, el contraste compara brutos. Compararlo contra un criterio
+         distinto da una diferencia permanente que no es un error sino una comparacion mal planteada, y
+         la pantalla pasa a gritar en falso. Lo mas robusto es que el contraste DELEGUE en el mismo
+         helper que uso el cierre, en vez de reimplementar la suma.
+      2. EL RECALCULO NO SE RECORTA PARA QUE COINCIDA. Si no cuadra, la diferencia ES el dato.
+      3. LO NORMAL ES QUE CUADRE, y por eso el caso que no cuadra se pinta distinto (fila en rojo, badge
+         con el importe de la diferencia). Un periodo cerrado no admite movimientos nuevos, asi que una
+         diferencia significa que algo entro antes de que esa guarda existiera, o que entro por una via
+         que la guarda no cubre — las dos cosas que hay que saber.
+    cuando_usar: >
+      Cualquier modulo con cierre de periodo que congele totales. Es especialmente valioso cuando la
+      guarda de "periodo cerrado" se agrego DESPUES de que el modulo estuviera en uso: ahi el contraste
+      es el unico mecanismo que destapa las filas que entraron en el hueco, y hacerlo a mano exige
+      saber de antemano que hay algo que buscar.
+    proyecto_origen: la-platense (Entrega 4, modulo 13, 2026-10-06)
+    proyectos_que_lo_usan:
+      - la-platense
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/CajaMovimientoService.cs (ObtenerContrasteCierresDiariosAsync / ObtenerContrasteCierresMensualesAsync) + Application/DTOs/CajaDtos.cs (CierreCajaContrasteDto) + Web/Views/Caja/_ContrasteCierres.cshtml"
+        motivo: >
+          La implementacion. El DTO expone firmado y recalculado como campos SEPARADOS y deriva
+          `Diferencia` y `Cuadra`, asi que la vista no hace aritmetica. Los metodos delegan en el mismo
+          helper de totales que uso el cierre (`ObtenerTotalesDiasAsync`/`ObtenerTotalesMesAsync`), que
+          es lo que garantiza que el criterio no divirja con el tiempo. El partial es compartido por los
+          cierres diarios y los mensuales: son la misma lectura sobre periodos de distinto tamaño.
+
+          MH-001 aplica de lleno acá y es facil de pisar: el nombre del usuario que firmo el cierre vive
+          en AspNetUsers (sin navegacion), y el camino intuitivo es juntar los ids de los cierres y
+          hacer `.Contains()` sobre Users — que revienta contra MySQL incluso con la coleccion vacia. En
+          esta implementacion se extrajo a un helper (`ResolverNombresAsync`) que materializa la tabla
+          chica y filtra en memoria.
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      VALOR MEDIDO, la primera vez que corrio: encontro que el cierre mensual de agosto 2026 de
+      laplatense_dev NO cuadraba por $ 2.500,75. Causa (verificada por SQL de solo lectura): el cierre
+      se firmo el 21/08 19:05 y un gasto fechado 24/08 se cargo el 25/08 02:00 — cuatro dias despues de
+      que el mes estuviera firmado. Es residuo historico del defecto que la regla LP-009 cerro (con el
+      mes cerrado el sistema seguia aceptando movimientos fechados dentro de ese mes). La guarda ya
+      existe y funciona; la fila es de antes. O sea: el patron hizo VISIBLE una inconsistencia real que
+      llevaba meses ahi y que nadie podia ver.
+
+      COROLARIO PARA EL DEPLOY, que es la parte accionable: si la guarda se agrego despues del
+      lanzamiento, PRODUCCION PUEDE TENER EL MISMO RESIDUO, porque corrio el mismo codigo viejo. Hay que
+      mirarlo al deployar y decidir que se hace con esas filas (dejarlas documentadas, o reabrir y
+      refirmar el cierre). Es una decision del cliente, no tecnica.
+
+      LO QUE NO HAY QUE HACER: "arreglar" la diferencia reescribiendo el total firmado. Un cierre es una
+      firma sobre un numero; reescribirlo borra la evidencia de que algo entro donde no debia.
+
+  - id: PAT-059
+    nombre: "Idempotencia por lectura previa: el patron que solo es seguro en secuencia (lock de fila del documento dueño)"
+    categoria: infraestructura
+    descripcion: >
+      EL ANTIPATRON, que se escribe solo y se siente seguro: antes de ejecutar una accion que no se
+      puede repetir (revertir una plata, anular un documento, emitir un comprobante, mandar un aviso,
+      confirmar un pago) se LEE un dato que dice si ya se hizo — un estado, un flag "notificado", o el
+      "neto vivo" de un ledger inmutable (suma de originales menos suma de reversiones). Si el dato dice
+      que falta hacerlo, se hace. Y se documenta como "idempotente POR CONSTRUCCION".
+
+      Es falso, y lo peor es que es CASI verdadero: protege contra la repeticion SECUENCIAL (un doble
+      click, un reintento, un job que corre dos veces seguidas), que es como se prueba siempre. No
+      protege contra la CONCURRENTE: entre la lectura y la escritura hay una ventana en la que el dato
+      todavia dice "falta hacerlo", asi que N requests simultaneos lo leen igual y los N ejecutan. El
+      sintoma es plata revertida N veces, N comprobantes fiscales del mismo hecho, o N avisos.
+
+      EL ARREGLO, que es el mismo en todos los sitios y se escribe en tres lineas: mover la transaccion
+      de "antes de escribir" a "antes de LEER", y arrancarla con un lock de la fila del DOCUMENTO DUEÑO
+      (SELECT ... FOR UPDATE), seguido de una RELECTURA del dato sobre el que se decide. Sin la
+      relectura el lock no sirve: se espera al competidor y despues se decide con el dato de antes de
+      esperarlo. El segundo request queda serializado, relee el estado nuevo y sale por el rechazo
+      explicito que ya existia.
+
+      CINCO DECISIONES QUE VALE RETENER:
+
+      1. LOCK DE FILA, NO INDICE UNICO. El indice unico (una sola reversion por origen, garantizada por
+      el motor) es tentador y rompe el negocio: el neto vivo EXISTE para permitir reversiones PARCIALES,
+      y dos filas de reversion sobre el mismo origen son legitimas. Un unique sobre (origen, EsReversion)
+      las prohibe. El lock serializa sin prohibir nada.
+
+      2. EL DUEÑO DEL LOCK ES LA FILA MAS FINA QUE IDENTIFICA LA OPERACION, no el documento de arriba:
+      la LINEA de pago y no la compra, el movimiento y no la cuenta. Si no, dos operaciones
+      independientes se esperan entre si sin motivo.
+
+      3. ORDEN DE BLOQUEO FIJO, encapsulado en el helper y no en los callers: documento primero, filas
+      de catalogo (productos) despues y SIEMPRE ordenadas por Id ascendente. Dos flujos que toquen los
+      mismos productos en orden distinto fabrican un deadlock intermitente.
+
+      4. UN LOCK FUERA DE TRANSACCION SE LIBERA EN EL ACTO y no falla: es una garantia fantasma. El
+      helper tiene que TIRAR si no hay transaccion abierta.
+
+      5. LA RELECTURA BAJO LOCK NO SE HACE CON ReloadAsync SI LA ENTIDAD TIENE SOFT DELETE, y esta es
+      la que mas barato sale aprenderla prestada (La Platense, hotfix de transacciones 2026-10-06: el
+      fix mecanico paso el build, se leia bien y FALLO la prueba de concurrencia). Dos trampas, las dos
+      invisibles leyendo el codigo:
+      (a) EL CAMPO DE ESTADO PUEDE NO SER EL QUE DISCRIMINA. Si la baja logica se marca en DeletedAt y
+      NO cambia el Estado, una guarda que solo mira Estado deja pasar dos bajas de la misma fila (las
+      dos "exitosas") y, peor, deja que otra operacion postee plata sobre un documento que un request
+      paralelo acaba de dar de baja. Hay que preguntarse QUE COLUMNA cambia de verdad cada competidor.
+      (b) ReloadAsync NO VE LAS FILAS QUE EL QUERY FILTER GLOBAL ESCONDE. Con
+      HasQueryFilter(e => e.DeletedAt == null), recargar una entidad ya dada de baja no trae nada: EF la
+      deja DETACHED y los valores en memoria siguen siendo los de ANTES del lock. La relectura "ocurre"
+      y no relee, que es el peor modo de falla posible porque parece hecha.
+      LA FORMA CORRECTA: una consulta explicita con IgnoreQueryFilters() que PROYECTE los campos sobre
+      los que se decide (estado + marca de baja), encapsulada en UN helper que usen todos los metodos
+      del mismo workflow, para que el diff no tenga tres variantes que haya que verificar una por una.
+      ReloadAsync solo es valido si se VERIFICO que la entidad no tiene ningun escritor de DeletedAt
+      (en ese caso conviene dejarlo comentado con la condicion, en vez de alinear los dos por
+      prolijidad). En proyectos donde TODA entidad de negocio hereda de una base con soft delete, el
+      default es IgnoreQueryFilters.
+
+      UN CASO QUE NO ES UN DOCUMENTO: cuando el dato sobre el que se decide es un AGREGADO (un saldo de
+      cuenta corriente = suma del ledger) no existe una fila propia que bloquear. Ahi el dueño del lock
+      es la ENTIDAD MAESTRA de la que cuelgan los movimientos (el cliente, el proveedor), que serializa
+      las operaciones de esa cuenta sin hacer esperar a las de otras; y la relectura no es un reload
+      sino VOLVER A CORRER la consulta del agregado ya con el lock tomado. Es la misma forma con otro
+      dueño, y conviene declararlo explicitamente para que se lea como el mismo patron.
+
+      DOS CARRERAS DISTINTAS, DOS MECANISMOS. El lock cubre la carrera de milisegundos (dos requests).
+      No cubre la carrera de TIEMPO HUMANO: cuando la pantalla le muestra un numero al usuario en un GET
+      y el POST llega minutos despues, no se sostiene un lock de base esperando que alguien termine de
+      contar. Eso pide concurrencia optimista, y conviene que el testigo sea EL VALOR DE NEGOCIO QUE EL
+      USUARIO VIO (viajando en un campo oculto, nunca releido en el POST) y no un RowVersion: el
+      RowVersion cambia con cualquier columna, asi que una edicion de precio ajena rechazaria un conteo
+      fisico correcto. Ademas un token de concurrencia es global al modelo y alcanza a los escritores
+      MASIVOS de la entidad, que pasan a abortar el lote completo por una sola edicion concurrente.
+
+      COMO SE VERIFICA, y esto es tan importante como el arreglo: CON CLIENTES/CONEXIONES SEPARADAS Y
+      UNA BARRERA DE SINCRONIZACION. Con un cliente HTTP compartido las requests se serializan solas y
+      el test DA FALSO VERDE — declara cerrado algo que sigue abierto. Equivalente en capa de datos, sin
+      levantar la app: N scopes de DI independientes (N DbContext, N conexiones), abrir todas las
+      conexiones antes de la barrera, soltarlas juntas con un TaskCompletionSource y contar FILAS, no
+      respuestas HTTP. Probar con N=3 y N=8.
+    cuando_usar: >
+      Antes de escribir — y al revisar — cualquier accion no repetible protegida por una lectura previa:
+      reversiones y anulaciones en ledgers inmutables, transiciones de maquina de estados que postean
+      plata o stock, emision de comprobantes fiscales, avisos marcados como "ya notificado", conversion
+      de un documento en otro. Si en el repo hay un XML-doc que dice "idempotente por construccion",
+      "imposible por construccion" o "correrlo dos veces en paralelo no duplica nada", ES ESTE PATRON y
+      hay que medirlo antes de creerlo. En hosting compartido con mas de un worker process (SmarterASP y
+      equivalentes) tampoco sirve un flag estatico: no sobrevive a un reciclado de pool.
+    proyecto_origen: la-platense (LP-018/LP-021/LP-023/LP-024, 2026-10-06 — 4 defectos de QA que eran el mismo, encontrados por 3 lotes independientes en 4 modulos distintos)
+    proyectos_que_lo_usan:
+      - la-platense
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Data/BloqueoDeFila.cs"
+        motivo: >
+          El helper, con el razonamiento completo en su XML-doc: por que lock y no indice unico, el orden
+          de bloqueo encapsulado, y el throw cuando se llama fuera de transaccion. SQL crudo con
+          parametros int a proposito (MH-001 no aplica y el comentario lo dice, para que nadie lo
+          "arregle").
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/VentaWorkflowService.cs (AnularAsync, ConfirmarAsync, FacturarAsync)"
+        motivo: >
+          Las tres formas del mismo arreglo sobre un documento. FacturarAsync es el caso que vale mirar:
+          el lock SE SOSTIENE durante la llamada a AFIP, porque soltarlo antes deja la ventana abierta
+          justo donde dura mas, y el comentario declara el costo (transaccion abierta mientras responde el
+          webservice) y el problema que NO resuelve (comprobante huerfano si el proceso muere entre la
+          respuesta de AFIP y el commit, que pide un estado intermedio persistido antes de llamar).
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/PagoProveedorService.cs (ObtenerYMarcarPagosVencidosNoNotificadosAsync)"
+        motivo: >
+          La variante "reserva de un CONJUNTO de filas" en vez de una sola: SELECT ... FOR UPDATE sobre
+          las candidatas y marcado antes del commit. El locking read va SIN el join al documento padre a
+          proposito — un locking read con LEFT JOIN bloquea tambien las filas de la otra tabla, y no hay
+          razon para frenar operaciones sobre una compra porque se esta mandando un aviso. El filtro que
+          descarta (compra cancelada) se aplica despues, en la consulta de EF, que no bloquea nada.
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/AjusteStockService.cs (AplicarAjusteAsync)"
+        motivo: >
+          La carrera de tiempo humano: lock mas comparacion contra el StockEsperado que la pantalla
+          mostro, con el razonamiento de por que se compara el valor de negocio y no un RowVersion.
+        pendiente_verificar: false
+    dependencias:
+      - PAT-020
+      - PAT-056
+    notas: >
+      Los cuatro defectos de QA (LP-018 critical, LP-023 y LP-024 major, LP-021 minor latente) eran UNA
+      sola cosa en cuatro modulos. El barrido de todos los sitios de uso (LP-002) sumo CINCO hallazgos
+      propios que QA no habia reportado y que eran peores que el reportado: la CONFIRMACION de una venta
+      (doble ingreso de caja mas doble debito de cuenta corriente mas doble descuento de stock), la
+      FACTURACION (dos CAE de AFIP para una venta), la RECEPCION de una compra (doble stock mas doble
+      deuda), la CONFIRMACION de un pago programado (doble egreso) y la CONVERSION de un presupuesto (dos
+      ventas de la misma cotizacion). La leccion de busqueda: no se arregla el sitio que reporto QA, se
+      busca la FORMA — grep de los metodos de transicion de estado (Anular/Cancelar/Confirmar/Cerrar/
+      Convertir/Revertir/Marcar) y, en cada uno, si la lectura que decide esta antes o despues del
+      BeginTransaction.
+
+      Lo que NO hubo que tocar, y verificarlo ahorra trabajo: un cierre de periodo con INDICE UNICO sobre
+      su clave (Fecha, o Anio mas Mes) ya esta protegido por el motor contra la doble firma. Donde hay un
+      unique que sirve, no hace falta lock.

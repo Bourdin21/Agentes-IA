@@ -15,7 +15,7 @@ PAT-013   | dominio          | la-platense (Etapa 3, migr | Stock arranca en cer
 PAT-014   | infraestructura  | la-platense                | Restablecer contraseña por email (olvide mi contraseña)
 PAT-015   | ui               | la-platense (bug real repo | Baja (individual o en lote) en listado DataTables sin perder la pagina
 PAT-016   | ui               | delicias-naturales (busque | Busqueda global multi-formato (texto/importe/fecha) + filtros persistidos en sesion
-PAT-017   | dominio          | cma-centro-medico (a confi | Portal de autogestion para usuario final (no-staff) con scoping forzado por identidad
+PAT-017   | dominio          | cma-centro-medico (diseño, | Portal de autogestion para usuario final (no-staff) con scoping forzado por identidad
 PAT-018   | dominio          | labipac (M25, extension de | Reconstruir un dato faltante despejandolo de los totales historicos ya calculados
 PAT-019   | ui               | marihogar (Ventas/Create.c | Autocompletar el monto de un pago nuevo con el saldo pendiente
 PAT-020   | financiero       | marihogar (Ventas, CR-64/C | Cancelacion de comprobante con pagos: ledger inmutable + reversion acotada a lo posteado
@@ -54,3 +54,6 @@ PAT-053   | financiero       | marihogar (CR-84/CRM-001,  | Un pago, dos ledgers
 PAT-054   | negocio          | la-platense (Ferreteria La | Bandera de costo actualizado con precio sin recalcular: el enganche entre el modulo que mueve el costo y el que decide el precio
 PAT-055   | financiero       | la-platense (Ferreteria La | Documento que declara su MONEDA y congela la COTIZACION usada (los importes que salen van en moneda local)
 PAT-056   | infraestructura  | la-platense (Ferreteria La | Chequeo oportunista al primer request del dia, en vez de un job programado (idempotencia en la base, no en el scheduler)
+PAT-057   | financiero       | la-platense (Entrega 4, mo | Saldo inicial declarado: el punto de partida como movimiento de apertura excluido de los totales del periodo
+PAT-058   | financiero       | la-platense (Entrega 4, mo | Cierre firmado contrastado contra su recalculo (el periodo cerrado se muestra con su propia auditoria)
+PAT-059   | infraestructura  | la-platense (LP-018/LP-021 | Idempotencia por lectura previa: el patron que solo es seguro en secuencia (lock de fila del documento dueño)

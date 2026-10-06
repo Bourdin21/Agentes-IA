@@ -5120,3 +5120,641 @@ regresiones:
       - "La query de deteccion sobre la base antes y despues del deploy."
       - "Un mes cerrado consistente y un mes cerrado desfasado, en la misma tanda."
     regla_preventiva: "Un total materializado en un cierre de periodo es una afirmacion que puede dejar de ser verdadera. Toda pantalla que muestre un agregado congelado tiene que poder compararlo contra el recalculo y decir cuando difieren; y todo fix que agregue la guarda que faltaba tiene que declarar explicitamente si repara el pasado o solo protege el futuro — si solo protege el futuro, la query de deteccion del daño historico es parte del entregable, no un extra de QA."
+
+  - id: LP-014
+    modulo: "Dashboard / confidencialidad por rol (DashboardController, policy ConsultaDashboard) - CC de empleados"
+    titulo: "El Repartidor no puede abrir Caja pero el Dashboard le muestra la caja del dia del negocio (ingresos, egresos y saldo): el autoservicio de su cuenta corriente oculta el dato de auditoria y la pantalla de al lado le entrega el agregado completo"
+    severidad: major
+    reproducido_en: "La Platense - rama entrega-1-migracion, commit d08f8c4 (Entrega 4, CC de empleados y CC del negocio), QA lote 6 del 2026-10-06. Reproducido por harness HTTP con cookie de Identity real contra laplatense_qa_l6."
+    pasos:
+      - "Como Administrador, registrar dos adelantos en efectivo del dia de hoy en /CCEmpleado/RegistrarMovimiento: uno para el Repartidor y uno para otro empleado (cada uno genera su egreso de caja)."
+      - "Cerrar sesion y entrar con el usuario de rol Repartidor."
+      - "Confirmar que /Caja, /Caja/Consolidado, /Caja/SaldoInicial y /Gastos devuelven 302 a /Account/AccessDenied."
+      - "Abrir /Dashboard (el link esta en el sidebar del propio Repartidor) y leer la tarjeta 'Estado del dia'."
+    sintoma: "La tarjeta muestra 'Caja de hoy $ -22.500,00' con la linea 'Ingresos $ 0,00 - Egresos $ 22.500,00', mas 'Ventas de hoy', 'Gastos del mes por categoria' y 'Top productos del mes'. El Repartidor conoce su propio adelanto ($ 7.500,00) por su pantalla de autoservicio, asi que obtiene por resta los $ 15.000,00 de egresos ajenos del dia. Es el patron KOI-017 exacto: la cifra se oculta en una pantalla y su complemento aritmetico queda visible en otra del mismo menu."
+    expectativa: "El rol Repartidor ve su cuenta corriente y las Entregas, y ninguna cifra agregada de la caja del negocio. El Dashboard tiene que proyectar por rol: o no se le ofrece el link, o las tarjetas financieras (Estado del dia / Salud financiera / Gastos del mes / Top productos) no se renderizan para quien no pasa RequireAdministracion. El criterio de aceptacion del modulo 12 lo dice textual: 'el Repartidor ve su CC y nada mas del sistema financiero'."
+    causa_raiz: "La policy 'ConsultaDashboard' es RequireAuthenticatedUser() (Program.cs, desde el commit f5e6af9 de Entrega 1) y el Dashboard se escribio cuando los unicos roles con sesion eran SuperUsuario/Administrador/Vendedor. La Entrega 4 no toco Program.cs ni el Dashboard, pero es la que vuelve el problema material: incorpora al Repartidor como usuario con pantalla propia y mete los adelantos de los empleados dentro del mismo agregado de caja que el Dashboard publica. El modulo 12 aplica minimo privilegio en su propia proyeccion (incluirQuienRegistro: false, el dato no sale del servidor) y ese cuidado se pierde en la pantalla vecina."
+    capa: Web
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Web/Program.cs
+        motivo: "La policy 'ConsultaDashboard' deja de ser RequireAuthenticatedUser(). Dos opciones, la decision es del analista: (a) restringirla a SuperUsuario/Administrador/Vendedor, con lo que el Repartidor pierde el Dashboard entero y hay que sacarle el link del sidebar; (b) dejarla abierta y mover la decision a la vista (ver abajo), que es lo que conserva un Dashboard util para el Repartidor (sus entregas pendientes)."
+      - path: FerreteriaLaPlatense.Web/Views/Home/Index.cshtml
+        motivo: "Si se elige (b): envolver las tarjetas 'Estado del dia' (Ventas de hoy / Caja de hoy / Ingresos / Egresos), 'Salud financiera', 'Gastos del mes por categoria' y 'Top productos del mes' en una guarda de rol real, y NO calcularlas en el controller cuando el usuario no pasa la guarda (minimo privilegio en la proyeccion, no en la vista: el numero no tiene que viajar)."
+      - path: FerreteriaLaPlatense.Web/Views/Shared/_Layout.cshtml
+        motivo: "El link de sidebar tiene que quedar respaldado por la autorizacion real que se elija (REG-010 / KOI-003 / KOI-005: visibilidad de sidebar vs autorizacion real)."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /Dashboard con cookie de Identity de un usuario cuyo unico rol es Repartidor"
+      condicion_falla: "La respuesta contiene cualquier importe agregado de caja/ventas/gastos del negocio (texto 'Caja de hoy', 'Ingresos', 'Egresos', 'Ventas de hoy', 'Gastos del mes')."
+    criterio_aceptacion:
+      - "GET /Dashboard con rol Repartidor no devuelve ningun importe agregado de la caja, las ventas ni los gastos del negocio."
+      - "El Repartidor sigue viendo su cuenta corriente en /MiCuenta y sus Entregas."
+      - "El link de sidebar que se le ofrece al Repartidor coincide con lo que la autorizacion le permite abrir."
+    pruebas_minimas:
+      - "Harness HTTP o navegador con las 4 cookies de rol (SuperUsuario, Administrador, Vendedor, Repartidor) contra GET /Dashboard, comparando que importes aparecen en cada una."
+    fix_aplicado: null
+
+  - id: LP-015
+    modulo: "CC de empleados / autoservicio (Views/MiCuenta/Index.cshtml) - rotulo del saldo"
+    titulo: "El autoservicio rotula el saldo como 'Saldo a mi favor' y muestra el valor absoluto: un empleado que cobro de mas lee 'Saldo a mi favor $ 7.500,00' cuando los $ 7.500 son contra el"
+    severidad: minor
+    reproducido_en: "La Platense - rama entrega-1-migracion, commit d08f8c4 (Entrega 4, modulo 12), QA lote 6 del 2026-10-06. Reproducido contra laplatense_qa_l6 leyendo el HTML renderizado de /MiCuenta con cookie de un usuario con saldo negativo."
+    pasos:
+      - "Como Administrador, registrar para un empleado SIN sueldo devengado un adelanto en efectivo de $ 7.500,00 (concepto Adelanto, que es Pago y reduce lo que se le debe)."
+      - "Entrar con ese empleado y abrir /MiCuenta."
+      - "Leer la tarjeta 'Estado de mi cuenta'."
+    sintoma: "La tarjeta dice 'Saldo a mi favor $ 7.500,00' con el importe en rojo, y recien la linea siguiente ('Situacion: Cobraste por adelantado') aclara el sentido. El saldo real es -$ 7.500,00: la ferreteria no le debe $ 7.500, el empleado los debe. El numero que el empleado lee primero afirma lo contrario de lo que pasa, en la pantalla de su propio sueldo."
+    expectativa: "El rotulo acompaña al signo: 'Saldo a mi favor' cuando el saldo es positivo, 'Saldo que debo' / 'Cobrado por adelantado' (o equivalente) cuando es negativo, y un rotulo neutro en cero. El valor absoluto esta bien mostrado siempre que el rotulo diga de que lado esta."
+    causa_raiz: "Views/MiCuenta/Index.cshtml linea 42: el rotulo es un literal fijo ('Saldo a mi favor') mientras el valor de la linea 44 es Math.Abs(Model.Saldo). El signo se comunica solo por el color (text-danger) y por el bloque 'Situacion' de las lineas 48-57, que SI tiene las tres ramas. El rotulo quedo fuera del unico lugar que decide el sentido."
+    capa: Web
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Web/Views/MiCuenta/Index.cshtml
+        motivo: "Hacer el rotulo de la linea 42 condicional con las mismas tres ramas que ya tiene el bloque 'Situacion' (Saldo > 0 / < 0 / == 0), para que rotulo y valor absoluto digan lo mismo. Revisar si la pantalla de administracion (Views/CCEmpleado/Detalle.cshtml) tiene el mismo literal fijo."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /MiCuenta con cookie de un empleado cuyo saldo calculado es negativo"
+      condicion_falla: "El texto 'Saldo a mi favor' aparece en la misma tarjeta que un saldo negativo."
+    criterio_aceptacion:
+      - "Con saldo negativo, /MiCuenta no usa el rotulo 'Saldo a mi favor' para ese importe."
+      - "Con saldo positivo, el rotulo sigue diciendo 'Saldo a mi favor'."
+      - "Con saldo cero, el rotulo no afirma ningun sentido."
+    pruebas_minimas:
+      - "Un empleado con solo adelantos (saldo negativo) y un empleado con sueldo devengado sin pagar (saldo positivo): leer el rotulo de los dos en /MiCuenta."
+    fix_aplicado: null
+
+  - id: LP-016
+    modulo: "CC del negocio / vista consolidada (Views/Caja/Consolidado.cshtml y _SaldoPorMedio.cshtml) - rotulo del acumulado sin apertura declarada"
+    titulo: "Mientras no hay saldo inicial declarado, la tarjeta principal evita bien la palabra 'saldo' ('Movimiento acumulado del sistema') pero el cuadro por medio de pago llama 'Saldo acumulado' al MISMO numero, y el pie remata 'suma exactamente el saldo de la caja'"
+    severidad: minor
+    reproducido_en: "La Platense - rama entrega-1-migracion, commit d08f8c4 (Entrega 4, modulo 13), QA lote 6 del 2026-10-06. Reproducido contra laplatense_qa_l6 con CajaMovimientos poblada y CERO filas de OrigenTipo='SaldoInicialCaja'."
+    pasos:
+      - "Partir de una base con movimientos de caja y sin ninguna apertura declarada (SELECT COUNT(*) FROM CajaMovimientos WHERE OrigenTipo='SaldoInicialCaja' devuelve 0)."
+      - "Abrir /Caja/Consolidado como Administrador."
+      - "Comparar el rotulo de la tarjeta principal con el titulo del cuadro 'por medio de pago', el encabezado de su ultima columna y su pie, y con el parrafo de arriba de la pantalla."
+    sintoma: "La tarjeta principal dice 'Movimiento acumulado del sistema $ -6.308,20' (correcto, y con la leyenda que explica por que). Pero en la misma pantalla y para el mismo -6.308,20: el cuadro se titula 'Saldo acumulado por medio de pago', su ultima columna se encabeza 'Saldo', su fila Total cierra en 'Saldo $ -6.308,20', el pie dice 'la columna Saldo suma exactamente el saldo de la caja' y el parrafo de presentacion abre con 'Vista consolidada de la caja: saldo acumulado'. Mitigado (no anulado) porque cada fila sin apertura lleva el badge 'Sin saldo inicial'."
+    expectativa: "Mientras no haya apertura declarada, ningun rotulo de la pantalla llama 'saldo' al acumulado: el criterio que la tarjeta principal ya aplica vale para el cuadro por medio, su columna, su pie y el parrafo de presentacion. Una vez declarada la apertura, los rotulos pasan a 'Saldo' (la tarjeta principal ya hace ese cambio bien: con apertura dice 'Saldo actual de la caja')."
+    causa_raiz: "La decision de como llamar al numero se tomo en un solo lugar (la tarjeta principal, que conmuta por HaySaldoInicialDeclarado) y los rotulos del partial _SaldoPorMedio.cshtml, su pie y el parrafo de la cabecera son literales fijos. Es LP-002 en su forma de presentacion: el criterio esta resuelto y centralizado para un lector y no se arrastro a los demas lectores del mismo dato."
+    capa: Web
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Web/Views/Caja/_SaldoPorMedio.cshtml
+        motivo: "El titulo del cuadro, el encabezado de la columna de totales y el pie conmutan por el mismo flag HaySaldoInicialDeclarado que ya usa la tarjeta principal, en vez de ser literales. Conviene exponer el rotulo como una sola propiedad del DTO (ej. CajaConsolidadoDto.RotuloAcumulado) para que haya UN lugar que lo decida."
+      - path: FerreteriaLaPlatense.Web/Views/Caja/Consolidado.cshtml
+        motivo: "El parrafo de presentacion ('Vista consolidada de la caja: saldo acumulado...') usa el mismo rotulo conmutado."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /Caja/Consolidado con cero filas de OrigenTipo='SaldoInicialCaja'"
+      condicion_falla: "El HTML contiene la palabra 'saldo' como rotulo del acumulado (titulo del cuadro por medio, encabezado de su columna de totales o su pie) mientras HaySaldoInicialDeclarado es false."
+    criterio_aceptacion:
+      - "Sin apertura declarada, ningun rotulo de /Caja/Consolidado llama 'saldo' al acumulado del ledger."
+      - "Con apertura declarada en todos los medios, los rotulos dicen 'Saldo' y el numero sigue siendo el mismo."
+      - "El badge 'Sin saldo inicial' por fila se mantiene en los dos estados que correspondan."
+    pruebas_minimas:
+      - "Leer /Caja/Consolidado antes y despues de declarar la primera apertura, comparando los rotulos de la tarjeta principal contra los del cuadro por medio."
+    fix_aplicado: null
+
+  - id: LP-017
+    modulo: "Proveedores / Index - buscador global (Views/Proveedores/Index.cshtml + ProveedorService.ListarAsync)"
+    titulo: "La columna Saldo del listado de proveedores se ve pero el buscador global no la alcanza: tipear el saldo que la grilla muestra devuelve 0 filas"
+    severidad: minor
+    reproducido_en: "La Platense - rama entrega-1-migracion, commit 4686a27 integrado en d08f8c4, QA lote 2 del 2026-10-06. Reproducido por HTTP real contra laplatense_qa_l2."
+    pasos:
+      - "Crear un proveedor con SaldoInicial 12345.67 (queda con Saldo $ 12.345,67 visible en la ultima columna numerica del listado)."
+      - "Abrir /Proveedores y tipear 12345.67 en la caja de busqueda (o POST /Proveedores/Listar con search[value]=12345.67)."
+      - "Repetir con el formato que la grilla muestra: 12.345,67."
+    sintoma: "recordsFiltered=0 en los tres formatos (12345.67, 12.345,67 y 84500 para otra fila con $ 84.500,00), aunque la columna Saldo de esa misma fila muestra ese numero. Las otras 9 columnas visibles SI son alcanzables: nombre, CUIT, telefono, Moneda y Forma de pago por etiqueta del enum (con y sin tilde), Condicion de IVA, T. de cambio y Desc. hab. por importe en tres formatos, y el badge Activo/Inactivo."
+    expectativa: "O el buscador global alcanza la columna Saldo como alcanza a las otras 9 visibles (PAT-016: se busca por cualquier dato que se ve), o la columna se declara no-buscable de forma visible para el operador. Hoy el usuario que tipea el saldo que esta leyendo en pantalla recibe 'No se encontraron resultados'."
+    causa_raiz: "Saldo es una columna DERIVADA: no existe en Proveedores, se calcula en CCProveedorService.ObtenerSaldosAsync agrupando MovimientosCCProveedor DESPUES de paginar. El bloque de busqueda global de ProveedorService.ListarAsync (que si cubre TipoCambio y PorcentajeDescuentoHabitual con BusquedaHelper.ParsearImportes) no puede filtrar por un valor que todavia no esta calculado. Es la asimetria estructural entre una columna persistida y una agregada, no un olvido: el XML-doc del metodo declara el alcance de PAT-016 pero no excluye el saldo."
+    capa: Application
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/ProveedorService.cs
+        motivo: "Opcion A: dentro del bloque de busqueda global, resolver los ids cuyo saldo agregado cae en el rango de BusquedaHelper.RangoImporte con una subconsulta de GroupBy sobre MovimientosCCProveedor, y sumarlos a extraIds igual que TipoCambio y PorcentajeDescuentoHabitual."
+      - path: FerreteriaLaPlatense.Web/Views/Proveedores/Index.cshtml
+        motivo: "Opcion B (minima): marcar la columna Saldo como no buscable (searchable:false en su definicion de columna) y dejar la nota en el hint del buscador, para que el control no prometa lo que no cumple."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /Proveedores/Listar con search[value] igual al saldo visible de una fila, en formato crudo y en formato es-AR."
+      condicion_falla: "recordsFiltered=0 mientras la columna Saldo de esa fila muestra ese mismo numero y la columna no esta marcada searchable:false."
+    criterio_aceptacion:
+      - "O POST /Proveedores/Listar con search[value]=<saldo visible de una fila> devuelve esa fila, o la columna Saldo esta declarada searchable:false en la vista."
+      - "Las 9 columnas visibles que hoy SI responden al buscador global siguen respondiendo: nombre, CUIT, telefono, Condicion de IVA, Moneda, T. de cambio, Desc. hab., Forma de pago y el badge Activo/Inactivo."
+      - "Los 6 filtros por columna (moneda, condicionIVA, formaPago, activo y los dos de texto) siguen devolviendo lo mismo que antes del cambio."
+    pruebas_minimas:
+      - "Un saldo que identifica una sola fila, en formato crudo (12345.67) y en formato de pantalla (12.345,67)."
+      - "Un saldo que no existe en ninguna fila, y busqueda vacia."
+      - "Un proveedor SIN movimientos (saldo 0) buscado por '0', para que la opcion A no devuelva el padron entero."
+    regla_preventiva: "Al aplicar PAT-016 a un listado, inventariar las columnas visibles separando las PERSISTIDAS de las DERIVADAS/agregadas. Las derivadas no las alcanza el bloque de busqueda global porque se calculan despues de paginar: hay que resolverlas con una subconsulta de agregado dentro del filtro, o declararlas searchable:false. Un 'cubre cualquier columna visible' sin ese inventario deja siempre afuera a las calculadas, y el sintoma es un buscador que falla SOLO en la columna que el operador mas mira."
+    fix_aplicado: null
+
+  - id: LP-018
+    modulo: "Ventas / Anulacion de una venta confirmada (VentaWorkflowService.AnularAsync) - concurrencia del neto vivo"
+    titulo: "El neto vivo se lee ANTES de abrir la transaccion y nada bloquea la fila de la venta: dos POST de Anular en paralelo postean DOS reversiones del mismo pago y dejan el neto del ledger en negativo"
+    severidad: critical
+    reproducido_en: "La Platense - rama entrega-1-migracion, working tree en d08f8c4 (commit bajo prueba 59dd715), QA lote 1 del 2026-10-06. Reproducido por harness HTTP con 3 sesiones de Identity reales y sockets separados (keepAlive:false), contra laplatense_qa_l1."
+    pasos:
+      - "Sembrar una venta en Borrador con un unico pago de caja (Efectivo $ 605,00) y confirmarla por /Ventas/Confirmar/{id}: queda UN CajaMovimiento Ingreso de 605,00 con PagoVentaId y EsReversion=0."
+      - "Abrir N>=3 sesiones HTTP independientes del mismo usuario Administrador, cada una con su propio pool de sockets, y pedir un token antiforgery por sesion desde /Ventas/Details/{id}."
+      - "Disparar los N POST a /Ventas/Anular con el mismo id EN PARALELO (Promise.all), no en secuencia."
+      - "Consultar: SELECT PagoVentaId, SUM(CASE WHEN Tipo=1 AND EsReversion=0 THEN Monto ELSE 0 END) - SUM(CASE WHEN Tipo=2 AND EsReversion=1 THEN Monto ELSE 0 END) FROM CajaMovimientos WHERE OrigenTipo='Venta' AND OrigenId={id} GROUP BY PagoVentaId."
+    sintoma: "Sobre la venta 9130, con un unico ingreso de 605,00, quedaron DOS movimientos de reversion (ids 69 y 70, Egreso 605,00 cada uno, EsReversion=1, mismo PagoVentaId=22) y el neto vivo de ese pago quedo en -605,00. La caja egreso 1.210,00 por una venta que habia ingresado 605,00. El resultado es intermitente: en una segunda corrida (venta 9131, 4 POST paralelos) las transacciones de mas hicieron rollback (hueco de AUTO_INCREMENT 72-73) y quedo una sola reversion. El estado final de la venta es Anulada en los dos casos, asi que nada avisa."
+    expectativa: "La anulacion es idempotente bajo concurrencia: N POST simultaneos producen exactamente UNA reversion por linea de pago y a lo sumo un contramovimiento de stock y de cuenta corriente. El neto vivo de cada PagoVentaId nunca queda negativo."
+    causa_raiz: "AnularAsync releva el neto vivo de cada pago (ObtenerNetoPosteadoPorPagoVentaAsync) y lee venta.Estado ANTES de BeginTransactionAsync — por decision explicita documentada en el propio metodo ('el relevamiento se hace ANTES de abrir la transaccion y de tocar nada'), para poder bloquear entero si algun pago no es identificable. Con la lectura afuera de la transaccion, dos requests concurrentes ven los dos Estado=Confirmada y los dos neto=605,00, y cada uno postea su reversion. No hay SELECT ... FOR UPDATE sobre la Venta, no hay token de concurrencia optimista (RowVersion) en Venta, y no hay indice unico que impida dos filas (PagoVentaId, EsReversion=1). La afirmacion del XML-doc de EsReversion y del mensaje de commit — 'revertir dos veces es imposible por construccion' — vale solo para dos anulaciones SECUENCIALES: el neto es una lectura, no un lock."
+    capa: Infrastructure
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/VentaWorkflowService.cs
+        motivo: "AnularAsync: abrir la transaccion ANTES del relevamiento y tomar la fila de la Venta con bloqueo (FromSqlRaw con FOR UPDATE, o un UPDATE condicional 'SET Estado=Anulada WHERE Id=@id AND Estado=Confirmada' cuyo rowcount 0 aborte la operacion) antes de calcular netos y postear nada. El relevamiento de identificabilidad puede seguir siendo lo primero DENTRO de la transaccion."
+      - path: FerreteriaLaPlatense.Infrastructure/Services/GastoService.cs
+        motivo: "AnularAsync de Gasto tiene la misma forma (neto vivo leido antes de la transaccion, guarda por el flag gasto.Anulado): verificar si la carrera tambien aplica y aplicar el mismo criterio."
+      - path: FerreteriaLaPlatense.Domain/Entities/CajaMovimiento.cs
+        motivo: "Opcional y complementario (defensa en profundidad): indice unico filtrado sobre (PagoVentaId, EsReversion) para que la segunda reversion de la misma linea de pago falle en la base y no solo en la aplicacion."
+    migracion_ef: "Solo si se agrega el indice unico de CajaMovimiento (PagoVentaId, EsReversion) o un RowVersion en Venta. El fix por bloqueo de fila no necesita migracion."
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "SELECT OrigenTipo, OrigenId, PagoVentaId, SUM(CASE WHEN Tipo=1 AND EsReversion=0 THEN Monto ELSE 0 END) - SUM(CASE WHEN Tipo=2 AND EsReversion=1 THEN Monto ELSE 0 END) AS neto FROM CajaMovimientos WHERE OrigenTipo='Venta' GROUP BY OrigenTipo, OrigenId, PagoVentaId HAVING neto < 0"
+      condicion_falla: "La query devuelve filas: hay dinero revertido mas de una vez. El neto vivo de un origen nunca puede ser negativo."
+    criterio_aceptacion:
+      - "Con 4 POST paralelos a /Ventas/Anular sobre la misma venta confirmada de un solo pago, queda exactamente UN CajaMovimiento con EsReversion=1 para ese PagoVentaId y el neto vivo del pago es 0,00."
+      - "El stock del producto vuelve exactamente a su valor previo a la confirmacion (una sola vez), medido con cantidad decimal."
+      - "Si la venta tenia pago a cuenta corriente, hay exactamente UN MovimientoCCCliente de Credito con Origen=AnulacionVenta."
+      - "Los POST perdedores devuelven un error explicito ('Esta venta ya esta anulada'), no un exito."
+      - "Control negativo: una sola anulacion secuencial sigue funcionando igual que hoy."
+    pruebas_minimas:
+      - "La query de deteccion sobre todo el ledger antes y despues del deploy."
+      - "La tanda de N POST paralelos repetida al menos 3 veces (el defecto es intermitente: una sola corrida verde no prueba nada)."
+      - "La variante con dos pagos del mismo medio y mismo importe (MH-027) en paralelo."
+    regla_preventiva: "Un neto calculado por lectura NO es un candado. Cuando el patron 'revertir por el neto vivo' es la unica defensa contra una doble reversion de dinero, la lectura del neto y la escritura del contramovimiento tienen que estar dentro de la misma transaccion Y con la fila del documento tomada con bloqueo (FOR UPDATE o UPDATE condicional por estado). Antes de escribir 'imposible por construccion' en un XML-doc, probar N peticiones en paralelo: si la frase vale solo en secuencia, el documento esta mintiendo en el lugar donde mas se lo va a creer."
+    fix_aplicado: null
+
+  - id: LP-019
+    modulo: "Caja / arqueo diario y mensual (CajaMovimientoService.ObtenerResumenDiaAsync / ObtenerResumenMesAsync + Views/Caja/_ArqueoPorMedio.cshtml)"
+    titulo: "El desglose por medio de pago se calcula VIVO y el total del arqueo sale del cierre CONGELADO: en un periodo cerrado y desfasado la misma pantalla muestra dos totales distintos del mismo mes y no dice que difieren"
+    severidad: major
+    reproducido_en: "La Platense - rama entrega-1-migracion, working tree en d08f8c4 (commit bajo prueba 59dd715), QA lote 1 del 2026-10-06. Observado en el HTML renderizado de /Caja/Mensual?anio=2026&mes=8 contra laplatense_qa_l1."
+    pasos:
+      - "Partir de un mes con cierre mensual firmado y con al menos un CajaMovimiento dentro del mes posteado despues del cierre (el daño historico que describe LP-013; en laplatense_dev es el movimiento id 5, Gasto 3, 2.500,75 del 2026-08-24)."
+      - "Abrir /Caja/Mensual?anio=2026&mes=8."
+      - "Leer la tarjeta KPI 'Egresos del mes' y, mas abajo, la fila 'Total' del cuadro 'Desglose por medio de pago'."
+    sintoma: "La tarjeta dice 'Egresos del mes $ 91.500,50' (el valor congelado en CierresCajaMensuales) y el pie del desglose dice 'Total ... $ 94.001,25' (el recalculo vivo), con $ 2.500,75 de diferencia, en la misma pantalla y sin ninguna leyenda que lo explique. El cuadro se presenta como 'desglose' del total de arriba y se titula 'Para conciliar contra el extracto de cada cuenta', asi que el operador que conciliar por medio va a cuadrar contra un numero que la tarjeta de al lado niega."
+    expectativa: "El desglose por medio y el total del arqueo tienen que salir de la MISMA base. O el desglose respeta el congelado cuando el periodo esta cerrado, o la pantalla declara explicitamente que el cuadro es el recalculo vivo y muestra la diferencia contra el cierre firmado (que es el remedio (a) que ya pedia LP-013, ahora con una superficie concreta donde ponerlo)."
+    causa_raiz: "ObtenerResumenDiaAsync / ObtenerResumenMesAsync devuelven TotalIngresos = cierre?.TotalIngresos ?? ingresos (congelado si hay cierre) pero llenan TotalesPorMedio con ObtenerTotalesPorMedioRangoUtcAsync, que SIEMPRE consulta el ledger vivo y no sabe nada del cierre. Las dos consultas estan correctamente alineadas en lo que excluyen (apertura/SaldoInicialCaja, verificado: coinciden al centavo en un periodo abierto) y el XML-doc del metodo razona exactamente sobre esa alineacion — pero esa alineacion es sobre el FILTRO, no sobre la FUENTE. En un periodo abierto las dos fuentes coinciden y el defecto es invisible; aparece solo con un cierre desfasado, que es justo el caso en que el operador va a mirar el desglose."
+    capa: Application
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/CajaMovimientoService.cs
+        motivo: "ObtenerResumenDiaAsync y ObtenerResumenMesAsync: exponer en el DTO el total recalculado ademas del congelado (o un flag de desfasaje con la diferencia) para que la vista pueda decir cual es cual. Es el mismo cambio que pide LP-013 archivos_fix."
+      - path: FerreteriaLaPlatense.Web/Views/Caja/_ArqueoPorMedio.cshtml
+        motivo: "Cuando el periodo esta cerrado y el recalculo no coincide con el congelado, rotular el pie del cuadro como recalculo y mostrar la diferencia; hoy el pie es un Model.Sum() que no tiene forma de saberlo."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "SELECT cm.Anio, cm.Mes, cm.TotalEgresos AS congelado, (SELECT SUM(m.Monto) FROM CajaMovimientos m WHERE m.DeletedAt IS NULL AND m.Tipo=2 AND m.OrigenTipo<>'SaldoInicialCaja' AND m.Fecha >= DATE_ADD(MAKEDATE(cm.Anio,1)+INTERVAL (cm.Mes-1) MONTH, INTERVAL 3 HOUR) AND m.Fecha < DATE_ADD(MAKEDATE(cm.Anio,1)+INTERVAL cm.Mes MONTH, INTERVAL 3 HOUR)) AS vivo FROM CierresCajaMensuales cm HAVING congelado <> vivo"
+      condicion_falla: "La query devuelve filas y /Caja/Mensual de ese mes muestra los dos numeros (KPI y pie del desglose) sin ninguna leyenda que los distinga."
+    criterio_aceptacion:
+      - "En un mes cerrado y desfasado, /Caja/Mensual muestra una sola cifra por concepto, o dos cifras rotuladas ('cierre firmado' vs 'ledger actual') con la diferencia explicita."
+      - "En un mes cerrado y consistente no aparece ningun aviso y las dos cifras coinciden (control negativo)."
+      - "En un periodo abierto el pie del desglose sigue sumando exactamente el KPI, al centavo (hoy pasa: 9.230,15 / 25.027,69)."
+    pruebas_minimas:
+      - "Un mes abierto, un mes cerrado consistente y un mes cerrado desfasado, leidos del HTML renderizado en la misma tanda."
+      - "Lo mismo para el arqueo DIARIO (/Caja), que tiene exactamente la misma estructura y comparte el partial."
+    regla_preventiva: "Cuando una pantalla pone un agregado congelado al lado de su propio desglose recalculado, alinear los FILTROS de las dos consultas no alcanza: hay que alinear la FUENTE. Si una lee una foto materializada y la otra el ledger vivo, en periodo abierto coinciden y la prueba pasa — el caso que importa es el periodo cerrado. Todo cuadro que se presente como 'desglose de' otro numero tiene que calcularse desde el mismo origen que ese numero, o decir en pantalla que no lo hace."
+    fix_aplicado: null
+
+  - id: LP-020
+    modulo: "Caja / totales del arqueo y tarjeta de caja del Dashboard (CajaMovimientoService.ObtenerTotalesRangoUtcAsync) + Views/Ventas/Details.cshtml"
+    titulo: "Ningun lector de totales usa EsReversion, asi que el ingreso de una venta anulada sigue contado en 'Ingresos de hoy' - y la pantalla de la venta anulada afirma textualmente lo contrario"
+    severidad: major
+    reproducido_en: "La Platense - rama entrega-1-migracion, working tree en d08f8c4 (commit bajo prueba 59dd715), QA lote 1 del 2026-10-06. Medido leyendo /Caja y /Dashboard antes y despues de anular, contra laplatense_qa_l1."
+    pasos:
+      - "Leer /Caja y anotar 'Ingresos de hoy'."
+      - "Confirmar una venta de $ 4.840,00 en efectivo y volver a leer /Caja: los ingresos suben 4.840,00."
+      - "Anular esa venta por /Ventas/Anular y volver a leer /Caja."
+      - "Leer el aviso que la propia pantalla /Ventas/Details/{id} muestra sobre la venta anulada."
+    sintoma: "Despues de anular, 'Ingresos de hoy' NO baja: queda en $ 14.071,15 (el mismo valor que con la venta viva) y 'Egresos de hoy' sube 4.840,00. El saldo queda bien, pero 'cuanto entro hoy' sigue afirmando que entraron los 4.840,00 de una venta anulada, y ademas aparecen 4.840,00 de egreso que nunca salieron de la caja. Medido sobre el dia completo: ingresos brutos 14.082,26 contra ingresos netos (Sigma ingresos no-reversion menos Sigma egresos de reversion) -229,89. Lo mismo en la tarjeta 'Caja de hoy' del /Dashboard. Y /Ventas/Details de la venta anulada dice, textual: 'Esta venta ya no se cuenta en el dashboard, en la clasificacion ABC ni en los arqueos' - las dos primeras son verdad (verificado: el Dashboard pasa de contarla a no contarla y la ABC deja el producto en clase C), la tercera es falsa."
+    expectativa: "Dos cosas, y la segunda no es negociable aunque la primera se postergue. (1) El arqueo distingue bruto de neto: el XML-doc de CajaMovimiento.EsReversion promete que con la columna se puede separar 'plata que entro' de 'plata que nunca salio', y ningun lector de totales la usa. (2) Mientras (1) no exista, la pantalla NO puede afirmar que la venta anulada ya no se cuenta en los arqueos: el texto tiene que decir la verdad (el ingreso y su reversion quedan los dos en el arqueo del periodo, el saldo no cambia)."
+    causa_raiz: "ObtenerTotalesRangoUtcAsync suma Sigma(Ingreso) y Sigma(Egreso) sin mirar EsReversion, y de ese unico helper dependen los seis lectores de totales (resumen del dia, resumen del mes, cierre diario, cierre mensual, Dashboard y el arqueo por medio). La decision de no netear esta fundada y es correcta para el CIERRE (un cierre firmado tiene que seguir cuadrando contra un recalculo), pero se extendio por igual a las lecturas INFORMATIVAS, que no tienen esa restriccion. La Entrega 4 documento el hueco en el propio XML-doc del helper ('LIMITE CONOCIDO Y DECLARADO ... una promesa vencida de la ola 1') y expuso el neto solo en la pantalla consolidada del modulo 13, sin tocar el arqueo ni el texto de Details.cshtml que lo contradice."
+    capa: Application
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Web/Views/Ventas/Details.cshtml
+        motivo: "PRIMERO y barato: corregir el aviso de la venta anulada para que no afirme que deja de contarse en los arqueos. Hoy el texto es la afirmacion mas fuerte del sistema sobre un comportamiento que no existe."
+      - path: FerreteriaLaPlatense.Infrastructure/Services/CajaMovimientoService.cs
+        motivo: "Agregar al DTO del resumen del dia y del mes el par bruto/neto (el calculo ya existe duplicado en ObtenerConsolidadoAsync y en el desglose consolidado por medio: unificarlo en el helper en vez de una tercera copia). NO cambiar lo que congelan CerrarDiaAsync / CerrarMesAsync."
+      - path: FerreteriaLaPlatense.Web/Views/Caja/Index.cshtml
+        motivo: "Mostrar el neto al lado del bruto en el arqueo del dia, con el rotulo que ya usa la pantalla consolidada."
+      - path: FerreteriaLaPlatense.Web/Views/Caja/Mensual.cshtml
+        motivo: "Idem para el mes."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "SELECT SUM(CASE WHEN Tipo=1 THEN Monto ELSE 0 END) AS ing_bruto, SUM(CASE WHEN Tipo=1 AND EsReversion=0 THEN Monto ELSE 0 END) - SUM(CASE WHEN Tipo=2 AND EsReversion=1 THEN Monto ELSE 0 END) AS ing_neto FROM CajaMovimientos WHERE DeletedAt IS NULL AND Fecha >= ? AND Fecha < ?"
+      condicion_falla: "ing_bruto <> ing_neto y la pantalla del arqueo muestra solo uno de los dos sin rotularlo, o el aviso de la venta anulada sigue diciendo 'ni en los arqueos'."
+    criterio_aceptacion:
+      - "Anular una venta de monto conocido no altera el saldo del arqueo del dia y el arqueo muestra, rotulados, el bruto y el neto del periodo."
+      - "El aviso de /Ventas/Details de una venta anulada describe exactamente lo que pasa con los arqueos (no afirma una exclusion que no ocurre)."
+      - "Los totales que congelan CerrarDiaAsync y CerrarMesAsync siguen siendo los brutos: un cierre ya firmado en la base sigue cuadrando contra el recalculo (control de no-regresion)."
+      - "Un dia sin ninguna reversion muestra bruto igual a neto (control negativo)."
+    pruebas_minimas:
+      - "La query de deteccion sobre el dia de la corrida y sobre un mes con reversiones."
+      - "Un gasto anulado y una venta anulada en el mismo dia, que son los dos origenes que postean reversiones."
+    regla_preventiva: "Agregar la columna que permite distinguir dos hechos no distingue nada hasta que un lector la usa. Cuando un XML-doc promete una capacidad de lectura ('con esta columna el arqueo puede separar X de Y'), la promesa es parte del entregable: o se implementa el lector en la misma ola, o la promesa se escribe como pendiente y, sobre todo, ninguna pantalla puede afirmarle al usuario que la capacidad ya existe. Un texto de UI que describe un comportamiento inexistente es peor que la funcionalidad faltante, porque impide que el usuario la reclame."
+    fix_aplicado: null
+
+  - id: LP-021
+    modulo: "Caja / neto vivo de un origen del ledger (CajaMovimientoService.ObtenerNetoPosteadoAsync + ICajaMovimientoService)"
+    titulo: "El neto vivo se acota por OrigenTipo+OrigenId, pero los origenes manuales guardan OrigenId=0: cualquier caller nuevo que pida el neto de un 'Ajuste' recibe la mezcla de TODOS los ajustes, y el contrato no lo advierte"
+    severidad: minor
+    reproducido_en: "La Platense - rama entrega-1-migracion, working tree en d08f8c4 (commit bajo prueba 59dd715), QA lote 1 del 2026-10-06. Riesgo LATENTE: hoy no hay ningun caller con OrigenId=0, verificado por grep. Medido por SQL sobre laplatense_qa_l1."
+    pasos:
+      - "Confirmar que los movimientos manuales se persisten con OrigenTipo='Ajuste' y OrigenId=0 (CajaMovimientoService.RegistrarMovimientoManualAsync lo hace literalmente)."
+      - "Reproducir en SQL la agregacion exacta de ObtenerNetoPosteadoAsync('Ajuste', 0, Ingreso): SELECT SUM(CASE WHEN Tipo=1 AND EsReversion=0 THEN Monto ELSE 0 END) - SUM(CASE WHEN Tipo=2 AND EsReversion=1 THEN Monto ELSE 0 END) FROM CajaMovimientos WHERE OrigenTipo='Ajuste' AND OrigenId=0."
+    sintoma: "Devuelve 262,86, que es la suma de 3 ajustes manuales distintos e independientes, no el neto de ninguno de ellos. Si alguna vez se agrega 'revertir un movimiento manual de caja' (o cualquier origen sin entidad puntual) y se usa el helper tal como lo describe su contrato, la reversion sale por el neto de todos los ajustes juntos. Es la segunda familia del mismo patron que ya se corrigio en el ledger de proveedores."
+    expectativa: "O el helper rechaza explicitamente origenId<=0 (ArgumentException o un retorno que obligue al caller a decidir), o el XML-doc de ICajaMovimientoService.ObtenerNetoPosteadoAsync advierte que la acotacion por entidad depende de que el origen tenga un OrigenId real y que los origenes manuales (OrigenId=0) no son acotables. Hoy el contrato habla de 'un origen del ledger' sin ninguna salvedad."
+    causa_raiz: "OrigenId es int no nullable y el diseño eligio 0 como centinela para 'sin entidad de origen puntual' (documentado en el XML-doc de CajaMovimiento.OrigenId). El neto vivo se escribio para Gasto y Venta, que siempre tienen id real, y la clave (OrigenTipo, OrigenId) resulta no-discriminante justo para los origenes centinela. Es exactamente la familia 'neto no acotado por entidad' que se reprodujo en el ledger de proveedores con OrigenId=0 en los origenes manuales."
+    capa: Application
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Application/Interfaces/ICajaMovimientoService.cs
+        motivo: "Documentar la precondicion en el XML-doc de ObtenerNetoPosteadoAsync: el neto solo esta acotado si el origen tiene OrigenId propio; OrigenId=0 (Ajuste y cualquier origen manual) no es acotable."
+      - path: FerreteriaLaPlatense.Infrastructure/Services/CajaMovimientoService.cs
+        motivo: "Guarda explicita al entrar: si origenId<=0, lanzar o devolver un resultado que no se pueda confundir con un neto valido. Fallar ruidoso es mas barato que descubrirlo por un descuadre de caja."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "SELECT OrigenTipo, OrigenId, COUNT(*) AS filas FROM CajaMovimientos GROUP BY OrigenTipo, OrigenId HAVING OrigenId = 0 AND filas > 1"
+      condicion_falla: "La query devuelve filas (hay mas de un movimiento compartiendo la clave OrigenTipo+0) y existe algun caller de ObtenerNetoPosteadoAsync que pueda recibir ese origenTipo."
+    criterio_aceptacion:
+      - "ObtenerNetoPosteadoAsync con origenId=0 falla de forma ruidosa o esta documentada como precondicion no soportada."
+      - "Ningun caller del helper puede recibir un origenTipo cuyos movimientos usen OrigenId=0 (barrido declarado en el reporte)."
+    pruebas_minimas:
+      - "La query de deteccion sobre todo el ledger."
+      - "Grep de los callers de ObtenerNetoPosteadoAsync y del origenTipo que cada uno pasa."
+    regla_preventiva: "Un centinela en una columna de id (0 para 'sin entidad') convierte en no-discriminante cualquier clave que lo incluya. Toda funcion que acote un agregado por (tipo, id) tiene que declarar que pasa cuando el id es el centinela — y conviene que falle en vez de responder, porque la respuesta es un numero plausible que nadie va a cuestionar."
+    fix_aplicado: null
+  - id: LP-023
+    modulo: "Pagos a proveedores / aviso de pagos programados vencidos (AvisoPagosProgramadosService + PagoProveedorService.ObtenerYMarcarPagosVencidosNoNotificadosAsync)"
+    titulo: "El chequeo de pagos vencidos duplica TODAS las notificaciones cuando corre concurrente: el leer-y-marcar no es atomico, asi que la idempotencia real la da el flag en memoria del middleware y no la marca Notificado de la base, al reves de lo que el diseno declara"
+    severidad: major
+    reproducido_en: "La Platense - rama entrega-1-migracion, commit 4246b42 (Entrega 3 item 4c + paso 6), QA lote 4 del 2026-10-06. Reproducido sobre laplatense_qa_l4 por dos vias independientes: 8 llamadas concurrentes al Service desde scopes separados (3 rondas, 8/8 duplicaron), y dos worker processes de la app sirviendo su primer request del dia en simultaneo."
+    pasos:
+      - "Sembrar 2 PagoOrdenCompra en Estado=Pendiente con FechaPagoTentativa <= hoy y Notificado=0, sobre compras NO canceladas."
+      - "Tener 2 usuarios unicos en los roles SuperUsuario/Administrador. Vaciar Notifications."
+      - "Via A (Service): resolver IAvisoPagosProgramadosService en 8 scopes independientes y llamar EjecutarChequeoDelDiaAsync() en los 8 a la vez, sincronizados con una Barrier para que arranquen en el mismo instante."
+      - "Via B (HTTP, sin tocar codigo): levantar DOS instancias del Web contra la MISMA base (puertos distintos, como un web garden o un reciclado de pool solapado) y disparar el primer request autenticado del dia en las dos simultaneamente."
+    sintoma: "Via A: las 8 llamadas devuelven 4 (ninguna devuelve 0) y Notifications queda con 32 filas en vez de 4 - cada par usuario/pago repetido 8 veces. Reproducible 3/3 rondas. Via B: Notifications queda con 8 filas en vez de 4, cada notificacion duplicada exactamente 2 veces. El XML-doc del metodo afirma 'correrlo dos veces, o dos veces en paralelo, no duplica avisos porque la segunda corrida ya no encuentra las filas' y 'Si dos requests entran a la vez, el segundo encuentra la lista vacia': las dos afirmaciones son falsas."
+    expectativa: "Con N llamadas concurrentes, UNA sola gana las filas: el total de Notifications es 4 (2 pagos x 2 destinatarios) y N-1 llamadas devuelven 0. La idempotencia no debe depender de que el llamador sea unico ni del flag en memoria del middleware."
+    causa_raiz: "ObtenerYMarcarPagosVencidosNoNotificadosAsync lee con ToListAsync() y recien despues marca Notificado=true y hace SaveChangesAsync, sin transaccion, sin bloqueo de fila y sin token de concurrencia en la columna. Entre el SELECT y el UPDATE hay una ventana en la que todos los lectores concurrentes ven Notificado=0, asi que todos se llevan el mismo lote. En produccion la carrera queda tapada por el lock + flag estatico de AvisoPagosProgramadosMiddleware, que serializa el chequeo DENTRO de un proceso - pero el propio diseno declara explicitamente que la garantia NO debe vivir en ese flag (porque se pierde con cada reciclado de pool), y efectivamente no vive: vive solo ahi. Con mas de un worker process (web garden, o la ventana de overlapped recycle de IIS en la que el proceso viejo y el nuevo sirven requests a la vez) o con cualquier segundo llamador futuro del Service, la duplicacion sale."
+    capa: Infrastructure
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/PagoProveedorService.cs
+        motivo: "ObtenerYMarcarPagosVencidosNoNotificadosAsync: hacer el reclamo atomico. Hipotesis A (preferida): reclamar PRIMERO con un UPDATE condicional unico - ExecuteUpdateAsync sobre el mismo Where(Pendiente && !Notificado && FechaPagoTentativa<=dia && compra no cancelada) poniendo Notificado=true - y recien despues leer las filas reclamadas; un UPDATE con WHERE es atomico bajo InnoDB, asi que el segundo llamador afecta 0 filas. Para saber CUALES filas se reclamo hace falta un discriminador: o se marca dentro de una transaccion y se leen en la misma tx, o se agrega una columna de lote/instante de notificacion (p. ej. NotificadoAt) que el UPDATE setea con un valor propio de esta corrida y el SELECT posterior filtra por el. Hipotesis B: abrir transaccion y traer los candidatos con SELECT ... FOR UPDATE (FromSql) antes de marcar, para que el segundo lector espere y encuentre la lista vacia. NO usar un token de concurrencia tipo RowVersion: en este stack ya mordio dos veces (REG-001, MH-016)."
+    migracion_ef: "Solo si se toma el camino de la columna discriminadora (p. ej. NotificadoAt datetime(6) NULL en PagosOrdenCompra). Aditiva y sin backfill: NULL significa 'no notificado todavia' y es coherente con Notificado=0 preexistente. Si se resuelve con SELECT ... FOR UPDATE dentro de transaccion, no hace falta migracion."
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "N llamadas concurrentes (Barrier) a IAvisoPagosProgramadosService.EjecutarChequeoDelDiaAsync() desde scopes independientes; y/o dos instancias del Web contra la misma base recibiendo su primer request autenticado del dia en simultaneo"
+      condicion_falla: "SELECT COUNT(*) FROM Notifications devuelve mas que (pagos vencidos x destinatarios unicos), o mas de una de las N llamadas devuelve un valor distinto de 0."
+    criterio_aceptacion:
+      - "Con 2 pagos vencidos y 2 destinatarios unicos, 8 llamadas concurrentes a EjecutarChequeoDelDiaAsync desde scopes independientes dejan EXACTAMENTE 4 filas en Notifications, y 7 de las 8 llamadas devuelven 0."
+      - "El mismo escenario con dos worker processes de la app contra la misma base deja EXACTAMENTE 4 filas."
+      - "Correr el chequeo dos veces en SERIE sigue sin duplicar (control de no-regresion: ya pasaba)."
+      - "Reprogramar un pago sigue reabriendo el aviso (Notificado vuelve a 0) y el siguiente chequeo lo vuelve a avisar una sola vez por destinatario."
+    pruebas_minimas:
+      - "Serie: 1 corrida, 20 requests mas en el mismo proceso, y 3 reciclados de proceso."
+      - "Paralelo: grado 8 desde el Service, 3 rondas, reseteando Notifications y Notificado entre rondas."
+      - "Paralelo: 2 worker processes por HTTP."
+      - "Control negativo: sin pagos vencidos, el chequeo no crea nada y devuelve 0."
+    regla_preventiva: "Un 'leer y marcar en la misma llamada' NO es atomico por estar en el mismo metodo ni por compartir un SaveChanges: entre el SELECT y el UPDATE hay una ventana, y todo lector concurrente se lleva el mismo lote. Cuando la idempotencia de un efecto externo (notificar, mandar mail, postear un asiento) se apoya en una marca en la base, el reclamo tiene que ser UNA sentencia atomica - UPDATE condicional primero y leer despues lo reclamado, o SELECT ... FOR UPDATE dentro de transaccion - y hay que PROBARLO en paralelo, no en serie: la prueba en serie pasa siempre y no dice nada. Ojo especial cuando un lock o un flag en memoria del llamador tapa la carrera: si el diseno declara que la garantia vive en la base, hay que verificar que viva ahi llamando al Service directo, sin pasar por el middleware que serializa."
+    fix_aplicado: null
+
+  - id: LP-022
+    modulo: "Compras / Index - buscador global por el total en pesos (OrdenCompraService.ListarAsync + BusquedaHelper.IdsPorSubstringDeImporte)"
+    titulo: "El total en pesos es la cifra principal de la grilla de compras pero el buscador global solo lo encuentra tipeando el importe exacto CON centavos: la pasada de substring numerico mira unicamente el total del documento, asi que buscar la cifra en pesos redondeada devuelve 0 filas"
+    severidad: minor
+    reproducido_en: "La Platense - rama entrega-1-migracion, commit 4246b42 (Entrega 3 item 4c), QA lote 4 del 2026-10-06. Reproducido por POST a /OrdenesCompra/Listar sobre laplatense_qa_l4 con una compra en dolares de US$ 1.034,55 a cotizacion 1.480,50 (TotalEnPesos 1.531.651,28)."
+    pasos:
+      - "Cargar y confirmar una compra en dolares cuyo TotalEnPesos tenga centavos (ej. US$ 1.034,55 x 1.480,50 = $ 1.531.651,28)."
+      - "En /OrdenesCompra, tipear en el buscador global la cifra en pesos SIN centavos: '1531651'."
+      - "Repetir con un prefijo y un fragmento: '1531' y '531651'."
+      - "Como control, tipear el total del DOCUMENTO sin centavos: '1034'."
+    sintoma: "'1531651' -> 0 filas. '1531' -> 0 filas. '531651' -> 0 filas. '1531651,28' (exacto con centavos) -> 2 filas, correcto. El control '1034' (total del documento sin centavos) -> 4 filas, correcto. O sea: el total del documento es buscable por fragmento y el total en pesos solo por importe exacto. El comentario del propio codigo declara la intencion contraria: 'buscar 1500000 tiene que encontrar la compra de USD 1.000 que vale eso en pesos'."
+    expectativa: "La columna que la grilla muestra como principal (el total en pesos) se encuentra con los mismos formatos que el resto de los importes del listado: exacto, sin centavos y por fragmento numerico, igual que ya funciona para Total y Subtotal."
+    causa_raiz: "Hay dos pasadas distintas sobre importes y solo una cubre TotalEnPesos. La pasada de RANGO (ParsearImportes + RangoImporte) si lo cubre, pero RangoImporte es un match EXACTO de +/- medio centavo (valor-0.005, valor+0.005), asi que solo matchea si el usuario tipeo el importe completo con centavos. La pasada que hace el match parcial es IdsPorSubstringDeImporte, que recibe unicamente pares (Id, o.Total) - el total del documento - y nunca TotalEnPesos. Por eso '1034' funciona (substring sobre Total) y '1531651' no (no hay substring sobre TotalEnPesos). Es la asimetria que quedo al agregar la columna nueva al bloque de rango y no al bloque de substring."
+    capa: Infrastructure
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/OrdenCompraService.cs
+        motivo: "ListarAsync, bloque de busqueda global: la proyeccion que alimenta IdsPorSubstringDeImporte trae solo o.Total. Pasar tambien o.TotalEnPesos (y o.Subtotal si se quiere simetria completa) y unir los ids de las dos pasadas, respetando el tope MaxFilasSubstringNumerico que ya protege la pasada en memoria."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /OrdenesCompra/Listar con search[value] = la parte entera del TotalEnPesos de una compra en moneda extranjera"
+      condicion_falla: "recordsFiltered = 0 para un importe que la grilla muestra en la columna de total en pesos."
+    criterio_aceptacion:
+      - "Con una compra cuyo TotalEnPesos sea 1.531.651,28: buscar '1531651' devuelve esa compra."
+      - "Buscar '1531651,28' y '1.531.651,28' la siguen devolviendo (no-regresion)."
+      - "Buscar '1034' sigue devolviendo las compras cuyo total de documento es 1.034,55 (no-regresion)."
+      - "Un importe que no existe en ninguna columna devuelve 0 filas (control negativo)."
+    pruebas_minimas:
+      - "Una compra en dolares y una en pesos en la misma tanda, buscando por las dos columnas de total."
+      - "El mismo importe en formato crudo, es-AR y por fragmento."
+    regla_preventiva: "Cuando una grilla pasa a mostrar DOS importes por fila (el del documento y su conversion), el bloque de busqueda global tiene mas de una pasada y hay que agregar la columna nueva a TODAS, no solo a la de rango. Y conviene saber que la pasada de rango es un match exacto: la que hace que el operador encuentre algo tipeando de memoria es la de substring. Si se agrega una columna de importe al listado, la prueba minima es buscarla sin centavos, no solo con el valor exacto."
+    fix_aplicado: null
+
+  - id: LP-024
+    modulo: "Stock / Producto.Stock con TRES escritores (recepcion de compra + venta + ajuste manual) sin token de concurrencia"
+    titulo: "Un ajuste manual de stock guardado sobre una foto vieja de la pantalla pisa en silencio una recepcion de compra que entro en el medio: el ledger de stock registra las unidades y la columna Producto.Stock no, y nada detecta la diferencia"
+    severidad: major
+    reproducido_en: "La Platense - rama entrega-1-migracion, HEAD d08f8c4 (los cambios son del commit 7cda85b, Entrega 3 pasos 4 y 5), QA lote 3 del 2026-10-06. Reproducido por navegacion real sobre laplatense_qa_l3."
+    pasos:
+      - "Producto con stock conocido (en la reproduccion: ZZQA3-SIMPLE, id 112507, Stock = 30)."
+      - "Abrir /Stock/Ajuste?productoId=<id>. La pantalla muestra 'Stock actual' = 30 y precarga ese valor en 'Cantidad nueva'. El formulario NO lleva ningun dato del stock que leyo (ni token de concurrencia, ni hidden con el valor leido)."
+      - "SIN cerrar ese formulario, recibir una orden de compra de ese mismo producto (Confirmada -> Recibida, /OrdenesCompra/Recibir/<oc>) por 5 unidades. Producto.Stock pasa a 35 y queda la fila de MovimientoStock por +5."
+      - "Volver al formulario abierto y guardar el conteo fisico que el operador hizo sobre la foto de 30 (en la reproduccion: 29)."
+      - "Comparar la suma del ledger contra la columna: SELECT (SELECT SUM(Cantidad) FROM MovimientosStock WHERE ProductoId=<id>), (SELECT Stock FROM Productos WHERE Id=<id>)."
+    sintoma: "Producto.Stock queda en 29 y las 5 unidades recibidas desaparecen sin rastro en la columna, mientras el ledger de stock sigue afirmando que entraron (suma del ledger 35 vs columna 29). El ajuste ademas fuerza StockVerificado = true, asi que el producto queda marcado como 'contado y correcto' en un numero equivocado y deja de aplicarsele el arranque suave. No hay ningun bloqueo ni aviso ANTES de escribir: el unico indicio es el toast posterior al guardado, que dice 'Stock de X actualizado de 35,000 a 29' — un numero que el operador nunca vio en pantalla y que no se le pide confirmar."
+    expectativa: "Dos piezas. (a) GUARDA DE LECTURA RANCIA: el formulario de ajuste viaja con el stock que leyo (hidden o token de concurrencia en Producto) y el Service rechaza el POST si el stock cambio entre la lectura y el guardado, diciendo que entro una recepcion y pidiendo volver a contar o confirmar explicitamente. (b) DETECCION: una consulta/pantalla que compare la suma del ledger de stock contra Producto.Stock por producto y liste las diferencias, para que el desfasaje que el ledger ya puede probar no quede invisible. Alternativa minima aceptable: dejar la query de deteccion documentada como control post-deploy, igual que se hizo con LP-013."
+    causa_raiz: "Producto no tiene token de concurrencia optimista (no hay RowVersion ni ninguna columna [Timestamp]; verificado por barrido sobre Domain/Entities/Producto.cs y AppDbContext.cs), y los tres escritores de Producto.Stock usan semanticas incompatibles: la venta resta, RecibirAsync suma (Stock += cantidadConvertida) y AjusteStockService hace un SET ABSOLUTO del valor que el operador tipeo (producto.Stock = dto.CantidadNueva) mas StockVerificado = true. Un SET absoluto derivado de una lectura de pantalla es un lost update garantizado en cuanto hay un segundo escritor concurrente. La carrera venta-vs-ajuste ya existia; la Entrega 3 paso 4 agrega el TERCER escritor y, con el ledger de stock nuevo, vuelve el daño MEDIBLE por primera vez — pero nada lo mide. El alcance declarado del paso 4 dice que la suma del ledger no reconstruye Producto.Stock, lo cual es correcto como decision, pero no cubre que el ledger y la columna puedan contradecirse sin que nadie se entere."
+    capa: Application
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Web/Models/AjusteStockViewModel.cs
+        motivo: "Agregar el stock LEIDO como campo que viaje en el POST (hoy solo viajan ProductoId, CantidadNueva y Motivo; CantidadActual se repone del servidor y no se postea), para poder comparar contra el stock del momento del guardado."
+      - path: FerreteriaLaPlatense.Web/Views/Stock/Ajuste.cshtml
+        motivo: "Emitir ese campo como hidden junto al ProductoId que ya se emite, y mostrar el aviso cuando el POST vuelva rechazado por lectura rancia."
+      - path: FerreteriaLaPlatense.Infrastructure/Services/AjusteStockService.cs
+        motivo: "AplicarAjusteAsync: comparar el stock leido que llega en el DTO contra producto.Stock antes del SET absoluto y rechazar si difieren, nombrando el movimiento que entro en el medio. Opcionalmente escribir tambien la fila de MovimientoStock del ajuste (OrigenMovimientoStock.AjusteManual ya esta declarado sin escritor), que es lo que haria la comparacion ledger-vs-columna util en vez de ruidosa."
+      - path: FerreteriaLaPlatense.Domain/Entities/Producto.cs
+        motivo: "Alternativa de fondo (mas invasiva): token de concurrencia en Producto. Ojo con MH-016, que es el defecto que ese token causo en marihogar al invalidar previsualizaciones de lotes largos — si se toma este camino hay que revisar el aumento masivo de precios de la Entrega 6 antes."
+    migracion_ef: "Solo si se toma el camino del token de concurrencia en Producto (columna nueva). El camino del hidden + comparacion en el Service NO necesita migracion."
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "SELECT p.Id, p.Codigo, p.Stock, SUM(m.Cantidad) suma_ledger, (p.Stock - SUM(m.Cantidad)) diferencia FROM Productos p JOIN MovimientosStock m ON m.ProductoId = p.Id GROUP BY p.Id, p.Codigo, p.Stock HAVING p.Stock <> SUM(m.Cantidad)"
+      condicion_falla: "La query devuelve filas de productos cuyo UNICO movimiento registrado es de recepcion de compra (no hubo ventas ni ajustes legitimos en el medio) y ninguna pantalla lo indica. Mientras ventas y ajustes no escriban el ledger, la query tiene falsos positivos y hay que leerla junto con AjustesStock y los items de venta del producto."
+    criterio_aceptacion:
+      - "Con el formulario de ajuste abierto, una recepcion que entra en el medio hace que el guardado del ajuste sea RECHAZADO con un mensaje que nombra lo que entro, y Producto.Stock conserva el valor que dejo la recepcion."
+      - "Control negativo: sin recepcion en el medio, el ajuste se guarda normalmente."
+      - "StockVerificado no queda en true sobre un valor que el operador no confirmo despues de ver el stock real."
+    pruebas_minimas:
+      - "La secuencia abrir-ajuste / recibir / guardar-ajuste, con la suma del ledger y la columna comparadas antes y despues."
+      - "El mismo producto con dos recepciones seguidas sin ajuste en el medio (la suma tiene que cerrar)."
+    regla_preventiva: "Una columna agregada que se escribe con un SET ABSOLUTO derivado de un valor que el usuario leyo en pantalla necesita un token de concurrencia o un hidden con el valor leido, desde el momento en que tiene mas de UN escritor. Y cuando se agrega un ledger al lado de una columna que el ledger NO reconstruye, el entregable incluye la query que compara los dos: un ledger que puede probar que la columna esta mal y no se consulta nunca es peor que no tenerlo, porque da la sensacion de que el dato esta auditado."
+    fix_aplicado: null
+
+  - id: LP-025
+    modulo: "Listados DataTables server-side / busqueda global por la etiqueta visible de una columna booleana (Productos)"
+    titulo: "La busqueda global por la etiqueta visible 'Al dia' devuelve 0 filas en vez de las 112.486 que la tienen: el tope de ids del helper descarta el conjunto entero en silencio cuando se pasa, y el usuario lee ese 0 como 'ningun producto esta al dia'"
+    severidad: trivial
+    reproducido_en: "La Platense - rama entrega-1-migracion, HEAD d08f8c4 (columna nueva del commit 7cda85b), QA lote 3 del 2026-10-06. Reproducido por POST a /Productos/Listar sobre laplatense_qa_l3 (112.488 productos, 2 con el costo actualizado)."
+    pasos:
+      - "Abrir /Productos. La columna 'Estado del precio' dibuja dos etiquetas: 'Precio sin recalcular' (badge amarillo) y 'Al dia' (texto gris)."
+      - "Tipear 'Precio sin recalcular' en el buscador global: devuelve las 2 filas correctas."
+      - "Tipear 'Al dia' (con tilde, tal como se ve en pantalla) en el buscador global."
+    sintoma: "La busqueda por 'Al dia' devuelve recordsFiltered = 0, mientras el filtro de columna equivalente (fPrecioDesfasado = false) devuelve 112.486. Las dos etiquetas de la MISMA columna se comportan distinto y la que falla no avisa de nada: la grilla queda vacia como si no hubiera ningun producto con el precio al dia. (Buscar 'Al dia' sin tilde devuelve 2 filas, pero son coincidencias de texto en nombres de producto, no la etiqueta.)"
+    expectativa: "Una etiqueta visible en una columna es buscable o no es buscable, pero no puede devolver 0 cuando en realidad corresponden casi todas las filas. Tres salidas aceptables, en orden de preferencia: (a) resolver la etiqueta como un PREDICADO dentro del WHERE final en vez de como un conjunto de ids (no hay tope posible y es una comparacion booleana, mas barata que el IN); (b) si el conjunto supera el tope, no silenciarlo: devolver el resultado sin ese aporte PERO informando en la respuesta que la busqueda por etiqueta no se aplico; (c) declarar que el caso mayoritario no se busca por etiqueta y quitar esa rama, dejando solo el filtro de columna."
+    causa_raiz: "ProductoService.ArmarQueryBusqueda resuelve las dos etiquetas con AgregarAcotadoAsync, que hace Take(MaxFilasSubstringNumerico + 1) y, si se pasa del tope, NO agrega NINGUN id ('if (ids.Count <= tope) extraIds.AddRange(ids)'). El tope existe por una buena razon (evitar un IN gigante) y funciona bien para la etiqueta minoritaria, que es la que el implementador probo. Para la mayoritaria el efecto es el contrario del deseado: el aporte desaparece entero y el WHERE final solo compara contra columnas de texto, donde 'Al dia' no pega con nada. Es el mismo patron de LP-012 (buscador que no filtra y no avisa), ahora en la direccion opuesta: filtra de mas."
+    capa: Infrastructure
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/ProductoService.cs
+        motivo: "ArmarQueryBusqueda: la rama de 'Al dia' (CoincideEtiqueta -> query.Where(p => !p.PrecioVentaDesactualizado) via AgregarAcotadoAsync) tiene que entrar al WHERE final como predicado booleano, no como lista de ids acotada. Revisar de paso las otras ramas que usan AgregarAcotadoAsync por si alguna mas puede ser mayoritaria."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "POST /Productos/Listar con search[value] = la etiqueta visible de cada valor de una columna booleana, y comparar recordsFiltered contra el filtro de columna equivalente"
+      condicion_falla: "La busqueda por la etiqueta devuelve menos filas que el filtro de columna que significa lo mismo."
+    criterio_aceptacion:
+      - "POST /Productos/Listar con search[value]='Al dia' devuelve el mismo recordsFiltered que el filtro precioVentaDesactualizado=false (112.486 en la base de prueba), o devuelve 0 con un aviso explicito de que la busqueda por etiqueta no se aplico."
+      - "POST /Productos/Listar con search[value]='Precio sin recalcular' sigue devolviendo las filas con la bandera prendida (control de no-regresion)."
+    pruebas_minimas:
+      - "Las dos etiquetas de la columna, en la misma tanda, comparadas contra su filtro de columna."
+      - "Una base con el reparto invertido (la mayoria con la bandera prendida), para que el tope se pase del otro lado."
+    regla_preventiva: "Un tope defensivo que, al pasarse, DESCARTA el aporte en vez de degradarlo, convierte 'demasiados resultados' en 'ningun resultado'. Toda etiqueta de una columna booleana o de enum se busca como PREDICADO y no como conjunto de ids: el conjunto tiene tope y el predicado no. Y si un helper puede silenciar su propio aporte, la prueba minima de cada rama que lo usa incluye el caso en que el conjunto es mayoritario, no solo el minoritario."
+    fix_aplicado: null
+
+  - id: LP-026
+    modulo: "Pantallas de detalle con maquina de estados / formularios ocultos de acciones no disponibles (OrdenesCompra/Details)"
+    titulo: "El formulario oculto de 'Confirmar' se renderiza en una compra que ya esta Confirmada porque su @if agrupa dos acciones con condiciones distintas: queda un POST sin boton que lo dispare"
+    severidad: trivial
+    reproducido_en: "La Platense - rama entrega-1-migracion, HEAD d08f8c4, QA lote 3 del 2026-10-06. Observado en el HTML de /OrdenesCompra/Details/80 (estado Confirmada)."
+    pasos:
+      - "Abrir /OrdenesCompra/Details/<id> de una compra en estado Confirmada."
+      - "Buscar en el HTML los form con action a /OrdenesCompra/: aparece formConfirmar aunque el boton 'Confirmar compra' no se dibuje."
+      - "Postear /OrdenesCompra/Confirmar/<id> con antiforgery valido."
+    sintoma: "El HTML de una compra Confirmada incluye <form id='formConfirmar' asp-action='Confirmar'> sin ningun boton visible que lo dispare. El Service rechaza el POST ('Solo se puede confirmar una compra en Borrador (esta esta confirmada).'), asi que no hay daño: es una superficie muerta, no un agujero. Los botones VISIBLES si coinciden exactamente con las transiciones reales (Confirmada: Registrar recepcion / Registrar pago / Cancelar compra / Guardar nota; Recibida: Registrar pago / Guardar nota)."
+    expectativa: "Cada formulario oculto de accion se condiciona con la MISMA bandera que condiciona su boton. formConfirmar con PuedeConfirmar, formCancelar con PuedeCancelar."
+    causa_raiz: "Details.cshtml agrupa los dos formularios bajo un unico '@if (Model.PuedeConfirmar || Model.PuedeCancelar)', pero las dos banderas no son equivalentes: PuedeConfirmar es solo Borrador y PuedeCancelar es Borrador o Confirmada. En Confirmada la condicion compuesta es verdadera por el segundo termino y arrastra el primer formulario. Los botones estan bien condicionados uno por uno; el agrupamiento es solo de los formularios ocultos."
+    capa: Presentacion
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Web/Views/OrdenesCompra/Details.cshtml
+        motivo: "Partir el '@if (Model.PuedeConfirmar || Model.PuedeCancelar)' en dos bloques, uno por bandera, de modo que cada form oculto tenga la misma condicion que su boton."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET de la pantalla de detalle en cada estado y comparar el conjunto de form[action] contra el conjunto de botones visibles"
+      condicion_falla: "Hay un form de accion en el HTML sin boton visible que lo dispare en ese estado."
+    criterio_aceptacion:
+      - "En una compra Confirmada el HTML NO contiene formConfirmar, y si contiene formCancelar y formRecibir."
+      - "En una compra Borrador si contiene formConfirmar y formCancelar, y NO formRecibir."
+      - "En Recibida y Cancelada no contiene ninguno de los tres."
+    pruebas_minimas:
+      - "Los cuatro estados de la maquina, comparando forms contra botones visibles."
+    regla_preventiva: "Un '@if (A || B)' que envuelve DOS acciones distintas renderiza las dos cuando se cumple cualquiera de las dos condiciones. Los formularios ocultos de acciones de estado se condicionan de a uno, con la misma bandera que su boton — si no, la pantalla termina ofreciendo por POST transiciones que no ofrece por pantalla, y la unica cosa que lo impide es la guarda del Service (que tiene que estar igual, pero no deberia ser la unica)."
+    fix_aplicado: null
+
+  - id: LP-029
+    modulo: "Presupuestos / PDF - discriminacion de IVA por alicuota (PresupuestoService.GenerarPdfAsync)"
+    titulo: "El PDF calcula el IVA de cada alicuota sobre el neto AGRUPADO y el total lo suma POR LINEA: en el mismo documento la discriminacion no cierra con el total ('IVA 21%: $ 4,41' contra 'IVA total: $ 4,42')"
+    severidad: minor
+    reproducido_en: "La Platense - rama entrega-1-migracion, commit eec79d4 (Entrega 6), QA lote 5 del 2026-10-06. Presupuesto 25 de laplatense_qa_l5, PDF extraido con pdftotext."
+    pasos:
+      - "Crear un presupuesto con DOS lineas de la misma alicuota (21%) cuyo subtotal por linea sea 10,50 (cantidad 1, precio unitario 10,50, sin descuento ni recargo)."
+      - "Guardar y descargar el PDF (GET /Presupuestos/Pdf/{id})."
+      - "Leer el bloque de totales del PDF."
+    sintoma: "El PDF imprime 'Subtotal (sin IVA): $ 21,00', 'IVA 21%: $ 4,41', 'IVA total: $ 4,42' y 'TOTAL: $ 25,42'. La unica linea de discriminacion (4,41) no suma el IVA total (4,42) ni cierra con TOTAL - Subtotal. El error escala con la cantidad de lineas: cada linea cuyo IVA cae en medio centavo aporta hasta 1 centavo de desvio."
+    expectativa: "La suma de las lineas 'IVA <alicuota>%' tiene que ser EXACTAMENTE igual al 'IVA total' y a TOTAL - Subtotal, en cualquier combinacion de lineas y alicuotas. Es un documento que se le entrega al cliente: la discriminacion y el total no pueden contradecirse."
+    causa_raiz: "Hay dos aritmeticas distintas para el mismo numero. RecalcularTotales calcula TotalIVA como la suma de los IVA REDONDEADOS linea por linea (Sum(Round(Subtotal * Alicuota / 100, 2))), que es lo correcto para un documento con alicuotas mixtas y es lo que se persiste. En cambio GenerarPdfAsync arma ivaPorAlicuota agrupando por alicuota y redondeando UNA sola vez sobre el neto del grupo (Round(Sum(Subtotal) * Key / 100, 2)). Round(suma) no es igual a suma(Round): con dos lineas de 10,50 al 21% el redondeo por linea da 2,21 + 2,21 = 4,42 y el redondeo del grupo da Round(4,41) = 4,41. Con alicuotas mixtas en el presupuesto 24 coincidio por casualidad, asi que el defecto es dependiente de los datos y no se ve en la primera prueba."
+    capa: Infrastructure
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/PresupuestoService.cs
+        motivo: "GenerarPdfAsync, armado de ivaPorAlicuota: calcular el IVA del grupo como la SUMA de los IVA redondeados por linea (g.Sum(i => Math.Round(i.Subtotal * i.PorcentajeIVA / 100m, 2, MidpointRounding.AwayFromZero))), que es exactamente la misma expresion que usa RecalcularTotales. Con eso la discriminacion suma el total por construccion y no por coincidencia."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "GET /Presupuestos/Pdf/{id} - texto del bloque de totales"
+      condicion_falla: "La suma de las lineas 'IVA <x>%' difiere de la linea 'IVA total' o de TOTAL - Subtotal."
+    criterio_aceptacion:
+      - "Presupuesto con 2 lineas de subtotal 10,50 al 21%: el PDF imprime 'IVA 21%: $ 4,42', 'IVA total: $ 4,42' y 'TOTAL: $ 25,42'."
+      - "Presupuesto con alicuotas mixtas (21% y 10,5%): la suma de las dos lineas de discriminacion es igual al IVA total (no-regresion del caso que ya cerraba)."
+      - "Presupuesto de una sola linea: la discriminacion es igual al IVA total."
+    pruebas_minimas:
+      - "Tres presupuestos: una linea, dos lineas de la misma alicuota con medio centavo, y dos alicuotas mezcladas."
+      - "Comparar siempre contra Presupuestos.TotalIVA de la base, que es la cifra persistida."
+    regla_preventiva: "Cuando un documento imprime un total y su desglose, el desglose tiene que construirse con LA MISMA expresion que el total persistido, no con una aritmetica equivalente 'en teoria'. Round(Sum(x)) y Sum(Round(x)) no son el mismo numero, y el desvio aparece solo con ciertos datos: la prueba minima no es un caso lindo, es un caso cuyo redondeo por linea caiga en el medio centavo. Vale para IVA por alicuota, percepciones, retenciones y cualquier total agrupado."
+    fix_aplicado: null
+
+  - id: LP-030
+    modulo: "Aumento masivo de precios / Aplicar (AumentoMasivoPrecioService.AplicarAsync)"
+    titulo: "El aplicar del aumento masivo sobre el catalogo completo tarda 44-46 s en un POST sincronico, no los 7,6-8,0 s declarados: el numero declarado se midio en una pasada que NO cambia ninguna fila, y si el cliente corta la espera la corrida se pierde entera sin ningun aviso"
+    severidad: major
+    reproducido_en: "La Platense - rama entrega-1-migracion, commit eec79d4 (Entrega 6), QA lote 5 del 2026-10-06. Medido sobre laplatense_qa_l5 (clon de laplatense_dev, 112.485 productos reales), app en Debug contra MySQL local."
+    pasos:
+      - "Entrar a /AumentoMasivoPrecios como Administrador, modo 'cambiar el % de recargo', sin ningun filtro."
+      - "Previsualizar (112.069 productos alcanzados) y aplicar. Cronometrar el POST /AumentoMasivoPrecios/Aplicar."
+      - "Repetir con otro porcentaje para confirmar que no es un efecto de arranque en frio."
+      - "Comparar contra el modo 'recalcular desde el costo' corrido DOS veces seguidas: la segunda no cambia ninguna fila."
+      - "Como control de corte de cliente, abortar el POST a los 30 s y mirar Productos y AumentosMasivosPrecio."
+    sintoma: "CambiarRecargo 47% sobre todo el catalogo: 46,2 s. Repetido al 48%: 44,2 s. Por categoria (62.689 productos, todos cambian): 26,7 s / 22,2 s / 23,1 s en tres mediciones, contra los 10,4 s declarados. En cambio RecalcularDesdeCosto repetido sobre un catalogo ya consistente (ninguna fila cambia, EF no emite UPDATE): 3,5 s y 3,7 s - y la primera corrida de ese modo, con 29.589 cambios reales, 15,5 s. O sea: el tiempo declarado corresponde a la pasada que no escribe, y el peor caso real es ~6x mas. Cortando el cliente a los 30 s la transaccion revierte bien (cero filas con el recargo nuevo, cero filas en la auditoria) pero el usuario no recibe ningun mensaje y no tiene forma de saber si se aplico o no."
+    expectativa: "La operacion mas grande que la pantalla ofrece (cambiar el recargo de todo el catalogo) tiene que terminar dentro del timeout de request del hosting donde corre, o dejar de ser un POST sincronico: progreso, corrida en background reanudable, o un tope de filas por corrida con continuacion. Y el tiempo que se documenta tiene que ser el del peor caso (todas las filas cambian), no el de una pasada no-op."
+    causa_raiz: "AplicarAsync elige a proposito la via lenta y consistente: lotes de 2.000 entidades trackeadas + SaveChanges por lote + ChangeTracker.Clear, en vez de ExecuteUpdateAsync, para que StampSoftDestroyable escriba UpdatedAt (que es la marca de concurrencia que el propio modulo usa). La decision es correcta, pero su costo se midio mal: cuando una fila no cambia de valor, EF no emite UPDATE y el lote vuela, asi que medir el modo 'recalcular' sobre un catalogo ya consistente mide la lectura y el DetectChanges, no la escritura. El rendimiento real observado es de ~2.500-2.900 filas escritas por segundo, que sobre 112.000 filas son ~45 s. Ademas el controller resuelve la operacion en el request (es un POST con redirect), sin ningun mecanismo de progreso ni de reanudacion."
+    capa: Infrastructure
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/AumentoMasivoPrecioService.cs
+        motivo: "AplicarAsync: el cuello es una fila-un UPDATE con stamping por entidad. Alternativas a evaluar sin perder la marca de concurrencia: (a) ExecuteUpdateAsync escribiendo UpdatedAt/UpdatedByUserId explicitamente en el mismo SET, que es lo que hoy se descarta por el stamping; (b) subir el tamanio de lote y medirlo de nuevo con filas que SI cambian; (c) sacar la corrida del request."
+      - path: FerreteriaLaPlatense.Web/Controllers/AumentoMasivoPreciosController.cs
+        motivo: "Aplicar: si la corrida se queda en el request, al menos avisar en pantalla el tiempo esperado antes de confirmar y dejar claro que cortar la pagina NO aplica nada a medias. Si se mueve a background, este es el punto de entrada."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /AumentoMasivoPrecios/Aplicar con Modo=CambiarRecargo y filtro vacio sobre el catalogo real"
+      condicion_falla: "El request tarda mas que el timeout de request del hosting de destino, o el tiempo medido se aparta mas de 2x del documentado."
+    criterio_aceptacion:
+      - "Cronometrar CambiarRecargo con filtro vacio sobre el catalogo real (todas las filas cambian) DOS veces: las dos tienen que entrar en el presupuesto de tiempo que el equipo fije para el hosting de destino."
+      - "El tiempo documentado en 5-implementador.md coincide con esa medicion de peor caso, no con una pasada no-op."
+      - "Cortar el cliente en el medio sigue dejando el catalogo intacto y sin fila de auditoria (no-regresion: hoy ya se cumple)."
+    pruebas_minimas:
+      - "Peor caso (todas las filas cambian) y caso no-op (ninguna cambia), declarando cual es cual."
+      - "Una corrida por categoria grande, que es el uso mas frecuente."
+    regla_preventiva: "Un tiempo de una operacion masiva con EF solo vale si se midio con filas que REALMENTE cambian: si los valores nuevos son iguales a los viejos, EF no emite ningun UPDATE y la medicion mide la lectura, no la escritura. Al documentar performance de un proceso por lotes hay que declarar cuantas filas cambiaron en esa corrida. Y si el peor caso no entra holgado en el timeout de request del hosting, la operacion no puede vivir en el request aunque en localhost 'ande'."
+    fix_aplicado: null
+
+  - id: LP-031
+    modulo: "Aumento masivo de precios / previsualizacion - totales de control (AumentoMasivoPrecioService.ObtenerPreviewAsync)"
+    titulo: "El total de control 'suma de precios resultante' del preview suma los precios SIN redondear y el aplicar escribe los redondeados: la vista previa promete un total que el catalogo no va a tener"
+    severidad: low
+    reproducido_en: "La Platense - rama entrega-1-migracion, commit eec79d4 (Entrega 6), QA lote 5 del 2026-10-06, sobre laplatense_qa_l5 con los 112.485 productos reales."
+    pasos:
+      - "Previsualizar el modo 'recalcular desde el costo' con filtro vacio y anotar el valor de sumaNueva de la respuesta JSON."
+      - "Aplicar la corrida."
+      - "Correr en la base SUM(PrecioVenta) sobre el MISMO universo del filtro y comparar."
+    sintoma: "Preview sumaNueva = 21.883.240.756.300,56. Despues de aplicar, SUM(PrecioVenta) sobre el mismo universo = 21.883.240.756.302,02. Diferencia de $ 1,46 sobre 112.021 productos. Las filas de la MUESTRA si coinciden al centavo (121 filas comparadas, 0 diferencias): el desvio esta solo en el agregado."
+    expectativa: "Si el preview muestra un total, ese total es el que el catalogo va a tener despues de aplicar. El patron previsualizar->confirmar existe justamente para que lo que se ve sea lo que se escribe."
+    causa_raiz: "El redondeo del precio nuevo se hace en dos lugares distintos y en el agregado se hace tarde. Para la muestra se corrigio bien (se redondea fila por fila en memoria con MidpointRounding.AwayFromZero, que es el mismo redondeo que CalcularPrecioVenta). Para los totales, en cambio, el SumAsync suma en SQL la expresion CRUDA de la formula y el Math.Round se aplica UNA vez al resultado de la suma: Round(Sum(x)) en vez de Sum(Round(x)). Cada fila aporta hasta medio centavo de diferencia y sobre 112.000 filas eso se acumula. Es el mismo error de forma que LP-029, en otro modulo."
+    capa: Infrastructure
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/AumentoMasivoPrecioService.cs
+        motivo: "ObtenerPreviewAsync, calculo de sumaNuevo: sumar la expresion ya redondeada en SQL (Math.Round(expr, 2) dentro del Sum, igual que ya hace ContarPorDireccion para los contadores sube/baja, que SI usan el valor redondeado). El precedente esta en el mismo archivo."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "POST /AumentoMasivoPrecios/Preview (campo sumaNueva) contra SUM(PrecioVenta) post-aplicar sobre el mismo filtro"
+      condicion_falla: "sumaNueva difiere de la suma real post-aplicar en mas de 0 centavos."
+    criterio_aceptacion:
+      - "Con filtro vacio sobre el catalogo real: sumaNueva del preview == SUM(PrecioVenta) del mismo universo despues de aplicar, al centavo."
+      - "Las filas de la muestra siguen coincidiendo al centavo con lo aplicado (no-regresion)."
+      - "Los contadores suben/bajan/sin cambio siguen coincidiendo con el conteo real de filas que cambiaron."
+    pruebas_minimas:
+      - "Un filtro chico (menos de 10 productos) donde la suma se pueda verificar a mano, y el catalogo completo."
+    regla_preventiva: "En un previsualizar->confirmar, los AGREGADOS del preview tienen que redondearse con el mismo criterio y en el mismo momento que los valores que se van a persistir. Redondear la muestra y dejar el total crudo arregla lo que se ve de cerca y deja mintiendo al numero grande, que es justamente el que el usuario usa para decidir."
+    fix_aplicado: null
+
+  - id: LP-032
+    modulo: "Catalogo de productos / regla 'oferta vigente' replicada (Producto.EsOfertaVigente y sus copias inline)"
+    titulo: "Las copias de la regla 'oferta vigente' divergen en la condicion PrecioOferta > 0: las dos nuevas (aumento masivo) la incluyen y la definicion de referencia mas dos pantallas de Productos no, asi que un producto con oferta en CERO se muestra como 'Vigente hoy' mientras ninguna via de cobro la aplica"
+    severidad: low
+    reproducido_en: "La Platense - rama entrega-1-migracion, commit eec79d4 (Entrega 6), QA lote 5 del 2026-10-06. Sembrado PrecioOferta=0 con ventana 01/10-31/10 en el producto 85054 de laplatense_qa_l5."
+    pasos:
+      - "Poner a un producto PrecioOferta = 0 (el alta/edicion lo acepta: solo valida < 0) con una ventana de vigencia que incluya hoy."
+      - "Abrir /Productos y buscar ese producto en la grilla; mirar el campo ofertaVigente de la respuesta."
+      - "Abrir /Productos/Edit/{id} y mirar el badge del bloque 'Precio de oferta'."
+      - "Pedir /Presupuestos/BuscarProductos y mirar precioOferta/ofertaVigente."
+      - "Previsualizar el aumento masivo filtrando por la categoria de ese producto y mirar tieneOfertaVigente y el contador de ofertas vigentes."
+    sintoma: "Para el MISMO producto y en el mismo instante: la grilla de Productos devuelve ofertaVigente=true con precioOferta=0; /Productos/Edit dibuja el badge verde 'Vigente hoy'; el aumento masivo lo trata como SIN oferta (tieneOfertaVigente=false) y por lo tanto lo incluye en la corrida; y las dos resoluciones de precio de venta (VentaWorkflowService.PrecioDeVentaVigente y PresupuestoService.PrecioDeVentaVigente) cobran el precio de lista porque exigen PrecioOferta > 0. La pantalla de presupuesto no muestra $ 0 solo porque el JS hace 'producto.precioOferta || producto.precioVenta' y el 0 es falsy - verificado: el input queda en el precio de lista."
+    expectativa: "La regla de 'oferta vigente' es una sola. Si lo que se cobra exige PrecioOferta > 0, las pantallas que informan 'hay oferta vigente' tienen que usar la misma condicion, y la definicion de referencia (Producto.EsOfertaVigente) tiene que ser la que todas copian."
+    causa_raiz: "La regla esta escrita en 6 lugares porque tiene que traducirse a SQL en las proyecciones (un metodo de la entidad no es traducible). Las dos copias nuevas de la Entrega 6 (AumentoMasivoPrecioService.OfertaVigente y la proyeccion de la muestra) agregaron deliberadamente el > 0 para alinearse con lo que el mostrador realmente cobra, pero la definicion de referencia Producto.EsOfertaVigente, la proyeccion del listado de Productos y el badge de Productos/Edit.cshtml siguen con el PrecioOferta.HasValue original. O sea: las copias nuevas son las CORRECTAS y las viejas son las que divergen. La deuda quedo declarada porque unificar toca codigo de Ventas en produccion, pero el estado actual es observable y contradictorio en pantalla."
+    capa: Domain
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Domain/Entities/Producto.cs
+        motivo: "EsOfertaVigente es la definicion de referencia y deberia incluir el PrecioOferta.Value > 0 que las vias de cobro ya exigen por separado; con eso los call sites que la usan (CodigoBarrasLookupService, las dos PrecioDeVentaVigente) dejan de necesitar el > 0 pegado al lado."
+      - path: FerreteriaLaPlatense.Infrastructure/Services/ProductoService.cs
+        motivo: "Las dos proyecciones inline (OfertaVigente del listado y PrecioOferta de BuscarParaVentaAsync) tienen que incluir la misma condicion > 0."
+      - path: FerreteriaLaPlatense.Web/Views/Productos/Edit.cshtml
+        motivo: "El badge 'Vigente hoy' se calcula en la vista con la condicion vieja."
+      - path: FerreteriaLaPlatense.Infrastructure/Services/ProductoService.cs
+        motivo: "Alternativa complementaria: rechazar PrecioOferta = 0 en la validacion del alta/edicion (hoy solo se rechaza < 0), que vuelve el estado inalcanzable de entrada."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "POST /Productos/Listar (campo ofertaVigente) y badge de /Productos/Edit/{id}, contra la resolucion de precio de /Presupuestos (ItemPresupuesto.PrecioUnitario persistido)"
+      condicion_falla: "Dos superficies dan una respuesta distinta a 'este producto tiene oferta vigente hoy' para el mismo producto en el mismo instante."
+    criterio_aceptacion:
+      - "Con PrecioOferta = 0 y ventana vigente: la grilla de Productos devuelve ofertaVigente=false y /Productos/Edit dibuja 'Fuera de vigencia' (o el alta/edicion ya no permite guardar 0)."
+      - "Con PrecioOferta > 0 y ventana vigente: las 6 superficies coinciden en 'si' (no-regresion)."
+      - "Con PrecioOferta > 0 y ventana pasada o futura: las 6 coinciden en 'no' (no-regresion)."
+      - "El aumento masivo sigue excluyendo por defecto solo las ofertas realmente vigentes."
+    pruebas_minimas:
+      - "Un producto por cada combinacion: oferta nula, oferta 0 vigente, oferta > 0 vigente, oferta > 0 fuera de ventana."
+      - "Recorrer las 6 superficies con cada uno y comparar las respuestas entre si, no contra el codigo."
+    regla_preventiva: "Cuando una regla de negocio esta replicada porque tiene que traducirse a SQL, el inventario de copias no alcanza: hay que verificar que todas digan LO MISMO, ejecutando el caso de borde que las distingue. Y si una copia nueva se escribe MAS estricta que la definicion de referencia para alinearse con lo que realmente se cobra, la que hay que corregir es la referencia, no dejar la nueva como excepcion: una condicion que solo esta en algunas copias es un bug latente esperando el dato que lo active."
+    fix_aplicado: null
+
+  - id: LP-033
+    modulo: "Model binding de decimales / InvariantDecimalModelBinder (toda la app)"
+    titulo: "El binder de decimales prueba InvariantCulture con NumberStyles.Any ANTES que es-AR, asi que un '10,5' tipeado a la argentina se bindea como 105: la coma se interpreta como separador de miles y el valor queda multiplicado por 10"
+    severidad: low
+    reproducido_en: "La Platense - rama entrega-1-migracion. El binder viene del commit f5e6af9 (Entrega 1), o sea es preexistente; detectado por QA lote 5 del 2026-10-06 ejercitando /AumentoMasivoPrecios/Preview, donde el valor afectado es el % de recargo de hasta 112.485 productos."
+    pasos:
+      - "Postear a un endpoint cualquiera que bindee un decimal con el valor '10,5' (formato es-AR, el que una persona escribe)."
+      - "Comparar con el mismo POST enviando '10.5'."
+      - "Como control de alcance, tipear '10,5' en el <input type=number> de la pantalla y leer el value del DOM."
+    sintoma: "POST /AumentoMasivoPrecios/Preview con PorcentajeRecargo=10,5 devuelve una muestra con porcentajeRecargoNuevo = 105. Con PorcentajeRecargo=10.5 devuelve 10,5, correcto. En el navegador el riesgo NO se alcanza: Chromium normaliza el <input type=number> y manda '10.5' incluso si la persona tipea la coma (value del DOM = '10.5', checkValidity() = true), asi que hoy la unica via es un POST armado a mano, otro cliente HTTP o un navegador que mande el valor crudo."
+    expectativa: "El binder tiene que resolver el formato que el usuario escribe sin cambiarle la magnitud. Un '10,5' en es-AR es diez y medio, nunca ciento cinco."
+    causa_raiz: "InvariantDecimalModelBinder intenta primero decimal.TryParse(value, NumberStyles.Any, InvariantCulture). NumberStyles.Any incluye AllowThousands, asi que en cultura invariante la COMA es separador de miles valido y '10,5' parsea como 105 con exito - el fallback a es-AR nunca se ejecuta porque el primer intento no fallo. El orden es deliberado (resolver el punto que manda <input type=number>) y resuelve el caso para el que se escribio, pero NumberStyles.Any lo vuelve ambiguo en vez de estricto."
+    capa: Web
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Web/ModelBinders/InvariantDecimalModelBinder.cs
+        motivo: "Usar NumberStyles.AllowDecimalPoint | AllowLeadingSign (sin AllowThousands) en el intento invariante: ahi '10,5' FALLA en invariante y cae al intento es-AR, que lo resuelve en 10,5. El intento es-AR puede conservar NumberStyles.Number para seguir aceptando '1.234,56' tipeado a mano. Decidir explicitamente que pasa con un valor ambiguo como '1,234'."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "Cualquier POST con un decimal; el caso con mas consecuencia es POST /AumentoMasivoPrecios/Preview y /Aplicar con PorcentajeRecargo"
+      condicion_falla: "El valor bindeado difiere en un factor de 10/100/1000 del valor enviado con coma decimal."
+    criterio_aceptacion:
+      - "POST con '10,5' bindea 10,5 y POST con '10.5' bindea 10,5."
+      - "POST con '1.234,56' (es-AR completo) bindea 1234,56."
+      - "POST con '1,234.56' (invariante completo) bindea 1234,56."
+      - "POST con 'abc' sigue devolviendo el error de validacion y no 0 en silencio (no-regresion)."
+    pruebas_minimas:
+      - "Los cuatro formatos de arriba contra un endpoint que persista el valor, verificando en la base."
+      - "El caso ambiguo '1,234' con la decision que se tome documentada."
+    regla_preventiva: "NumberStyles.Any no es 'tolerante', es ambiguo: habilita AllowThousands y convierte el separador decimal de una cultura en separador de miles de la otra, con exito y sin excepcion. Cuando se intenta parsear en dos culturas en cascada, el primer intento tiene que ser ESTRICTO (solo punto decimal y signo) para que el fallback llegue a ejecutarse. Y el riesgo se mide por el campo mas caro que pase por el binder, no por el mas comun."
+    fix_aplicado: null
+
+  - id: LP-034
+    modulo: "Ventas / ConfirmarAsync — relectura bajo lock del Stock del Producto con ReloadAsync sobre una entidad con soft delete"
+    titulo: "La relectura bajo lock del stock queda DECORATIVA si el producto se borra (soft) en la ventana: ReloadAsync no ve la fila que el query filter global esconde, EF deja la entidad detached y el descuento de stock se aplica a una entidad que SaveChanges ya no trackea, asi que la venta se confirma con la plata correcta y el stock NO se descuenta, en silencio"
+    severidad: minor
+    reproducido_en: "La Platense - rama hotfix-transacciones-ventas, HEAD 7ca5ce3 (commits c5b27a4 + 7ca5ce3 sobre 2580f7c = lo publicado en produccion), QA gate de publicacion del 2026-10-06. Hallado por analisis dirigido del mecanismo mas el control por mutacion que probo el mismo modo de falla para Venta (mutante M1: quitar IgnoreQueryFilters rompe el invariante de cancelar-vs-confirmar con 4 fallas). La ventana del Producto NO se reprodujo end-to-end: queda como criterio de re-verificacion ejecutable."
+    pasos:
+      - "Venta en Borrador con un item de un producto de stock conocido (ej. Stock = 100, Cantidad = 2)."
+      - "Entrar a VentaWorkflowService.ConfirmarAsync. La venta se carga con .Include(v => v.Items).ThenInclude(i => i.Producto) ANTES de abrir la transaccion."
+      - "En la ventana entre esa carga y el lock, soft-borrar el producto: UPDATE Productos SET DeletedAt = UTC_TIMESTAMP() WHERE Id = <productoId>. En la app la via real es /Productos/Delete/<id> (IProductoService.EliminarAsync) o EliminarLoteAsync, que llaman a Repository.DeleteAsync y escriben DeletedAt SIN ninguna guarda de uso: borran un producto que esta en un borrador de venta."
+      - "Dejar que la confirmacion siga: toma el lock de Ventas y de Productos, y corre `foreach (var item in venta.Items.Where(i => i.DeletedAt == null)) await _context.Entry(item.Producto).ReloadAsync();`"
+      - "Comparar el stock antes y despues: SELECT Stock FROM Productos WHERE Id = <productoId>, y el estado de la venta."
+    sintoma: "La relectura 'ocurre' y no relee. Con HasQueryFilter(e => e.DeletedAt == null) aplicado a Producto (Producto : SoftDestroyable), la consulta de recarga de un producto ya borrado no trae nada, EF deja la entidad DETACHED y los valores en memoria siguen siendo los de antes del lock. Despues, `item.Producto.Stock -= item.Cantidad` se aplica a una entidad que el change tracker ya no sigue, asi que SaveChanges NO emite el UPDATE: la venta queda Confirmada, el ingreso de caja y el debito de cuenta corriente se postean por el importe correcto, y el stock queda intacto sin ningun error ni aviso. Es el mismo modo de falla que el hotfix cerro para Venta con RelerEstadoBajoLockAsync, dejado abierto para Producto cinco lineas mas abajo en el mismo metodo."
+    expectativa: "La relectura del stock usa el mismo criterio que la del estado: IgnoreQueryFilters mas proyeccion explicita de Stock y DeletedAt, y rechazo explicito si el producto quedo borrado ('El producto X fue dado de baja: no se puede confirmar la venta'). Alternativa complementaria (no excluyente): ProductoService.EliminarAsync y EliminarLoteAsync rechazan borrar un producto que participa de una venta en Borrador, que es la guarda de uso que hoy no existe. Lo que NO es aceptable es que la venta se confirme con la plata movida y el stock intacto sin que nada lo diga."
+    causa_raiz: "El hotfix de transacciones razono la asimetria ReloadAsync-vs-helper para DOS de las tres entidades que relee y no para la tercera. Para Venta se verifico que ReloadAsync no sirve (cancelar pone DeletedAt y el filtro global esconde la fila) y se cerro con RelerEstadoBajoLockAsync. Para Gasto se verifico que ReloadAsync SI vale, y es correcto: IGastoService expone solo Listar/Crear/Anular, nadie escribe Gasto.DeletedAt y el unico uso del repositorio es el AddAsync del alta. Para Producto no se hizo el mismo barrido, y la conclusion habria sido la contraria: Producto hereda SoftDestroyable, el filtro global lo alcanza, e IProductoService expone EliminarAsync y EliminarLoteAsync, cuyo Repository.DeleteAsync escribe DeletedAt sin guarda de uso. O sea: la unica de las tres entidades con una baja REALMENTE expuesta al usuario es la que quedo con ReloadAsync. El caso 'producto ya borrado antes de cargar la venta' es preexistente a 2580f7c (el codigo viejo tambien dereferencia item.Producto.Stock y tiraria NullReference), asi que lo que el hotfix agrega es especificamente la variante detached silenciosa de la ventana estrecha."
+    capa: Infrastructure
+    archivos_fix:
+      - path: FerreteriaLaPlatense.Infrastructure/Services/VentaWorkflowService.cs
+        motivo: "ConfirmarAsync: reemplazar el foreach de _context.Entry(item.Producto).ReloadAsync() por una relectura con IgnoreQueryFilters que proyecte Stock y DeletedAt de los productos de la venta (el mismo criterio que RelerEstadoBajoLockAsync ya usa para el estado), aplicar el stock sobre el valor releido y rechazar explicitamente si algun producto quedo con DeletedAt != null. Conviene que sea UN helper mas al lado del existente, por el mismo argumento que se uso para unificar los tres metodos del workflow: una sola forma, para que el que lea el diff no verifique variantes."
+      - path: FerreteriaLaPlatense.Infrastructure/Services/ProductoService.cs
+        motivo: "Complementario y de fondo: EliminarAsync y EliminarLoteAsync borran sin preguntar si el producto participa de alguna venta en Borrador (o de un presupuesto, en las ramas que lo tienen). Una guarda de uso ahi cierra la ventana en origen ademas de cerrarla en destino."
+    migracion_ef: "Ninguna. No hay columnas nuevas en ninguno de los dos caminos."
+    deteccion_qa:
+      tipo: data
+      selector_o_endpoint: "SELECT v.Id, v.Estado, i.ProductoId, i.Cantidad, p.Stock, p.DeletedAt FROM Ventas v JOIN ItemsVenta i ON i.VentaId = v.Id JOIN Productos p ON p.Id = i.ProductoId WHERE v.Estado = 4 AND p.DeletedAt IS NOT NULL"
+      condicion_falla: "Devuelve una venta Confirmada (Estado = 4) cuyo producto quedo borrado y cuyo Stock no refleja el descuento de esa venta. Para afirmarlo hay que comparar contra el stock previo: la query sola senala los candidatos, no la falla."
+    criterio_aceptacion:
+      - "Sembrar una venta en Borrador con un producto de stock conocido, soft-borrar el producto por SQL DESPUES de que la venta se cargo en memoria y antes del lock, y confirmar. Resultado aceptable: la confirmacion se RECHAZA con un mensaje que nombra el producto dado de baja, y no se postea ni caja ni cuenta corriente ni stock. Resultado tambien aceptable: la confirmacion sigue y el stock queda DESCONTADO. Resultado INACEPTABLE (el de hoy): venta Confirmada, caja y cuenta corriente posteadas, Stock intacto."
+      - "Control negativo: sin borrar el producto, la confirmacion descuenta el stock exactamente una vez (es lo que el arnes del hotfix ya afirma con 82/82)."
+    pruebas_minimas:
+      - "La secuencia cargar-venta / soft-borrar-producto / confirmar, con el Stock y el estado de la venta medidos antes y despues."
+      - "El mismo caso con el producto borrado ANTES de cargar la venta (verificar que falla ruidosamente y no en silencio, que es el comportamiento preexistente)."
+    regla_preventiva: "Cuando se releen entidades bajo lock en un proyecto donde el soft delete es global, hay que barrer TODAS las entidades que el metodo relee, no solo la que motivo el hallazgo, y decidir una por una si ReloadAsync alcanza. El criterio es si existe alguna via expuesta que escriba su DeletedAt: si existe, ReloadAsync deja la entidad detached y la relectura parece hecha sin releer (y encima el write posterior se pierde en silencio, porque SaveChanges no trackea lo detached). Un metodo que relee tres entidades con dos criterios distintos necesita el tercer criterio escrito y verificado, no heredado por parecido."
+    fix_aplicado: null

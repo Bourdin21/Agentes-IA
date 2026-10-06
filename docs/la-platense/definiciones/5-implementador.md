@@ -1,7 +1,7 @@
 # Memoria - Implementador
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-10-05 (v13 — Entrega 3 item 4c + paso 6: moneda y cotizacion CONGELADAS en la compra aplicadas de punta a punta (era un bug activo que contaminaba el catalogo) y pagos programados con aviso oportunista en vez de hosted service. Commit local, SIN deploy, SIN push)
+## Ultima actualizacion: 2026-10-06 (v18 - HOTFIX DE TRANSACCIONES PARA PRODUCCION, rama `hotfix-transacciones-ventas` desde `2580f7c`, AMPLIADO por decision de Joaquin a 5 sitios: ConfirmarAsync, FacturarAsync, CancelarBorradorAsync, GastoService.AnularAsync y RegistrarCobroAsync. Backport de `PAT-059` sin migracion EF ni columnas nuevas (`EsReversion` NO se porto: la reversion del gasto va por el monto del documento, con las 3 razones verificadas). HALLAZGO QUE ENCONTRO EL ARNES Y CAMBIA EL PATRON: `ReloadAsync` NO SIRVE como relectura bajo lock para una entidad con soft delete — el filtro global esconde la fila, la entidad queda detached y la relectura PARECE HECHA sin releer; y `Estado` no discrimina porque cancelar solo pone `DeletedAt`. El fix mecanico FALLO el criterio 8 (5 exitos de 8 y una venta borrada CON la plata movida) y se cerro con un helper unico `RelerEstadoBajoLockAsync` (IgnoreQueryFilters + proyeccion de Estado y DeletedAt) que usan los 3 metodos del workflow. Arnes 82/82 OK en 4 corridas, y control positivo de los 3 sitios nuevos: 40 FALLADAS, con una deuda de $1.000 cobrada 8 veces (saldo -$7.000, $8.000 de caja) y +$3.500 de reversiones de gasto que nunca entraron. Commit local, SIN push, SIN deploy. v16 sigue vigente para la rama de desarrollo)
 
 ## Definiciones vigentes
 
@@ -707,688 +707,6 @@ Aplicación de `PAT-016` (regla normativa del design system, ya vigente) sobre l
 7. Botón **"Limpiar filtros"**: tiene que vaciar los controles, vaciar el texto del buscador global (visualmente, no solo los resultados) y, al volver a entrar a la pantalla, no reponer nada.
 8. Regresión: los filtros de columna que ya existían (rango de fechas, combos, desde/hasta de importe) tienen que seguir funcionando igual, y el orden por columna también.
 
-### Sprint 0 — Deuda abierta (2026-10-05, rama `entrega-1-migracion`)
-
-Cierre de los 4 ítems de deuda previos a la Entrega 3, según el bloque "Sprint 0" del
-`4-presupuestador.md`. Las decisiones de negocio venían cerradas con el cliente el 2026-10-05 y no
-se re-litigaron. Un commit por ítem.
-
-#### Resultado del escaneo de reutilización (obligatorio antes de implementar)
-
-Paso 1 (`docs/patrones/cat_resumen.txt`) dio **3 matches directos**, no hizo falta llegar al grep
-dirigido de definiciones de otros proyectos:
-
-| Patrón | Uso en este sprint |
-|---|---|
-| **PAT-010** (ArgentinaTime) | Ya estaba portado al proyecto. **No se construyó nada nuevo**: se amplió el helper existente con el concepto de día/mes de negocio. Catálogo actualizado con la API nueva. |
-| **PAT-001** (Ledger CC) | Base del cobro/ajuste del ítem 0.5. Su entrada tenía `pendiente_verificar: true` — **resuelto en esta misma pasada**: rutas reales confirmadas contra `C:/Sistemas/vino-y-se-fue` (`VinoSeFue.Domain/Entities/CuentaCorriente.cs` + `MovimientoCC.cs` + `MovimientoCCProveedor.cs`). |
-| **PAT-019** (autocompletar con el saldo pendiente) | Aplicado al formulario de cobro: el importe arranca con la deuda completa + botón "Todo", editable para pago parcial. Tercera instancia del patrón en el proyecto. |
-
-Reglas del catálogo aplicadas de forma activa: **LP-002** (barrido completo de usos al ampliar),
-**LP-003** (decimales invariantes en los `value`), **MH-001** (apareció de verdad, ver abajo),
-**MH-033** (el cobro del fiado entra al ledger de caja), **REG-010** (visibilidad del botón
-acompañando al permiso real).
-
-#### Ítem 0.2 — D8: "Confirmar y facturar" no persiste el borrador
-
-**Ya estaba corregido en el commit `a6a78f0`** (2026-09-03, construido y **nunca deployado**). Ese
-commit reemplazó `submitAccion(url)` — que armaba un form nuevo con solo el token antiforgery — por
-`guardarYContinuar(continuar)`, que postea el formulario **entero** a `GuardarBorrador` con un
-hidden `continuar`; el Controller guarda primero y solo sigue a `Confirmar`/`ConfirmarYFacturar` si
-`result.Success`. Aplica a los **dos** botones, que era la parte que el parte de defecto pedía
-verificar. Así que D8 no se volvió a implementar: se **verificó y se endureció**.
-
-Lo que sí se agregó (defecto real encontrado al revisar ese código, no reportado por QA): la
-función **no tenía guarda de doble envío**. Los dos hidden comparten `name="continuar"`, así que un
-segundo click posteaba `continuar=confirmar,confirmar`, el `switch` del Controller caía en el caso
-por defecto (`_`) y **el borrador se guardaba sin cerrar la venta, sin ningún aviso en pantalla** —
-el mismo síntoma de clase que D8 (la pantalla dice una cosa y el server hace otra). Corregido con un
-flag de reentrada, el borrado de cualquier hidden previo y el bloqueo de los tres botones de acción
-hasta que el POST navegue.
-
-#### Ítem 0.3 — D9: día de negocio de la caja
-
-**Definición aplicada:** día de negocio = día **calendario en hora Argentina** (sin corte nocturno)
-y mes de negocio = mes calendario. La base sigue guardando `DateTime` en **UTC**.
-
-La causa raíz medida es que `CajaMovimiento.Fecha` convivía con **dos semánticas en la misma
-columna**: `VentaWorkflowService` y `GastoService.AnularAsync` escribían un instante UTC, mientras
-`GastoService.CrearAsync` y `RegistrarMovimientoManualAsync` escribían una fecha calendario a
-medianoche. Sobre eso, las agregaciones comparaban contra `DateTime.Today` (hora del **SO**, huso
-Pacífico en producción) y las guardas contra `DateTime.UtcNow.Date` (día calendario **UTC**).
-Imposible ser consistente sin unificar primero la columna.
-
-**Decisión:** `CajaMovimiento.Fecha` y `MovimientoCCCliente.Fecha` son **siempre un instante UTC**;
-el día de negocio se **deriva** proyectando a ART. Toda la conversión vive en un único lugar,
-`ArgentinaTime` (ampliación de PAT-010): `Hoy`, `MesActual`, `DiaDeNegocio(utc)`,
-`InicioDiaUtc(día)`, `RangoDiaUtc`, `RangoDiasUtc` (último día **inclusive**, que es lo que espera
-el daterangepicker) y `RangoMesUtc`. Después del cambio **no queda ningún** `DateTime.Today` ni
-`DateTime.UtcNow.Date` en una decisión de día/mes, y **ninguna** `ConvertTimeToUtc`/`FromUtc` fuera
-del helper.
-
-Por **LP-002** se barrieron todos los usos, no solo Caja: `CajaMovimientoService` (filtros del
-listado, búsqueda global por fecha tipeada, `EstaCerradoAsync`, resumen y cierre diario/mensual,
-proyección de la fecha a ART para la grilla), `GastoService` (3 sitios, incluida la separación de
-"instante que se persiste" vs. "día de negocio que se consulta" en `AnularAsync`),
-`VentaWorkflowService` (la guarda de caja cerrada), `CuentaCorrienteClienteService`,
-`CajaController`, `DashboardService` (ya era ART-aware pero armaba la conversión a mano — se pasó a
-`RangoMesUtc`), `EntregaService.ReagendarAsync`, `ProductoService` y `CodigoBarrasLookupService`
-(vigencia de oferta), más los defaults de ViewModels/DTOs y las vistas de Dashboard y Productos.
-
-**Dos hallazgos que el parte de defecto no mencionaba:**
-
-1. **El cierre mensual no tenía ninguna guarda de período.** Dejaba cerrar un mes anterior (bien, es
-   el flujo real del cliente) pero también el mes **en curso** y cualquier mes **futuro**. Cerrar el
-   mes en curso el día 10 congelaría un mes incompleto y bloquearía el resto del mes sin que nadie
-   lo note hasta la primera venta rechazada. Agregada la guarda explícita: mes anterior **sí**, mes
-   en curso **no** (con mensaje que explica que el cierre se hace a partir del día 1 del mes
-   siguiente), mes futuro **no**. Simétricamente, `CerrarDiaAsync` ahora rechaza un día futuro (el
-   día en curso sí se puede cerrar — es el cierre diario de la ferretería).
-2. **`ArgentinaTime.Zone` resolvía la zona con un único `FindSystemTimeZoneById("Argentina Standard
-   Time")`**, que es el id de **Windows** y no existe en Linux. Al volverse este helper la fuente
-   única de **todas** las fechas del sistema, un `TimeZoneNotFoundException` ahí ya no rompería una
-   pantalla: rompería el **arranque de la aplicación** (es un inicializador estático). Se le portó la
-   cadena de fallback que `AfipService` ya tenía resuelta (IANA entonces id de Windows entonces UTC-3
-   custom) y `AfipService` ahora **reusa** `ArgentinaTime.Zone` en vez de mantener su copia.
-
-**Migración de datos:** `20261005151611_D9_NormalizarFechaCajaMovimiento_DiaDeNegocio`, **solo
-datos, sin cambio de esquema**. Suma 3 horas a las filas de `CajaMovimientos` escritas como
-medianoche calendario, para que pasen a ser el instante UTC equivalente a las 00:00 ART del mismo
-día. Sin esto, las filas viejas proyectarían a las 21:00 del día **anterior** y descuadrarían dos
-días a la vez. Discriminador: hora exactamente `00:00:00.000000` **y** `OrigenTipo IN ('Gasto',
-'Ajuste')` — los dos únicos orígenes que podían escribir así (un `DateTime.UtcNow` real no cae nunca
-en la medianoche exacta al microsegundo). `Down` es la reversa exacta. Aplicada a `laplatense_dev`:
-4 de 9 filas corregidas, verificado por consulta directa.
-
-#### Ítem 0.4 — Corrección de datos: `UnidadVenta`
-
-Modo correctivo nuevo `--solo-unidad-venta` en `tools/MigracionCatalogo`, mismo patrón que
-`--solo-codigo-barras` y `--solo-codigo-propio`. **No toca SQL Server**: resuelve y retorna *antes*
-de `sql.OpenAsync()`, porque la base legada ya no existe en la máquina.
-
-Hace dos cosas, en este orden (el listado va **primero**: después del UPDATE ya no se podría
-distinguir cuáles venían de `Metro`):
-
-1. Emite el **listado** de candidatos reales a corte por metro a un CSV, con el grupo detectado.
-   Solo listado: **no cambia nada y no deja nada en `Metro`**.
-2. Pasa **todos** los `Metro` a `Unidad` con un `UPDATE` directo (son ~87k filas; entidad por
-   entidad con tracking tardaría minutos y estamparía auditoría sobre todo el catálogo).
-
-**No se infiere la unidad por palabra clave**, según la regla cerrada. El propio CSV confirma por
-qué: entre los matches de "alambre" aparecen `ABRAZADERA DE ALAMBRE 32-50 MM` y `ALAMBRE 0,9 X 5 KG
-(PRECIO X KILO)`, que no se cortan por metro. Los 14 productos en `Peso` quedan como están. Se
-agregó además un aviso (no una corrección) si alguna fila queda con `UnidadCompra != UnidadVenta` y
-sin `FactorConversion` válido (R4) — el script no inventa el factor; en la corrida real no hubo
-ninguna.
-
-**Números reales de la corrida contra `laplatense_dev`:**
-
-| | Antes | Después |
-|---|---:|---:|
-| `Metro` | 87.542 | **0** |
-| `Unidad` | 24.929 | **112.471** |
-| `Peso` | 14 | 14 |
-
-Candidatos listados (deduplicados: un producto se cuenta una sola vez, en el primer grupo que lo
-toma): cable 804, manguera 535, cadena 534, alambre 276, soga/piola/cuerda 271, tanza 215 — **total
-2.635**, que coincide exactamente con el total previsto en el plan. CSV conservado en
-`Migracion/candidatos-corte-por-metro-20261005-121947.csv`.
-
-**MH-001, quinta aparición en el proyecto — variante nueva.** La primera versión del listado era un
-solo query con `patrones.Any(pat => EF.Functions.Like(p.Nombre.ToUpper(), pat))` sobre un `string[]`
-local. Revienta con `UnreachableException: A RelationalTypeMapping collection type mapping could not
-be found` — mismo defecto de fondo que el `IN` de MH-001, pero por `Any()` + `LIKE`, con un
-**mensaje de error distinto** y, lo más importante, **invisible al grep canónico de la regla**
-(`.Contains(`): no hay ningún `.Contains` en ese código. La encontró la **ejecución real** contra
-`laplatense_dev`, no la revisión. Corregido con una consulta por patrón (parámetro escalar) uniendo
-ids en un `HashSet`. La variante quedó documentada en `MH-001` de
-`32-estandares-qa-implementador.instructions.md`, con el barrido ampliado a
-`grep -rnE "\.(Contains|Any)\("`.
-
-#### Ítem 0.5 — Cobro de cuenta corriente de clientes
-
-Dos acciones nuevas sobre la pantalla que ya existía (`ClientesController.CuentaCorriente`), que
-hasta ahora era **solo de consulta** — los orígenes `Pago` y `Ajuste` del enum no tenían camino desde
-la UI y el cobro del fiado se llevaba por fuera del sistema.
-
-**Cobro** (`RegistrarCobroAsync`): `Credito` con `Origen = Pago` en la CC **más** un `Ingreso` en
-Caja, en **una sola transacción** con dos `SaveChanges` (el primero asigna el Id que se usa como
-`OrigenId` del movimiento de caja — mismo criterio que `GastoService.CrearAsync`). Son dos hechos
-distintos y uno no reemplaza al otro: **MH-033**, el ledger de caja registra toda entrada real de
-dinero y el cobro del fiado es una entrada real. Guardas: importe > 0, no mayor a la deuda, fecha no
-futura, **caja del día no cerrada** (misma guarda que `ConfirmarAsync`), y se rechaza el medio
-`CuentaCorriente` (cobrar la CC con CC no mueve plata, solo rotaría la deuda).
-
-**Ajuste** (`RegistrarAjusteAsync`): `Debito` o `Credito` con `Origen = Ajuste` y **motivo
-obligatorio**. **No toca Caja, a propósito** — un ajuste corrige el ledger de la deuda (una venta
-fiada mal cargada, una bonificación acordada, un arrastre del sistema viejo); meterlo en Caja
-inflaría el arqueo con dinero que nunca se movió. Confirmación SweetAlert2 previa.
-
-**Origen nuevo del ledger de caja: `"CobroCC"`.** Por **LP-002** se barrió todo lo que ya lee
-`OrigenTipo` y se agregó la opción al combo "Origen" del filtro de `Views/Caja/Index.cshtml` — sin
-eso el cobro entraría a la caja pero sería imposible de aislar en la grilla.
-
-**Permisos — se siguió el precedente de la Entrega 2, sin inventar criterio nuevo.** *Cobrar* es
-parte de la operación diaria del mostrador y es exactamente lo que ya hace un Vendedor al confirmar
-una venta (genera un `CajaMovimiento` de `Ingreso` desde un documento de negocio): queda con el
-`RequireVentas` del controller. *Ajustar* mueve el saldo sin respaldo de una operación real, igual
-que el movimiento manual de caja, y ese es Administrador exclusivo (`CajaController` es
-`RequireAdministracion`): el ajuste lleva su propio `[Authorize(Policy = "RequireAdministracion")]`
-en las dos acciones, y el botón se oculta para el Vendedor (**REG-010**: la visibilidad acompaña al
-permiso real, que además está validado en el server).
-
-Las dos pantallas siguen el design system ya aplicado a las 21 existentes (`.ov-form-page`,
-`.ov-page-head`, `.ov-form-actions`, `.ov-required`, Select2 por auto-init global). **LP-003**
-aplicado explícitamente: el importe del cobro arranca **prellenado con la deuda**, así que `asp-for`
-con cultura es-AR habría emitido `value="1234,56"`, el navegador lo habría considerado inválido y
-habría dejado el input **vacío sin ningún mensaje** — se renderiza con `InvariantCulture` vía el
-helper `num` de la vista. No es un riesgo latente acá, es el caso inmediato.
-
-#### Archivos y capas modificadas (Sprint 0)
-
-**Application**
-- `Helpers/ArgentinaTime.cs` — día/mes de negocio + zona por fallback (PAT-010 ampliado).
-- `Interfaces/ICajaMovimientoService.cs` — contrato del día de negocio documentado en la firma.
-- `Interfaces/ICuentaCorrienteClienteService.cs` — `RegistrarCobroAsync`, `RegistrarAjusteAsync`.
-- `DTOs/MovimientoCCClienteDtos.cs` — `CobroCCClienteDto`, `AjusteCCClienteDto`.
-- `DTOs/CajaDtos.cs`, `DTOs/GastoDtos.cs` — defaults al día de negocio.
-
-**Infrastructure**
-- `Services/CajaMovimientoService.cs` — todas las fronteras de día/mes; totales centralizados en `ObtenerTotalesDiasAsync`/`ObtenerTotalesMesAsync`; guardas de período del cierre diario y mensual.
-- `Services/CuentaCorrienteClienteService.cs` — cobro + ajuste, filtros y proyección de fecha; depende ahora de `ICajaMovimientoService`.
-- `Services/GastoService.cs`, `Services/VentaWorkflowService.cs`, `Services/DashboardService.cs`, `Services/EntregaService.cs`, `Services/ProductoService.cs`, `Services/CodigoBarrasLookupService.cs` — día de negocio.
-- `Services/AfipService.cs` — reusa `ArgentinaTime.Zone`, se eliminó su `ResolverTzArgentina` duplicado.
-- `Migrations/20261005151611_D9_NormalizarFechaCajaMovimiento_DiaDeNegocio.cs` — solo datos.
-
-**Web**
-- `Controllers/ClientesController.cs` — 4 acciones nuevas (GET/POST de cobro y de ajuste) + helpers de repintado.
-- `Controllers/CajaController.cs` — día/mes de negocio.
-- `Models/CuentaCorrienteClienteViewModels.cs` — **nuevo**.
-- `Models/CajaViewModels.cs`, `Models/GastoViewModels.cs`, `Models/EntregaViewModels.cs` — defaults.
-- `Views/Clientes/RegistrarCobro.cshtml`, `Views/Clientes/RegistrarAjuste.cshtml` — **nuevas**.
-- `Views/Clientes/CuentaCorriente.cshtml` — botones de acción.
-- `Views/Caja/Index.cshtml` — origen `CobroCC` en el filtro (LP-002).
-- `Views/Ventas/Editar.cshtml` — guarda de doble envío en `guardarYContinuar`.
-- `Views/Dashboard/Index.cshtml`, `Views/Productos/Edit.cshtml` — día de negocio.
-
-**tools**
-- `MigracionCatalogo/Program.cs` — modo `--solo-unidad-venta`.
-
-#### Migraciones EF generadas
-
-`20261005151611_D9_NormalizarFechaCajaMovimiento_DiaDeNegocio` — **solo datos, sin DDL**. Aplicada a
-`laplatense_dev`. **Producción está dos migraciones atrás**: le falta esta y
-`20260903160346_EntregaTres_ConfirmarSinFactura_RecargoCuotas_NotaPago` (el ítem 0.1, que es de
-Joaquín).
-
-#### Evidencia
-
-- **Build de la solución: 0 errores** (`dotnet build FerreteriaLaPlatense.slnx`). Verificado que las
-  vistas Razor **sí** se compilan en el build (comprobado introduciendo a propósito un símbolo
-  inexistente en una `.cshtml`: el build falló; revertido), así que el build limpio también cubre las
-  dos pantallas nuevas.
-- **Grafo de DI validado** con `ValidateOnBuild` + `ValidateScopes` sin levantar la app:
-  `CuentaCorrienteClienteService` resuelve con su dependencia nueva, sin ciclo ni captive dependency
-  (ambos `Scoped`).
-- **Fronteras de día/mes: 8 de 8 verificaciones ejecutadas en verde**, incluido el criterio de
-  aceptación de D9 (instante UTC `2026-09-25 01:44` da día de negocio `2026-09-24`; el arqueo del 24
-  la incluye y el del 25 no; y la venta de las 22:44 del 30/09 cae en el mes de septiembre).
-- **Cobro/ajuste ejercitados contra `laplatense_dev` a nivel Service: 24 de 24 en verde** — el cobro
-  baja la CC y genera exactamente un `Ingreso` de caja con `OrigenTipo="CobroCC"` y `OrigenId`
-  correcto; el ajuste mueve el saldo y **no** genera movimiento de caja; las 4 guardas del cobro
-  rechazan; con la caja cerrada el cobro y el movimiento manual quedan bloqueados; se puede cerrar un
-  mes anterior y **no** el mes en curso ni uno futuro. Las filas de prueba se borraron al final (dev
-  quedó en su línea base: 9 `CajaMovimientos`, 0 `MovimientosCCCliente`).
-- **Ítem 0.4 corrido contra `laplatense_dev`** con los números de la tabla de arriba.
-- **Sin smoke test funcional por navegador** (regla del rol). La verificación en navegador queda en
-  la guía de abajo — ver la nota de discrepancia con el brief en `trazabilidad.md`.
-
-#### Guía de verificación manual (a ejecutar por el cliente/QA, no por el Implementador)
-
-1. **D8** — abrir un borrador de venta, cambiar la **cantidad** de un ítem sin guardar, apretar
-   **Confirmar venta**: la venta queda `Confirmada` con la cantidad **que estaba en pantalla**.
-   Repetir con "Confirmar y facturar". Hacer **doble click** rápido en Confirmar: tiene que confirmar
-   una sola vez, nunca quedar en Borrador guardado.
-2. **D9 (el criterio de aceptación)** — registrar una venta cerca de las **22:44 hora Argentina** y
-   verificar que aparece en el arqueo **de ese día**, no del siguiente. Después **cerrar la caja de
-   ese día** e intentar una venta nueva con esa fecha, a cualquier hora: tiene que quedar bloqueada.
-3. **D9 / mensual** — el **día 1**, cerrar la caja del **mes anterior**: tiene que dejar. Intentar
-   cerrar el **mes en curso**: tiene que rechazar con el mensaje de "todavía está en curso".
-4. **D9 / listados** — mirar la columna Fecha de Caja y de la cuenta corriente: la hora mostrada
-   tiene que ser la hora **argentina** del movimiento. Filtrar por un rango de fechas que incluya un
-   movimiento nocturno y confirmar que cae del lado esperado.
-5. **0.4** — en Catálogo, confirmar que ya **no hay productos en "Metro"** y abrir alguno del CSV de
-   candidatos (ej. un cable) para ver que quedó en "Unidad" a la espera de la marcación manual.
-6. **0.5 / cobro** — cliente con deuda, **Registrar cobro**: el importe viene **prellenado con la
-   deuda**, el botón "Todo" lo repone, un importe mayor a la deuda se rechaza. Guardar y verificar
-   que (a) baja el saldo, (b) aparece el movimiento `Pago` en el historial de la cuenta y (c) aparece
-   un **Ingreso** en Caja filtrable por origen **"Cobro de cuenta corriente"**.
-7. **0.5 / ajuste** — con usuario **Administrador**: registrar un ajuste de crédito con motivo, mueve
-   el saldo y **no** aparece nada en Caja. Intentar sin motivo: rechaza.
-8. **0.5 / permisos** — con usuario **Vendedor**: el botón "Ajuste manual" **no** se ve, y entrar a
-   `/Clientes/RegistrarAjuste/{id}` a mano tiene que dar acceso denegado. "Registrar cobro" **sí**
-   tiene que estar disponible.
-9. **LP-003** — guardar un cobro, volver a abrir el formulario y mirar que los inputs numéricos **no**
-   quedan vacíos.
-
-#### Riesgos y supuestos (Sprint 0)
-
-- **La migración de datos D9 asume el discriminador de la medianoche exacta.** Verificado contra
-  `laplatense_dev` (4 filas, todas legítimas). En producción el volumen es chico pero **conviene
-  mirar el conteo antes de aplicar**: `SELECT OrigenTipo, COUNT(*) FROM CajaMovimientos WHERE
-  TIME_TO_SEC(TIME(Fecha))=0 AND MICROSECOND(Fecha)=0 GROUP BY OrigenTipo`.
-- **`Gasto.Fecha` y `CierreCajaDiario.Fecha` siguen siendo fechas calendario** (día de negocio
-  argentino), no instantes. Es deliberado y está documentado en el código: son columnas de semántica
-  date-only. No se las tocó ni se las debe proyectar.
-- **El ajuste de CC no impacta Caja, por diseño.** Si el cliente lo usa para registrar un cobro real,
-  la caja va a quedar corta. Mitigado en el texto de la pantalla, no por código.
-- **El cobro no registra la cuenta real donde entró la plata** (MH-034). El medio de pago queda en la
-  descripción del movimiento, pero el ledger de caja sigue siendo único y sin dimensión "cuenta".
-  Consistente con lo que ya hace Ventas; si el negocio necesita conciliar, es un cambio de alcance
-  aparte.
-- **No se tocó la vigencia de oferta más allá de cambiar el "hoy"**, ni el circuito AFIP (sigue
-  deshabilitado, sin certificado).
-
-#### Hallazgo fuera de alcance, para decidir (CERRADO el 2026-10-05 en el commit `7477550`)
-
-`DashboardService` contaba las ventas del día y del mes filtrando **solo**
-`Estado == EstadoVenta.Facturada`. Se resolvió con el criterio anticipado acá
-(`Confirmada || Facturada`), junto con el mismo filtro en `ClasificacionAbcAutomaticaService`.
-Queda como antecedente de por qué apareció después `LP-008`: el código se corrigió pero los
-comentarios prescriptivos que explicaban el criterio viejo no, y dejaron una regla de negocio
-falsa en el repo (ver la sección siguiente).
-
-### Sprint 0 — ronda de fixes de QA: los 7 defectos abiertos (2026-10-05, rama `entrega-1-migracion`)
-
-Cierre de los 7 partes de defecto que dejaron los 3 lotes de QA del Sprint 0 (`LP-006` a `LP-012`
-en `docs/qa/regresiones-manuales.yml`; parte completo en `6-qa.md`). El lote 1 (día/mes de negocio)
-había dado **NO-GO** con 2 `major` en el circuito de dinero, y el deploy a producción estaba
-bloqueado hasta cerrarlos. **Un solo commit** (`00f7dd4`), **sin migración EF** — no se modificó el
-modelo de datos (verificado con `dotnet ef migrations has-pending-model-changes`: *"No changes have
-been made to the model since the last migration"*).
-
-#### Resultado del escaneo de reutilización
-
-Paso 1 (`docs/patrones/cat_resumen.txt`): dos matches directos, los dos aplicados.
-
-- **`PAT-010`** (ArgentinaTime, hora correcta en hosting compartido) — es la pieza que ya centraliza
-  la convención; `LP-009`/`LP-010`/`LP-011` se resuelven **ampliándola**, no construyendo nada nuevo.
-- **`PAT-016`** (búsqueda global multi-formato + filtros persistidos en Session) — `LP-012` es
-  exactamente su caso de uso; se portó la implementación que ya está en los 6 listados de este mismo
-  repo (`BusquedaHelper` + `FiltrosSessionHelper` + `window.Filtros`), sin escribir helpers nuevos.
-
-No se agregó ningún patrón al catálogo: todo lo implementado es aplicación de patrones ya
-catalogados o corrección puntual de este sistema.
-
-#### `LP-009` (major) — la guarda de caja cerrada ignoraba el cierre mensual
-
-Causa confirmada: la guarda consultaba **únicamente** `CierresCajaDiarios`. El commit `628cb7a`
-había agregado la mitad "no se puede cerrar el mes en curso ni uno futuro" y dejó afuera la
-simétrica "no se puede imputar a un mes ya cerrado" — son la misma regla vista de los dos lados.
-
-**Pieza nueva, una sola y compartida:** `ICajaMovimientoService.ValidarPeriodoAbiertoAsync(diaDeNegocio, accion)`,
-que consulta **mes y día** y devuelve `null` si el período está abierto o el **mensaje listo para
-mostrar** si está cerrado (más `EstaMesCerradoAsync(anio, mes)`, que antes era una consulta inline
-dentro de `CerrarMesAsync`). Se eligió que devuelva el mensaje y no un bool para que ninguna vía de
-escritura pueda redactar el suyo y divergir: el parámetro `accion` completa la frase
-(*"La caja del mes 09/2026 ya tiene cierre mensual: no se puede registrar un gasto con esa fecha."*).
-El mes se consulta **antes** del día: es el bloqueo más fuerte (abarca días que individualmente
-pueden no tener cierre diario) y es el mensaje que al usuario le explica de verdad por qué no puede
-imputar ahí.
-
-**Todas las vías de escritura de caja quedaron cubiertas** (no solo la que reportó QA), relevadas
-por los usos de `EstaCerradoAsync`:
-
-| Vía de escritura | Archivo | Día de negocio que valida |
-|---|---|---|
-| Venta confirmada (es el paso que mueve caja; `FacturarAsync` no la toca) | `VentaWorkflowService.ConfirmarAsync` | `ArgentinaTime.Hoy` |
-| Gasto — alta | `GastoService.CrearAsync` | `dto.Fecha` (la que eligió el usuario) |
-| Gasto — anulación (contramovimiento fechado hoy) | `GastoService.AnularAsync` | `ArgentinaTime.DiaDeNegocio(ahora)` |
-| Cobro de cuenta corriente | `CuentaCorrienteClienteService.RegistrarCobroAsync` | `dto.Fecha` |
-| Movimiento manual de caja | `CajaMovimientoService.RegistrarMovimientoManualAsync` | `dto.Fecha` |
-| Cierre diario (no es un movimiento, pero no puede abrirse dentro de un mes cerrado) | `CajaMovimientoService.CerrarDiaAsync` | `fechaDia` |
-
-**Decidido NO cubrir, con motivo:** `CuentaCorrienteClienteService.RegistrarAjusteAsync` **no** lleva
-la guarda, porque por diseño explícito no toca Caja (un ajuste corrige el ledger de la deuda, no
-representa plata que entró o salió — ver su XML-doc). No es una vía de escritura de caja.
-
-#### `LP-010` (major) — `Venta.Fecha` quedó con la semántica vieja
-
-Decisión ya cerrada por el orquestador y aplicada tal cual: `Venta.Fecha` sigue el **mismo** criterio
-que `CajaMovimiento.Fecha` — instante UTC en la base, día de negocio derivado proyectando a ART con
-`ArgentinaTime`. Sin una segunda convención, y **sin migración de datos**: la columna ya guardaba
-`DateTime.UtcNow`, lo que estaba mal era **cómo se consumía**.
-
-Cuatro puntos de consumo corregidos en `VentaWorkflowService`, más el XML-doc de la entidad:
-
-1. **Filtros `fechaDesde`/`fechaHasta`**: comparaban la columna UTC contra la medianoche cruda del
-   día elegido → ahora `ArgentinaTime.InicioDiaUtc(...)` en los dos extremos (hasta inclusive).
-2. **Proyección del listado**: se materializa la página ya paginada en un tipo anónimo y recién
-   después se proyecta `Fecha = ArgentinaTime.From(...)` — la conversión no se traduce a SQL. Mismo
-   patrón exacto que `CajaMovimientoService.ListarMovimientosAsync`.
-3. **Buscador global por fecha** (`PAT-016`): comparaba `Year`/`Month`/`Day` de la columna cruda
-   (= día calendario UTC) contra el día que tipeó el usuario (= día argentino) → ahora
-   `ArgentinaTime.RangoDiaUtc(fecha)`.
-4. **Detalle** (`MapearDetalleAsync`): `Fecha = ArgentinaTime.From(venta.Fecha)`.
-
-Verificado además que **`Venta.Fecha` nunca se escribe desde un DTO ni desde un ViewModel** (solo el
-inicializador `= DateTime.UtcNow` de la entidad), así que no hay round-trip que pueda re-persistir el
-valor ya proyectado a ART como si fuera UTC. El `OrderBy` sigue sobre la columna UTC a propósito: el
-offset es fijo, así que el orden UTC y el orden ART son idénticos.
-
-#### Barrido `LP-002` de la convención de fechas — resultado completo
-
-Es la **segunda** vez en el sprint que un barrido `LP-002` queda incompleto (la primera fue el
-Dashboard/ABC), así que se relevaron **todas** las propiedades `DateTime` de `Domain/Entities` y
-todos sus sitios de uso, no solo `Venta`. Tabla de cierre:
-
-| Entidad.Campo | Semántica en base | Estado |
-|---|---|---|
-| `CajaMovimiento.Fecha` | instante UTC | OK (D9) |
-| `MovimientoCCCliente.Fecha` | instante UTC | OK (proyecta con `From`, filtra por rango UTC) |
-| `Venta.Fecha` | instante UTC | **corregido acá** (`LP-010`) |
-| `AjusteStock.Fecha` | instante UTC | **corregido acá** — el historial de stock la mostraba cruda con hora |
-| `Entrega.FechaEntregada` | instante UTC | **corregido acá** — el detalle de entrega la mostraba cruda con hora |
-| `ApplicationUser.CreatedAt` | instante UTC | **corregido acá** — listado y detalle de usuarios (campo de auditoría, no de negocio, pero misma convención) |
-| `Gasto.Fecha` | día calendario ART | OK (se guarda y se compara como día) |
-| `Gasto.FechaAnulacion` | instante UTC | OK — no se muestra en ninguna pantalla |
-| `CierreCajaDiario.Fecha` | día calendario ART | OK |
-| `CierreCajaDiario/Mensual.FechaCierre` | instante UTC | OK (proyecta con `From`) |
-| `Entrega.FechaProgramada` | día calendario ART | OK (se guarda con `.Date`, se filtra como día) |
-| `PagoVenta.Fecha` | instante UTC | OK — no se expone en ningún DTO |
-| `Producto.PrecioOfertaDesde/Hasta` | día calendario ART | OK (vigencia cortada contra `ArgentinaTime.Hoy`) |
-| `Venta.VencimientoCAE` | fecha pura de AFIP (`yyyyMMdd`) | OK — no es un instante, no se proyecta |
-| `Notification.CreatedAt`/`ReadAt`, `SoftDestroyable.*`, `ApplicationUser.UpdatedAt` | instante UTC | OK — auditoría, no se renderiza |
-
-**Tres hallazgos propios** (`AjusteStock.Fecha`, `Entrega.FechaEntregada`,
-`ApplicationUser.CreatedAt`), los tres corregidos en este mismo commit como pedía el parte.
-
-#### `LP-007` (minor) — un valor desconocido de `continuar` era un no-op silencioso
-
-El `switch` del POST de Venta resolvía el `default` como "guardar y listo", así que un valor
-desconocido devolvía HTTP 200 con el mensaje de guardado mientras la venta quedaba abierta sin que
-nadie se enterara. Ahora **solo la ausencia del campo** significa "guardar el borrador"
-(`null or ""`, con `Trim()` previo) y cualquier otro valor cae en `AccionNoReconocida`.
-
-**Decisión de criterio propio:** no se devuelve `BadRequest` seco. Cuando se llega a ese punto el
-borrador **ya quedó guardado**, así que un 400 haría pensar que no se guardó nada; se redirige a
-`Editar` con `TempData["ErrorMessage"]` diciendo explícitamente *"el borrador se guardó pero la venta
-NO se cerró"*. Cumple el criterio (nunca un 200 que parece éxito) y no miente sobre el estado real.
-Verificado que el botón "Guardar borrador" (un `type="submit"` que no agrega el hidden) sigue
-cayendo en la rama de guardado normal.
-
-Se corrigió además el **comentario** de `Views/Ventas/Editar.cshtml` que afirmaba la premisa que QA
-refutó (que el doble click posteaba `"confirmar,confirmar"` — el model binder toma el primer valor).
-La guarda de reentrada **se queda**, porque lo que previene sí es real: dos POST de cierre en vuelo
-sobre la misma venta, donde el segundo encuentra la venta fuera de `Borrador` y le muestra un error
-innecesario al vendedor. El comentario ahora dice ese motivo, no el inventado.
-
-#### `LP-008` (minor) — comentarios que contradecían el código
-
-`ClasificacionAbcAutomaticaService` (XML-doc de clase + comentario previo al `Where`) y
-`DashboardService` (XML-doc de `ObtenerTopProductosMesAsync`) seguían afirmando que *"solo cuentan
-los ítems en estado `Facturada`"* y que *"el filtro por `Estado == Facturada` es imprescindible"*,
-cuando el código ya filtra `Confirmada || Facturada` desde `7477550`. Son prescriptivos, así que
-dejaban una **regla de negocio falsa** en el repo.
-
-**Corregidos, no borrados**: se conserva (y se explicita mejor) la parte válida —por qué `Borrador` y
-`Anulada` quedan afuera, que un borrador abandonado infla la rotación y sube la clase ABC— y se
-agrega por qué `Confirmada` **tiene que** estar: es el estado normal de una venta cerrada, la factura
-es un paso posterior y opcional, y dejarla afuera subcontaba la rotación real. Se arregló también la
-referencia cruzada rota (`DashboardService.ObtenerProductosMasVendidos`, que no existe → es
-`ObtenerTopProductosMesAsync`).
-
-#### `LP-006` (minor) — reloj de 12 horas sin AM/PM
-
-No era un problema de huso: el wire ya entrega la fecha proyectada a ART. Era `toLocaleString('es-AR')`
-a secas en el cliente, que usa reloj de 12 h sin meridiano (13:04 → `01:04:22`, 00:00 → `12:00:00`).
-
-**Pieza nueva:** `window.Fmt` en `site.js`, con `fechaHora(v)` (`hour12: false`, sin segundos — en una
-grilla no aportan) y `fecha(v)` para las columnas que son día calendario. Las dos toleran null y fecha
-inválida. Se reemplazaron los **8** renders de fecha de las grillas (`Caja/Index`, `Caja/Cierres` ×2,
-`Clientes/CuentaCorriente`, `Stock/Historial`, `Ventas/Index`, `Gastos/Index`, `Entregas/Index`) para
-que el formato no vuelva a divergir pantalla por pantalla. Se incluyeron también los renders de solo
-fecha, que no tenían el bug: el objetivo es que no quede ningún `toLocaleString`/`toLocaleDateString`
-de fecha suelto en las vistas.
-
-#### `LP-011` (minor) — `/Caja/Mensual?mes=13` devolvía HTTP 500
-
-La validación *"Mes o año inválido"* de `628cb7a` era **código muerto para este GET**: el `mes=13`
-llegaba hasta `ArgentinaTime.RangoMesUtc` → `new DateTime(anio, 13, 1)` →
-`ArgumentOutOfRangeException`, mucho antes de llegar a ella (la validación vivía solo en
-`CerrarMesAsync`).
-
-Resuelto poniendo el rango válido en un único lugar —`ArgentinaTime.EsMesDeNegocioValido(anio, mes)`
-(2000–2999, 1–12)— consultado **tanto** por el GET de la pantalla **como** por `CerrarMesAsync`, para
-que las dos no puedan divergir. El GET inválido ahora redirige al mes en curso con
-`TempData["ErrorMessage"]` (el redirect no lleva parámetros, así que no puede reciclar). Se documentó
-el precondicional en el XML-doc de `RangoMesUtc`.
-
-#### `LP-012` (minor) — buscador que no buscaba en los listados de cierres
-
-**Corresponde `PAT-016`**: las dos pantallas dibujaban el buscador del DataTable (está activo por
-defecto) y los Services ignoraban `request.SearchValue`. Se aplicó igual que en los otros 6 listados,
-en vez de sacar el control.
-
-| Listado | Columna de texto en el OR final | `extraIds` (importe) | `extraIds` (fecha) | `extraIds` (otros) |
-|---|---|---|---|---|
-| **Cierres diarios** | `FullName` del usuario que cerró | `TotalIngresos`/`TotalEgresos`/`Saldo` (rango + substring) | `Fecha` (día calendario, comparación directa) **y** `FechaCierre` (instante UTC, rango del día de negocio) | — |
-| **Cierres mensuales** | `FullName` del usuario que cerró | `TotalIngresos`/`TotalEgresos`/`Saldo` (rango + substring) | — (no hay columna de fecha en la grilla) | `Anio` tipeado; nombre del mes (`"septiembre"` → `Mes == 9`) |
-
-**`MH-001` evitado, y por qué fue el riesgo real de este ítem.** La única columna de texto de las dos
-grillas es el nombre del usuario que cerró, que vive en `AspNetUsers` y **no tiene navegación** desde
-las entidades de cierre. El camino intuitivo —resolver los ids de usuario que matchean y filtrar con
-`CerradoPorUsuarioId IN (...)`— es exactamente `MH-001`: un `IN` sobre colección local de **string**,
-que en este provider revienta incluso con la colección vacía (ya pasó 4 veces acá, y está documentado
-en el propio `ListarCierresDiariosAsync`). Se resolvió con una **sub-consulta correlacionada**
-(`_context.Users.Any(u => u.Id == c.CerradoPorUsuarioId && u.FullName.Contains(termino))`), que se
-traduce entera a SQL y nunca trae una colección a memoria. **Traducción verificada sin levantar la
-app ni conectar a ninguna base**, con `ToQueryString()` sobre el `DbContext` configurado con el
-provider real: baja a `EXISTS (SELECT 1 FROM AspNetUsers AS a WHERE a.Id = c.CerradoPorUsuarioId AND
-(... LOCATE(...) > 0))`. En el listado mensual, el match por nombre de mes también se armó como un
-`Where(c => c.Mes == mes)` por mes encontrado, en vez de un `Contains` sobre la lista local de ≤12
-ints — la forma prohibida no se usa ni donde sería inocua.
-
-**`PAT-016` parte 2 (filtros en Session)** aplicada a los dos listados, con las keys
-`CierresDiarios_*` (FechaDesde, FechaHasta, Busqueda) y `CierresMensuales_*` (Anio, Busqueda), más el
-botón "Limpiar filtros" funcional de punta a punta (`limpiar=true` una sola vez en el draw del click,
-`window.Filtros.limpiarBuscador` para vaciar el `<input>` visible).
-
-**Gap de diseño cerrado de paso:** `MensualListar` leía un filtro `anio` del form que **la vista nunca
-mandaba** (filtro muerto desde que se escribió). Se agregó el control de Año al header del listado de
-cierres mensuales, con su botón de limpiar — por la regla del rol de que el usuario tiene que poder
-filtrar por lo que ve en la grilla (la columna "Período" muestra mes y año). Sin `value` en el
-`<input type="number">`, así que `LP-003`/`D5` no aplica: el valor se repone por JS desde Session.
-
-#### Archivos y capas modificadas
-
-- *Domain*: `Entities/Venta.cs` (**solo XML-doc** de la convención de `Fecha` — sin cambio de modelo).
-- *Application*: `Helpers/ArgentinaTime.cs` (`EsMesDeNegocioValido` + precondición de `RangoMesUtc`),
-  `Interfaces/ICajaMovimientoService.cs` (`EstaMesCerradoAsync`, `ValidarPeriodoAbiertoAsync`).
-- *Infrastructure*: `Services/CajaMovimientoService.cs` (guarda de período, las dos búsquedas globales
-  de cierres, `NombresMes`), `VentaWorkflowService.cs` (`LP-009` + los 4 puntos de `LP-010`),
-  `GastoService.cs`, `CuentaCorrienteClienteService.cs` (guarda de período), `AjusteStockService.cs`,
-  `EntregaService.cs` (barrido `LP-002`), `ClasificacionAbcAutomaticaService.cs`,
-  `DashboardService.cs` (`LP-008`).
-- *Web*: `Controllers/CajaController.cs` (`LP-011` + Session de los 2 listados),
-  `Controllers/VentasController.cs` (`LP-007`), `wwwroot/js/site.js` (`window.Fmt`),
-  `Views/Caja/Cierres.cshtml`, `Views/Caja/Mensual.cshtml` (`LP-012` + `LP-006`),
-  `Views/Caja/Index.cshtml`, `Views/Clientes/CuentaCorriente.cshtml`, `Views/Stock/Historial.cshtml`,
-  `Views/Ventas/Index.cshtml`, `Views/Gastos/Index.cshtml`, `Views/Entregas/Index.cshtml` (`LP-006`),
-  `Views/Users/Index.cshtml`, `Views/Users/Details.cshtml` (barrido `LP-002`),
-  `Views/Ventas/Editar.cshtml` (comentario de `LP-007`).
-
-#### Migración EF
-
-**Ninguna.** `dotnet ef migrations has-pending-model-changes` → *"No changes have been made to the
-model since the last migration"*. Tampoco hizo falta migración **de datos**: `Venta.Fecha` ya guardaba
-instantes UTC correctos; el defecto era de consumo, no de almacenamiento.
-
-#### Evidencia de build y de verificación técnica
-
-- `dotnet build FerreteriaLaPlatense.slnx` → **0 errores**, 9 advertencias, **todas preexistentes**
-  (8 × `NU1902` de MailKit/MimeKit + `CS0114` de `HomeController.StatusCode`). Corrido 3 veces: tras
-  la primera tanda de cambios, tras el comentario de `Editar.cshtml`, y tras normalizar los BOM que
-  había introducido el script de reemplazo masivo en las vistas. Las vistas Razor pasan por el
-  compilador en el build, así que no quedan errores de vista para runtime.
-- **Traducción a SQL verificada con `ToQueryString()`** (no es un smoke test: no levanta la app ni abre
-  conexión a ninguna base) para las 5 formas de consulta nuevas o modificadas que podían no traducir:
-  la sub-consulta correlacionada de usuario en los dos listados de cierres, la misma combinada con
-  `ids.Contains` de `extraIds`, el filtro por rango UTC de `Venta.Fecha` con la proyección anónima, y
-  el OR de los 3 importes de cierres. Las 5 bajan a SQL válido.
-- **No se ejecutó smoke test funcional** (regla del rol): la verificación por navegador la hace QA. Lo
-  que sí se verificó por lectura dirigida: que `Venta.Fecha` no se escribe desde ningún DTO/ViewModel,
-  que "Guardar borrador" no cae en la rama de error nueva de `LP-007`, y los 15 campos `DateTime` de
-  la tabla del barrido `LP-002`.
-- **Producción intacta**: no se ejecutó ningún deploy, ni Web Deploy, ni ninguna operación contra
-  `mysql8001.site4now.net`. La base `laplatense_qa_d9` que QA dejó como fixture **no se tocó ni se
-  borró**.
-
-#### Riesgos residuales y asunciones
-
-- **`ValidarPeriodoAbiertoAsync` hace 2 consultas** (mes y día) donde antes había 1. Son dos `EXISTS`
-  sobre tablas chicas con índice (`IX_CierresCajaMensuales_Anio_Mes`, `IX_CierresCajaDiarios_Fecha`) y
-  corren una vez por operación de escritura, no por fila. Impacto despreciable.
-- **La UI no avisa de antemano que un mes está cerrado.** El rechazo es claro y llega al guardar, que
-  es lo que pide el criterio de aceptación, pero el formulario de movimiento manual deja elegir una
-  fecha de un mes cerrado y recién al enviar explica el problema. Mostrar el estado del mes en la
-  pantalla de Caja sería una mejora de UX — **no se hizo para no ampliar alcance**; queda anotado.
-- **El mensaje de `GastoService.AnularAsync` cambió**: antes decía *"no se puede anular un gasto hasta
-  el próximo día hábil"*, ahora *"no se puede anular un gasto hoy"*. Es más veraz (el día siguiente
-  podría estar cerrado también) pero es un texto distinto del que QA vio en el lote anterior.
-- **Búsqueda por nombre de mes en cierres mensuales**: se compara contra la etiqueta real de la grilla
-  con la normalización de `BusquedaHelper` (sin tildes ni mayúsculas), así que `"septiembre"` matchea
-  pero `"setiembre"` **no**. Decisión deliberada: la grilla dice "Septiembre".
-- **`Venta.Fecha` sigue siendo el momento en que nació el BORRADOR**, no el de la confirmación. Una
-  venta empezada el día N y confirmada el N+1 aparece en el día N en Ventas y en el N+1 en Caja. Es
-  comportamiento preexistente, ajeno a `LP-010` (que era de proyección, no de qué instante se guarda),
-  y no está en ningún parte de defecto — **si el negocio espera otra cosa, es una decisión de
-  Joaquín**, no un bug de esta ronda.
-- **`ApplicationUser.CreatedAt` se proyectó desde la vista**, no desde un Service: `UserListViewModel`/
-  `UserDetailsViewModel` exponen la entidad y no hay un mapeo intermedio donde ponerlo. Es un campo de
-  auditoría, así que no se agregó una capa de DTO solo para esto.
-
-#### Pruebas mínimas requeridas para QA (re-verificación)
-
-1. **`LP-009`** — con un mes cerrado (el fixture `laplatense_qa_d9` ya tiene 09/2026 cerrado), probar
-   las **6** vías con fecha dentro de ese mes: movimiento manual de caja, gasto nuevo, anulación de
-   gasto, cobro de cuenta corriente, confirmación de venta y cierre diario. Las 6 tienen que rechazar
-   con el mensaje del **mes** (*"ya tiene cierre mensual"*). Verificar además que el ledger de egresos
-   de la pantalla vuelva a coincidir con el total real (el defecto mostraba $777,77 contra $8.555,54).
-2. **`LP-009` regresión** — con el mes **abierto** y un **día** cerrado, las mismas 6 vías tienen que
-   seguir rechazando con el mensaje del **día**; con los dos abiertos, tienen que seguir funcionando.
-3. **`LP-010`** — la Venta 8 (24/08 22:44 ART) tiene que verse **24/08** en el listado de Ventas, en su
-   detalle, en Caja y en el Dashboard. Las tres pantallas tienen que decir lo mismo.
-4. **`LP-010`** — filtrar Ventas por el rango `24/08 - 24/08` tiene que traer esa venta, y tipear
-   `24/08/2026` en el buscador global también. Con `25/08` no tiene que aparecer.
-5. **Barrido `LP-002`** — historial de ajustes de stock, detalle de una entrega finalizada y listado/
-   detalle de usuarios: todas las fechas con hora tienen que mostrar el día y la hora argentinos
-   (probar con un registro creado entre las 21:00 y las 24:00 ART).
-6. **`LP-007`** — postear a `Ventas/GuardarBorrador` con `continuar=cualquier-cosa` (DevTools o un
-   form armado a mano) tiene que mostrar el error explícito, **no** el mensaje de guardado. Y los 3
-   caminos normales (Guardar borrador / Confirmar / Confirmar y facturar) tienen que seguir igual.
-7. **`LP-006`** — un cobro de las 13:04 tiene que leerse `13:04` (no `01:04`) y un movimiento de las
-   00:00 tiene que leerse `00:00` (no `12:00`), en el ledger de CC **y** en `/Caja`. Revisar también
-   Ventas, Historial de stock y los dos listados de cierres.
-8. **`LP-011`** — `/Caja/Mensual?mes=13`, `?mes=0`, `?anio=99999`, `?anio=1` y `?mes=abc` tienen que
-   mostrar el mensaje de mes inválido y el mes en curso, nunca un 500. Y `?anio=2026&mes=9` tiene que
-   seguir funcionando.
-9. **`LP-012`** — en los dos listados de cierres, buscar por: importe con y sin formato (`1.500,50`,
-   `1500.50`, `1500`), substring de importe (`500` tiene que traer `$ 1.500,00`), fecha `dd/MM/yyyy`
-   (en el diario tiene que matchear tanto la fecha del cierre como la fecha de ejecución), nombre del
-   usuario que cerró, año (`2026`) y nombre del mes (`septiembre`, solo en el mensual).
-10. **`LP-012`** — dejar filtros y buscador puestos en los listados de cierres, navegar a otra pantalla
-    y volver: tienen que estar como se dejaron y la grilla ya filtrada en el primer draw. El botón
-    Limpiar tiene que vaciar los controles **y** el texto del buscador, y al volver a entrar no
-    reponer nada. Verificar que el filtro de Año nuevo del listado mensual filtra de verdad.
-11. **Regresión `MH-001`** — abrir los dos listados de cierres **sin ningún filtro ni búsqueda** y con
-    búsqueda puesta: ninguno de los dos casos puede tirar `InvalidOperationException`.
-12. **Regresión `PAT-016`** — los 6 listados que ya tenían búsqueda global (Ventas, Clientes,
-    Productos, Caja, Gastos, Entregas) tienen que seguir funcionando igual, con especial atención a
-    Ventas, cuyo filtro y buscador por fecha cambiaron de criterio.
-
-#### Checklist de salida para merge
-
-- [x] Build de la solución en 0 errores, sin advertencias nuevas.
-- [x] Sin migración EF (verificado con `has-pending-model-changes`).
-- [x] Traducción a SQL verificada para las consultas nuevas (`ToQueryString`).
-- [x] `MH-001` revisado en todo el código nuevo: cero `IN`/`.Contains()`/`Any()` sobre colección local.
-- [x] `LP-002`: barrido completo de la convención de fechas, con tabla de cierre de las 15 propiedades.
-- [x] `LP-003`/`D5`: el único `<input type="number">` nuevo no lleva `value` server-side.
-- [x] `PAT-016` aplicado con el mismo criterio que los 6 listados existentes.
-- [x] Un solo commit (`00f7dd4`) en `entrega-1-migracion`, sin tocar producción ni el fixture de QA.
-- [ ] **Re-verificación de QA de los 7 defectos** — pendiente, la declara QA en contexto nuevo.
-- [ ] **Deploy a producción** — sigue bloqueado hasta el GO de QA; lo aprueba Joaquín aparte.
-
-#### Partes de defecto aplicados en esta corrida
-
-Los 7, **"aplicado, pendiente de re-verificación"** — el cierre lo declara QA, nunca el Implementador:
-
-| id | sev | Archivos principales |
-|---|---|---|
-| `LP-009` | major | `ICajaMovimientoService`, `CajaMovimientoService`, `VentaWorkflowService`, `GastoService`, `CuentaCorrienteClienteService` |
-| `LP-010` | major | `Venta`, `VentaWorkflowService`, `AjusteStockService`, `EntregaService`, `Views/Users/*` |
-| `LP-007` | minor | `VentasController`, `Views/Ventas/Editar.cshtml` |
-| `LP-008` | minor | `ClasificacionAbcAutomaticaService`, `DashboardService` |
-| `LP-006` | minor | `wwwroot/js/site.js` + 8 vistas de listado |
-| `LP-011` | minor | `ArgentinaTime`, `CajaController`, `CajaMovimientoService` |
-| `LP-012` | minor | `CajaMovimientoService`, `CajaController`, `Views/Caja/Cierres.cshtml`, `Views/Caja/Mensual.cshtml` |
-
-### Sprint 0 — gate de precio por rol en Ventas (2026-10-05, rama `entrega-1-migracion`)
-
-**Defecto corregido.** Cualquier usuario con la política `RequireVentas` (incluido el rol `Vendedor`) podía vender a cualquier precio: `VentasController.GuardarBorrador` tomaba `Items[].PrecioUnitario`, `Items[].Descuento` y `Items[].Recargo` del formulario y `VentaWorkflowService.GuardarBorradorAsync` los persistía sin ningún control de rol. Un vendedor podía postear `PrecioUnitario = 1` y confirmar: descontaba stock y posteaba Caja y cuenta corriente al precio que eligió. Estaba abierto en producción.
-
-**Precedente reutilizado.** `marihogar` (`C:/Sistemas/marihogar`, ya en producción), `VentaService.ConfirmarAsync` (~407-465) y `EditarAsync` (~738-773), identificado como CR-22. Se copió el criterio: un booleano `esAdministrador` resuelto **solo** en el Controller con `User.IsInRole`, pasado al Service como dato explícito (el Service no consulta Identity), y que es la **única** puerta que habilita leer del payload los campos de precio. Lo que **no** se trajo de marihogar: la cascada `(1-d/100)*(1+r/100)` (acá la fórmula comercial correcta es `(1 - d/100 + r/100)` sobre precio de lista, corregida el 2026-09-03) y su manejo de subtotal (el de La Platense, con el subtotal c/IVA editable que despeja el precio unitario hacia atrás, es mejor y se queda).
-
-**Qué hace el gate.**
-
-| Rol | Precio unitario | Descuento / Recargo | Subtotal c/IVA editable |
-|---|---|---|---|
-| `Administrador`, `SuperUsuario` | override desde el formulario (como hasta hoy) | override, validados en 0..100 | sí (entra por `PrecioUnitario`) |
-| `Vendedor` y cualquier otro rol/caller | resuelto server-side desde el `Producto` | forzados a 0 | no |
-
-Para un vendedor los tres campos del payload **se descartan en silencio**, no con un error: no es un error del usuario, la UI simplemente no se lo deja editar. Corolario deliberado: un descuento fuera de rango (>100%) posteado por un vendedor **no** devuelve el mensaje de validación, se ignora; para un administrador sigue rechazando.
-
-**Qué precio es "el del producto".** `VentaWorkflowService.PrecioDeVentaVigente(producto)`: `PrecioOferta` si la oferta está vigente hoy (`Producto.EsOfertaVigente(ArgentinaTime.Hoy)`, día de negocio argentino) **y** es `> 0`; si no, `PrecioVenta`. Es exactamente la misma resolución que ya hacía la pantalla al agregar un ítem (`producto.precioOferta || producto.precioVenta` en `Views/Ventas/Editar.cshtml`, sobre el `PrecioOferta` que `ProductoService.BuscarParaVentaAsync` y `CodigoBarrasLookupService.BuscarPorCodigoAsync` ya filtran por vigencia), de modo que el vendedor termina con el precio que la UI le mostró y no con otro. El `> 0` no es decorativo: replica el `||` de JavaScript, que con una oferta cargada en 0 cae igual a `PrecioVenta` — sin esa condición el servidor cobraría 0 donde la pantalla mostró el precio de lista. **Los dos caminos de la UI (buscador Select2 y lector de código de barras) usan la misma resolución, así que no hubo que elegir ninguno a dedo.** Quedó anotado en los dos lados que si se cambia una hay que cambiar la otra.
-
-**Barrido `LP-002` — puntos de entrada del precio relevados.** Cuatro pasadas, no solo el grep obvio:
-
-1. **Puntos de entrada del precio (grep de `PrecioUnitario` sobre `Application/`, `Domain/`, `Infrastructure/`, `Web/`).** `GuardarBorradorAsync` es el **único** método que escribe `ItemVenta` y por lo tanto el único punto de entrada del precio. `ConfirmarAsync`, `FacturarAsync` y `ConfirmarYFacturarAsync` trabajan sobre lo ya persistido y nunca leen el payload; `Details.cshtml` es solo lectura. El subtotal c/IVA editable **no tiene atributo `name`**: no se postea, la UI lo despeja sobre `PrecioUnitario` client-side, así que el gate de `PrecioUnitario` lo cubre por elevación y no hacía falta un segundo control.
-2. **Hermanos semánticos del mismo payload.** `Items[].PorcentajeIVA` sigue llegando del cliente para los dos roles → **hueco hermano, deuda abierta** (ver abajo). `Pagos[].PorcentajeRecargoAplicado` ya se resolvía server-side vía `IRecargoCuotasService` (precedente del mismo patrón, dentro del mismo método). `Pagos[].Monto` se dejó como está: es lo que el cliente pagó, no un precio, y `ConfirmarAsync` valida que los pagos cubran el total salvo que haya una línea de cuenta corriente. `ClientesController.RegistrarCobro` queda en `RequireVentas` a propósito (decisión previa documentada en ese archivo) y `RegistrarAjuste` ya era `RequireAdministracion`.
-3. **Comentarios y XML-doc (el fallo de `LP-008`).** Encontrado y corregido un comentario prescriptivo **falso** preexistente: `ItemVenta` declaraba la fórmula en **cascada** `Cantidad*PrecioUnitario*(1-Descuento/100)*(1+Recargo/100)` en dos lugares (encabezado de clase y doc de `Subtotal`), cuando la fórmula real desde el 2026-09-03 es `(1 - Descuento/100 + Recargo/100)`. Era una regla de negocio falsa viviendo en el repo, exactamente el patrón de `LP-008`. Actualizados además los docs de `ItemVentaInputDto`, `ItemVentaDto.SubtotalConIva`, `ItemVentaViewModel.SubtotalConIva` e `IVentaWorkflowService.GuardarBorradorAsync` para que digan el nuevo criterio de rol.
-4. **La mitad simétrica.** El otro lado del gate es la **reapertura** de un borrador: si un administrador dejó un override de precio y después un `Vendedor` re-guarda ese mismo borrador, el precio vuelve al del producto y el descuento/recargo a 0 — el override se pierde. Es la consecuencia inevitable de copiar el criterio de marihogar ("para un no-administrador el precio SIEMPRE se recalcula") y se eligió a propósito por sobre la alternativa de conservar el valor persistido, que sería un agujero (un vendedor podría fijar un precio y después mantenerlo). Está verificado por ejecución y anotado como riesgo operativo.
-5. **Vistas y JS.** `Views/Ventas/Editar.cshtml`: precio, descuento, recargo y subtotal van en `readonly` cuando el usuario no es administrador, en las filas que renderiza Razor **y** en las que arma el JS (`agregarFilaItem`), más el texto de ayuda reemplazado por uno que explica que el precio lo toma el sistema. Se usó `readonly` y **no** `disabled` a propósito: un input `disabled` no se postea y rompe los índices contiguos `0..N-1` que exige el model binder de `List<T>`. La UI es cortesía — el control que vale es el del servidor.
-
-**Reglas del catálogo aplicadas.**
-- `LP-002`: las 5 pasadas de arriba.
-- `MH-001`: la única colección local que llega al SQL de este método es `productoIds` (`List<int>`), que la regla declara explícitamente segura (el problema es específico de colecciones de `string`). No se introdujo ningún `Contains`/`Any` nuevo.
-- `LP-003`: no se agregó ningún `value` de input nuevo; los existentes ya usaban el helper `num()` con `InvariantCulture` y se mantuvieron intactos. El atributo agregado es `readonly`, que no transporta decimales.
-
-**Archivos y capas modificadas.**
-
-| Capa | Archivo | Motivo |
-|---|---|---|
-| Domain | `Domain/Entities/ItemVenta.cs` | Solo documentación: corrección del comentario prescriptivo falso de la fórmula + nota del gate. |
-| Application | `Application/DTOs/VentaDtos.cs` | `GuardarVentaBorradorDto.EsAdministrador` (`init`) + XML-doc del gate en los campos de precio. |
-| Application | `Application/Interfaces/IVentaWorkflowService.cs` | Contrato: `GuardarBorradorAsync` declara que es el único punto de entrada del precio y qué hace el gate. |
-| Infrastructure | `Infrastructure/Services/VentaWorkflowService.cs` | El gate propiamente dicho dentro del loop de ítems + helper `PrecioDeVentaVigente`. |
-| Web | `Web/Controllers/VentasController.cs` | `EsAdministrador()` con `User.IsInRole` y su paso al DTO. |
-| Web | `Web/Models/VentaViewModels.cs` | Solo documentación del subtotal restringido. |
-| Web | `Web/Views/Ventas/Editar.cshtml` | `readonly` por rol en Razor y en el JS, texto de ayuda por rol. |
-
-**Migración EF: ninguna.** No hay cambio de modelo — `dotnet ef migrations has-pending-model-changes` responde *"No changes have been made to the model since the last migration"*. El gate no recalcula nada histórico: las ventas ya existentes (Confirmada/Facturada) no son editables y ningún camino las toca.
-
-**Evidencia ejecutada (sin navegador, según la regla del rol).**
-- `dotnet build FerreteriaLaPlatense.slnx`: **correcto, 0 errores**, 9 advertencias, todas preexistentes (2 `NU1902` de MailKit/MimeKit por proyecto y `CS0114` de `HomeController.StatusCode`).
-- Las vistas Razor **sí** compilan en el build: comprobado metiendo a propósito un símbolo inexistente en `Editar.cshtml` → `error CS0103 ... Editar.cshtml(749,2)`; revertido y recompilado limpio.
-- El render del atributo booleano `readonly="@(!esAdministrador)"` se verificó **ejecutando** `RazorPageBase.BeginWriteAttribute/WriteAttributeValue/EndWriteAttribute` (las tres llamadas que emite `Editar_cshtml.g.cs`, inspeccionado con `EmitCompilerGeneratedFiles`): con `true` emite `readonly="readonly"` y con `false` **omite el atributo entero**. Importa porque un `readonly=""` sería verdadero en HTML.
-- `VentaWorkflowService.GuardarBorradorAsync` ejercitado **directamente contra `laplatense_dev`** con los dos roles, dentro de una transacción revertida al final (0 filas sobrevivientes, base en su línea base). 15 checks, todos OK: precio manipulado a $1 → se guardó `PrecioVenta` del producto; descuento 90% y recargo 50% → 0 y 0; producto con oferta vigente → cobró `PrecioOferta`; administrador → override de 1234,56 con 10%/5% respetado y subtotal por la fórmula no-cascada; 10%+10% devuelve el precio original; descuento >100% sigue rechazado para administrador y se ignora en silencio para vendedor; y la simétrica (vendedor que re-guarda pisa el override del administrador) confirmada.
-
-**Deuda abierta que deja esta ronda.**
-- **`Items[].PorcentajeIVA` sigue llegando del cliente para cualquier rol.** Es el hermano del hueco que se acaba de cerrar y el único que queda: un vendedor que postea `PorcentajeIVA = 0` baja el total de la venta ~21% sin tocar el precio unitario, porque `RecalcularTotales` suma `Subtotal * PorcentajeIVA / 100`. Se dejó **deliberadamente sin tocar** porque el brief de esta ronda lo excluyó de forma explícita ("el IVA por línea no se toca") y el alcance era un solo defecto. **Es una decisión de Joaquín**, no un olvido: si el IVA por línea es un dato del producto y no una decisión del vendedor, la corrección es idéntica a la de esta ronda (resolverlo desde `Producto.PorcentajeIVA` cuando el usuario no es administrador) y son tres líneas. Si en cambio el vendedor tiene que poder elegir la alícuota, hay que decir por qué.
-- Un `PrecioUnitario` **negativo** posteado por un administrador no se rechaza en el Service (sí lo limita el `min="0"` del input y el `[Range]` del ViewModel, pero `GuardarBorrador` no chequea `ModelState.IsValid`). Preexistente, no se tocó para no ampliar alcance; marihogar sí lo valida (`PrecioUnitario <= 0`).
-- Un borrador con override de administrador re-guardado por un vendedor pierde el override (ver "mitad simétrica"). Si eso molesta operativamente, la salida no es relajar el gate sino que el borrador con override no sea editable por un vendedor.
-
 ### Fundación del ledger de caja + anulación de venta confirmada (2026-10-05, rama `entrega-1-migracion`)
 
 Commit local **`59dd715`**. **No pusheado y no deployado** — pedido explícito de Joaquín ("no publicar, dejar el desarrollo listo"). Nada corrió contra producción: la migración se aplicó únicamente a `laplatense_dev`.
@@ -1563,898 +881,740 @@ Los 14 pasos de la guía de arriba, más tres controles de integridad en SQL que
 - [ ] Re-verificación de QA.
 - [ ] Verificar contra **producción** que el backfill le resuelve el `PagoVentaId` a las 3 ventas `Confirmada` (ver riesgos).
 
-### Entrega 3 — pasos 1 a 3: Proveedores, CC de proveedores y Ordenes de compra (2026-10-05, rama `entrega-1-migracion`)
+### Entrega 4 — Cuenta corriente de empleados (M12) + cuenta corriente del negocio (M13) (2026-10-06, rama `entrega-1-migracion`)
 
-**No pusheado y no deployado** — pedido explicito de Joaquin ("no publicar, dejar el desarrollo listo"). Nada corrio contra produccion: la migracion se aplico unicamente a `laplatense_dev`.
+**Frontera de la ronda, y lo que NO se hizo.** Commit local, **SIN push y SIN deploy** (pedido explícito de Joaquín: "no publicar, dejar el desarrollo listo"). La migración se aplicó **solo a `laplatense_dev`**; nada se ejecutó contra `mysql8001.site4now.net` ni contra el fixture `laplatense_qa_d9`. Producción sigue 5 migraciones atrás (6 con esta).
 
-Cierra el **alta y la edicion completa de compras**, con una frontera deliberada: **nada de lo que se construyo aca toca stock, ni caja, ni cuenta corriente**. El impacto real de una compra (incrementar stock + postear el Cargo de deuda) es la RECEPCION, que es el paso 4; los pagos son el paso 5. El contrato `IOrdenCompraService` ni siquiera expone `RecibirAsync`, y `OrdenCompraService` no inyecta `IStockService`, `ICajaMovimientoService` ni `ICCProveedorService`: no se puede llamar por accidente lo que no esta inyectado.
+#### Escaneo de reutilización (instrucción 39, sección 3)
 
-#### Resultado del escaneo de reutilizacion (obligatorio antes de implementar)
+Encontrado en el **paso 1** (`cat_resumen.txt`), sin necesidad de llegar al grep dirigido:
 
-Encontrado en el **paso 1** del escaneo (`docs/patrones/cat_resumen.txt`), sin necesidad de grep dirigido:
+| Patrón | Qué aportó | Cómo se usó |
+|---|---|---|
+| `PAT-001` (ledger) | El molde completo del cuarto ledger | `MovimientoCCEmpleado` es `MovimientoCCProveedor` con otra clave de cuenta: inmutable, no `SoftDestroyable`, saldo calculado, usuario explícito, saldo corrido por fila sobre todo el ledger |
+| `PAT-053` (un pago, dos ledgers) | El punto único de egreso | **Tercera aplicación en el estudio y primera sobre sueldos** — el patrón lo preveía textualmente ("también aplica a honorarios, sueldos, comisiones"). `EgresoCCEmpleadoService` es `EgresoPagoProveedorService` con otro `OrigenTipo` |
+| `PAT-017` (portal con scoping por identidad) | El modelo de seguridad del autoservicio | **Primera implementación real del patrón en el estudio**: estaba registrado con `pendiente_verificar: true` desde `cma-centro-medico` y la verificación del 2026-09-14 confirmó que `IPortalPacienteService` no existe en ningún repo |
+| `PAT-020` / `PAT-051` / `PAT-016` / `PAT-015` | Reversión por neto vivo, medio como dimensión del ledger único, buscador global + filtros en Session, baja/acción AJAX sin perder la página | Aplicados tal cual |
 
-- **`PAT-001`** — "Ledger / Cuenta corriente". Entrada leida completa, las dos rutas confirmadas reales. Se porto `marihogar/CCProveedorService.cs` con el camino de vuelta ya recorrido en casa (`MovimientoCCCliente` + `CuentaCorrienteClienteService` de este proyecto son un port del `MovimientoCCProveedor` de vinosefue). **Se actualizo PAT-001** con tres `archivos_referencia` nuevos de la-platense y la aplicacion en `proyectos_que_lo_usan`.
-- **`PAT-005`** — "Maquina de estados (workflow generico)". Aplicado: enum en Domain, transiciones validadas en el Service con conjuntos EXPLICITOS de estados (`EstadosEditables`/`EstadosCancelables`, nunca una negacion), y ViewModel que calcula las acciones disponibles por estado.
-- **`PAT-008`** / **`PAT-016`** — DataTables server-side con filtro por columna visible + busqueda global multi-formato + filtros en `Session`. Aplicados a los tres listados nuevos.
-- **`PAT-020`** / **`PAT-051`** — leidos y declarados como **el camino que hay que seguir en los pasos 4 y 5**, no aplicados todavia: en esta ronda cancelar no tiene nada que revertir porque el Cargo no se postea hasta recibir. El contrato de la reversion por neto vivo quedo DEFINIDO (`ObtenerNetoVivoAsync`) para que esos pasos no lo reinventen sobre el nominal.
-- **`PAT-050`** revisado y descartado: el gate de precio por rol no aplica aca — todo el modulo es Administrador exclusivo, no hay un rol menor del que proteger el precio.
-- **Sin antecedente, declarado y catalogado**: el modelo de unidad de la linea de compra. `marihogar/OrdenCompraItem.cs` tiene `Cantidad` como `int` y la linea no declara unidad. Se construyo nuevo y se agrego al catalogo como **`PAT-052`** ("Linea de documento que declara su unidad y CONGELA el factor de conversion").
-- **Sin antecedente, declarado**: el buscador de productos por codigo de proveedor (0 hits de `CodigoProveedor` en marihogar; su buscador va solo por nombre de producto). Construido nuevo.
-- **Sin antecedente, declarado**: `TipoCambio`/`Moneda`/`PorcentajeDescuentoHabitual`/`FormaPagoHabitual` en `Proveedor` (0 hits en marihogar, verificado). Desarrollo nuevo dentro del alcance del item 3.1.
+**Lo que NO tiene precedente y se construyó nuevo:** la distinción devengar/pagar como decisión de un solo lugar invocable (`OrigenCCEmpleado.MueveCaja`), la identidad del movimiento para revertir cuando no hay documento (`MovimientoRevertidoId`), el saldo inicial de caja por medio de pago, y el contraste cierre-firmado vs. recálculo.
 
-#### Barrido LP-002 al ampliar `Proveedor` — las 4 pasadas, con lo que rindio cada una
+---
 
-El brief daba por sentado que `Proveedor` "se consume como catalogo simple en los combos del catalogo de productos". **Eso es falso y el barrido lo corrigio**: la premisa habia que verificarla, no heredarla.
+#### Parte 1 — Cuenta corriente del negocio (M13): NO se construyó un ledger nuevo
 
-**Pasada 1 — relevamiento directo.** `grep -rn "Proveedor"` sobre `*.cs`/`*.cshtml`/`*.js` (excluyendo `obj`/`bin`/`publish`/`Migrations` y los falsos positivos `MovimientoCCProveedor`/`CodigoProveedorProducto`): **`Proveedor` tenia CERO consumidores en `Web/`**. Ningun controller, ninguna vista, ningun combo. Los unicos consumidores reales eran:
+**La decisión más importante de la ronda, y el nombre del módulo engaña.** En `marihogar` existen `CCLocalService` + `CCLocalController` + `MovimientoCCLocal`, y el mapa de dependencias de ese proyecto es tajante: **`MovimientoCCLocal` ES la caja de marihogar** — su único ledger de dinero, y su `CajaService` no tiene entidad propia, es pura agregación sobre ese ledger.
 
-- `tools/MigracionCatalogo/Program.cs:808` — `new Proveedor { Nombre = ..., Activo = true }`, inicializador de objeto. **Es el unico escritor real de la entidad** y el contrato que habia que preservar.
-- `ProveedorService : CatalogoSimpleServiceBase<Proveedor>` — el unico lector, y es justamente el que se reemplazo.
-- `CodigoProveedorProducto.ProveedorId` — la FK.
+En La Platense ese ledger **ya existe y se llama `CajaMovimiento`**, y encima tiene cierres diarios y mensuales que marihogar no tiene. Construir un `MovimientoCCLocal` al lado habría sido **duplicar el mismo libro con dos nombres** — y dos libros del mismo dinero es como se descubre, meses después, que ninguno de los dos cuadra. Lo que el presupuesto pide es textualmente *"vista consolidada de cierres de caja, ingresos y egresos"*: **una pantalla de lectura**. Eso es lo que se hizo.
 
-Consecuencia practica: la ampliacion se pudo hacer **estrictamente aditiva** (18 `AddColumn`, 3 `CreateTable`, 9 `CreateIndex`, **cero `DropColumn`/`AlterColumn`** sobre lo existente) y **`Nombre` se MANTUVO como nombre de columna** aunque marihogar lo llame `RazonSocial`: renombrarlo era una migracion destructiva sobre 85 razones sociales reales migradas del legado y habria roto el contrato de la herramienta de migracion, a cambio de nada funcional. En pantalla se rotula "Razon social".
+Lo traído de `CCLocalController`: pantalla de ledger con saldo actual, saldo filtrado, listado paginado server-side con **saldo corrido por fila calculado sobre todo el ledger** y filtros por rango de fecha y por origen. Lo propio de acá, que es el valor del módulo: los **cierres diarios y mensuales firmados** como parte de la vista, el desglose por **medio de pago** y el **contraste contra el recálculo**.
 
-**Pasada 2 — hermanos semanticos (fechas).** Grep reproducible, el numero sale de aca y QA lo puede recontar:
+**Decisión sobre el saldo inicial — se eligió la opción que resuelve el problema, no la que lo rotula.**
+
+La ola 1 dejó anotado: *"ningún arreglo del flujo hace que el saldo signifique la plata que hay si el punto de partida es un cero inventado"*. Esta pantalla es exactamente donde el cliente va a mirar ese número y creerle, así que la alternativa de poner una leyenda y seguir era dejar el problema intacto con un cartel encima. Se implementó **el saldo inicial declarado por medio de pago** (`OrigenCajaMovimiento.SaldoInicialCaja`), con el mismo shape que el saldo inicial de un proveedor: fecha, motivo obligatorio, usuario, **una sola vez por medio**, y pasando por `ValidarPeriodoAbiertoAsync` (no se puede declarar un punto de partida dentro de un arqueo ya firmado).
+
+**Y las dos cosas a la vez, porque la honestidad no se negocia con la funcionalidad:** mientras NO haya apertura declarada, la pantalla **no llama "saldo" al número**. El rótulo de la tarjeta dice literalmente *"Movimiento acumulado del sistema"* y arriba de todo hay un aviso en amarillo que explica por qué, con el link para resolverlo. Cuando hay apertura parcial, el cuadro por medio marca con un badge **"Sin saldo inicial"** cada cuenta que todavía no la tiene — accionable ("te falta declarar el efectivo del cajón") en vez de una advertencia genérica.
+
+**El criterio de marihogar sobre la apertura SÍ aplica acá, y es lo que hace que no rompa nada.** Su `CajaService` excluye `OrigenTipo = "AjusteApertura"` de los totales del período. Acá la exclusión vive en un solo lugar (`OrigenCajaMovimiento.EsApertura` + el filtro en `ObtenerTotalesRangoUtcAsync` y `ObtenerTotalesPorMedioRangoUtcAsync`) y alcanza a los **seis** lectores de totales: resumen del día, resumen del mes, cierre diario, cierre mensual, arqueo por medio y Dashboard (que consume el resumen del día). Sin esa exclusión, el cierre firmado del día en que se declara el saldo inicial diría que ese día entraron $500.000. **Verificado ejecutando:** declarar una apertura de $500.000 dejó los ingresos del día en $250.000 (sin cambio) y subió el saldo acumulado de $-46.586,20 a $453.413,80.
+
+**Neto vs. bruto: la promesa vencida de la ola 1, encontrada y expuesta en vez de tapada.**
+
+El XML-doc de `CajaMovimiento.EsReversion` (ola 1) promete que con la columna *"el arqueo"* ya puede separar "plata que entró" de "plata que nunca salió". **Nunca se aplicó**: `ObtenerTotalesRangoUtcAsync` suma todos los Ingresos y todos los Egresos ignorando el flag, así que un gasto anulado infla los dos brutos en el mismo importe. Medido en dev: ingresos brutos **$97.415,05** contra netos **$5.914,55**; egresos brutos **$94.001,25** contra netos **$2.500,75**. El saldo es el mismo con los dos criterios ($3.413,80).
+
+**No se cambió el criterio de los cierres** —hacerlo dejaría a los cierres ya firmados sin cuadrar contra su recálculo— y en la pantalla consolidada se muestran **los dos números con el puente entre ellos**: los netos arriba como cifra principal, los brutos abajo rotulados "criterio de los cierres", y el total de reversiones del período que explica la diferencia. Es una decisión pendiente de Joaquín, no un defecto silencioso.
+
+La definición de "neto" es `Σ(Ingreso no-reversión) − Σ(Egreso de reversión)` y simétrica para los egresos: la reversión se descuenta **del lado que deshace**. Es la única definición con la que `ingresos − egresos` da siempre el neto real, incluso cuando el original y su reversión caen en períodos distintos — caso real en dev, donde un gasto del 21/08 se revirtió el 03/09. **Consecuencia correcta y contraintuitiva:** el egreso neto de un período puede ser **negativo** (volvió más plata de la que salió), y la pantalla lo explica en vez de recortarlo a cero.
+
+**Saldo corrido: se copió el patrón de casa y se declaró su costo.** `ObtenerSaldosAcumuladosAsync` materializa `(Id, Tipo, Monto)` de todo el ledger y acumula en memoria, igual que `CCProveedorService`. Es O(n) por draw y está documentado: por eso `ListarConsolidadoAsync` es un método **aparte** y no un flag de la grilla operativa de `Caja/Index`, que se dibuja todo el día. Con ~36.000 filas/año de operación sigue siendo una consulta de milisegundos; si llegara a cientos de miles, la alternativa (suma de prefijo con función de ventana, `SUM() OVER (ORDER BY Fecha, Id)`, que EF no sabe expresar) está escrita en el XML-doc para que se encuentre.
+
+---
+
+#### Parte 2 — Cuenta corriente de empleados (M12)
+
+**Entidad nueva `MovimientoCCEmpleado`**, inmutable, **no** `SoftDestroyable`, mismo molde que `MovimientoCCProveedor`. Semántica idéntica a la de proveedores porque la deuda va en la misma dirección (del negocio hacia afuera): `Cargo` aumenta lo que se le debe al empleado, `Pago` lo reduce, `Saldo = Σ(Cargo) − Σ(Pago)`, positivo = se le debe.
+
+**Devengar no es pagar — la distinción modelada en un solo lugar invocable.** `OrigenCCEmpleado.MueveCaja(origenTipo)` es el único código que declara si un concepto implica plata que sale:
+
+| Concepto | Tipo | ¿Mueve caja? |
+|---|---|---|
+| Sueldo devengado | `Cargo` (fijo) | **No** — registra la deuda, no el pago |
+| Adelanto de sueldo | `Pago` (fijo) | **Sí** |
+| Retiro de dinero | `Pago` (fijo) | **Sí** |
+| Pago de sueldo | `Pago` (fijo) | **Sí** |
+| Ajuste manual | el usuario elige | **No** |
+
+El `_ => false` del switch es el **default seguro a propósito**: un egreso que falta se nota (el arqueo no cuadra contra el efectivo del cajón y alguien pregunta), mientras que un egreso de más por un concepto devengado descuadra la caja en silencio y en la dirección que nadie revisa.
+
+**El `Tipo` lo impone el concepto, no la vista.** `OrigenCCEmpleado.TipoFijo` lo resuelve server-side y el Service lo aplica ignorando lo que postee el formulario. **Verificado ejecutando:** se posteó `Tipo = Cargo` con concepto `Adelanto` (un adelanto que *aumentaría* la deuda con el empleado) y el Service persistió `Pago`. El formulario, además, no pregunta el sentido salvo en el ajuste manual.
+
+**La asimetría de la guarda de período es deliberada.** Solo los conceptos que escriben caja pasan por `ValidarPeriodoAbiertoAsync` (y antes de abrir la transacción, porque si fallara dentro ya habría filas en el change tracker). Un devengamiento retroactivo a un mes cerrado **sí entra**: no escribe caja, así que no hay arqueo que pueda quedar desfasado. Mismo criterio que `ICCProveedorService.RegistrarAjusteAsync`: lo que decide si hace falta la guarda es si el movimiento escribe **caja**, no si escribe este ledger. **Verificado ejecutando:** un `PagoSueldo` fechado 21/08/2026 fue rechazado ("la caja del mes 08/2026 ya tiene cierre mensual") y un `SueldoDevengado` con la misma fecha entró.
+
+**`MovimientoRevertidoId`: por qué el `(OrigenTipo, OrigenId)` de los otros tres ledgers no servía acá.** En caja y en proveedores ese par identifica un **documento** y el neto vivo de ese documento es lo que se revierte. Acá no hay documento: todos los movimientos de un concepto comparten `OrigenId = 0`, así que el neto de `("Adelanto", 0)` sumaría **todos** los adelantos del empleado en un solo número y revertir uno revertiría la plata de los otros. Es el mismo problema que `CCProveedorService.ObtenerNetoVivoAsync` documenta para sus orígenes manuales y que allá se parchea acotando por `ProveedorId` — un parche que acá **no alcanzaría**, porque dos adelantos del mismo empleado seguirían compartiendo clave. Con la columna, el movimiento es su propio documento: `neto(X) = signo(X) + Σ signo(movimientos con MovimientoRevertidoId == X.Id)`.
+
+El neto es **con signo sobre los dos tipos**, no "originales menos reversiones dentro de un tipo" — es la corrección que el ledger de proveedores necesitó tras encontrar el bug ejecutando (un saldo inicial de 100.000 reajustado a 60.000 devolvía 160.000). Efecto colateral deseado: `EsReversion` queda informativo y **no participa de la aritmética**.
+
+**Dos pantallas, dos controllers, y la diferencia es de seguridad.**
+
+- **`MiCuentaController`** (`[Authorize]`, cualquier usuario autenticado). Sus acciones **no declaran ningún parámetro de identidad**: no hay un `usuarioId`, ni un `id`, ni nada que el model binder pueda llenar desde la URL, el query string o el form. El id sale siempre del claim. No es que se valide el parámetro: **es que no existe**, que es la única forma de este control que no se puede romper olvidándose una validación.
+- **`CCEmpleadoController`** (`[Authorize(Policy = "RequireAdministracion")]`). Recibe el id de la ruta, y lo que autoriza es la policy de la clase.
+
+Son dos controllers y no dos acciones del mismo por la prescripción de `PAT-017`: así el permiso **se lee en el atributo de la clase** y no hay que auditar acción por acción. Con un controller mixto, una acción nueva a la que se le olvide el atributo hereda el permiso **más permisivo** de la clase — y en este módulo eso significaría exponer la cuenta de todos.
+
+**Mínimo privilegio en la proyección, no en la vista.** El autoservicio pasa `incluirQuienRegistro: false` y el nombre del Administrador que cargó cada movimiento **no sale del servidor** (viaja en `null`). No es que la vista no lo dibuje: es que el dato no viaja.
+
+**La grilla es un partial compartido** (`_LedgerEmpleado.cshtml` + `wwwroot/js/ledger-empleado.js`) porque el requisito dice que la diferencia entre las dos pantallas es de seguridad y **no de presentación** — y la única forma de que eso siga siendo cierto en seis meses es que no haya dos copias del markup. (El JS vive en un `.js` y no en el partial porque un partial de Razor **no puede definir `@section Scripts`**: el bloque no se renderiza y el JS nunca se ejecuta.)
+
+**Listado de empleados: decisión de volumen explícita.** Se resuelve **en memoria** sobre el padrón completo de `AspNetUsers`. Son unidades (4 en dev, una decena en producción), no un padrón de clientes; y la alternativa en SQL exige sub-consultas correlacionadas de **agregación** por fila para poder ordenar y filtrar por saldo, que el provider MySQL traduce de forma impredecible — e "impredecible" en este proyecto ya significó dos 500 por `MH-001`. El saldo se obtiene con **un** `GroupBy` sobre todo el ledger **sin ningún parámetro de colección**, que es de paso la forma `MH-001`-proof de agregar por un string. Documentado en el XML-doc: si el padrón creciera a cientos, lo que hay que cambiar es eso y nada más.
+
+---
+
+#### `MH-001` — el riesgo central de esta ronda, y cómo se cerró
+
+La identidad de la cuenta es un `string` de `AspNetUsers`, y esa tabla **no tiene navegación**: resolver nombres de empleados es **exactamente** el caso que ya explotó dos veces (el `MH-001` original de marihogar y la reincidencia en el buscador de los cierres de caja). Las únicas dos formas permitidas, ambas usadas y cada una documentada en su call site:
+
+1. **Sub-consulta correlacionada** (`_context.Users.Any(u => ...)`), que se traduce entera a SQL.
+2. **Materializar `AspNetUsers`** —tabla chica— y filtrar en memoria. Extraído a `CajaMovimientoService.ResolverNombresAsync`, porque desde esta ronda son **cuatro** los lugares que lo necesitan.
+
+Cero `IN`/`Contains`/`Any` sobre colección local de **string** hacia SQL. Las colecciones de `int` (ids de página) y de **enum** (tipos que coinciden con el término buscado) sí se usan, que es el alcance seguro de la regla, y **se ejecutaron igual** para no asumirlo.
+
+#### Barrido `LP-002` — 6 hallazgos
+
+1. **Los seis lectores de totales de caja** no se arrastran solos cuando se agrega un origen. El helper de orígenes propaga el combo y las etiquetas (eso ya estaba resuelto), pero `ObtenerTotalesRangoUtcAsync` y `ObtenerTotalesPorMedioRangoUtcAsync` había que tocarlos a mano o la apertura se habría sumado a los ingresos del día, al cierre firmado y al Dashboard. Anotado en el XML-doc de `OrigenTipo` para la próxima vez.
+2. **Las dos consultas de totales tenían que excluir lo mismo.** Si una excluyera la apertura y la otra no, el pie del arqueo dejaría de sumar las tarjetas de arriba y la pantalla se contradiría a sí misma. **Verificado ejecutando:** arqueo del día y del mes siguen sumando su saldo con la apertura cargada.
+3. **`CajaMovimiento.UsuarioId` era una columna de solo escritura.** Se persiste desde la ola 1 y **ninguna pantalla la mostraba**. Ahora es la columna "Usuario" de la grilla consolidada.
+4. **La "promesa vencida" de `EsReversion`** (ver arriba): la columna existe desde la ola 1, su XML-doc promete que el arqueo puede separar los dos casos, y ningún lector de totales usa el flag. Expuesto en la pantalla consolidada; cambiar los cierres es decisión de Joaquín.
+5. **`Dashboard` hereda el cambio sin tocarlo**, porque consume `ObtenerResumenDiaAsync`. Relevado: `CajaHoyIngresos`/`CajaHoyEgresos`/`CajaHoyCerrada`. Los egresos del día van a **subir** cuando se empiecen a cargar adelantos y retiros — aviso de impacto, no bug (ver abajo).
+6. **Fuera de alcance, encontrado y NO corregido:** `Views/Clientes/CuentaCorriente.cshtml` sigue con los orígenes **hardcodeados en dos lugares** (el combo y el mapa de etiquetas del JS), con un comentario que admite el riesgo. Es el **único de los cuatro ledgers sin su helper `Origen*`**. No se tocó porque ningún campo de esta ronda lo alcanza y corregirlo obligaría a QA a re-verificar un módulo que no es de esta entrega. **Requiere decisión.**
+
+#### `LP-008` — comentarios y XML-doc corregidos
+
+- `CajaMovimiento` (cabecera): la lista de escritores decía cuatro orígenes y ahora son **siete**, con la declaración de que `SaldoInicialCaja` es el único que no es actividad del período.
+- `CajaMovimiento.OrigenTipo`: enumeraba los valores a mano; ahora apunta al helper y advierte qué **no** se arrastra solo (los lectores de totales).
+- `CierreCajaDiario`: decía *"se agregan todos los CajaMovimiento de esa fecha"*, que ya no es exacto. Ahora precisa qué entra (reversiones sí, apertura no) y por qué los totales son brutos.
+- `CierreCajaMensual`: idem, apuntando al criterio compartido.
+- `ObtenerTotalesRangoUtcAsync`: documenta la exclusión de apertura y **declara el límite conocido** del bruto/neto en vez de dejarlo implícito.
+
+#### Hallazgo con datos reales: el cierre mensual de agosto 2026 **no cuadra**, y es anterior a esta ronda
+
+El contraste cierre-firmado vs. recálculo encontró, **la primera vez que se ejecutó**, una inconsistencia real en `laplatense_dev`:
 
 ```
-grep -hn "DateTime" FerreteriaLaPlatense.Domain/Entities/*.cs | grep "get; set;"
+Agosto 2026   firmado $ -89.749,25   recalculado $ -92.250,00   diferencia $ 2.500,75
+21/08/2026    firmado $ -89.749,25   recalculado $ -89.749,25   diferencia $ 0,00  (cuadra)
 ```
 
-Da **29 propiedades `DateTime`** en Domain, de las cuales **6 son nuevas de esta ronda**, y las 6 declaran su semantica en el XML-doc (LP-009):
+Causa, verificada por SQL de solo lectura: el cierre mensual se firmó el **2026-08-21 19:05** y el movimiento `#5` (Gasto, Egreso $2.500,75, fecha **2026-08-24**) se creó el **2026-08-25 02:00** — cuatro días **después** de que el mes estuviera firmado.
 
-| Propiedad | Semantica |
-|---|---|
-| `Proveedor.FechaSaldoInicial` | instante UTC derivado de un DIA DE NEGOCIO elegido por el usuario (se persiste con `ArgentinaTime.InicioDiaUtc`) |
-| `MovimientoCCProveedor.Fecha` | instante UTC; si se imputa a un dia anterior, las 00:00 ART de ese dia |
-| `OrdenCompra.Fecha` | instante UTC derivado de dia de negocio; nunca futura, pasada SI permitida |
-| `OrdenCompra.FechaConfirmacion` | instante UTC del momento de la accion |
-| `OrdenCompra.FechaRecepcion` | instante UTC — **declarada, nunca escrita en esta ronda** (paso 4) |
-| `OrdenCompra.FechaCancelacion` | instante UTC del momento de la accion |
+**Es exactamente el defecto que `LP-009` cerró** (*"con el mes cerrado el sistema seguía aceptando movimientos fechados dentro de ese mes y el arqueo mensual ya firmado quedaba desfasado del ledger real"*, defecto major de QA, Sprint 0 lote 1). La guarda ya existe y **funciona** —se verificó ejecutando que rechaza una imputación nueva a ese mes—, pero esta fila es **residuo histórico** de antes del fix. No es un defecto de esta ronda: es la ronda haciendo **visible por primera vez** una inconsistencia que estaba ahí y nadie podía ver.
 
-**Pasada 3 — comentarios y XML-doc (el texto de la regla, no solo el codigo).** Rindio **2 hallazgos propios** que el grep de codigo no toca:
+**Importa para el deploy:** producción tiene el mismo código viejo que generó esta fila en dev, así que **puede tener el mismo residuo**. No se consultó producción (prohibido en esta corrida). Hay que mirarlo al deployar.
 
-1. `AppDbContext.cs:36-38` decia *"Proveedor es una version minima... el modulo de Compras la amplia mas adelante"*. Dejo de ser cierto en esta misma ronda. **Corregido**, con la nota de por que.
-2. `Views/Dashboard/Index.cshtml` decia que el nivel 2 del dashboard *"depende de Compras y Cuenta Corriente de proveedores"*. **Las dos piezas ya existen**, asi que la afirmacion quedo falsa: lo que falta de verdad es la cuenta corriente propia del negocio (Entrega 4, item 4.2). **Corregido el texto**, no el panel (construirlo no es alcance de esta ronda).
+#### Aviso de impacto en los números que el cliente ya mira
 
-**Pasada 4 — vistas y JS.** Verificado que las columnas de fecha de los listados nuevos pasan por `window.Fmt` y que **ningun `toLocaleString` suelto formatea una fecha** (los 7 que hay son sobre importes, porcentajes y cantidades, que es la convencion del proyecto). LP-006 cubierto.
+Este es el **segundo** egreso automático que entra al arqueo de caja además de los gastos y los pagos a proveedor. Los **retiros de dinero del titular y los adelantos al personal son plata que siempre salió y que hasta ahora no se registraba en ningún lado**: el día que se empiecen a cargar, los egresos del período van a subir de golpe. No es un bug. Es el mismo aviso que se dejó para los pagos a proveedor en la Entrega 3 y que en marihogar se vivió en producción.
 
-**Pasada extra — la mitad simetrica.** Rindio **1 hallazgo propio y un fix real**: las lineas de la compra viajan en inputs `hidden` que el JS arma en el submit. `EditarAsync` reemplaza el set completo, asi que un post con CERO lineas (JS que no cargo, POST armado a mano) **habria vaciado la compra en silencio, sin que nada falle**. Se agrego la guarda: un Edit sin lineas sobre una compra que SI las tiene se rechaza con mensaje. `CrearAsync` SI acepta un borrador vacio, a proposito — empezar una compra y completarla despues es el caso normal, y `ConfirmarAsync` exige al menos una linea.
+#### Cambios por capa
 
-**Pasada extra — `Proveedor.Activo` y su simetrico.** Se impide cargar una compra nueva a un proveedor inactivo, **pero NO se bloquea editar un borrador cuyo proveedor se desactivo despues**: lo que se impide es MOVER la compra a un proveedor inactivo. Sin esa asimetria, desactivar un proveedor dejaba borradores inmodificables.
+**Domain** (2 nuevos, 3 modificados)
+- `Entities/MovimientoCCEmpleado.cs` — **nueva**, ledger inmutable.
+- `Enums/TipoMovimientoCCEmpleado.cs` — **nuevo** (`Cargo`/`Pago`, valores explícitos).
+- `Entities/CajaMovimiento.cs`, `CierreCajaDiario.cs`, `CierreCajaMensual.cs` — solo XML-doc (`LP-008`).
 
-#### Como quedo modelada la unidad en la linea de compra
+**Application** (5 nuevos, 3 modificados)
+- `Helpers/OrigenCCEmpleado.cs` — **nuevo**: conceptos + etiquetas + `MueveCaja` + `TipoFijo`.
+- `Interfaces/ICCEmpleadoService.cs`, `Interfaces/IEgresoCCEmpleadoService.cs` — **nuevos**.
+- `DTOs/MovimientoCCEmpleadoDtos.cs` — **nuevo** (4 DTOs).
+- `Helpers/OrigenCajaMovimiento.cs` — `CCEmpleado` y `SaldoInicialCaja` + `EsApertura`.
+- `DTOs/CajaDtos.cs` — `CajaConsolidadoDto`, `CajaSaldoPorMedioDto`, `CierreCajaContrasteDto`, `CajaMovimientoConsolidadoListItemDto`, `SaldoInicialCajaDto`.
+- `Interfaces/ICajaMovimientoService.cs` — 4 métodos nuevos.
 
-Es la parte del port que **no es mecanica** (ver `PAT-052`). `OrdenCompraItem` lleva **tres** columnas en vez de una cantidad:
+**Infrastructure** (2 nuevos, 3 modificados)
+- `Services/CCEmpleadoService.cs`, `Services/EgresoCCEmpleadoService.cs` — **nuevos**.
+- `Services/CajaMovimientoService.cs` — consolidado, apertura, `ResolverNombresAsync` extraído, exclusión de apertura en los dos helpers de totales.
+- `Data/AppDbContext.cs` — DbSet + Fluent API (3 índices, **sin FK a `AspNetUsers`** en las dos columnas de usuario, criterio ya vigente en el proyecto: un empleado dado de baja no debe arrastrar ni ocultar su cuenta corriente, que es inmutable y conserva valor contable).
+- `DependencyInjection.cs` — 2 registros `Scoped`.
 
-- **`Cantidad`** es `decimal(18,3)` (en marihogar es `int`), mismo ancho que `Producto.Stock` e `ItemVenta.Cantidad`. Esta expresada en la unidad de **COMPRA**, no convertida: si se compra el bulto, la cantidad es en bultos y **`PrecioCompra` es el precio DEL BULTO**. Es lo que dice la factura del proveedor, y es lo unico contra lo que se puede auditar la linea.
-- **`UnidadCompra`** la declara la linea, como columna propia. No alcanza con mirar `Producto.UnidadCompra`: el mismo producto se compra a veces por bulto y a veces por unidad suelta, y la ficha solo puede decir una de las dos. El operador la puede cambiar por linea.
-- **`FactorConversionAplicado`** es un **snapshot congelado** de `Producto.FactorConversion` al cargar la linea. `UnidadVenta` tambien se congela. La conversion a stock usa ESE factor, no relee la ficha — mismo criterio con el que `ItemVenta` congela precio e IVA.
+**Web** (9 nuevos, 3 modificados)
+- `Controllers/MiCuentaController.cs`, `Controllers/CCEmpleadoController.cs` — **nuevos**.
+- `Models/CCEmpleadoViewModels.cs`, `Models/LedgerEmpleadoPartialViewModel.cs` — **nuevos**.
+- `Views/MiCuenta/Index.cshtml`, `Views/CCEmpleado/{Index,Detalle,RegistrarMovimiento}.cshtml`, `Views/Shared/_LedgerEmpleado.cshtml` — **nuevas**.
+- `Views/Caja/{Consolidado,SaldoInicial}.cshtml`, `Views/Caja/{_SaldoPorMedio,_ContrasteCierres}.cshtml` — **nuevas**.
+- `wwwroot/js/ledger-empleado.js` — **nuevo**, compartido por las dos pantallas de empleado.
+- `Controllers/CajaController.cs` — `Consolidado`, `ConsolidadoListar`, `SaldoInicial` (GET/POST).
+- `Models/CajaViewModels.cs` — `SaldoInicialCajaViewModel`.
+- `Views/Shared/_Layout.cshtml` — "Cuenta del negocio" y "Cuentas de empleados" (Administrador), "Mi cuenta corriente" (**fuera de todo `if` de rol**).
+- `Views/Caja/Index.cshtml` — link a la consolidada.
 
-**`CantidadEnUnidadVenta` es una propiedad CALCULADA** (`Cantidad * FactorConversionAplicado`), con `entity.Ignore(...)` explicito en el DbContext: es derivada exacta de dos columnas que si se persisten, y duplicarla en la base abriria la puerta a que queden en desacuerdo. Es el valor que el paso 4 va a ingresar al stock.
+#### Migración EF
 
-**Por que el snapshot y no releer la ficha:** `FactorConversion` es un campo editable. Si el proveedor cambia el tamano del bulto y alguien actualiza el producto, una compra vieja todavia sin recibir pasaria a ingresar una cantidad de stock **distinta de la que se cargo**, y una ya recibida mostraria un equivalente que no coincide con el movimiento de stock real.
+`20261006032953_EntregaCuatro_CCEmpleadoYSaldoInicialCaja` — **una sola tabla nueva** (`MovimientosCCEmpleado`) con 3 índices. **Cero cambios sobre tablas existentes**: los dos orígenes nuevos de caja son valores de una columna `varchar(50)` que ya existe. Aplicada solo a `laplatense_dev` y verificada con `SHOW CREATE TABLE`.
 
-**Guarda que no es cosmetica:** cuando `UnidadCompra == UnidadVenta`, el factor se **FUERZA a 1** aunque llegue otro valor del formulario. Verificado ejecutando: con factor 99 y unidades iguales, se persiste 1 y el equivalente queda en 3, no en 297. Sin esa guarda, un factor heredado de la ficha queda de fantasma en una linea que vino en unidades sueltas y al recibir multiplica el stock.
+#### Evidencia
 
-**La validacion se delega al contrato que ya existe** (`IUnidadMedidaConversionService.EsFactorConversionValido`, regla R4 del catalogo) en vez de reimplementar la regla con otro criterio. Cuando las unidades difieren y no hay factor, el error es funcional y explicito, no un 500 ni un stock mal ingresado.
+**Build:** solución completa en **0 errores**, 8 advertencias, **todas `NU1902` preexistentes** de MailKit/MimeKit. Cero advertencias nuevas. Las vistas Razor compilan en el build (el proyecto no usa runtime compilation), así que el build cubre los 9 `.cshtml` nuevos. El JS compartido pasó `node --check`.
 
-**Riesgo declarado (pregunta abierta 6 de `4-presupuestador.md`, sin resolver):** el factor es **fijo por producto**. Si el mismo producto llega en bultos de distinto tamano segun el proveedor, tendria que vivir en `CodigoProveedorProducto`. El snapshot **absorbe** ese caso sin cambio de esquema mientras el operador corrija el factor a mano al cargar la compra, pero no lo resuelve de raiz. **Hay que preguntarselo al cliente antes de escribir la migracion del paso 4.**
+**Sonda EF desechable** contra `laplatense_dev` (proyecto consola en el scratchpad, borrado al terminar — **no es un smoke test funcional**: no levanta la app ni prueba por HTTP/navegador; es la evidencia de ejecución real que `MH-001` exige y que un build limpio no cubre). 14 bloques, **~45 verificaciones**, con la línea base calculada por **SQL crudo** y no por el código bajo prueba:
 
-#### `CodigoProveedorProducto` leido por primera vez
+| # | Qué se ejecutó | Resultado |
+|---|---|---|
+| 0 | Línea base por SQL crudo | 9 filas, saldo $3.413,80 |
+| 1 | `ObtenerConsolidadoAsync` (`GroupBy` con enum **nullable** + clave anónima) | **Criterio 1 OK** (saldo == SQL), **Criterio 3 OK** (desglose suma el total), **Criterio 5 OK** (neto == saldo) |
+| 2 | `ListarConsolidadoAsync`, páginas 1-2-3 de 3 filas | **Criterio 2 OK**: última fila de la **página 3** = $3.413,80 = saldo de todo el ledger. Y el saldo de la fila #8 es **idéntico con filtro y sin filtro** |
+| 3 | Buscador global: 11 términos (origen por etiqueta, medio por etiqueta, badge, importe, fecha, tipo) + filtro `MedioPago IS NULL` | Sin `InvalidOperationException`: ningún `IN` sobre colección de string llegó a SQL |
+| 4 | Listado de empleados con roles resueltos + 4 búsquedas | 4 empleados, `MH-001` evitado |
+| 5 | Sueldo devengado $900.000 | **Criterio 4 OK**: `CajaMovimientos` 9 → **9** (cero movimientos) |
+| 6 | Adelanto $250.000 en efectivo | **Criterio 3 OK**: 1 Egreso exacto, medio Efectivo, cuenta 900.000 → 650.000, **`OrigenId` idéntico en los dos ledgers** |
+| 7 | Retiro sin medio de pago | Rechazado |
+| 8 | Adelanto posteando `Tipo = Cargo` | Persistió **`Pago`**: el concepto gana sobre la vista |
+| 9 | Reversión: neto vivo, dos ledgers, medio arrastrado, segundo intento | **Criterio 5 OK**: netos en 0 en **ambos** ledgers, saldo vuelve a 900.000, medio = Efectivo, segundo intento **no escribe nada** |
+| 10 | `PagoSueldo` y `SueldoDevengado` fechados 21/08/2026 (mes cerrado) | **Criterio 6 OK**: el pago rechazado, el devengamiento aceptado |
+| 11 | **IDOR** (ver abajo) | **Criterio 2/7 OK** |
+| 12 | Saldo inicial: apertura, segunda apertura, apertura en mes cerrado | Apertura fuera de los ingresos del día, dentro del saldo acumulado, desglose sigue sumando, duplicada y en mes cerrado rechazadas |
+| 13 | Grilla operativa de Caja + los **7** orígenes + arqueo diario y mensual | Los 7 filtran sin tocar la vista; los dos arqueos siguen sumando su saldo |
+| 14 | Las dos grillas de empleado + los 5 conceptos + 8 búsquedas + contraste de los dos ledgers | `TotalPagado` de la cuenta == neto que salió de caja (`PAT-053`) |
 
-Los **110.683 mapeos** migrados en dev (el brief decia 127.629; en `laplatense_dev` son 110.683) no los leia **ninguna pantalla** hasta esta entrega. `IProductoService.BuscarParaCompraAsync(texto, proveedorId)` es el primer consumidor: resuelve por nombre, codigo interno, codigo de barras propio, codigos de barras alternos **y el codigo de ESE proveedor**.
+**La prueba concreta de que un empleado no puede ver la cuenta de otro (bloque 11).** Se instanció `MiCuentaController` como lo haría un request, con el claim del **Repartidor QA** y el `usuarioId` del **Vendedor QA** inyectado en el form por **tres vías** (`usuarioId`, `id`, `UsuarioId`), y se invocó `Listar()`:
 
-El match por codigo de proveedor esta **acotado a `proveedorId`**, que es exactamente por lo que el indice unico de la tabla es compuesto `(ProveedorId, CodigoDelProveedor)`: el mismo codigo puede identificar productos distintos en proveedores distintos, asi que buscar sin acotar devolveria el producto equivocado — con 110.683 filas, en silencio. Verificado ejecutando contra dato real: el codigo `-0099-42` del proveedor #1 resuelve al producto #19078, y **sin `proveedorId` no lo resuelve**. Los resultados que matchearon por codigo de proveedor se ordenan PRIMERO.
+```
+movimientos del Repartidor : [10, 6, 7, 9]
+movimientos del Vendedor   : [8]
+ids devueltos por el endpoint: [10, 6, 7, 9]
+```
 
-#### Aritmetica fiscal de la compra — el Service es la autoridad
+Devolvió **solo** los 4 movimientos del Repartidor. Ni una fila ajena, y el `RegistradoPorNombre` viajó en `null`. Las cuentas tenían saldos distintos y distinguibles ($901.000 vs. −$50.000), así que la prueba no es vacía. Segunda capa verificada por código: la ruta de administración (`/CCEmpleado/Detalle/{id}`) lleva `RequireAdministracion` **a nivel de clase**, así que un empleado que la intente recibe 403.
 
-Dos descuentos **en cascada** + tres impuestos, los cinco como par `%`/importe bidireccional. La misma aritmetica esta espejada en el JS de `Create.cshtml` para feedback inmediato, pero **lo que se persiste siempre se recalcula en `OrdenCompraService.AplicarFiscal`**: el cliente puede manipular el JS, asi que los montos que llegan del formulario son una PROPUESTA.
+**Las 2 verificaciones que fallaron son el mismo hallazgo pre-existente** (el cierre de agosto 2026, ver arriba) — assertions de la sonda que asumían dev consistente, no defectos del código.
 
-Criterio del par bidireccional server-side (`ResolverPar`): si viene un **porcentaje > 0**, manda el porcentaje. Si el porcentaje viene en 0 pero el **importe** no, manda el importe y se despeja el porcentaje — es el caso real *"el proveedor me puso $317.526,41 de descuento y no me dice el %"*. El importe se acota a la base para que la compra nunca quede en negativo.
-
-**La cascada verificada con numeros**, sobre un subtotal de 10.000 con `33+5`:
-
-| Concepto | Importe |
-|---|---:|
-| Subtotal | 10.000,00 |
-| Descuento 33% | − 3.300,00 |
-| Descuento adicional 5% **del neto** (no del subtotal) | − 335,00 |
-| **Base imponible** | **6.365,00** |
-| IVA 21% sobre la base | 1.336,65 |
-| Percepcion IIBB 4% sobre la **misma** base (sin sumar el IVA) | 254,60 |
-| Otros 1,5% sobre la misma base | 95,48 |
-| **Total** | **8.051,73** |
-
-El descuento efectivo del `33+5` es **36,35%**, no 38%. Esa cifra es la que valida la estructura contra dato propio: `Producto.Bonificacion` del catalogo migrado guarda literalmente valores como `"33+5"`.
-
-**PENDIENTE DE CONFIRMAR CON EL CLIENTE:** la ESTRUCTURA de dos niveles en cascada esta respaldada por el dato propio (`Bonificacion`), pero la **formula exacta** — en particular que las percepciones se liquiden sobre la base pelada y no sobre base + IVA — viene de una factura real de un proveedor de marihogar, no de uno de La Platense. **Hay que verificarla contra una factura real suya antes de darla por cerrada.**
-
-Defensivo y verificado ejecutando: con `Facturada = false`, los tres impuestos se **fuerzan a 0** y `TipoComprobante`/`PuntoVenta`/`NumeroComprobante` a null, aunque lleguen cargados a mano desde el formulario. Una compra en negro con un IVA colgado inflaria el Total y, cuando llegue el paso 4, la deuda que se postea en la cuenta del proveedor.
-
-**Nada de AFIP entro a este modulo**, confirmado: `TipoComprobanteCompra` es A/B/C manual sin correlato fiscal, el CUIT del proveedor es texto libre validado solo por longitud (11 digitos), y no hay constatacion de comprobante ni consulta de padron. Es el mismo criterio de marihogar (0 hits de afip en su `OrdenCompraService` y su controlador).
-
-#### Bugs propios encontrados EJECUTANDO (no leyendo)
-
-1. **`ObtenerNetoVivoAsync` devolvia 160.000 en vez de 60.000.** La primera version recibia un `TipoMovimientoCCProveedor` y calculaba *"suma de originales no-reversion menos suma de reversiones DENTRO de ese tipo"*, copiando el shape del ledger de caja. Pero en un ledger de **deuda** la reversion de un `Cargo` se postea como un `Pago` (es la unica forma de mover el saldo en sentido contrario), asi que **filtrar por tipo dejaba la reversion afuera del calculo**: un saldo inicial de 100.000 reajustado a 60.000 devolvia la SUMA de los dos cargos. Corregido a **neto CON SIGNO sobre los dos tipos**. Efecto colateral deseado: `EsReversion` queda como dato informativo (el badge de la grilla) y **no participa de la aritmetica** — un contramovimiento al que se le olvide el flag igual neutraliza bien el saldo.
-2. **El neto vivo no estaba acotado por proveedor.** Los origenes manuales (`SaldoInicial`, `AjusteManual`) no tienen documento y usan `OrigenId = 0`, asi que sin filtrar por `ProveedorId` el calculo **mezclaba el saldo inicial de TODOS los proveedores en un solo neto**: reajustar el saldo de uno habria revertido la plata de los otros. Encontrado en revision de codigo propia antes de ejecutar, y el arnes tiene un check dedicado que lo deja observable (crea dos proveedores con saldo inicial, reajusta uno y verifica que el otro no se movio).
-
-Y un tercero **en el arnes mismo**, que vale registrar porque confirma que la regla sigue viva en este proyecto: la linea que verificaba la limpieza usaba `p.Nombre.StartsWith("ZZVERIF-E3")` y **revento con `Expression '[SqlConstantExpression] COLLATE utf8mb4_bin' does not have a type mapping assigned`**. Es **`CRM-019`** (misma familia que `MH-001`), reproducido en vivo. Fix: `EF.Functions.Like`. **El codigo de produccion de esta ronda no tiene ni un `StartsWith`/`EndsWith`** (verificado por grep) y **ninguna coleccion local de string** llega al provider: los IN que hay son de `int` o de enum, y el match por etiqueta de enum se resuelve con una consulta por valor ESCALAR (la forma que MH-001 prescribe para su quinta aparicion).
-
-#### Archivos y capas modificadas
-
-**Domain — enums nuevos (5):**
-
-- `Enums/TipoMovimientoCCProveedor.cs` — `Cargo`/`Pago`. Enum PROPIO, separado del de clientes: la semantica es la deuda hacia afuera.
-- `Enums/EstadoOrdenCompra.cs` — `Borrador`/`Confirmada`/`Recibida`/`Cancelada`. `Recibida` declarada SIN transicion implementada.
-- `Enums/TipoComprobanteCompra.cs` — A/B/C manual, sin correlato AFIP.
-- `Enums/MonedaProveedor.cs` — `Peso`/`Dolar`. Desarrollo nuevo.
-- `Enums/FormaPagoProveedor.cs` — 5 valores. Desarrollo nuevo.
-
-**Domain — entidades:**
-
-- `Entities/Proveedor.cs` — **AMPLIADO** (aditivo). Sigue implementando `ICatalogoSimpleEntity` y conservando `Nombre`+`Activo` con el mismo significado.
-- `Entities/MovimientoCCProveedor.cs` — NUEVA. **No hereda de `SoftDestroyable`** (ledger inmutable), con `UsuarioId` explicito porque no la alcanza el stamping de auditoria del DbContext.
-- `Entities/OrdenCompra.cs` — NUEVA.
-- `Entities/OrdenCompraItem.cs` — NUEVA, con el modelo de unidad de `PAT-052`.
-
-**Application:**
-
-- `Helpers/OrigenCCProveedor.cs` — NUEVO. Los origenes del ledger en **un solo lugar invocable** (antidoto a LP-002: el combo del filtro y el mapa de etiquetas de la vista salen del mismo diccionario, asi que agregar un origen no requiere tocar la vista).
-- `DTOs/ProveedorDtos.cs`, `DTOs/MovimientoCCProveedorDtos.cs`, `DTOs/OrdenCompraDtos.cs` — NUEVOS.
-- `Interfaces/IProveedorService.cs` — NUEVO (archivo propio). **Reemplaza** al `IProveedorService : ICatalogoSimpleService` que vivia en `ICatalogoSimpleService.cs`.
-- `Interfaces/ICCProveedorService.cs`, `Interfaces/IOrdenCompraService.cs` — NUEVOS.
-- `Interfaces/ICatalogoSimpleService.cs` — se saco `IProveedorService`, con la nota de por que.
-- `Interfaces/IProductoService.cs` — `+ BuscarParaCompraAsync(texto, proveedorId)`.
-
-**Infrastructure:**
-
-- `Services/ProveedorService.cs` — **REESCRITO**. Ya no hereda de `CatalogoSimpleServiceBase<Proveedor>`.
-- `Services/CCProveedorService.cs`, `Services/OrdenCompraService.cs` — NUEVOS.
-- `Services/ProductoService.cs` — `+ BuscarParaCompraAsync`.
-- `Data/AppDbContext.cs` — 3 `DbSet` nuevos, configuracion de las 3 entidades, ampliacion del bloque de `Proveedor`, y la correccion del comentario viejo.
-- `DependencyInjection.cs` — 3 registraciones (`ICCProveedorService`, `IProveedorService` reapuntado, `IOrdenCompraService`).
-- `Migrations/20261005231651_EntregaTres_ProveedoresCCCompras.cs` — ver abajo.
-
-**Web:**
-
-- `Models/ProveedorViewModels.cs`, `Models/OrdenCompraViewModels.cs` — NUEVOS.
-- `Controllers/ProveedoresController.cs`, `Controllers/OrdenesCompraController.cs` — NUEVOS, los dos con `[Authorize(Policy = "RequireAdministracion")]` **a nivel de clase, sin overrides por accion**.
-- `Views/Proveedores/` — `Index`, `Create`, `Edit`, `_Formulario` (parcial compartida por los dos formularios, 20 campos), `_FormularioScripts`, `CuentaCorriente`, `RegistrarAjuste`.
-- `Views/OrdenesCompra/` — `Index`, `Create` (sirve tambien para Edit: el controller hace `return View("Create", vm)`), `Details`.
-- `Views/Shared/_Layout.cshtml` — seccion "Compras" en el sidebar, dentro del bloque de Administrador.
-- `Views/Dashboard/Index.cshtml` — correccion del texto prescriptivo (pasada 3 del barrido).
-
-#### Migracion EF
-
-**`20261005231651_EntregaTres_ProveedoresCCCompras`** — generada **y aplicada SOLO a `laplatense_dev`**. 100% **aditiva**: 18 `AddColumn` sobre `Proveedores`, 3 `CreateTable` (`MovimientosCCProveedor`, `OrdenesCompra`, `OrdenCompraItems`), 9 `CreateIndex`. **Cero `DropColumn`, cero `AlterColumn`** sobre lo que ya existia. `has-pending-model-changes`: sin drift.
-
-**Correccion de datos agregada a mano sobre la migracion generada** — y es el hallazgo que la hace no-trivial: `Moneda` es un enum **no nullable** y EF la agrega con `defaultValue: 0`, pero el primer valor del enum es `MonedaProveedor.Peso = 1` (la convencion del proyecto numera explicito desde 1). Sin corregirlo, los **85 proveedores que ya existian** quedaban con `Moneda = 0`, que no corresponde a ningun valor del enum: el listado mostraria "0" crudo, el filtro "Pesos" no los encontraria y `p.Moneda == MonedaProveedor.Peso` daria false para todos. **Es exactamente la clase de incoherencia de LP-002: la columna funciona perfecto para las filas nuevas y esta mal en las que ya estaban, en silencio.** Se agrego `UPDATE Proveedores SET Moneda = 1 WHERE Moneda = 0;`, con `WHERE` acotado para que correr la migracion dos veces sea inocuo. Verificado despues de aplicar: los 85 quedaron en 1.
-
-**Produccion sigue atras y ahora son TRES migraciones:** le faltan `EntregaTres_ConfirmarSinFactura_RecargoCuotas_NotaPago`, `D9_NormalizarFechaCajaMovimiento_DiaDeNegocio` y esta.
-
-#### Evidencia de verificacion (ejecutada, sin navegador)
-
-El rol del Implementador prohibe levantar la app y probar por navegador, y "compila y lo lei" no es evidencia suficiente en este proyecto. La combinacion usada, toda ejecutada de verdad:
-
-1. **`dotnet build FerreteriaLaPlatense.slnx` — 0 errores, 9 advertencias** (las 9 son `NU1902` de MailKit/MimeKit, preexistentes). **Las vistas Razor SI compilan en el build, confirmado en esta misma ronda sin tener que provocarlo**: un `autofocus` condicional en `_Formulario.cshtml` rompio el build con `RZ1031` y hubo que corregirlo. Asi que el build limpio tambien dice algo sobre las 10 vistas nuevas.
-2. **Grafo de DI validado** con `BuildServiceProvider(ValidateOnBuild + ValidateScopes)` en un proyecto de consola aparte, con stubs de `IConfiguration` e `IWebHostEnvironment` (los aporta el host de ASP.NET; su ausencia en un arnes de consola es falla del arnes, no del codigo). Los 4 servicios del modulo resuelven en un scope real: sin ciclos ni captive dependencies.
-3. **Los Services ejercitados DIRECTAMENTE contra `laplatense_dev`** — no simular requests, la capa de negocio real: **161 checks, 161 OK**, con limpieza al final que dejo la base en su linea base exacta (85 proveedores, 0 compras, 0 movimientos CC, 0 residuo de prueba). Cobertura: los 2 bugs propios de arriba, la aritmetica fiscal con numeros, el modelo de unidad (bultos, decimales, factor fantasma, factor faltante), las transiciones de estado validas e invalidas, el perimetro (stock/caja/CC/ajustes de stock contados antes y despues de confirmar y de cancelar), las 3 relaciones que bloquean la baja, los 8 filtros de columna, 30 terminos distintos de busqueda global (texto, importe es-AR e invariante, fecha, etiquetas de enum, badges), las 30 combinaciones de columna x direccion de ordenamiento, y 5 checks de regresion sobre lo que ya estaba (catalogo completo, codigos de proveedor completos, ningun proveedor con enum invalido, el contrato de `tools/MigracionCatalogo`, y la CC de clientes).
-4. **`has-pending-model-changes`** — sin drift entre el modelo y la ultima migracion.
-
-**Lo que NO se verifico y le queda a QA:** todo lo que solo se ve en un navegador — el Select2 AJAX del buscador de productos, la grilla de items renderizada por JS, los cinco pares `%`/importe bidireccionales, el daterangepicker, los popup de SweetAlert2, y que el JS de la pantalla de compra de el **mismo** total que el Service (la duplicacion es deliberada, pero que las dos mitades coincidan hoy solo esta verificado del lado del Service).
+**Base devuelta a su línea base exacta:** `CajaMovimientos` 9 filas / saldo $3.413,80 / `MAX(Id) = 9`, `MovimientosCCEmpleado` 0, cierres 1 y 1. Las tablas se respaldaron con `mysqldump` antes de la sonda.
 
 #### Riesgos y supuestos
 
-1. **La formula fiscal exacta es un supuesto de negocio tomado de otro cliente.** La estructura de cascada esta respaldada por dato propio (`Bonificacion = "33+5"`); el orden exacto de las percepciones, no. Confirmar contra una factura real de La Platense.
-2. **El factor de conversion es fijo por producto** (pregunta abierta 6 de `4-presupuestador.md`). El snapshot de la linea absorbe el caso del bulto distinto por proveedor, pero no lo resuelve de raiz.
-3. **El filtro por rango de saldo del listado de proveedores se aplica sobre la pagina visible**, no sobre el conjunto completo, porque el saldo no es una columna (vive en el ledger). Con 85 proveedores y `pageLength` 15 alcanza; si el padron creciera a miles habria que materializar el saldo. **Esta declarado en la propia pantalla** con un `ov-field-hint`, no escondido. Por el mismo motivo, la columna de saldo **no es ordenable**: se declara `orderable: false` en vez de ofrecer un orden que no haria nada.
-4. **El JS y el Service duplican la aritmetica fiscal.** Es deliberado (el Service es la autoridad), pero si se cambia una mitad hay que cambiar la otra o el operador ve un total distinto del que se guarda. Esta anotado en los dos lados.
-5. **La recepcion no existe**, y los mensajes de la UI lo dicen explicitamente ("El stock y la cuenta corriente del proveedor se actualizan al registrar la recepcion de la mercaderia"). Sin esos mensajes, el perimetro de esta ronda se lee como un bug en la prueba.
-6. **El ajuste manual de CC de proveedores no consulta `ValidarPeriodoAbiertoAsync`**, igual que el de clientes: no escribe en caja, asi que no hay arqueo que pueda quedar desfasado. **El egreso real del paso 5 SI tiene que pasar por esa guarda** — el camino no quedo preparado de ninguna otra forma.
-7. **`EstadoOrdenCompra.Recibida` existe en el enum y ningun codigo la escribe.** La guarda de `CancelarAsync` ya la contempla, para que el dia que exista la recepcion no haya que acordarse de endurecerla.
+1. **El saldo sigue sin significar "la plata que hay" hasta que alguien cargue la apertura.** La herramienta está; el dato lo tiene que poner el cliente contando el cajón y mirando los extractos. Mientras no lo haga, la pantalla lo dice con esas palabras.
+2. **El cierre de agosto 2026 no cuadra en dev y producción puede tener lo mismo.** Revisar al deployar.
+3. **Bruto vs. neto en los cierres firmados**: decisión pendiente (ver arriba).
+4. **El listado de empleados se resuelve en memoria.** Supuesto: el padrón es de unidades. Documentado en el XML-doc.
+5. **Toda la nómina del sistema es "empleado".** No hay un flag `EsEmpleado` en `ApplicationUser`, así que la pantalla de administración lista **todos** los usuarios, incluido el `SuperUsuario` técnico. Si el cliente quiere separar "personal" de "usuarios del sistema", es un campo nuevo y una ronda aparte.
+6. **No hay saldo inicial de arrastre para empleados.** No estaba pedido; el ajuste manual lo cubre. Si hace falta como concepto propio, es una constante más en `OrigenCCEmpleado`.
+7. **No hay liquidación de sueldos ni cálculo de haberes.** El módulo registra lo que el Administrador declara; no calcula el sueldo.
 
-#### Pruebas minimas requeridas para QA
+#### Pruebas mínimas requeridas para QA
 
-Las de navegador, que son las que este rol no puede hacer:
-
-1. **Proveedores/Index**: filtrar por cada una de las 8 columnas visibles; buscar en el buscador global por un importe visible (tipear "1480" tiene que encontrar un TC de "$ 1.480,50"), por una fecha `dd/MM/yyyy`, y por una etiqueta ("Pesos", "Monotributo", "Inactivo"). Navegar a otra pantalla y volver: los filtros siguen aplicados. "Limpiar filtros" vacia los controles Y al reentrar no los repone.
-2. **Proveedores/Create**: alta con solo razon social; alta con moneda Dolar **sin** TC (tiene que bloquear); alta con descuento adicional **sin** descuento base (bloquear); alta con saldo inicial 100.000 y verificar que la cuenta corriente muestra un movimiento de apertura por ese importe.
-3. **Proveedores/Edit**: que los 20 campos vuelvan cargados (**mirar el HTML crudo**: una coma dentro de un `value` de un `input type="number"` es LP-003). Cambiar el saldo inicial y verificar que la CC muestra 3 movimientos (original + reversion + nuevo) y el saldo correcto.
-4. **Proveedores/CuentaCorriente**: cargar un ajuste manual y verificar que el saldo corrido de la ultima fila coincide con la card de saldo; filtrar por rango de fecha y comprobar que el saldo corrido **no** arranca de cero; verificar que **el ajuste no aparece en Caja**.
-5. **Baja de proveedor**: estando en la pagina 2+ del listado, eliminar uno y confirmar que el DataTable **no vuelve a la pagina 1**. Intentar eliminar uno con codigos del catalogo mapeados (tiene que bloquear con mensaje).
-6. **OrdenesCompra/Create** — es la pantalla con mas riesgo: elegir un proveedor con descuento habitual y verificar que se precarga; buscar un producto **tipeando el codigo del proveedor** (los hay reales en la base); agregar una linea en bultos y verificar la columna "Equivale a"; tocar el `%` de descuento y ver que se recalcula el importe, y al reves; marcar/desmarcar "vino con factura" y ver que la card de impuestos aparece y desaparece y que los impuestos vuelven a 0; **guardar y comparar el total de la pantalla contra el de la pantalla de detalle** (son dos calculos distintos y tienen que coincidir).
-7. **Reabrir un borrador** (`Edit`): que las lineas vuelvan con su cantidad, unidad, factor y precio, y que el combo de proveedor llegue **con el proveedor ya elegido**.
-8. **Maquina de estados**: desde Borrador, los botones visibles tienen que ser Editar + Confirmar + Cancelar. Confirmar: no aparece Editar, no se mueve el stock del producto ni aparece nada en Caja ni en la CC del proveedor. Cancelar con motivo vacio (bloquear). Probar `POST /OrdenesCompra/Confirmar/{id}` sobre una ya confirmada (error funcional, nunca 500).
-9. **Permisos**: con usuario Vendedor, el sidebar NO muestra "Compras", y `GET /Proveedores` y `GET /OrdenesCompra` devuelven 403.
-10. **Regresion**: que el catalogo de productos, el buscador de la venta y la CC de clientes sigan funcionando igual.
+1. **Cuenta del negocio sin apertura**: el rótulo debe decir "Movimiento acumulado del sistema" y el aviso amarillo estar presente. Comparar el saldo contra `SELECT SUM(CASE WHEN Tipo=1 THEN Monto ELSE -Monto END) FROM CajaMovimientos`.
+2. **Saldo corrido en la página 3**: paginar a 3 filas por página y confirmar que la última fila de la última página da el saldo total. Después filtrar por un origen y confirmar que el saldo de una fila **no cambia**.
+3. **Desglose por medio**: la columna Saldo debe sumar exactamente la tarjeta de saldo acumulado.
+4. **Cierres**: deben verse los diarios y los mensuales con su contraste. **Se espera que el mensual de agosto 2026 aparezca en rojo** (hallazgo pre-existente, no un defecto nuevo).
+5. **Apertura**: declarar efectivo, confirmar que los ingresos del día **no** cambian y que el saldo acumulado **sí**. Intentar una segunda apertura del mismo medio (debe rechazarse) y una con fecha en un mes cerrado (debe rechazarse).
+6. **Devengar vs. pagar**: registrar sueldo devengado y confirmar que la grilla de Caja no suma nada; registrar un adelanto y confirmar el egreso con su medio.
+7. **IDOR, a mano**: entrar como Repartidor a "Mi cuenta corriente", abrir la consola y repetir el POST de la grilla agregando `usuarioId=<id de otro>`. Deben seguir viéndose los propios. Y pegar `/CCEmpleado/Detalle/<id>` en la barra: debe dar **403**.
+8. **Reversión**: revertir un adelanto, confirmar el contramovimiento en los dos ledgers con el mismo medio, y confirmar que el botón de revertir desaparece.
+9. **Período cerrado**: cerrar el día e intentar un adelanto con esa fecha (debe rechazarse); un devengamiento con la misma fecha debe entrar.
+10. **Rol `Repartidor`**: el sidebar debe mostrar Dashboard, Entregas, Mi cuenta corriente y Notificaciones, y **nada** de Caja, Cuenta del negocio ni Cuentas de empleados.
+11. **`PAT-016`** en los 3 listados nuevos: filtrar, navegar a otra pantalla, volver (los filtros siguen), "Limpiar filtros" los borra de verdad.
+12. **Dashboard**: confirmar que los egresos del día incluyen el adelanto cargado.
 
 #### Checklist de salida para merge
 
-- [x] Build limpio de la solucion (0 errores; las vistas Razor entran en el build, confirmado)
-- [x] Grafo de DI validado (`ValidateOnBuild` + `ValidateScopes`)
-- [x] Services ejercitados contra `laplatense_dev` (161/161) y base devuelta a su linea base
-- [x] Migracion EF generada, aditiva, aplicada **solo a dev**, sin drift de modelo
-- [x] Correccion de datos del enum `Moneda` incluida en la migracion y verificada
-- [x] Barrido LP-002 completo (4 pasadas + 2 extras), con 5 hallazgos propios y sus fixes
-- [x] MH-001 / CRM-019: cero colecciones locales de string, cero `StartsWith`/`EndsWith` en el codigo nuevo; todas las consultas nuevas **ejecutadas**
-- [x] LP-003: `InvariantCulture` en todos los `value` de los inputs numericos de las vistas nuevas
-- [x] LP-009: las 6 propiedades de fecha nuevas declaran su semantica
-- [x] Enums: los 5 nuevos numerados explicito desde 1, con la nota de "todo valor nuevo al final"
-- [x] Design system: `.ov-form-page`/`.ov-page-head`/`.ov-form-actions`/`.ov-required`/`.ov-field-hint`/`.ov-detail-grid`, Select2 en todo combo, SweetAlert2, daterangepicker, DataTables server-side con filtro por columna visible, PAT-016 en los 3 listados
-- [x] `PAT-052` agregado al catalogo; `PAT-001` actualizado con 3 referencias nuevas; `cat_resumen.txt` regenerado
-- [x] `5-implementador.md` y `trazabilidad.md` actualizados
-- [ ] **Sin push y sin deploy** (pedido explicito de Joaquin) — el commit queda local en `entrega-1-migracion`
-- [ ] Verificacion por navegador: le corresponde a QA (ver "Pruebas minimas")
-
-### Entrega 3 — pasos 4 y 5: recepción de mercadería y pagos a proveedores (2026-10-05, rama `entrega-1-migracion`)
-
-**No pusheado y no deployado** — pedido explícito de Joaquín ("no publicar, dejar el desarrollo listo"). Nada corrió contra producción: la migración se aplicó únicamente a `laplatense_dev`.
-
-Cierra el **impacto real del módulo de Compras**. Hasta el paso 3 nada de Compras movía un peso ni una unidad de stock; desde esta ronda:
-
-- **`RecibirAsync`** (`Confirmada → Recibida`) incrementa stock, escribe un ledger de stock nuevo y postea el `Cargo` de deuda, **todo en una transacción**. **No toca la caja**: recibir genera deuda, la plata sale al pagar.
-- **`PagoProveedorService`** es el **primer punto del módulo por donde sale plata de la caja**: cada línea de pago postea un `Pago` en la cuenta corriente del proveedor y un `Egreso` en el ledger de caja, mismo monto, misma fecha y mismo `OrigenId`.
-
-#### Resultado del escaneo de reutilización (obligatorio antes de implementar)
-
-Encontrado en el **paso 1** del escaneo (`docs/patrones/cat_resumen.txt`):
-
-- **`PAT-052`** — "Línea de documento que declara su unidad y CONGELA el factor de conversión". Es el patrón que esta ronda **consume**: el paso 3 lo construyó, el paso 4 lo usa. **Se amplió** con un `archivos_referencia` nuevo: el consumidor y la lección que solo aparece al escribirlo (ver abajo).
-- **`PAT-020`** — "Cancelación de comprobante con pagos: ledger inmutable + reversión acotada a lo posteado". Aplicado tal cual a la reversión de un pago a proveedor, en los dos ledgers.
-- **`PAT-019`** — "Autocompletar el monto de un pago nuevo con el saldo pendiente". Aplicado: la primera línea del formulario de pago arranca con el saldo pendiente completo y la forma de pago habitual del proveedor.
-- **`PAT-003`** / **`PAT-051`** — pago multi-medio y medio como dimensión del ledger único. El pago a proveedor es multi-línea con su `MedioPagoCaja` por línea.
-- **`PAT-016`** — búsqueda global multi-formato. Aplicado a las dos columnas nuevas (origen de caja por etiqueta, estado del precio del catálogo).
-
-**Dos patrones NUEVOS agregados al catálogo** (el criterio ya vivía en el estudio y no estaba catalogado):
-
-- **`PAT-053`** — "Un pago, dos ledgers: punto único de egreso con la MISMA clave de origen en los dos". Origen `marihogar` (CR-84, en producción), portado y **simplificado**: de sus 579 líneas solo ~80 son runtime, el resto es backfill one-shot de datos históricos suyos y **no se portó**.
-- **`PAT-054`** — "Bandera `costo actualizado, precio sin recalcular`". **Primera implementación en el estudio**, sin precedente: `RecibirAsync` de marihogar **no toca** `Producto.PrecioCompra`.
-
-#### Paso 4 — la conversión de unidades, que es lo que NO se podía copiar
-
-El precedente (`marihogar/OrdenCompraService.RecibirAsync`, línea ~390) tiene `Cantidad` como `int`, `StockActual` como `int`, y el ingreso de stock es literalmente la misma cantidad del ítem sin traducir nada. Acá hay que convertir, y con el factor **congelado en la línea**.
-
-**El problema que apareció al escribirlo, y que el brief no podía anticipar:** `IUnidadMedidaConversionService.ConvertirCompraAVenta(producto, cantidad)` lee `producto.FactorConversion`, o sea el factor **de hoy**. Usarlo en la recepción habría roto exactamente el congelamiento que `OrdenCompraItem` existe para garantizar (`PAT-052`). Y la salida fácil —que la recepción se arme la multiplicación por su cuenta— parte la regla en dos lugares, que es cómo nacen las reincidencias de `LP-002`.
-
-Se resolvió agregando al contrato una sobrecarga que **recibe** el factor:
-
-- `ConvertirConFactor(unidadCompra, unidadVenta, factorCongelado, cantidad, nombreProducto)` — la aritmética y la condición de error viven **acá y solo acá**; `ConvertirCompraAVenta` quedó como envoltorio que le pasa los valores de la ficha.
-- `ValidarConversion(...)` — la **misma** condición como pregunta en vez de como excepción: devuelve el mensaje listo para mostrar o `null`.
-
-**Por qué `ValidarConversion` y no un try/catch adentro de la transacción:** `ConvertirConFactor` lanza `InvalidOperationException` si falta el factor. Con una factura de 80 renglones, descubrirlo en el renglón 40 dejaría 39 productos ya modificados en el change tracker: funcionaría por el rollback, pero "no deja nada a medio aplicar" sería una propiedad de la base y no del código. El guard previo recorre **todas** las líneas, junta **todos** los problemas y la recepción **no arranca** — y el operador ve las tres líneas que hay que arreglar, no la primera.
-
-**Nota de contexto que importa para QA:** en `laplatense_dev` hay **0 productos** con `UnidadCompra != UnidadVenta` sobre 112.485. El ítem 0.4 pasó los 87.542 `Metro` a `Unidad` en bloque y los 2.635 candidatos a corte por metro esperan marcación manual del cliente. **O sea que hoy el camino de conversión no tiene ni un dato real que lo ejercite**: se midió con productos sembrados y limpiados (ver "Casos medidos").
-
-#### Paso 4 — el ledger de stock, construido de cero
-
-Este proyecto **no tenía** ledger de stock. Los únicos escritores de `Producto.Stock` eran `VentaWorkflowService` (resta directa, sin rastro) y `AjusteStockService.AplicarAjusteAsync`, que hace un **SET absoluto** y además fuerza `StockVerificado = true`.
-
-`AjusteStock` **no servía** como rastro de una compra, por dos motivos independientes: no tiene `OrigenTipo`/`OrigenId` (el movimiento no se puede atar al documento que lo causó) y su semántica es "alguien contó y corrigió", que es otra cosa. Marcar productos como verificados porque llegó un bulto sería, además, falso — y por eso **`RecibirAsync` no toca `StockVerificado`**.
-
-`MovimientoStock` nuevo, con el criterio de `marihogar/MovimientoStock` y dos adaptaciones:
-
-1. `Cantidad` es `decimal(18,3)` y no `int` — mismo ancho que `Producto.Stock`.
-2. Se agrega **`OrigenTipo`** (el precedente solo tiene `OrigenId`, porque allá el `Tipo` ya determina la tabla). Acá se declara el par completo, y el `OrigenId` del movimiento de stock es **el mismo** que el del `Cargo` de deuda.
-
-**Inmutable: no hereda `SoftDestroyable`**, mismo criterio que `MovimientoCCProveedor`. Único escritor: `MovimientoStockService`.
-
-**ALCANCE DECLARADO, y hay que tenerlo a la vista: `Σ MovimientoStock.Cantidad` NO reconstruye `Producto.Stock`.** Los movimientos históricos de venta y los ajustes ya aplicados **no se migraron hacia atrás** (no estaba en alcance y toca dos módulos ya en producción). El ledger es el rastro de las compras recibidas, no el libro mayor. Por eso la recepción escribe **las dos cosas** (el stock del producto y el movimiento del ledger) y no deriva una de la otra. Los otros tres valores del enum (`Venta`, `Ajuste`, `AnulacionVenta`) están **declarados sin escritor** para no renumerar el enum el día que se unifique.
-
-#### Paso 4 — el costo del producto: lo que se actualiza y lo que NO
-
-**Decisión del orquestador, sin precedente portable** (`RecibirAsync` de marihogar no toca `Producto.PrecioCompra`): la recepción **sí** actualiza `PrecioCompra` con el costo real, y **no** toca `PrecioVenta` ni `PorcentajeRecargo`.
-
-El motivo está en la fórmula: `PrecioVenta = PrecioCompra × (1+Recargo%)/(1+IVA%)`. Recalcularla en cada recepción movería los precios de mostrador de **112.485 productos** sin que nadie lo pida y a espaldas del cliente — un aumento de lista del proveedor se convertiría en un aumento al público automático y silencioso.
-
-**La base del costo NO es el total de la factura**, y confundirlas infla el catálogo entero:
-
-```
-ratioDescuento   = (Subtotal − MontoDescuento − MontoDescuentoAdicional) / Subtotal
-costoNetoLinea   = item.Subtotal × ratioDescuento
-costoUnitario    = Σ(costoNetoLinea por producto) / Σ(cantidadConvertida por producto)
-```
-
-**Sin IVA ni percepciones**: eso es lo que se le transfiere al proveedor, no lo que costó la unidad. Sumárselo inflaría el costo de todo el catálogo un 21% y, por la fórmula derivada, después el precio de venta. Es un número **distinto** del que va al `Cargo` de deuda (que sí es el total con impuestos): los dos son correctos y responden a preguntas distintas. Conviene que quede escrito antes de que alguien lo "arregle".
-
-Dos detalles que no son cosméticos:
-
-- **Se acumula por PRODUCTO, no por línea.** Una compra puede traer el mismo producto en dos renglones (dos bultos de distinto tamaño, o el ítem repetido). Con los acumuladores, el costo que queda es el **promedio ponderado real** de la compra; tomando el último renglón, el resultado dependería del orden de carga.
-- **Un costo calculado en 0 NO se escribe.** Pasa con un remito sin precios o un descuento del 100%, y pisar el costo del catálogo con 0 sería destructivo y silencioso: el precio de venta derivado pasaría a 0 en el próximo recálculo masivo.
-
-**El enganche con la Entrega 6 (`PAT-054`):** `Producto.PrecioVentaDesactualizado` (bool) + `FechaUltimoCostoCompra` (instante UTC). La bandera se muestra en el **listado del catálogo** como columna, **filtro tri-estado**, criterio de **orden** y en la **búsqueda global** por su etiqueta visible — porque sobre 112.485 filas una alerta que no se puede aislar es inservible, y el caso de uso es exactamente masivo: después de recibir 80 renglones lo que el cliente necesita es la **lista**, no abrir 80 fichas.
-
-**La mitad simétrica (hallazgo propio del barrido): alguien tiene que APAGARLA.** Nada la apagaba. Una alerta que no se apaga deja de significar algo. Se agregó a `ProductoService.EditarAsync`: se apaga **solo si cambió `PrecioVenta` o `PorcentajeRecargo`** (eso *es* reaplicar el margen a mano) y se **mantiene** si el usuario guardó la ficha sin tocar ninguno de los dos — guardar no es decidir el precio. El otro apagador previsto es el aumento masivo de la Entrega 6, que va a necesitar apagarla por lote.
-
-#### Paso 5 — pagos: `PAT-053` y por qué el punto único se crea ahora
-
-`PagoOrdenCompra` portado del precedente (39 líneas): `OrdenCompraId`, `Metodo` (reusa `FormaPagoProveedor`, el enum que ya vive en la ficha del proveedor — mismo universo de valores), `Monto`, `Fecha`, `Estado`, `FechaPagoTentativa?`, `Notificado`. **Los dos últimos quedan declarados y ningún código los escribe**: son el esquema del paso 6 (pagos programados). **No hay entidad de cheque** (paso 7).
-
-`IEgresoPagoProveedorService` es el **único punto** que postea y revierte el egreso de caja. Hoy tiene **dos** escritores (registrar y revertir) y los pasos 6 y 7 van a sumar más: **el punto único se crea ahora, antes de que el problema exista.** En marihogar son 6 los caminos que bajan la deuda y, mientras el egreso estuvo armado inline en el primero, los otros cinco movieron la deuda sin mover la plata. Crearlo después obligó allá a un backfill que fue 500 de las 579 líneas del servicio.
-
-**Lo que se copió del precedente y es lo más valioso:** el egreso usa el **mismo `OrigenTipo`** (`"PagoOC"`) y el **mismo `OrigenId`** que el `Pago` de la cuenta corriente, y ese `OrigenId` es el id de la **línea de pago**, no el del documento (`MH-027`: dos líneas del mismo importe compartiendo clave harían revertir la equivocada). Los literales viven en dos helpers distintos (`OrigenCajaMovimiento.PagoOC` y `OrigenCCProveedor.PagoOC`) porque son dos ledgers con dominios de valores distintos, pero el **valor es idéntico a propósito**.
-
-**Guardas, todas ANTES de abrir la transacción** (adentro no queda ninguna decisión que pueda rechazar la operación):
-
-1. Al menos una línea con monto > 0 — nunca solo `Count == 0`: un post con tres líneas en cero no es un pago y postearía tres movimientos de $0.
-2. Forma de pago válida. **`CuentaCorriente` se rechaza**: "pagar a cuenta corriente" es dejar la deuda viva. Aceptarla postearía un egreso por plata que no salió **y** cancelaría una deuda que sigue existiendo — descuadra los dos ledgers a la vez. Se rechaza en el Service **y** no se ofrece en el combo (las dos puntas).
-3. Estado pagable (`Confirmada` o `Recibida`). Pagar una `Confirmada` es un **anticipo** y es un caso real (se paga para que el proveedor despache): deja al proveedor con saldo a favor del negocio hasta que la recepción postee el `Cargo`.
-4. No más que el saldo pendiente. El criterio de "lo ya pagado" sale del **mismo** método que usa la pantalla (`ObtenerTotalPagadoAsync`): la variante en que la pantalla suma con un criterio y el Service valida con otro es como se deja pagar de más sin que nada falle.
-5. **`LP-009`**: `ValidarPeriodoAbiertoAsync` sobre el día de negocio al que se imputa. Es la única vía de escritura de caja del módulo y la guarda no es opcional. El ajuste manual de CC la saltea a propósito; acá no. **Lo que decide si hace falta la guarda es si el movimiento escribe CAJA**, no si escribe el ledger de proveedores.
-
-El `SaveChangesAsync` intermedio para obtener `pago.Id` va **dentro** de la transacción: hace falta porque ese id es el `OrigenId` de los dos ledgers, y no rompe el todo-o-nada.
-
-**Reversión:** neto vivo de **cada ledger por separado** — `ObtenerNetoVivoAsync` (con signo, sobre los dos tipos) para la cuenta corriente y `ObtenerNetoPosteadoAsync` para la caja. Nunca el monto del documento (`MH-020` punto 3). **Idempotente por construcción**: la segunda vez los dos netos están en 0 y no se escribe nada — no hay flag de estado que haya que acordarse de consultar. Calcular los dos netos por separado arregla además el caso en que uno de los dos lados ya se había revertido y el otro no.
-
-Dos detalles de la reversión que descuadran el arqueo si se omiten:
-
-- **Arrastra el MISMO medio de pago que el egreso original.** Si la plata salió por transferencia y vuelve sin medio declarado, al arqueo por medio le falta el ingreso en la cuenta real **y** le sobra en la fila "Sin declarar": se descuadra de a dos.
-- **Se imputa a HOY, no a la fecha del pago**, y pasa por `ValidarPeriodoAbiertoAsync` igual. Postear el contramovimiento con la fecha original mete plata en un arqueo posiblemente ya firmado, que es exactamente lo que la guarda existe para impedir.
-
-**Cancelar una compra NO revierte sus pagos anticipados**, a propósito: la plata salió de verdad y el proveedor queda con saldo a favor, que es lo que realmente pasó. Decidir si se pide de vuelta o queda a cuenta de la próxima compra es del negocio. Revertir es una acción aparte y explícita.
-
-#### Barrido `LP-002` — 6 pasadas, 6 hallazgos propios
-
-La **pasada 0** (verificar las premisas del brief, no heredarlas) rindió dos veces:
-
-1. **El brief afirmaba que el único call site de la conversión era `EsFactorConversionValido` en `ProductoService:444`.** Verificado: `ProductoService.cs:554` **y** `OrdenCompraService.cs:707` (el paso 3 ya lo había cableado). Lo que sí era cierto es que **`ConvertirCompraAVenta` tenía CERO call sites**. La diferencia importa: creer que el validador estaba huérfano habría llevado a tratarlo como código nuevo en vez de como un contrato con dos consumidores.
-2. **El brief pedía usar `ConvertirCompraAVenta` Y el factor congelado — las dos cosas son incompatibles**, porque ese método lee la ficha viva. Verificarlo es lo que produjo la sobrecarga `ConvertirConFactor` en vez de una multiplicación duplicada.
-
-**Pasada 1 — ¿el campo se postea?** Los inputs de la grilla de pago **a propósito** no tienen `name`: el JS los renumera a índices contiguos en el submit. Por eso quitar una línea del medio **obliga** a renumerar — si no, el model binder corta la lista en el primer hueco y las líneas de abajo se pierden en silencio.
-
-**Pasada 2 — hermanos semánticos.** Grep reproducible: `grep -hn "DateTime" FerreteriaLaPlatense.Domain/Entities/*.cs | grep "get; set;"` da **34** (eran 29 al cerrar el paso 3). Las 5 nuevas declaran su semántica: `MovimientoStock.Fecha`, `PagoOrdenCompra.Fecha`, `PagoOrdenCompra.FechaReversion` y `Producto.FechaUltimoCostoCompra` son **instantes UTC**; `PagoOrdenCompra.FechaPagoTentativa` es un **día calendario de negocio** (sin hora).
-
-**Pasada 3 — comentarios y XML-doc: 20 correcciones.** Es la pasada que más rindió otra vez. Reglas de negocio **falsas** que vivían en el repo: `OrdenCompra` decía "la transición a `Recibida` no está implementada"; `EstadoOrdenCompra.Recibida` decía "DECLARADA, SIN TRANSICIÓN IMPLEMENTADA"; `OrdenCompra.FechaRecepcion` decía "DECLARADO, nunca escrito"; `MovimientoCCProveedor` listaba `OrdenCompra` y `PagoOC` como "No implementado todavía"; `OrigenCCProveedor` declaraba los dos como "sin escritor todavía"; `TipoMovimientoCCProveedor` decía "paso 4, todavía no implementado"; `ICCProveedorService` decía "el día que el paso 5 postee el EGRESO real".
-
-**Y un hallazgo que NO es un comentario viejo sino una promesa vencida:** `Proveedor.TipoCambio` decía *"convertir la línea de compra a pesos desde la moneda del proveedor es alcance del paso 4"*. **No lo fue** — el paso 4 se cerró sin eso, y ahora importa **más** que antes porque ese costo se persiste en la ficha del producto. Se reescribió como **pendiente declarado** (ver "Riesgos") y no como una promesa dentro del código: una promesa vencida en un comentario hace creer que el caso está cubierto.
-
-**Pasada 4 — vistas y JS.** Cero `toLocaleString` sobre una fecha: todas las fechas van por `window.Fmt`, los `toLocaleString('es-AR')` son solo importes y cantidades. `LP-003` aplicado en los `value` de los `<input type="number">` del formulario de pago (`InvariantCulture`).
-
-**Pasada 5 — la mitad simétrica.** Dos hallazgos:
-
-- **Quién APAGA `PrecioVentaDesactualizado`** (resuelto arriba). Nada lo hacía.
-- **`ovAplicarSelect2` en las filas agregadas por JS.** El auto-init de `site.js` corre en el ready y no alcanza a las filas nuevas del pago multi-línea: hay que llamarlo a mano sobre la fila insertada.
-
-**Pasada 6 — la migración sobre las filas que YA estaban.** La lección del paso 3 (los 85 proveedores con `Moneda = 0`) **no aplica acá, y esta vez se verificó en vez de suponerse**: `PrecioVentaDesactualizado` es un **bool** (`false` es un valor legítimo del dominio y es el correcto: ningún producto tuvo todavía una recepción), `FechaUltimoCostoCompra` es **nullable**, y `PagoOrdenCompra.Estado` sí es un enum no nullable con `defaultValue: 0` pero está en una **tabla nueva** sin filas. Verificado con `GROUP BY` sobre la base después de aplicar: **una sola fila, `0` con 112.485**.
-
-#### El cierre de `LP-002` que corta la recurrencia: `OrigenCajaMovimiento`
-
-El relevamiento encontró el ledger de caja **ya desincronizado antes de agregarle nada**:
-
-- Los valores vivían como **tres constantes** en `CajaMovimientoService` y un **cuarto (`"CobroCC"`) como literal suelto** en `CuentaCorrienteClienteService`: no había un lugar donde estuvieran los cuatro.
-- El combo de filtro de `Views/Caja/Index.cshtml` tenía los cuatro **hardcodeados con etiquetas legibles** ("Cobro de cuenta corriente", "Ajuste manual") mientras la columna "Origen" de la **misma grilla** renderizaba el valor **crudo** (`CobroCC`, `Ajuste`). **El filtro y la fila ya decían cosas distintas.** Es textualmente el defecto que el ledger de clientes sufrió y que `OrigenCCProveedor` cerró para proveedores.
-
-Se creó `Application/Helpers/OrigenCajaMovimiento.cs` con los **cinco** orígenes y sus etiquetas. Las tres constantes de `CajaMovimientoService` y la de `CuentaCorrienteClienteService` quedaron como **alias** que apuntan ahí (no se tocaron los call sites). El combo sale de `Todos`, la grilla muestra `OrigenEtiqueta` proyectada por el Service, y la búsqueda global compara contra la **etiqueta visible** — una consulta por origen con el valor como **parámetro escalar** (`MH-001`: nunca `origenes.Contains(m.OrigenTipo)`, que es la variante que el grep de `.Contains(` no detecta). **Agregar un origen ya no requiere tocar la vista.**
-
-Mismo criterio aplicado de entrada al ledger nuevo: `OrigenMovimientoStock` nace como helper, no como constantes dentro del Service.
-
-#### Archivos y capas modificadas
-
-**Domain (6 archivos)**
-- `Entities/MovimientoStock.cs` — **nuevo**, ledger inmutable de stock.
-- `Entities/PagoOrdenCompra.cs` — **nuevo**, línea de pago a proveedor.
-- `Enums/TipoMovimientoStock.cs` — **nuevo** (`Compra=1`, `Venta=2`, `Ajuste=3`, `AnulacionVenta=4`; solo el primero tiene escritor).
-- `Enums/EstadoPagoProveedor.cs` — **nuevo** (`Pendiente=1` declarado sin escritor, `Pagado=2`, `Revertido=3`).
-- `Entities/Producto.cs` — `PrecioVentaDesactualizado` + `FechaUltimoCostoCompra`.
-- `Entities/OrdenCompra.cs` — navegación `Pagos` + XML-doc corregido.
-- (`Enums/EstadoOrdenCompra.cs`, `Enums/TipoMovimientoCCProveedor.cs`, `Enums/FormaPagoProveedor.cs`, `Entities/OrdenCompraItem.cs`, `Entities/Proveedor.cs`: XML-doc, pasada 3.)
-
-**Application (9 archivos)**
-- `Helpers/OrigenCajaMovimiento.cs` — **nuevo**, cierre de `LP-002`.
-- `Helpers/OrigenMovimientoStock.cs` — **nuevo**.
-- `Helpers/MedioPagoCajaMapper.cs` — `DesdeFormaPagoProveedor` (devuelve `null` para `CuentaCorriente`) + `EtiquetaFormaProveedor`.
-- `Interfaces/IMovimientoStockService.cs`, `Interfaces/IEgresoPagoProveedorService.cs`, `Interfaces/IPagoProveedorService.cs` — **nuevos**.
-- `Interfaces/IUnidadMedidaConversionService.cs` — `ConvertirConFactor` + `ValidarConversion`.
-- `Interfaces/IOrdenCompraService.cs` — `RecibirAsync`.
-- `Interfaces/IProductoService.cs` — filtro `precioVentaDesactualizado`.
-- `DTOs/MovimientoStockDtos.cs`, `DTOs/PagoProveedorDtos.cs` — **nuevos**.
-- `DTOs/OrdenCompraDtos.cs` — `RecepcionOrdenCompraResultDto`.
-- `DTOs/CajaDtos.cs` — `OrigenEtiqueta`.
-- `DTOs/ProductoDtos.cs` — `PrecioVentaDesactualizado` + `FechaUltimoCostoCompra`.
-
-**Infrastructure (8 archivos)**
-- `Services/MovimientoStockService.cs`, `Services/EgresoPagoProveedorService.cs`, `Services/PagoProveedorService.cs` — **nuevos**.
-- `Services/OrdenCompraService.cs` — `RecibirAsync` + `EstadosRecibibles` + `ResolverFechaRecepcion`; ahora inyecta `IMovimientoStockService` e `ICCProveedorService` (**sigue sin inyectar `ICajaMovimientoService`**: no puede postear un egreso por accidente porque no tiene con qué).
-- `Services/UnidadMedidaConversionService.cs` — las dos entradas nuevas, una sola fórmula.
-- `Services/CajaMovimientoService.cs` — constantes → alias del helper, `OrigenEtiqueta` en la proyección, búsqueda por etiqueta de origen, orden por `origenEtiqueta`.
-- `Services/CuentaCorrienteClienteService.cs` — el literal `"CobroCC"` → alias del helper.
-- `Services/ProductoService.cs` — filtro + proyección + orden + búsqueda global de la bandera, y **quién la apaga** en `EditarAsync`.
-- `Data/AppDbContext.cs` — 2 `DbSet` + configuración de las dos entidades nuevas.
-- `DependencyInjection.cs` — 3 servicios nuevos.
-
-**Web (5 archivos)**
-- `Controllers/OrdenesCompraController.cs` — `Recibir`, `RegistrarPago` (GET/POST), `RevertirPago`, `ArmarDetalleAsync`.
-- `Models/OrdenCompraViewModels.cs` — `PuedeRecibir` real, `PuedePagar`, `TotalPagado`, `SaldoPendiente`, `Pagos`, `MovimientosStock` + el ViewModel del formulario de pago.
-- `Views/OrdenesCompra/RegistrarPago.cshtml` — **nueva**.
-- `Views/OrdenesCompra/Details.cshtml` — botones de recepción y pago, alerta de recibida, card "Lo que entró al stock", card de pagos con reversión, pagado/pendiente en el total.
-- `Views/Caja/Index.cshtml` — combo y columna desde el helper.
-- `Views/Productos/Index.cshtml` — columna "Estado del precio" + filtro tri-estado.
-
-#### Migración EF generada y aplicada
-
-`20261006002448_EntregaTres_RecepcionMercaderiaYPagosProveedor` — **aplicada SOLO a `laplatense_dev`**.
-
-- `Productos`: + `PrecioVentaDesactualizado` (`tinyint(1)`, `defaultValue: false`) y `FechaUltimoCostoCompra` (`datetime(6)` nullable).
-- `MovimientosStock` (tabla nueva): índices `(ProductoId, Fecha)` y `(OrigenTipo, OrigenId)`.
-- `PagosOrdenCompra` (tabla nueva): índices `OrdenCompraId`, `Fecha`, `Estado`.
-
-**Estrictamente aditiva**: ninguna columna existente cambia de tipo, nombre ni nullabilidad, y no se borra nada. Sobre 112.485 productos no es una formalidad, es la condición para aplicarla sin ventana de mantenimiento. **Sin backfill, verificado** (ver pasada 6; el razonamiento completo está escrito en el `Up()` de la migración junto con la query de control).
-
-**Producción sigue 4 migraciones atrás** (le faltan `EntregaTres_ConfirmarSinFactura_RecargoCuotas_NotaPago`, `D9_NormalizarFechaCajaMovimiento_DiaDeNegocio`, `EntregaTres_ProveedoresCCCompras` y esta).
-
-#### Evidencia de build y de ejecución
-
-**Sin smoke test funcional por navegador** (lo prohíbe el rol del Implementador). Compensado con evidencia **ejecutada**, no con lectura de código:
-
-1. **`dotnet build` de la solución: 0 errores**, 9 advertencias, todas preexistentes (`NU1902` de MailKit/MimeKit).
-2. **Las vistas Razor SÍ compilan en el build** — comprobado metiendo un símbolo inexistente en `RegistrarPago.cshtml` a propósito (`CS0103` en la línea 293), y revertido. Sin esa comprobación, un build limpio no dice nada sobre las dos vistas nuevas.
-3. **Grafo de DI validado** con `BuildServiceProvider(ValidateOnBuild + ValidateScopes)` en un proyecto de consola aparte: sin ciclos ni captive dependencies, y los 7 servicios (3 nuevos + 4 con constructor cambiado) resuelven de verdad. Las 3 fallas que aparecieron primero son **del arnés** y no del código (`IConfiguration` e `IWebHostEnvironment` los aporta el host de ASP.NET): se stubearon, porque si no tapan las fallas reales del grafo.
-4. **51/51 checks de los Services ejercitados DIRECTO contra `laplatense_dev`**, con la base **devuelta a su línea base** al final (verificado: 0 filas de prueba restantes, 112.485 productos).
-
-#### Casos medidos de conversión de unidades (los números, no "funciona")
-
-Compra sembrada: proveedor nuevo, 2 productos, descuento de cabecera 10%, IVA 21%.
-
-| Línea | Producto | Cantidad | Unidad compra | Factor | Precio | Subtotal |
-|---|---|---|---|---|---|---|
-| 1 | bulto de tornillos | 5 | Bulto | **12** | $12.000 | $60.000 |
-| 2 | martillo suelto | 10 | Unidad (= stock) | **1** | $500 | $5.000 |
-
-Aritmética fiscal: `Subtotal 65.000 → Desc 6.500 → base 58.500 → IVA 12.285 → Total 70.785`. `ratioDescuento = 0,9`.
-
-| Criterio | Esperado | Medido |
+- [x] Build de la solución en 0 errores, sin advertencias nuevas.
+- [x] Migración EF generada, revisada (una tabla nueva, cero cambios sobre tablas existentes) y aplicada solo a `laplatense_dev`.
+- [x] `MH-001`: cero colecciones locales de string hacia SQL; los shapes nuevos **ejecutados**, no supuestos.
+- [x] `LP-002`: barrido completo con 6 hallazgos documentados.
+- [x] `LP-008`: 5 XML-doc corregidos, incluida una promesa vencida.
+- [x] `LP-003`: `InvariantCulture` en los `value` de los 2 formularios nuevos con `<input type="number">`.
+- [x] `LP-009` / día de negocio: toda frontera por `ArgentinaTime`; los 2 campos de fecha nuevos declaran su semántica.
+- [x] Enums: valores nuevos al final, numerados explícito.
+- [x] Lógica de negocio en Services; los Controllers solo resuelven identidad, filtros y binding.
+- [x] Design system: `.ov-form-page`, `.ov-page-head`, `.ov-detail-grid`, `.ov-required`, `.ov-field-hint`, `.ov-form-actions`, SweetAlert2 en las 3 acciones destructivas o irreversibles, DataTables server-side con filtro por columna visible, `PAT-016` en los 3 listados.
+- [x] Sidebar: entradas por rol, con el autoservicio fuera de todo `if`.
+- [x] Base de dev devuelta a su línea base exacta.
+- [x] Commit local. **Sin push. Sin deploy. Producción intacta.**
+- [ ] **Pendiente de decisión de Joaquín**: bruto vs. neto en los cierres firmados; el cierre de agosto 2026 que no cuadra; el helper `OrigenCCCliente` que falta; si "empleado" debe separarse de "usuario del sistema".
+
+### Ronda de atomicidad y concurrencia — la familia del `LP-018` (2026-10-06, rama `entrega-1-migracion`)
+
+**Origen.** Seis lotes de QA sobre las 6 olas de desarrollo (3 GO, 3 NO-GO) dejaron 4 partes de defecto que **eran una sola cosa**, encontrada por 3 lotes independientes en 4 módulos distintos: *leer, decidir y después escribir, sin nada que lo haga atómico*. `LP-018` (critical, plata revertida dos veces), `LP-023` (major, avisos duplicados), `LP-024` (major, lost update del stock) y `LP-021` (minor latente, el neto sin acotar). Esta ronda cierra esa familia y nada más.
+
+#### Escaneo de reutilización
+
+- **Paso 1 (`cat_resumen.txt`)**: match en `PAT-004` (RowVersion manual para concurrencia optimista en MySQL, origen ShowroomGriffin) y en `PAT-056` (idempotencia en la base, no en el scheduler, origen este mismo proyecto). También `PAT-020` (ledger inmutable + reversión acotada), que es el patrón que esta ronda **corrige en su cláusula de idempotencia** sin tocar el resto.
+- **Paso 2**: leída la entrada de `PAT-004` y el código real en `marihogar` (`AppDbContext.OnBeforeSaveChanges` + la config Fluent de `Producto.RowVersion`) y en `ShowroomGriffin`. Las dos rutas de `archivos_referencia` existen y son correctas; ningún `pendiente_verificar` quedó colgado.
+- **Decisión**: se reutilizó el **criterio** (la garantía vive en la base, verificada al guardar) y **no la implementación literal** de `PAT-004`. El fundamento está más abajo, en "Lo que NO se hizo y por qué". Se agregó `PAT-059` al catálogo con el patrón nuevo, que es la contracara del antipatrón: *idempotencia por lectura previa, que solo es segura en secuencia*.
+
+#### El mecanismo elegido: `BloqueoDeFila` (`SELECT ... FOR UPDATE`) + relectura
+
+Archivo nuevo: `FerreteriaLaPlatense.Infrastructure/Data/BloqueoDeFila.cs`. Un solo helper, usado igual en los 9 sitios, con el razonamiento completo en su XML-doc. El arreglo es el mismo en todos: **la transacción se mueve de "antes de escribir" a "antes de LEER"**, arranca con el lock de la fila del documento dueño, y después se **relee** el dato sobre el que se decide.
+
+- **Por qué lock de fila y no índice único** (las dos opciones que planteaba el brief): el índice único sobre `(origen, EsReversion)` haría imposible la segunda reversión del mismo origen — y **eso rompe un comportamiento que QA ya verificó**. El neto vivo existe justamente para permitir reversiones **parciales**: $400 primero y $600 después del mismo documento son dos filas de reversión legítimas sobre la misma clave. El lock serializa sin prohibir. (Criterio 4 del parte, preservado y medido.)
+- **Por qué no un flag en memoria**: en SmarterASP lo normal es más de un worker process y el pool recicla por inactividad. Un `static` no es una garantía. Es la misma lección que ya estaba escrita en `PAT-056` y que `LP-023` demostró que no se había aplicado donde importaba.
+- **La relectura no es un detalle**: sin ella el lock serializa pero igual se decide con el dato de antes de esperar al competidor. En los 9 sitios hay un `ReloadAsync()` (o una lectura que ocurre *después* del lock) explícito y comentado.
+- **Orden de bloqueo encapsulado en el helper**, no en los callers: documento primero, productos después y siempre ordenados por Id ascendente. Dos flujos que tomen los mismos productos en orden distinto fabrican un deadlock intermitente, y no quiero que eso dependa de que el próximo caller se acuerde.
+- **El helper tira si se lo llama fuera de una transacción**: ahí el lock se libera en el acto y no falla — sería una garantía fantasma, de las que se descubren en producción.
+
+#### Los 4 partes de defecto, aplicados
+
+| id | módulo | qué cambió |
 |---|---|---|
-| CA-1: bultos × factor | stock `0 → 60` (5 × 12, **no** 5) | **60,000** |
-| CA-2: unidad simple tal cual | stock `5 → 15` | **15,000** |
-| CA-6a: costo del bulto | `60.000 × 0,9 / 60 u = 900` | **900,00** |
-| CA-6b: costo de la unidad | `5.000 × 0,9 / 10 u = 450` | **450,00** |
-| CA-6c: `PrecioVenta` intacto | `1239,67` y `619,83` sin cambio | **sin cambio** |
-| CA-6d: bandera prendida | `true` en los dos | **true** |
-| CA-6e: `StockVerificado` | sigue en `false` (recibir no es contar) | **false** |
-| CA-4a: `Cargo` por el Total | 1 movimiento de `70.785,00` | **1 / 70.785,00** |
-| CA-4b: recepción no toca caja | movimientos de caja antes = después | **9 = 9** |
-| CA-5: ledger por línea | 2 filas, `[60, 10]`, suma 70 | **2 / [60,000, 10,000] / 70,000** |
-| CA-5b: mismo `OrigenId` | stock y CC apuntan a la misma OC | **43 / 43** |
+| `LP-018` | `VentaWorkflowService.AnularAsync` | Transacción + lock de la venta y de sus productos **antes** de leer `Estado` y los netos vivos; relectura bajo lock; la guarda de permiso se adelantó (no depende de nada concurrente y así un usuario sin permiso no se entera del estado de una venta ajena). |
+| `LP-018` | `PagoProveedorService.RevertirPagoAsync` | Lock de la **línea** de pago (no de la compra: el `OrigenId` de los dos ledgers es el Id de la línea — MH-027), relectura del `Estado`, y los **dos** netos vivos (caja y CC de proveedor) leídos ya dentro de la transacción. |
+| `LP-018` | `CCEmpleadoService.RevertirMovimientoAsync` | Lock de la fila del movimiento; la lectura del original y de `ObtenerNetoVivoAsync` pasaron a correr después del lock. La transacción ya existía — estaba en el lugar equivocado. |
+| `LP-023` | `PagoProveedorService.ObtenerYMarcarPagosVencidosNoNotificadosAsync` | **Reserva** con `SELECT ... FOR UPDATE` sobre las filas candidatas, dentro de una transacción, y marcado antes del commit. El locking read va **sin** el join a `OrdenesCompra` a propósito: un locking read con `LEFT JOIN` bloquea también las filas de la otra tabla, y no hay razón para frenar operaciones sobre una compra porque se está mandando un aviso. La exclusión de compras canceladas se aplica después, en la consulta de EF, que no bloquea nada — y esas filas quedan **sin marcar**, igual que antes. |
+| `LP-024` | `AjusteStockService.AplicarAjusteAsync` + `AjusteStockDto.StockEsperado` + `AjusteStockViewModel` + `Views/Stock/Ajuste.cshtml` + `StockController` | **Dos mecanismos, porque son dos carreras distintas** (ver abajo). |
+| `LP-021` | `CajaMovimientoService.ObtenerNetoPosteadoAsync` | `origenId <= 0` tira `ArgumentOutOfRangeException`. Los orígenes manuales se postean con `OrigenId = 0` y comparten clave, así que un neto sobre esa clave suma los movimientos de todos y revertirlo sacaría plata ajena. Se rompe fuerte en vez de devolver 0, porque 0 significa "ya está todo revertido" y haría que el caller no postee nada **en silencio**. Verificado que los otros tres ledgers ya estaban acotados (`CCProveedor` por `ProveedorId`, `CCEmpleado` por Id propio del movimiento, `CCCliente` por `VentaId + ClienteId`), así que el único sitio real era el de caja. |
 
-**CA-3 + CA-8 (lo que más vale, y se midió corrompiendo el dato a mano):** se cargó una segunda compra con un producto `Bulto → Metro`, se puso su `FactorConversionAplicado = 0` **directo en la base** (es el único camino por el que puede quedar inválido, porque la carga lo valida) y se intentó recibir.
+#### `LP-024` — dos carreras, dos mecanismos
 
-- Rechazada, con el mensaje nombrando el producto: *"ZZTEST Cable por rollo se compró por bulto y el stock se lleva por metro, pero la línea no tiene un factor de conversión válido..."*.
-- **Y nada quedó a medio aplicar**, verificado campo por campo: stock `15,000 → 15,000` y `7,000 → 7,000`, movimientos de CC `1 → 1`, ledger de stock `2 → 2`, estado `Confirmada`. La línea 1 de esa compra (el martillo, que **sí** se podía convertir) **no se movió** — que es el punto del guard previo.
+1. **Carrera de milisegundos** (venta vs. recepción vs. ajuste, los tres escritores de `Producto.Stock`): lock de las filas de producto del documento, dentro de la transacción, ordenadas por Id. Los tres escritores lo toman, así que el read-modify-write en memoria queda serializado **por producto** y no por catálogo: dos documentos de productos distintos no se esperan.
+2. **Carrera de tiempo humano** (el GET muestra "30", el POST llega minutos después con "29"): ningún lock cubre eso — no se sostiene un lock de base esperando que alguien termine de contar. Va concurrencia optimista: `StockEsperado` viaja en un **campo oculto** con el número que la pantalla mostró, y el service lo compara contra el stock real bajo lock. Si no coincide, **rechaza** con un mensaje que nombra los dos números, no aplica el conteo, **no marca `StockVerificado`** y **no escribe la fila de auditoría**.
 
-**CA-7:** recibir un `Borrador` → rechazado; recibir dos veces → rechazado ("duplicaría las dos cosas"); cancelar una `Recibida` → rechazado.
+#### Lo que NO se hizo y por qué — desvío declarado respecto del brief
 
-#### Casos medidos del paso 5
+El brief pedía **portar `Producto.RowVersion` de marihogar, literal**. Se portó el criterio y no la implementación, y la decisión queda para que Joaquín la confirme o la revierta. Tres razones, en orden de peso:
 
-| Criterio | Medido |
-|---|---|
-| CA-1: multi-línea, un egreso por línea con su medio | `Egreso 40.000,00 Efectivo` / `Egreso 30.785,00 Transferencia` |
-| CA-1b: un `Pago` de CC por línea | `Pago 40.000,00` / `Pago 30.785,00` |
-| Mismo `OrigenTipo`/`OrigenId` en los dos ledgers | caja `[3,4]` = cc `[3,4]` |
-| Misma fecha y mismo monto | igualdad por `(OrigenId, Monto, Fecha)` |
-| CA-2: saldo del proveedor | `70.785 − 70.785 = 0,00` |
-| CA-4: no pagar más que el saldo | `$70.786,00` rechazado contra `$70.785,00`; y `$1,00` sobre una compra saldada también |
-| `CuentaCorriente` como forma de pago | rechazado con mensaje propio |
-| Todas las líneas en cero | rechazado |
-| CA-5: reversión por neto vivo | netos antes `CC −40.000,00` / `caja 40.000,00` → después **`0,00` y `0,00`** |
-| CA-5: idempotencia por construcción | `RevertirEgresoAsync` sobre un pago ya revertido devuelve **`0,00`** (probado salteando la guarda de `Estado`) |
-| Saldo después de revertir | vuelve a `40.000,00` |
-| Total pagado excluye el revertido | `30.785,00` |
-| CA-6: `LP-009` | día cerrado → *"La caja del día 04/10/2026 ya está cerrada..."*; fecha futura → rechazada |
-| CA-7: `LP-002` | `PagoOC` en `Todos`, etiqueta "Pago a proveedor", filtro por origen y búsqueda global por etiqueta: **3 filas** |
+1. **Un token de concurrencia es global al modelo.** `Producto` tiene dos escritores **masivos** que guardan entidades trackeadas por lotes sobre 112.485 filas: `AumentoMasivoPrecioService` y `ClasificacionAbcAutomaticaService`. Con `IsConcurrencyToken()`, **una sola** edición concurrente de un producto aborta el `SaveChanges` del lote **completo** — hoy el aumento masivo rechaza fila por fila y sigue, contando los rechazos. Habría cambiado el comportamiento de dos módulos que QA ya pasó, y habría exigido manejo de conflictos en los dos.
+2. **El `RowVersion` compara la cosa equivocada para este caso.** Cambia con **cualquier** columna: una edición de precio o una reclasificación ABC entre el GET y el POST rechazaría un conteo físico correcto, sin ninguna razón de negocio. `StockEsperado` compara el número que el operador vio, que es exactamente lo que el criterio 1 del parte pide.
+3. **El propio catálogo ya había escrito este criterio para este proyecto.** La nota de `PAT-004`, del 2026-10-05: *"Cuando el patrón no existe en el proyecto, la salida no es agregar RowVersion a una entidad de 112.485 filas en el medio de otra entrega"*.
 
-`MH-001` cubierto **por ejecución** en las 10 consultas nuevas, **incluido el caso de resultado vacío** (que es donde la regla revienta): 0 excepciones.
+**Consecuencia: esta ronda no tiene migración EF.** Ninguna columna nueva, ningún enum nuevo, ningún índice nuevo. Todo el cambio es de código.
 
-#### Guía de pruebas manuales (a ejecutar por el cliente/QA, no por el Implementador)
+#### Barrido `LP-002` — 5 hallazgos propios, y uno peor que el reportado
 
-**Preparación.** `laplatense_dev` no tiene ni un producto con unidad de compra distinta de la de venta: **hay que crear uno** o el camino principal del paso 4 no se ejercita. Producto nuevo con `UnidadVenta = Unidad`, `UnidadCompra = Bulto`, `FactorConversion = 12`, stock conocido.
+No se arregló el sitio que reportó QA: se buscó la **forma**. `grep` de los métodos de transición de estado (`Anular|Cancelar|Confirmar|Cerrar|Convertir|Revertir|Marcar`) y, en cada uno, si la lectura que decide está antes o después del `BeginTransaction`.
 
-1. **Conversión.** Compras → nueva, elegir ese producto, cantidad **5**, unidad **Bulto**, precio $12.000. Confirmar → **Registrar recepción** (elegir el día en que entró). El stock del producto tiene que subir **60**, no 5. En el detalle, la card "Lo que entró al stock" tiene que decir `+60,000 unidad`.
-2. **Unidad simple.** Mismo flujo con un producto sin unidad de compra: el stock sube la cantidad tal cual.
-3. **Factor faltante.** Producto con `UnidadCompra = Bulto` y **sin** `FactorConversion` (o en 0): la línea no se puede ni cargar (lo valida el alta). Para probar el guard de la recepción hace falta el escenario de la tabla de arriba (corromper el factor en la base) — **o** editar la ficha del producto para quitarle el factor después de cargar la compra y antes de recibirla.
-4. **Caja no se mueve al recibir.** Mirar el total de egresos del día **antes** de recibir y **después**: tiene que ser el mismo. La deuda sí sube: Proveedores → Cuenta corriente.
-5. **No se recibe dos veces / no se cancela una recibida.** Los dos botones tienen que desaparecer y, si se fuerza el POST, el sistema rechaza con mensaje.
-6. **Costo sí, precio no.** Anotar `PrecioCompra` y `PrecioVenta` del producto antes de recibir. Después: el costo cambió al de la factura (neto de descuentos y por unidad de stock), el precio de venta **no**, y en Catálogo aparece el badge **"Precio sin recalcular"**. Filtrar por *"Costo actualizado, precio sin recalcular"*: tiene que traer solo esos productos.
-7. **Quién apaga la bandera.** Editar el producto y guardar **sin tocar el precio**: el badge sigue. Editar y **cambiar el precio de venta**: el badge desaparece.
-8. **Pago multi-línea.** En la compra recibida → **Registrar pago**: dos líneas (parte efectivo, parte transferencia) que sumen el total. Verificar en **Caja** dos egresos con su medio correcto, y filtrar por origen **"Pago a proveedor"**. El saldo del proveedor tiene que quedar en 0.
-9. **No pagar de más.** Intentar un importe mayor al saldo pendiente: el botón se deshabilita en pantalla **y** el servidor rechaza si se fuerza.
-10. **Reversión.** Revertir una de las dos líneas: la plata vuelve a la caja **con fecha de hoy** y con el **mismo medio**; la deuda sube; el pago queda con badge "Revertido"; el saldo pendiente de la compra vuelve a mostrar lo que falta. Intentar revertir de nuevo: rechazado.
-11. **`LP-009`.** Cerrar la caja de un día y después intentar imputar un pago a ese día: rechazado nombrando el cierre.
-12. **Anticipo.** Pagar una compra **Confirmada** (sin recibir): el saldo del proveedor queda **negativo** (a favor del negocio). Recibirla después: el `Cargo` lo salda.
-
-#### Riesgos residuales y asunciones
-
-1. **`Proveedor.TipoCambio` NO se aplica, y ahora pesa más.** La recepción convierte **unidades** pero **no monedas**. Si el operador carga una compra de un proveedor en dólares con los precios en dólares, el costo que queda en `Producto.PrecioCompra` **queda en dólares y mal** — y antes esto solo afectaba al total del documento, ahora se persiste en la ficha del producto. El comentario que prometía resolverlo en el paso 4 se corrigió. **Pendiente real, no cubierto.**
-2. **El ledger de stock no es el libro mayor.** `Σ MovimientoStock` ≠ `Producto.Stock`: Ventas y el ajuste manual siguen escribiendo el stock sin dejar rastro, y lo histórico no se migró. Cualquier reporte que asuma lo contrario va a dar mal. Unificarlo es una tarea de datos + dos módulos en producción.
-3. **Cheques sin cartera.** `Cheque` y `ChequeElectronico` se aceptan y mueven la plata **como si saliera en el momento**, cuando en realidad sale cuando el cheque se cobra. Simplificación declarada; la cartera es el paso 7.
-4. **La fórmula fiscal exacta de la compra sigue sin confirmarse** contra una factura real del cliente (viene de una de marihogar). Ahora el `ratioDescuento` de esa fórmula determina el **costo que se persiste en el catálogo**, así que el error se propaga más lejos que antes.
-5. **El factor de conversión sigue siendo fijo por producto** (pregunta abierta, sin respuesta del cliente). El snapshot de la línea lo absorbe mientras el operador corrija a mano, pero no lo resuelve.
-6. **Recepción siempre total.** No hay parciales. Si llega la mitad de la compra, el operador tiene que elegir entre recibir todo (y el stock queda de más) o nada.
-7. **El primer egreso automático del arqueo del cliente.** Ver el aviso de impacto abajo.
-8. **Un producto dado de baja entre la carga y la recepción bloquea la recepción completa.** Es deliberado (no se puede ingresar stock a un producto que no existe, y saltearlo dejaría la deuda posteada por mercadería que no entró a ningún lado), pero el operador no tiene salida en pantalla más que cancelar la compra y cargarla de nuevo.
-
-#### Aviso de impacto para el cliente — hay que darlo ANTES del deploy
-
-**Este es el primer módulo que mete egresos automáticos en el arqueo de caja, además de los gastos.** En marihogar, el día que se deployó el equivalente, los egresos del período *"subieron mucho"* de golpe. **No es un bug**: es plata que siempre salió y hasta ese momento no se registraba en ningún lado. Pero si el cliente lo ve primero y pregunta después, el módulo nace con sospecha encima.
-
-### Entrega 3 — ítem 4c (moneda y tipo de cambio) + paso 6 (pagos programados) (2026-10-05, rama `entrega-1-migracion`)
-
-Dos frentes en una ronda. El primero **no era una feature pendiente: era un bug activo**. La ola 2
-agregó `Proveedor.Moneda` y `Proveedor.TipoCambio` y **ninguno de los dos se aplicaba en ningún
-cálculo** (verificado por grep: 100% de los hits eran persistencia, proyección o pantalla, cero
-aritmética). Desde que la ola 3 hizo que la recepción escriba `Producto.PrecioCompra`, una compra
-en dólares persistía el costo **en dólares dentro de un campo que todo el sistema lee como pesos**,
-y aguas abajo de `PrecioCompra` cuelgan `PorcentajeRecargo` → `PrecioVenta` → `PrecioOferta`.
-
-#### Resultado del escaneo de reutilización
-
-1. **`cat_resumen.txt`**: sin match para moneda/cotización. Lo más cercano es `PAT-052` (línea que
-   congela el factor de conversión) — **no es el patrón, es el CRITERIO**, y se copió entero.
-   `PAT-053` (un pago, dos ledgers) ya estaba consumido por la ola 3.
-2. **Código de `marihogar`**: `TipoCambio`, `Cotizacion` y `Moneda` dan **0 hits** en todo el repo.
-   Todo es pesos implícitos, sin campo de moneda en ninguna entidad. **Sin antecedente: la moneda
-   se construyó nueva.**
-3. **Pagos programados SÍ tienen precedente** y se copió: `PagoOrdenCompraService.RegistrarPagoAsync`
-   (programa si la fecha tentativa es futura), `ConfirmarPagoAsync`, `ActualizarFechaPagoAsync` y
-   `ObtenerYMarcarPagosVencidosNoNotificadosAsync`. **Lo que NO se copió es su scheduler** (ver
-   abajo).
-4. **Dos patrones nuevos agregados al catálogo**: `PAT-055` (documento que congela su moneda y su
-   cotización) y `PAT-056` (chequeo oportunista al primer request del día en vez de hosted service).
-
-#### Parte 1 — la moneda, de punta a punta
-
-**El modelo.** Tres columnas nuevas en `OrdenesCompra`:
-
-- `Moneda` (enum, default `Peso`) y `Cotizacion` (`decimal(18,4)`, el **mismo ancho** que
-  `Proveedor.TipoCambio` para que congelarla no la trunque). Se **precargan** de la ficha del
-  proveedor al elegirlo y son **editables**: un proveedor que lista en dólares puede mandar una
-  factura en pesos.
-- `TotalEnPesos` (`decimal(18,2)`, **persistida**, con índice).
-
-**Por qué `TotalEnPesos` se persiste y no se calcula.** Dos razones concretas, las dos medidas:
-
-1. El `Cargo` de la cuenta corriente y el tope de pago tienen que ser **el mismo número al
-   centavo**, o pagar el total no deja el saldo del proveedor en cero (criterio de aceptación 2).
-   Recalcular pone una multiplicación y un redondeo en cada consumidor, que es cómo dos de ellos
-   terminan difiriendo en un centavo.
-2. **El listado ordena por el total del lado del servidor.** Una propiedad calculada en C# no
-   traduce a SQL, y ordenar por `Total` mezclando monedas pone una compra de USD 1.000 arriba de
-   una de $ 1.500.000. Es la columna que la grilla muestra como principal, así que es la que se
-   ordena, se filtra y se busca.
-
-**El punto único: `ConversionMoneda`** (`Application/Helpers/`). Estático, sin dependencias, mismo
-rol que `ArgentinaTime` y `OrigenCajaMovimiento`. Tiene:
-
-- `APesos(moneda, cotizacion, importe)` — **una sola fórmula**, un solo redondeo
-  (`AwayFromZero`, igual que el resto de la aritmética del módulo). En pesos devuelve el importe
-  tal cual e **ignora** la cotización. **LANZA** si la moneda es extranjera y falta la cotización:
-  devolver el importe sin convertir "por las dudas" es exactamente el bug que esta ronda cierra.
-- `Validar(...)` — la **única** definición de "cuándo hace falta cotización", consumida por las
-  **cuatro mitades** de la guarda: alta, edición, confirmación y recepción.
-- `Etiquetas` / `Simbolos` / `QueCoincidenConElTexto(...)` — un solo diccionario para el combo de
-  filtro, el renderer de la grilla, los símbolos del formulario y la búsqueda global.
-
-**Dónde se aplica.** Los importes del documento (`Subtotal`, `Total`, descuentos, impuestos, el
-`PrecioCompra` de cada línea) quedan **en la moneda del documento**: es lo que dice la factura y lo
-que el operador tiene delante. Los **tres** importes que salen de la compra van en **pesos**:
-
-| Salida | Antes | Ahora |
+| sitio | qué pasaba con 2 requests simultáneos | estado |
 |---|---|---|
-| `Cargo` en la CC del proveedor | `orden.Total` (en dólares) | `orden.TotalEnPesos` |
-| `Egreso` en caja (vía el tope de pago) | contra `orden.Total` | contra `TotalEnPesos` |
-| `Producto.PrecioCompra` | el costo en dólares | convertido, una sola vez, al final |
+| `VentaWorkflowService.ConfirmarAsync` | **doble** ingreso de caja + **doble** débito de CC + **doble** descuento de stock. La transacción no existía: el método era atómico por accidente (un solo `SaveChanges` al final). | arreglado |
+| `VentaWorkflowService.FacturarAsync` | **dos CAE de AFIP** para la misma venta. Dos comprobantes fiscales de un solo hecho económico no se arreglan con una reversión interna: se arreglan con una nota de crédito ante AFIP. | arreglado |
+| `OrdenCompraService` (recepción) | **doble** stock + **doble** Cargo de deuda + 2 filas en el ledger de stock. El mensaje de la guarda ya decía *"recibirla otra vez duplicaría las dos cosas"* — faltaba que fuera cierto. | arreglado |
+| `PagoProveedorService.ConfirmarPagoProgramadoAsync` | **doble** egreso de caja + **doble** Pago de deuda. Mismo caso: el mensaje lo describía y el código no lo impedía. | arreglado |
+| `GastoService.AnularAsync` | **doble** devolución de la misma plata a la caja. | arreglado |
+| `PresupuestoService.ConvertirAVentaAsync` | **dos ventas** en borrador del mismo presupuesto, las dos apuntando a él. Si después se confirman las dos, se vende dos veces la misma cotización. | arreglado |
+| `CajaMovimientoService.CerrarDiaAsync` / `CerrarMesAsync` | nada: `CierreCajaDiario` tiene índice **único** en `Fecha` y `CierreCajaMensual` en `(Anio, Mes)`. El motor ya impide la doble firma. | **verificado, sin cambio** |
+| `EntregaService.MarcarEntregada/NoEntregadaAsync`, `OrdenCompraService.ConfirmarAsync/CancelarAsync`, `PagoProveedorService.CancelarPagoProgramadoAsync`, `VentaWorkflowService.CancelarBorradorAsync`, `PresupuestoService.AprobarAsync/CancelarBorradorAsync` | tienen la forma, pero **no postean plata ni stock**: el peor caso es una transición escrita dos veces con el mismo resultado. | relevado, **no** arreglado (ver pendientes) |
 
-En `RecibirAsync` la conversión va **al final y una sola vez**: el costo acumulado y la cantidad
-están los dos en las unidades del documento, así que se divide primero y se convierte después — un
-redondeo en vez de dos. El `ratioDescuento` es adimensional (cociente de dos importes de la misma
-moneda) y no se toca.
+#### `LP-008` — 6 XML-doc corregidos, cuatro de ellos promesas vencidas
 
-**La guarda y sus cuatro mitades.** Guardar ya exige la cotización, pero eso no alcanza: hay
-guardas simétricas en **confirmar** y en **recibir**, que cubren lo que la del alta no puede — un
-documento cargado antes de que la columna existiera, o un `UPDATE` directo sobre la base. Sin
-ellas, `TotalEnPesos = 0` posteaba una deuda de cero **en silencio**. Y `Validar` rechaza además
-`Moneda = 0`, el valor que un POST armado a mano o un combo vacío mandan y que no corresponde a
-ningún valor del enum.
+El defecto se encontró, en parte, **leyendo comentarios que afirmaban lo contrario de lo que el código hacía**. Corregidos: `IVentaWorkflowService.AnularAsync`, `ICajaMovimientoService.ObtenerNetoPosteadoAsync`, `ICCEmpleadoService.RevertirMovimientoAsync`, `IPagoProveedorService.ObtenerYMarcar...`, `IAvisoPagosProgramadosService`, `IAjusteStockService.AplicarAjusteAsync`, más los comentarios en línea de `GastoService` y `CCEmpleadoService`. En todos el patrón del error era el mismo: *"idempotente por construcción"* / *"imposible por construcción"* / *"correrlo dos veces en paralelo no duplica nada"*, sin calificar que valía **en serie**. Las correcciones dicen qué garantiza el neto vivo (el importe, y las reversiones parciales) y qué garantiza el lock (la exclusión mutua), que son dos cosas distintas.
 
-#### Parte 2 — pagos programados
+**Yo escribí la frase equivocada.** En la ronda del 2026-10-05 se le presentó a Joaquín el neto vivo como una garantía por construcción contra la doble reversión. Era falso para el caso concurrente, y el comentario lo repitió en cinco archivos.
 
-El esquema ya existía declarado sin escritor (`Estado = Pendiente`, `FechaPagoTentativa`,
-`Notificado`): esta ronda le puso el escritor, **no el esquema** — cero columnas nuevas en
-`PagosOrdenCompra`.
+#### `MH-001`
 
-**Una línea de pago con `FechaPagoTentativa` estrictamente futura** nace en `Pendiente` y **no
-mueve nada**: ni cuenta corriente ni caja. El par de asientos lo postea
-`ConfirmarPagoProgramadoAsync`, por el **mismo** `PostearAsientosAsync` que usa el alta inmediata
-(dos escritores, un solo lugar que escribe los dos ledgers; el paso 7 será el tercero).
+El código nuevo no introduce ni un caso. Los dos lugares con `IN` son deliberados y están comentados para que nadie los "arregle": el `IN` de `BloqueoDeFila` es **SQL crudo con parámetros `int`** (no una traducción de LINQ), y el `candidatos.Contains(p.Id)` de la reserva de avisos es `List<int>`, que el provider mapea bien. La regla aplica a colecciones locales de **string**.
 
-**Tres números distintos y no intercambiables**, cada uno con su método:
+#### Evidencia
 
-- `ObtenerTotalPagadoAsync` — solo `Pagado`. Lo que **efectivamente salió**, y es lo que la cuenta
-  corriente refleja.
-- `ObtenerTotalComprometidoAsync` — `Pagado` + `Pendiente`. **Es el tope** del alta de un pago
-  nuevo: con el primero como tope se podría agendar el total completo tres veces.
-- `ObtenerSaldosAsync` — los devuelve juntos, en **una** consulta agrupada por estado (dos
-  llamadas separadas podrían leer estados distintos si alguien confirma un pago en el medio).
+- **Build**: `dotnet build FerreteriaLaPlatense.slnx` → **Compilación correcta, 0 errores**, 9 advertencias **todas preexistentes** (4× NU1902 de MailKit/MimeKit, 1× CS0114 en `HomeController`, duplicadas por proyecto).
+- **Sin smoke test funcional** (no se levantó la app, no se probó por navegador ni por HTTP). En su lugar, **sonda desechable** (proyecto consola en el scratchpad, borrada al terminar) contra un **clon aislado** `laplatense_probe_lp018`, hecho con `mysqldump` de `laplatense_dev`. `laplatense_dev` quedó **intacto** (verificado por conteo: 112.485 productos, 13 ventas, 9 movimientos de caja, 0 ajustes, 0 notificaciones, producto 67 en −11,000 — su línea base exacta). Los 7 clones de QA (`laplatense_qa_l1..l6`, `laplatense_qa_d9`) **no se tocaron**. El clon de la sonda se dropeó.
+- **La concurrencia se ejercitó de verdad, con conexiones separadas y barrera de sincronización** — que es el dato de método que explica por qué nadie lo había visto: con un cliente compartido las sentencias se serializan solas y el test da **falso verde**. Equivalente en capa de datos: N scopes de DI independientes (N `DbContext`, N conexiones a MySQL), las N conexiones abiertas **antes** de la barrera, soltadas juntas con un `TaskCompletionSource`, y se cuentan **filas**, no respuestas. **35 afirmaciones, 35 OK.** Las líneas base se calcularon con **SQL crudo**, nunca con el código bajo prueba.
 
-**La fecha de los asientos es HOY, no la tentativa** (criterio del precedente, su CR-63, un defecto
-que le reportó su cliente): la tentativa es una fecha sugerida y confirmar antes o después de ella
-es lo habitual, así que imputar la plata al día planeado la mete en un arqueo al que nunca
-perteneció.
+| escenario | N | resultado medido |
+|---|---:|---|
+| `AnularAsync` sobre la misma venta | 3 | 1 éxito, 2 rechazos *"Esta venta ya está anulada"*; **1** fila de reversión; neto vivo **0,00**; stock devuelto **una** vez (−11 → −1) |
+| `AnularAsync` sobre la misma venta | 8 | 1 éxito, 7 rechazos; **1** fila de reversión; neto **0,00**; stock **una** vez |
+| `AnularAsync` secuencial (no regresión) | 2 en serie | 1ª anula ($5.163,80), 2ª rechaza explícito; **1** reversión |
+| Reversión por **neto vivo**, no por nominal | 1 | con una reversión parcial previa de $1.000 ya posteada sobre la línea de pago, la anulación revirtió **$4.163,80** (el neto) y no $5.163,80 (el nominal); neto final **0,00** |
+| `RevertirPagoAsync` (pago a proveedor de $2.500) | 8 | 1 éxito, 7 *"Este pago ya fue revertido"*; **1** fila de reversión **en cada** ledger (caja y CC de proveedor); los dos netos en **0,00** |
+| `RevertirMovimientoAsync` (adelanto de $1.800) | 8 | 1 éxito, 7 *"ya fue revertido"*; **1** contramovimiento; neto del ledger **0,00**; **1** reversión de caja, neto **0,00** |
+| `GastoService.AnularAsync` (gasto de $3.200) | 8 | 1 éxito, 7 *"ya está anulado"*; **1** reversión; neto **0,00** |
+| `LP-023` chequeo de avisos | 8 | devoluciones `[0,0,0,0,0,0,0,8]` → **7 de 8 devuelven 0**; los 4 pagos marcados **una** vez; **8** notificaciones = 4 pagos × 2 destinatarios, **no** 32 |
+| `LP-024` GET→POST con stock cambiado | 1 | pantalla mostró 30, entró una recepción de +5, el operador guardó 29 → **rechazado**; stock sigue en **35**; `StockVerificado` sigue en **false**; **0** filas de auditoría |
+| `LP-024` camino feliz (no regresión) | 1 | sin carrera el ajuste entra igual: stock 34, verificado, 1 fila de auditoría |
+| `LP-024` ajustes simultáneos | 8 | 1 éxito, 7 rechazos; **1** fila de auditoría |
 
-**Divergencia deliberada del precedente.** Allá la confirmación **pisa** `FechaPagoTentativa` con
-la fecha de hoy y deja `PagoOrdenCompra.Fecha` en el instante del registro: el documento y sus
-asientos quedan con fechas distintas y **se pierde el plazo que se había pactado**. Acá se hace al
-revés — `Fecha` (que está documentada como "el instante en que la plata salió") se reescribe a hoy
-y `FechaPagoTentativa` queda **intacta** como registro de lo prometido.
+**Nota sobre la cuenta de `LP-023`:** el criterio del parte pedía 4 notificaciones; en el clon hay **2** usuarios en los roles destinatarios, y el diseño es *una notificación por pago y por usuario*, así que el número correcto es 4 × 2 = **8**. Lo que el criterio mide de verdad — que 7 de las 8 llamadas devuelvan 0 y que cada pago se marque una sola vez — dio exacto.
 
-**`ValidarPeriodoAbiertoAsync` (`LP-009`) y su mitad simétrica.** El alta de un pago enteramente
-programado **no corre la guarda**, y es a propósito: no mueve un peso, así que exigirle un período
-abierto sería impedir agendar un pago futuro porque el mes pasado ya se cerró. El criterio del
-proyecto es el que ya decidía que el ajuste manual de CC la saltee: **lo que la hace necesaria es
-que el movimiento escriba CAJA**, no que la operación se llame "pago". La **confirmación** sí la
-corre, sobre el día de hoy.
+#### Lo que esta ronda NO cierra
 
-#### La notificación: por qué NO hay hosted service (decisión de diseño)
+- **`LP-024` criterio 2** (`SUM(MovimientosStock)` y `Producto.Stock` no pueden divergir) **no se puede cumplir en esta ronda y no es un defecto de este cambio.** El ledger de stock tiene **un solo escritor**: la recepción de compras. `TipoMovimientoStock` declara `Venta`, `Ajuste` y `AnulacionVenta` *"sin escritor"*, y los movimientos históricos de venta y de ajuste **nunca se migraron hacia atrás** — ya estaba declarado como tarea de datos pendiente en esta misma memoria. El lost update **sí** quedó cerrado (que es lo que hacía crecer la divergencia), pero la suma histórica no va a cuadrar hasta que se decida (a) que los tres escritores posteen al ledger **y** se haga el backfill, o (b) dejar escrito que el ledger es *rastro* y no *libro mayor*, y que el contraste no aplica. **Decisión de Joaquín.**
+- **Comprobante AFIP huérfano.** `FacturarAsync` ya no puede emitir dos CAE, pero si el proceso muere **entre** la respuesta de AFIP y el commit, el comprobante existe en AFIP y no en el sistema. Eso no es concurrencia: es una falla parcial contra un tercero, y se resuelve con un estado intermedio *"facturación en curso"* persistido **antes** de llamar (columna nueva + valor de enum nuevo). No se improvisó en una ronda de concurrencia.
+- **Costo asumido en `FacturarAsync`**: el lock **se sostiene** mientras AFIP responde. Soltarlo antes dejaría la ventana abierta justo donde dura más. Se bloquea **una** fila, así que ninguna otra venta se entera, pero si AFIP tarda más que `innodb_lock_wait_timeout` (50 s por defecto) un segundo request **sobre esa misma venta** falla con un error de base en vez de un mensaje lindo.
+- **Los 7 sitios de la última fila del barrido** (transiciones que no mueven plata ni stock) quedaron relevados y **sin arreglar**, a propósito: el peor caso es una transición escrita dos veces con el mismo resultado. Si se quieren cerrar por consistencia, son 3 líneas cada uno con el helper que ya existe.
+- **`OrdenCompraService` (recepción)** y **`PresupuestoService.ConvertirAVentaAsync`** están arreglados y **compilados**, pero **no** ejercitados por la sonda (no había fixtures de compra recibible ni presupuestos aprobados en el clon). El mecanismo es idéntico a los 6 que sí se midieron. **Van en la lista de QA.**
 
-`marihogar` usa un `BackgroundService` + `PeriodicTimer` a hora fija (03:10 ART, con triple
-fallback de timezone duplicado en cada job). **No se portó**, por dos hechos del entorno:
+#### Checklist de salida
 
-1. Este proyecto no tiene **ni un** hosted service (verificado: 0 hits de `AddHostedService`), así
-   que portar el patrón no reusa nada — construye una capacidad nueva.
-2. Corre en **SmarterASP, donde el application pool se recicla por inactividad**. Un job de las
-   03:10 en un sistema que se usa de 8 a 20 **puede no correr nunca** y nadie se enteraría: el
-   aviso no llega y no hay ningún error que lo delate. Un scheduler que no se puede garantizar es
-   **peor** que no tenerlo, porque se confía en él.
+- [x] `LP-002`: barrido completo, 5 hallazgos propios arreglados + 1 verificado sin cambio + 7 relevados y declarados.
+- [x] `LP-008`: 6 XML-doc + 2 comentarios en línea corregidos, cuatro de ellos promesas vencidas.
+- [x] `MH-001`: sin casos nuevos; los 2 `IN` deliberados comentados.
+- [x] Enums: ninguno nuevo. Migraciones EF: **ninguna**.
+- [x] Lógica de negocio en Services; el único cambio en un Controller es pasar `StockEsperado` desde el campo oculto.
+- [x] Design system: el único cambio de vista es un `<input type="hidden">`; no se tocó layout.
+- [x] Base de dev devuelta a su línea base exacta; clon de la sonda dropeado; clones de QA intactos.
+- [x] `PAT-059` agregado al catálogo cross-proyecto; `cat_resumen.txt` regenerado.
+- [x] Commit local. **Sin push. Sin deploy. Producción intacta.**
+- [ ] Los 4 partes (`LP-018`, `LP-021`, `LP-023`, `LP-024`) quedan **"aplicado, pendiente de re-verificación"**. El cierre lo declara QA en contexto nuevo, con el test de sockets separados por HTTP.
+- [ ] **Pendiente de decisión de Joaquín**: (1) el desvío de `RowVersion`; (2) `SUM(MovimientosStock)` vs. `Producto.Stock`; (3) el estado intermedio de facturación AFIP; (4) si se cierran por consistencia los 7 sitios sin plata.
 
-En su lugar: **`AvisoPagosProgramadosMiddleware`**, chequeo oportunista al primer request
-autenticado de cada día de negocio argentino. Tres guardas, de la más barata a la más cara: solo
-autenticados → un flag estático con el último día procesado (una comparación de `DateTime`, así
-que el costo real es **una consulta por día y por proceso**) → y la idempotencia real, que **no es
-el flag**.
 
-**La idempotencia la da el mecanismo del precedente que no depende del scheduler**: filtrar
-`Estado == Pendiente && !Notificado` y marcar `Notificado = true` **en la misma llamada**, con su
-`SaveChanges`. Correrlo dos veces, o dos veces en paralelo, no duplica avisos. El orden importa:
-si la garantía viviera en el flag en memoria, **cada reciclado de pool mandaría los avisos de
-nuevo**. Y su **mitad simétrica**: reprogramar un pago pone `Notificado = false`, porque la fecha
-nueva es un vencimiento nuevo — sin eso, reprogramar lo dejaba marcado como avisado para siempre.
+## Hotfix de transacciones de ventas — rama `hotfix-transacciones-ventas` (2026-10-06)
 
-El bloque de notificación va en su **propio try/catch** y no relanza: lo dispara un request del
-operador, y que no se pueda crear un aviso no puede tumbar la pantalla que estaba abriendo.
+**Esto no es una ola de desarrollo.** Es un hotfix sobre el estado exacto de producción, en una rama
+propia creada **desde el commit `2580f7c`** — lo que está publicado hoy en
+`ferreterialaplatense.com.ar` — y **no** desde `entrega-1-migracion`, que tiene 7 commits de
+desarrollo encima que no se pueden publicar. El deploy lo ejecuta Joaquín después de que QA
+re-verifique; esta ronda **no tocó producción** (ni Web Deploy ni `mysql8001.site4now.net`).
 
-**Si en el futuro hacen falta jobs de verdad, la decisión es DE HOSTING y no de código**:
-application pool en `startMode: AlwaysRunning` con Idle Time-out en 0. **Corresponde consultarlo
-con `olvidata-infra` antes de escribir un hosted service que el entorno no puede sostener.**
+### Por qué existió
 
-#### El barrido `LP-002` — 7 hallazgos propios
+El código publicado tenía **cero** `BeginTransaction` en `VentaWorkflowService` (verificado:
+`git show 2580f7c:...VentaWorkflowService.cs | grep -c BeginTransaction` → `0`). `ConfirmarAsync`
+descontaba stock, posteaba el movimiento de caja y debitaba la cuenta corriente del cliente con
+escrituras separadas, decidiendo sobre una lectura sin lock. `FacturarAsync` tenía la misma forma y
+podía emitir **dos CAE de AFIP por la misma venta** — hoy inalcanzable porque la facturación está
+deshabilitada por falta de certificado, pero un comprobante fiscal duplicado no se corrige: se anula
+con nota de crédito, que todavía no existe.
 
-La **pasada 0** (verificar las premisas del brief) confirmó las cuatro: `TipoCambio`/`Moneda` sin
-un solo uso aritmético, 0 hits de `AddHostedService`, `INotificationService.CreateAsync` con firma
-**idéntica** a la del precedente, y los tres campos del paso 6 ya declarados. **El brief no tenía
-premisas falsas esta vez** — es la primera ronda en que la pasada 0 confirma todo.
+Producción no tiene daño hecho (se borraron los datos de prueba y quedó en cero transacciones). El
+riesgo se materializaba en la **primera venta real del cliente**.
 
-1. **La resta `Total − TotalPagado` estaba escrita a mano en CUATRO lugares** (el Service, el
-   ViewModel del detalle, `RegistrarPago` del controller y `RecargarPagoAsync`) y los cuatro usaban
-   `Total`. Con la moneda en el documento, los cuatro pasaron a restar **unidades distintas**:
-   dólares menos pesos. Se cerró con `ObtenerSaldosAsync` — **ahora no la repite ninguno**.
-2. **El listado ordenaba por `Total` del lado del servidor**, mezclando monedas: la grilla mentía
-   por yuxtaposición. Pasó a ordenar y buscar por `TotalEnPesos`, con la moneda como columna
-   visible **y su filtro** (regla del proyecto).
-3. **`Details.cshtml` mostraba `ProveedorTipoCambio`**, o sea la cotización de HOY de la ficha, en
-   una compra vieja: un número que esa compra **nunca usó**. Pasó a mostrar la congelada, con un
-   aviso cuando la ficha difiere (`CotizacionDifiereDeLaFicha`) — el aviso es la prueba de que
-   congelar sirve, no un error.
-4. **El total de las compras en la CC del proveedor** (`Proveedores/CuentaCorriente.cshtml`) estaba
-   en la moneda del documento, **al lado de movimientos de ledger que están todos en pesos**.
-5. **`OrdenCompraItem.PrecioCompra` decía "en pesos"** en su XML-doc: cierto solo mientras la
-   moneda no existía en el documento. Es `LP-008` — regla de negocio falsa viviendo en el repo.
-6. **`Views/Proveedores/CuentaCorriente.cshtml` decía que la recepción "es la próxima etapa del
-   módulo"**: falso desde el paso 4. Es un texto de la era del paso 3 que la ola 3 no barrió.
-7. **La tercera copia del mapa de monedas.** `BusquedaHelper.EnumsQueCoinciden` compara contra el
-   **nombre del enum** (`Dolar`), no contra la etiqueta visible (`Dólares`), así que
-   `ProveedorService` tenía las dos etiquetas **escritas a mano** al lado de la llamada. Con el
-   combo del filtro y el renderer de la grilla, eran **tres copias**. Se cerró con
-   `ConversionMoneda.QueCoincidenConElTexto` y las dos líneas hardcodeadas se borraron: **agregar
-   una moneda al enum ya no toca ningún call site.** Lo encontró el arnés, no la lectura: la
-   consulta *ejecutaba* y devolvía 0 filas.
+### Reutilización: paso 1 del escaneo, hit directo
 
-**Pasada 3 (promesas vencidas)** — 9 correcciones: los 5 lugares de `PagoOrdenCompra` que decían
-"DECLARADO, NUNCA ESCRITO (paso 6)", los 2 de `EstadoPagoProveedor`, el de `IPagoProveedorService`,
-y el de `DependencyInjection` ("para que los pasos 6 y 7 no vuelvan a armar el egreso inline") —
-que ahora dice que **el paso 6 ya lo consumió y entró sin tocar una línea del punto único, que es
-exactamente para lo que se había creado**. Más el `Proveedor.TipoCambio` que quedaba como PENDIENTE
-DECLARADO y ya no lo es, y la referencia de `AppDbContext` a "la importación de listas (paso 6)",
-que ahora no inventa un número de paso.
+`docs/patrones/cat_resumen.txt` → **`PAT-059`** ("Idempotencia por lectura previa: el patrón que solo
+es seguro en secuencia (lock de fila del documento dueño)"), catalogado en esta misma ronda de
+`bdfd99b`. El mecanismo se **portó del commit `bdfd99b`** de `entrega-1-migracion`, que es el mismo
+repo: `FerreteriaLaPlatense.Infrastructure/Data/BloqueoDeFila.cs`, autocontenido y sin dependencias
+de las olas de desarrollo. **No se agregó entrada nueva al catálogo** — `PAT-059` ya documenta el
+patrón completo y este hotfix es su segundo consumidor, en la rama de producción.
 
-**Pasada 2 (hermanos semánticos)**: el grep de `DateTime` en entidades sigue dando **34** — esta
-ronda **no agregó ninguna columna de fecha**. Lo que sí cambió es la **semántica** de dos que ya
-existían, y las dos están declaradas: `PagoOrdenCompra.Fecha` ahora se **reescribe** al confirmar,
-y `FechaPagoTentativa` es un **DÍA CALENDARIO sin hora**, no un instante UTC — por eso
-`ListarPorOrdenCompraAsync` **no** la proyecta con `ArgentinaTime.From`, que le restaría tres horas
-y la correría al día anterior. Verificado por grep que ningún call site la proyecta.
+**Lo que se adaptó y por qué** (no fue copiar y pegar): el `BloqueoDeFila` de `bdfd99b` declara 7
+constantes de tabla, y en producción **solo existen 3** (`Ventas`, `Gastos`, `Productos`);
+`Presupuestos`, `OrdenesCompra`, `PagosOrdenCompra` y `MovimientosCCEmpleado` **no existen**. Se
+dejaron las **dos** que este hotfix bloquea. Y el XML-doc de la clase se reescribió: el original
+fundamenta la decisión contra el índice único hablando de las **reversiones parciales de
+`AnularAsync`**, método que **no existe en producción** (llegó en `59dd715`, posterior). Copiar ese
+texto habría plantado un comentario prescriptivo que describe código ausente — exactamente el
+defecto `LP-008` que el barrido `LP-002` existe para cortar.
 
-**Pasada 4 (vistas y JS)**: los 9 `toLocaleString` de las vistas tocadas son todos sobre importes,
-cantidades, porcentajes y conteos. **Ninguno sobre una fecha** (`LP-006`). Los días hasta el
-vencimiento los calcula el **Service** contra el día de negocio argentino, nunca un `new Date()` en
-el navegador.
+### Alcance: estrictamente dos métodos
 
-**Pasada 6 (la migración sobre las filas que YA estaban)** — y es el hallazgo más caro de la ronda,
-ver abajo.
+`ConfirmarAsync` y `FacturarAsync`. **No** entró el resto de la familia `LP-018` (`AnularAsync`,
+pagos a proveedor, CC de empleados, recepción de compra, conversión de presupuesto, aviso de pagos
+programados): no existe en producción o pertenece a código no publicado. **No** entró `LP-024` (lost
+update del stock del ajuste manual): es real, pero su exposición es mucho menor y mezclarlo agranda
+la superficie de un hotfix que tiene que ser auditable de un vistazo.
 
-#### Migración EF — `EntregaTres_MonedaCompraYPagosProgramados`
+### Cambios por capa
 
-Aditiva sobre el esquema (3 columnas + 1 índice en `OrdenesCompra`, **ninguna** en
-`PagosOrdenCompra`). **Lo que no es aditivo es el dato**, y EF lo deja mal en las dos columnas NOT
-NULL:
+| Capa | Archivo | Motivo |
+|---|---|---|
+| Infrastructure / Data | `BloqueoDeFila.cs` (**nuevo**, 2 constantes) | `SELECT ... FOR UPDATE` por Id, deduplicado y ordenado por Id asc (prevención de deadlock encapsulada); tira `InvalidOperationException` si se lo llama fuera de transacción, porque ahí el lock se libera solo y la garantía sería fantasma. |
+| Infrastructure / Services | `VentaWorkflowService.ConfirmarAsync` | Transacción abierta **antes de LEER**; lock de la venta y de los productos de esa venta; relectura bajo lock de `Estado` y de cada `Producto.Stock`; `CommitAsync` tras el `SaveChanges` que ya existía. |
+| Infrastructure / Services | `VentaWorkflowService.FacturarAsync` | Lo mismo con el lock de la venta, **sostenido durante la llamada a AFIP** a propósito, con el costo declarado en el comentario. |
 
-- **`Moneda` queda en 0**, que no corresponde a ningún valor del enum (el proyecto numera explícito
-  desde 1). Es **literalmente el mismo defecto** que la migración de la ola 2 tuvo que repararle a
-  85 proveedores.
-- **`TotalEnPesos` queda en 0, y eso es PEOR**: es un importe que miente. Toda compra ya cargada
-  pasaría a tener saldo pendiente 0 — la pantalla la mostraría como **totalmente pagada**, el tope
-  de pago sería 0 así que no se le podría imputar un peso, y recibirla postearía un `Cargo` de
-  **$ 0,00** en la cuenta corriente, en silencio.
+**Migraciones EF: ninguna.** El hotfix no toca el modelo. Es lo que lo hace deployable sobre la base
+de producción tal como está.
 
-Los dos `UPDATE` del backfill, con `WHERE` acotado para que correrla dos veces sea inocuo:
+**Diff: 3 archivos, +93 líneas, 0 borradas.** Puramente aditivo; de esas líneas **20 son código** y
+el resto fundamento. Ningún Controller, ninguna vista, ningún contrato de interfaz.
 
-```sql
-UPDATE OrdenesCompra SET Moneda = 1 WHERE Moneda = 0;
-UPDATE OrdenesCompra SET TotalEnPesos = Total WHERE Moneda = 1 AND TotalEnPesos = 0 AND Total <> 0;
-```
+### Las DOS premisas del brief que se refutaron ejecutando (pasada 0 del barrido `LP-002`)
 
-El índice se crea **después** del backfill. Y el backfill **se verificó ejecutándolo**, no
-suponiéndolo: `laplatense_dev` tiene **0 compras**, así que los `UPDATE` no tocaron ni una fila
-real — se fabricaron dos filas en el estado exacto post-`defaultValue` (una con total y una con
-total 0), se corrieron los dos `UPDATE` literales de la migración, se comprobó con `GROUP BY` que
-no quedara ninguna fila en `Moneda = 0` ni ninguna incoherente, se corrieron **otra vez** para
-probar que son inocuos, y `ROLLBACK`. **La base quedó en su línea base.**
+Las dos venían del brief con toda la razón aparente, y las dos son **falsas**. Importa porque las dos
+habrían quedado escritas como comentario prescriptivo en el código publicado.
 
-#### Archivos y capas modificadas
+1. **"Una falla en el medio deja la venta a mitad: stock descontado sin plata registrada."** Falso.
+   El método tenía **un solo `SaveChangesAsync` al final** (ni `RegistrarMovimientoAsync` de caja ni
+   el de CC persisten por su cuenta) y **EF envuelve cada `SaveChanges` en una transacción
+   implícita**. Verificado abortando el `INSERT` de caja con un trigger `SIGNAL SQLSTATE '45000'`:
+   **el criterio 2 pasa también contra el código roto** — venta en `Borrador`, stock intacto, 0
+   movimientos. El método era **atómico por accidente**. La transacción explícita lo vuelve atómico
+   por construcción y, sobre todo, es lo único que habilita el lock.
+2. **"Dos requests concurrentes duplican las tres cosas, incluido el descuento de stock."** Las dos
+   de plata sí, deterministas. El stock **no se duplicaba: se perdía.** Los dos competidores leían
+   `Stock = 100`, los dos escribían `98`, y el resultado coincidía con el correcto **por
+   casualidad** (lost update que se tapa solo). Medido en 3 corridas contra el código roto: siempre
+   `98`. Con otro entrelazado daría `96`. No es una garantía, es el resultado de una carrera — y el
+   lock sobre los productos lo cierra igual.
 
-**Domain** — `OrdenCompra` (+`Moneda`, +`Cotizacion`, +`TotalEnPesos`, XML-doc de `Total`),
-`OrdenCompraItem` (XML-doc de `PrecioCompra`), `Proveedor` (XML-docs de `Moneda` y `TipoCambio`),
-`PagoOrdenCompra` (5 XML-docs), `EstadoPagoProveedor`, `FormaPagoProveedor`.
+**Las dos quedaron escritas en el código**, en el comentario de `ConfirmarAsync`, como "lo que **no**
+estaba roto", para que la próxima ronda no venga a "arreglar" una atomicidad que ya existía ni a
+buscar una duplicación de stock que nunca se vio.
 
-**Application** — **`Helpers/ConversionMoneda.cs` (NUEVO: el punto único)**,
-`Interfaces/IAvisoPagosProgramadosService.cs` (NUEVO), `IPagoProveedorService` (reescrito: +5
-métodos), `IOrdenCompraService` (+ filtro de moneda en `ListarAsync`), `OrdenCompraDtos`,
-`PagoProveedorDtos` (+`SaldosCompraDto`, +`PagoProgramadoVencidoDto`, +`PagoProgramadoListItemDto`).
+### Evidencia ejecutada
 
-**Infrastructure** — `OrdenCompraService` (`AplicarFiscal` congela y convierte, `RecibirAsync`
-postea en pesos y convierte el costo, `ConfirmarAsync` guarda, listado), `PagoProveedorService`
-(reescrito: alta con programación, confirmación, reprogramación, baja, chequeo de vencidos, 3
-saldos), **`Services/AvisoPagosProgramadosService.cs` (NUEVO)**, `ProveedorService` (se le quitó la
-tercera copia del mapa), `AppDbContext`, `DependencyInjection`, la migración.
+Build de la solución: **0 errores**, 9 advertencias **todas preexistentes** (`NU1902` de
+MailKit/MimeKit y el `CS0114` de `HomeController`). Sin advertencias nuevas.
 
-**Web** — **`Middleware/AvisoPagosProgramadosMiddleware.cs` (NUEVO)**, `Program.cs` (lo registra
-**después de `UseAuthentication`**, o `context.User` no está poblado y no dispararía nunca),
-`OrdenesCompraController` (+3 acciones de pagos programados + la agenda; los saldos salen del punto
-único), `OrdenCompraViewModels`, `Views/OrdenesCompra/{Create,Details,Index,RegistrarPago}.cshtml`,
-**`Views/OrdenesCompra/PagosProgramados.cshtml` (NUEVO)**,
-`Views/Proveedores/{Index,CuentaCorriente}.cshtml`, `_Layout.cshtml`.
+**Arnés de concurrencia: `tools/ArnesHotfixTransacciones`** (proyecto propio, **fuera** de
+`FerreteriaLaPlatense.slnx`, así que no entra al build de la solución ni se publica). Queda en el
+commit, es idempotente (prefijo `ZZHOTFIX`, `LimpiarAsync` al principio y al final) y **QA lo puede
+re-correr**. Corre contra `laplatense_hotfix_tx`, un clon con las **8 migraciones exactas de
+`2580f7c`**, y tiene una **guarda que aborta** si la cadena de conexión menciona `laplatense_dev`,
+`laplatense_qa` o `site4now` — atiende la observación que QA levantó del arnés de la ronda anterior,
+que apuntaba a `laplatense_dev` hardcodeado y escribía la base compartida.
 
-**tools/** — `ArnesEntrega3Item4c` (NUEVO, no es parte de la aplicación).
+**Método**: un scope de DI por competidor (un `AppDbContext` y una **conexión MySQL** propia), la
+conexión **abierta antes** de la barrera para que el handshake no se cuele en la ventana medida, y
+`Barrier.SignalAndWait()` para largarlos juntos. Con un cliente HTTP compartido las requests se
+serializan y el test da **falso verde**.
 
-#### Evidencia de build y de ejecución
+**46 afirmaciones, 46 OK**, corrido 3 veces. Escenario: 2 unidades × $1.000 + IVA 21% = Total
+**$2.420**; pagos Efectivo **$1.420** (va a caja) + Cuenta Corriente **$1.000** (va al ledger);
+stock 100 → 98. Números elegidos para que ningún importe duplicado coincida con otro valor legítimo.
 
-- **`dotnet build` de la solución: `Compilación correcta. 0 Errores`.**
-- **Las vistas Razor SÍ compilan en el build**, probado como cada ronda: se metió un símbolo
-  inexistente en `PagosProgramados.cshtml`, el build falló con `CS0103` **con número de línea
-  (6,20)**, se revirtió y volvió a compilar limpio. Un build limpio por sí solo no dice nada sobre
-  las vistas nuevas.
-- **Grafo de DI** validado con `BuildServiceProvider(ValidateOnBuild + ValidateScopes)`. Esta vez
-  el arnés necesitó **registrar Identity de verdad** (`AddIdentityCore` + `AddRoles` +
-  `AddEntityFrameworkStores`), no stubear: `IAvisoPagosProgramadosService` depende de
-  `UserManager<ApplicationUser>` y sin eso **el grafo falla por el arnés y esa falla tapa las del
-  código**. Los tres servicios nuevos se resuelven.
-- **Los Services ejercitados directamente contra `laplatense_dev`**, idempotente (prefijo `ZZTEST`,
-  `LimpiarAsync` al principio y al final), corrido **3 veces**. Cierre: **0 filas de prueba
-  restantes, 112.485 productos** (la línea base).
-- **`MH-001`: las 7 consultas nuevas o modificadas se EJECUTARON, no se leyeron**, incluidas las
-  dos que filtran por colección (`monedas.Contains(...)` en los dos listados) y el caso borde de la
-  regla: la búsqueda global con **todas** las colecciones de enum **vacías**. Ejecutar fue lo que
-  encontró el hallazgo 7 del barrido: la consulta *andaba* y devolvía 0 filas.
-- **Lo que NO se probó**: `INotificationService.CreateAsync` dentro del flujo del aviso y el
-  middleware en el pipeline real. Los dos necesitan usuarios con rol y un request HTTP, que es
-  navegador — **queda para QA** (pasos 13 a 16 de la guía).
-
-#### Los números medidos de una compra en dólares, de punta a punta
-
-Compra de **10 bultos a US$ 100** (factor 10 → 100 unidades de venta), **10% + 5% en cascada**,
-facturada con **21% de IVA**, cotización congelada **$ 1.480,50**:
-
-| Concepto | Medido |
+| Criterio | Resultado |
 |---|---|
-| Subtotal | US$ 1.000,00 |
-| Descuento 10% | − US$ 100,00 |
-| Descuento adicional 5% (**cascada**: sobre 900, no sobre 1000) | − US$ 45,00 |
-| Base imponible | US$ 855,00 |
-| IVA 21% | US$ 179,55 |
-| **Total del documento** | **US$ 1.034,55** |
-| Cotización congelada | $ 1.480,50 |
-| **Total en pesos** | **$ 1.531.651,28** |
-| **`Cargo` en la CC del proveedor** | **$ 1.531.651,28** (en pesos) |
-| **`Egreso` en caja** al pagar el total | **$ 1.531.651,28** (en pesos) |
-| **Saldo del proveedor al pagar el total** | **$ 0,00** |
-| Stock ingresado | 100,000 unidades |
-| **`Producto.PrecioCompra` resultante** | **$ 12.658,28** |
+| 1 — N simultáneos, un solo cierre (**N=3 y N=8**) | 1 éxito de N, **1** ingreso de caja ($1.420), **1** débito de CC ($1.000), **1** descuento de stock (98), 0 excepciones, los N−1 restantes con rechazo explícito |
+| 2 — falla de caja/CC, nada persistido | venta en `Borrador`, 0 caja, 0 CC, stock 100 intacto; y el **reintento posterior confirma bien** y deja un solo cierre |
+| 3 — secuencial sin regresión | total $2.420, caja $1.420, CC $1.000, stock 98, estado `Confirmada` |
+| 4 — confirmar una ya confirmada | rechazo explícito y **no escribe nada** |
+| 5 — `FacturarAsync` (**N=3 y N=8**) | 1 éxito de N y **AFIP invocado UNA sola vez**; un solo CAE persistido; caja/CC/stock sin retocar |
 
-`PrecioCompra` = 855 (base **neta**, sin IVA) × 1.480,50 ÷ 100 unidades de venta. **Antes de esta
-ronda ese campo quedaba en `8,55`** — el costo en dólares por unidad, dentro de un campo que el
-catálogo lee como pesos. Los 10 criterios de aceptación de las dos partes dieron **OK**.
+**La verificación que vale más que las 46**: el arnés se corrió **contra el código roto** (revirtiendo
+el service a `2580f7c` y dejando el arnés igual) y dio **12 fallas / 34 OK**, reproduciendo el
+defecto con números: con N=8, **2 éxitos**, **2** movimientos de caja por **$2.840** y **2** débitos
+de CC por **$2.000**; y `FacturarAsync` con N=8 **emitió 8 comprobantes AFIP** (8 de 8 éxitos, 8
+invocaciones). Un arnés verde que no se probó contra el defecto no prueba nada: podría estar verde
+porque no mide.
 
-#### Guía de pruebas manuales (a ejecutar por el cliente/QA, no por el Implementador)
+### Pendiente declarado en el código, no resuelto: comprobante AFIP huérfano
 
-**Moneda**
+Si el proceso muere **entre la respuesta de AFIP y el commit**, el CAE existe en AFIP y no en el
+sistema: la venta queda `Confirmada` y reintentar emitiría un **segundo** comprobante del mismo hecho
+económico. **No es concurrencia** — el lock no lo cubre y no puede cubrirlo — es una falla parcial
+contra un tercero. Lo que falta: un estado intermedio **persistido** antes de llamar ("facturación en
+curso": columna nueva + valor de enum + migración) y que el reintento consulte a AFIP
+(`CompConsultar`) en vez de emitir a ciegas. **Fuera de alcance acá y con fundamento**: AFIP está
+deshabilitado, así que el camino no se puede ejecutar en producción, y un estado nuevo con migración
+no entra en un hotfix. Queda escrito en el XML-doc de `FacturarAsync` con la frase **"el día que se
+cargue el certificado esto hay que resolverlo ANTES de habilitar la facturación"**, para que no se
+descubra de nuevo.
 
-1. Ficha de un proveedor → moneda **Dólares** + cotización. Nueva compra a su nombre: la cabecera
-   tiene que **precargar** las dos, y el panel de total mostrar **"Total en pesos"** con la cuenta
-   (`US$ X × $ Y`) a la vista.
-2. Cambiar la moneda a **Pesos** en el formulario: el campo de cotización se **oculta y se limpia**,
-   y los prefijos `$` de descuentos e impuestos vuelven de `US$` a `$`.
-3. Guardar un borrador en dólares **sin cotización**: tiene que rechazarse con el mensaje de la
-   moneda, no con un error genérico.
-4. Confirmar y **recibir** la compra en dólares. Verificar que el mensaje de éxito muestre la cuenta
-   hecha, que la **CC del proveedor** tenga el `Cargo` **en pesos**, y que la ficha del producto
-   tenga `PrecioCompra` en pesos y la bandera de precio desactualizado prendida.
-5. Pagar el total: el formulario tiene que precargar el importe **en pesos** y el saldo del
-   proveedor cerrar en **cero**.
-6. **Cambiar `Proveedor.TipoCambio` después** y volver al detalle: la compra no se mueve y aparece
-   el aviso de que la ficha difiere.
-7. Listado de compras: la columna **Moneda** y su filtro, el total **en pesos** como cifra
-   principal, y **ordenar por Total** mezclando una compra en pesos y una en dólares (tienen que
-   quedar en orden de pesos, no de número crudo).
-8. Buscar **"Dólares"** en el buscador global del listado de compras **y** en el de proveedores.
+### Guía de pasos para verificación manual (el Implementador no corre smoke por navegador)
 
-**Pagos programados**
+1. Cargar una venta en `Borrador` con al menos un ítem y un pago en efectivo, y confirmarla.
+   Controlar que el ingreso de caja, el total y el stock sean **los mismos** que antes del hotfix.
+2. Confirmar una venta que ya está `Confirmada`: tiene que dar rechazo explícito y **no** mover nada.
+3. El caso que motiva el hotfix: **doble click real** en Confirmar (o `Confirmar y facturar`) sobre
+   la misma venta. Tiene que quedar **un** ingreso de caja, **un** débito de CC y **un** descuento de
+   stock. Antes del hotfix quedaban dos.
+4. Una venta con pago a cuenta corriente: el débito tiene que aparecer **una** vez en el ledger del
+   cliente y **no** como ingreso de caja.
+5. Arqueo de caja del día: el total no puede tener movimientos repetidos del mismo `OrigenId`.
+6. Re-correr el arnés si se quiere la medición de concurrencia:
+   `dotnet run --project tools/ArnesHotfixTransacciones` contra un clon propio (**nunca** contra
+   `laplatense_dev`; el arnés aborta solo si se lo intenta).
 
-9. Registrar un pago con **fecha futura**: la pantalla tiene que avisar **en la línea** que queda
-   programado, el botón cambiar a **"Programar el pago"** y el pie desglosar qué sale y qué queda
-   agendado.
-10. Verificar en **Caja** y en la **CC del proveedor** que **no se movió nada**. El detalle de la
-    compra tiene que mostrar el badge **Programado** y la fila "Programado sin confirmar".
-11. Intentar registrar otro pago sobre esa compra: tiene que rechazarse nombrando lo programado.
-12. **Confirmarlo** y verificar que el egreso de caja quedó en **el día de hoy**, no en la fecha
-    prevista, y que el aviso del popup lo dijo **de antemano**.
-13. **Reprogramar** un pago y **darlo de baja** (el importe tiene que volver a quedar disponible).
-14. **`LP-009`**: cerrar la caja de hoy e intentar **confirmar** un pago programado → rechazado. En
-    cambio **programar** uno nuevo a futuro tiene que seguir funcionando con la caja cerrada.
-15. **El aviso**: dejar un pago programado con fecha de ayer, **cerrar sesión y volver a entrar** al
-    día siguiente (o reiniciar el pool). Tiene que aparecer **una** notificación por pago en la
-    campana, para `SuperUsuario` y `Administrador`, con link a la compra.
-16. **Recargar varias pantallas el mismo día**: no se tienen que duplicar las notificaciones.
-17. Menú **Compras → Pagos programados**: la agenda, con los vencidos resaltados y los días hasta el
-    vencimiento.
+### Checklist de salida para merge
 
-#### Riesgos residuales y asunciones
+- [x] Rama `hotfix-transacciones-ventas` creada **desde `2580f7c`**, no desde `entrega-1-migracion`.
+- [x] Alcance estricto: `ConfirmarAsync` y `FacturarAsync`. Nada más tocado.
+- [x] Lógica en Services; cero cambios en Controllers, vistas e interfaces.
+- [x] **Sin migración EF**: deployable sobre la base de producción tal como está.
+- [x] Diff aditivo de 3 archivos (+93/−0), 20 líneas de código.
+- [x] Build 0 errores; 9 advertencias, todas preexistentes.
+- [x] Concurrencia medida con conexiones separadas y barrera: 46/46 OK, y **arnés validado contra el
+      código roto** (12 fallas).
+- [x] `laplatense_dev` sin tocar; clones `laplatense_qa_l1..l6` y `laplatense_qa_d9` **intactos**;
+      clon propio `laplatense_hotfix_tx`.
+- [x] Producción sin tocar: ni Web Deploy ni `mysql8001.site4now.net`.
+- [x] `PAT-059` reusado (paso 1 del escaneo); sin entrada nueva al catálogo.
+- [x] Commit local. **Sin push. Sin deploy.**
+- [ ] Queda **"aplicado, pendiente de re-verificación"**. El cierre lo declara QA en contexto nuevo,
+      con el test de sockets separados por HTTP.
+- [ ] **Pendiente de decisión de Joaquín**: (1) el estado intermedio de facturación AFIP, antes de
+      cargar el certificado; (2) si este hotfix se mergea hacia `entrega-1-migracion` o se descarta
+      ahí (el mecanismo ya está en `bdfd99b`, así que el merge va a colisionar en los dos métodos);
+      (3) el desfasaje de migraciones de producción descripto abajo.
 
-1. **`laplatense_dev` tiene 0 compras**, así que el backfill de la migración no corrió sobre ni una
-   fila real. Se verificó con filas fabricadas y `ROLLBACK`. **Antes del deploy conviene contar las
-   filas afectadas en el destino**:
-   `SELECT Moneda, COUNT(*) FROM OrdenesCompra GROUP BY Moneda;` y
-   `SELECT COUNT(*) FROM OrdenesCompra WHERE TotalEnPesos = 0 AND Total <> 0;` — las dos tienen que
-   dar 0 **después** de migrar.
-2. **La fórmula fiscal de la compra sigue sin confirmarse** contra una factura real del cliente, y
-   ahora el `ratioDescuento` determina el costo que se persiste **en pesos** en el catálogo: el
-   error se propaga igual de lejos que antes, solo que ahora en la unidad correcta.
-3. **Una cotización mal tipeada contamina el catálogo igual que antes el bug.** La guarda solo exige
-   que sea > 0: un 1.480,50 tipeado como 14.805 pasa. Mitigación implementada: la pantalla muestra
-   el total en pesos **con la cuenta hecha** antes de guardar y el mensaje de la recepción la
-   repite. No hay (ni se pidió) validación contra una cotización de referencia.
-4. **El aviso depende de que alguien entre al sistema.** Si la ferretería no abre el sistema un día,
-   ese día no sale el aviso — pero tampoco hay a quién avisarle. Es el trade-off explícito contra un
-   job que **puede no correr nunca** en este hosting. Si hacen falta jobs de verdad: **decisión de
-   hosting, consultar con `olvidata-infra`.**
-5. **Un pago programado con `Cheque` no tiene cartera** (paso 7): al confirmarlo la plata sale
-   completa en el momento, sin esperar la acreditación. Simplificación declarada y **vigente**.
-6. **`PagoOrdenCompra.Fecha` de un pago `Pendiente` es el instante del registro** y no significa
-   nada económicamente. Toda consulta de "qué salió en este período" tiene que filtrar
-   `Estado == Pagado`; la autoridad de lo que salió de caja es el **ledger de caja**.
-7. **El tope de 730 días** para programar un pago no es una regla del cliente: es una guarda contra
-   el error de tipeo del año.
-8. **La agenda de pagos programados no es un DataTable server-side**, a propósito: son los
-   pendientes, un puñado de filas por definición. Si creciera, la regla del proyecto aplica.
+### Riesgo de deploy que no es de este hotfix pero lo condiciona
+
+La memoria del proyecto dice que **producción está cinco migraciones atrás**, y dos de las que lista
+(`EntregaTres_ConfirmarSinFactura_RecargoCuotas_NotaPago` y
+`D9_NormalizarFechaCajaMovimiento_DiaDeNegocio`) **sí están en `2580f7c`**, que es lo que el brief
+declara publicado. O el código publicado no es exactamente `2580f7c`, o la base de producción está
+atrás de su propio código. **No se consultó producción** (estaba prohibido), así que queda como
+condición a verificar **antes** del deploy: `SELECT MigrationId FROM __EFMigrationsHistory` contra
+producción, comparado con las 8 migraciones de esta rama. Este hotfix no agrega ninguna, así que no
+cambia el cuadro — pero si la base está atrás, el problema es anterior y hay que resolverlo primero.
+
+### Segunda pasada: ampliación a tres sitios más (decisión de Joaquín, 2026-10-06)
+
+Joaquín amplió el alcance **contra su propio pedido inicial** — "preferí un deploy a dos, y el
+patrón ya es mecánico con `BloqueoDeFila` puesto" — a los tres sitios que el barrido había
+relevado. Orden de exposición real que fijó él, y **corrigió un dato mío**: yo había dicho que el
+gasto era alcanzable "porque los gastos ya se usan", y **producción tiene 0 gastos**. El bug está
+vivo en el código publicado pero no hay nada que corromper todavía. El cobro de cuenta corriente,
+en cambio, es la única vía por la que hoy entra la plata de un fiado.
+
+Tambien cerró dos cosas que yo había dejado abiertas: **las migraciones de producción son
+exactamente las 8 de esta rama** (el "5 atrás" de la memoria era de la rama de desarrollo, así que
+el riesgo de deploy que declaré queda cancelado), y **no hay que intentar un índice único** en
+`CajaMovimientos`/`MovimientosCCCliente` como refuerzo: el lock de fila es el único mecanismo.
+
+#### Los tres sitios
+
+| Sitio | Dueño que se bloquea | Dato que se relee | Qué dejaba pasar |
+|---|---|---|---|
+| `CuentaCorrienteClienteService.RegistrarCobroAsync` | **`Clientes`** (no un documento) | el **saldo**, re-consultado | saldo de CC negativo + ingresos de caja duplicados |
+| `GastoService.AnularAsync` | `Gastos` | `gasto.Anulado` | dos Ingresos de caja por el mismo gasto |
+| `VentaWorkflowService.CancelarBorradorAsync` | `Ventas` | `Estado` **y `DeletedAt`** | venta borrada con la plata movida |
+
+**`RegistrarCobroAsync` pidió un tratamiento distinto y se declaró en vez de improvisarlo.** El
+dueño que se bloquea **no es un documento, es el cliente**, porque el dato sobre el que decide la
+guarda es el **saldo**, y el saldo es un **agregado del ledger**, no una columna: no existe una
+"fila del saldo" que bloquear. Se bloquea la fila del cliente, que alcanza porque todos los
+movimientos de esa cuenta cuelgan de él (dos cobros del mismo cliente se serializan, dos de
+clientes distintos no se esperan). Y por la misma razón la relectura **no es un `ReloadAsync`** sino
+**volver a correr la consulta del saldo** ya con el lock tomado. La transacción se adelantó: antes
+`ObtenerSaldoAsync` y las dos guardas corrían **fuera** de ella.
+
+**`GastoService.AnularAsync`: la reversión va por el MONTO DEL DOCUMENTO, no por el "neto vivo".**
+Joaquín preguntó explícitamente, y la respuesta es que el neto vivo **no corresponde acá**, por tres
+razones verificadas (no supuestas): (1) **no hay reversiones parciales** — `Anulado` es un booleano,
+y el neto vivo existe justamente para permitir revertir $400 de $1.000 y después los $600; (2)
+**`Gasto.Monto` es inmutable** — `IGastoService` expone solo Listar/Crear/Anular, **no hay método de
+edición**, así que el Egreso que posteó el alta siempre vale exactamente `gasto.Monto`; (3) **el lock
+es la exclusión**, no una segunda línea: con la relectura bajo lock se postea como máximo UNA
+reversión. Y lo que se **descartó explícitamente**: inferir cuáles movimientos son reversiones por
+el **signo** (un Ingreso con `OrigenTipo = "Gasto"`) para simular el neto sin la columna
+`EsReversion`. Hoy funcionaría de casualidad —un gasto tiene un Egreso y a lo sumo un Ingreso— pero
+es una **regla nueva disfrazada de port**, y se rompe en silencio el día que un gasto tenga otra vía
+de ingreso asociada. **`EsReversion` no se portó y no se agregó ninguna columna.**
+
+#### EL HALLAZGO DE ESTA PASADA, y lo encontró el arnés: `ReloadAsync` NO SIRVE como "relectura bajo lock" para una entidad con soft delete
+
+Apliqué el patrón mecánicamente a `CancelarBorradorAsync` y **el criterio 8 falló**: con 8 requests
+mezclados, **5 "éxitos"** (1 confirmar + 4 cancelar) y el estado prohibido en la base —
+`borrada = True` **con** `caja = 1`, `cc = 1`, `stock = 98`. O sea: el fix mecánico no alcanzaba, y
+el invariante que importa seguía roto.
+
+Son **dos defectos distintos**, los dos invisibles leyendo el código:
+
+1. **`Estado` no es un discriminador suficiente.** `CancelarBorradorAsync` cancela poniendo
+   `DeletedAt` y **no toca `Estado`**: una venta cancelada sigue diciendo `Borrador`. Así que una
+   guarda que solo mira `Estado` (a) deja pasar dos cancelaciones de la misma venta, las dos
+   "exitosas", y (b) deja que una confirmación postee caja, CC y stock sobre una venta que otro
+   request acaba de cancelar. **Es la mitad simétrica que nadie había escrito** (pasada 5 del
+   barrido `LP-002`): había guarda de estado y ninguna de "ya cancelada".
+2. **`_context.Entry(venta).ReloadAsync()` no ve las filas que el filtro global esconde.** El modelo
+   tiene `HasQueryFilter(e => e.DeletedAt == null)`, así que para una venta ya cancelada la consulta
+   de recarga **no trae nada**, la entidad queda *detached* y los valores en memoria siguen siendo
+   los de **antes** del lock. **La relectura "ocurre" y no relee** — el peor modo de falla posible,
+   porque parece hecha y el código se lee bien.
+
+Se cerró con **un solo helper compartido**, `RelerEstadoBajoLockAsync`, que proyecta `Estado` **y**
+`DeletedAt` con `IgnoreQueryFilters()`, y que usan **los tres** métodos del workflow
+(`ConfirmarAsync`, `FacturarAsync`, `CancelarBorradorAsync`): una sola forma, para que el que lea el
+diff no tenga que verificar tres variantes. Los tres ganaron además la guarda explícita de
+"cancelada".
+
+**Y la asimetría con `GastoService` se verificó y quedó escrita en el código, en vez de alinear los
+dos por prolijidad:** ahí `ReloadAsync` **sí** es válido, porque `Gasto` nunca se borra —
+`IGastoService` expone solo Listar/Crear/Anular, nadie escribe `Gasto.DeletedAt` y el único uso de
+`_gastoRepository` es el `AddAsync` del alta; `Anulado` es una columna normal y la recarga la ve.
+Está comentado con la condición: *si algún día se agrega una baja de gastos, esa recarga hay que
+cambiarla por el patrón de la venta*.
+
+**Regla generalizable para el catálogo:** en este proyecto **toda** entidad de negocio hereda
+`SoftDestroyable` y tiene el filtro global. Por lo tanto `ReloadAsync` es una relectura **no
+confiable** para cualquiera de ellas, y el patrón `PAT-059` necesita esta nota: *la relectura bajo
+lock se hace con `IgnoreQueryFilters()` y proyectando los campos que deciden, salvo que se haya
+verificado que la entidad no tiene ningún escritor de `DeletedAt`.*
+
+#### Evidencia de la segunda pasada
+
+Build **0 errores** (9 advertencias, todas preexistentes). Arnés ampliado a **82 afirmaciones, 82
+OK**, corrido **4 veces** (el criterio 8 tiene un ganador legítimamente no determinista: en las
+corridas ganó confirmar con N=4 y cancelar con N=8, y el estado final fue coherente con el ganador
+en los dos sentidos).
+
+**Control positivo de los tres sitios nuevos** (los tres services revertidos a `2580f7c`, arnés
+igual): **42 OK / 40 FALLADAS**, reproducible en 2 corridas.
+
+- **Cobro de CC**, el peor de los tres: **los N éxitos de N**. Con N=8, una deuda de $1.000 se cobró
+  **8 veces**: saldo de cuenta corriente **−$7.000**, 8 créditos en el ledger y **$8.000** de
+  ingresos de caja. Con N=3: saldo **−$2.000** y $3.000 de caja.
+- **Anulación de gasto**: los N éxitos de N. Con N=8, **9 movimientos** de caja sobre el gasto y neto
+  **+$3.500** de plata que nunca entró (con N=3, +$1.000). Con el fix: 2 movimientos y **neto 0**.
+- **Cancelar contra confirmar**: 5 y 6 éxitos de 8 según la corrida, con el invariante violado
+  (`borrada = True` con caja y CC posteadas) y además `DbUpdateException` en los perdedores.
+
+#### Checklist de la ampliación
+
+- [x] Los 3 sitios con la **misma forma reconocible**: lock del dueño → relectura → guarda. La única
+      variante es `RegistrarCobroAsync` (dueño maestro + relectura por consulta), **declarada** en el
+      código y acá, no improvisada.
+- [x] **Sin migración EF** y **sin columnas nuevas**: `EsReversion` no se portó.
+- [x] Código productivo agregado en esta pasada: **32 líneas** (27 en `VentaWorkflowService`
+      incluyendo el helper compartido, 3 en `GastoService`, 2 en `CuentaCorrienteClienteService`) más
+      3 constantes en `BloqueoDeFila`. El resto del diff es fundamento.
+- [x] `RegistrarAjusteAsync` **no se tocó** (no estaba en el alcance que fijó Joaquín).
+- [x] Control positivo corrido por sitio y reportado con números.
+- [x] `laplatense_dev` sin tocar; fixtures `laplatense_qa_l1..l6` y `laplatense_qa_d9` intactos.
+- [ ] Sigue **"aplicado, pendiente de re-verificación"**. El cierre lo declara QA.
+- [ ] **Queda para decisión**: los 4 sitios restantes del barrido (`AjusteStockService`/`LP-024`,
+      `GuardarBorradorAsync`, la carrera contra el cierre de caja de
+      `RegistrarMovimientoManualAsync`/`GastoService.CrearAsync`, y `RegistrarAjusteAsync`), más la
+      nota de `ReloadAsync` para `PAT-059`.
+
+
+### Barrido `LP-002` sobre el resto del código publicado: 7 sitios relevados — **3 de ellos ya entraron** (ver la sección de la ampliación, arriba), 4 siguen sin tocar
+
+El brief pidió explícitamente reportar y **no** arreglar. Ninguno se tocó: entrarían en la
+superficie de un hotfix que tiene que ser auditable de un vistazo. Dato transversal que los
+enmarca: **no existe ningún índice único sobre `CajaMovimientos` ni sobre `MovimientosCCCliente`**,
+así que en esas dos tablas nada del motor protege contra plata duplicada — el lock de fila es el
+único mecanismo disponible, y hoy `BloqueoDeFila` solo se usa en los dos métodos de este hotfix.
+
+Ordenados por gravedad:
+
+1. **`GastoService.AnularAsync` — el peor, y es la misma forma exacta del defecto que se acaba de
+   arreglar.** Tiene transacción, pero la guarda `if (gasto.Anulado)` se evalúa **antes** de
+   abrirla y nunca se relee bajo lock. Dos anulaciones simultáneas del mismo gasto pasan las dos y
+   postean **dos Ingresos de caja por el mismo hecho**; el `UPDATE Anulado = true` es idempotente y
+   no lo delata. **Alcanzable hoy en producción** (los gastos ya se usan). Es el candidato número
+   uno a un segundo hotfix.
+2. **`CuentaCorrienteClienteService.RegistrarCobroAsync`.** Tiene transacción, pero
+   `ObtenerSaldoAsync` y la guarda `dto.Importe > saldoPrevio` corren **antes** de abrirla y sin
+   lock del cliente. Dos cobros simultáneos pasan los dos → **saldo de cuenta corriente negativo y
+   dos Ingresos de caja**. También alcanzable hoy.
+3. **`AjusteStockService.AplicarAjusteAsync` — es `LP-024`, y el hotfix lo deja a medio camino en un
+   sentido que conviene tener presente.** El ajuste es un **set absoluto** (`Stock = CantidadNueva`)
+   sobre una lectura sin lock y sin transacción, así que **no lo frena el lock que ahora toma
+   `ConfirmarAsync` sobre `Productos`**: un ajuste concurrente pisa el descuento de una venta que se
+   está confirmando y deja la auditoría `CantidadAnterior` falsa. El hotfix protege el lado de la
+   venta contra otra venta, no contra el ajuste. Excluido del alcance por decisión del brief.
+4. **`VentaWorkflowService.CancelarBorradorAsync` — está en la misma clase que se tocó y vale
+   decirlo.** Soft-delete sin transacción ni lock, con la guarda `Estado != Borrador` sobre una
+   lectura libre: puede cancelar una venta que `ConfirmarAsync` está confirmando en paralelo y dejar
+   **stock descontado + Ingreso de caja + Débito de CC sobre una venta borrada lógicamente**. No se
+   incluyó porque el brief acotó a dos métodos; es el segundo candidato, y es barato (el lock ya
+   existe en el proyecto y la venta es la misma fila).
+5. **`VentaWorkflowService.GuardarBorradorAsync`.** `BloquearAsync` bloquea `Ventas` y `Productos`
+   pero **no** las filas de `ItemsVenta`/`PagosVenta`: un ítem agregado en la ventana se persiste
+   sobre una venta que ya quedó `Confirmada`, sin descuento de stock ni impacto en caja.
+6. **`CajaMovimientoService.RegistrarMovimientoManualAsync` y `GastoService.CrearAsync` — la carrera
+   contra el cierre de caja.** Las dos deciden con `ValidarPeriodoAbiertoAsync` y después escriben,
+   sin lock: un `CerrarDiaAsync` que commitea en el medio deja el movimiento **dentro de un día ya
+   cerrado y fuera del arqueo firmado**. La variante simétrica: `CerrarDiaAsync`/`CerrarMesAsync`
+   están protegidos contra el cierre **duplicado** por índice único (cae como `DbUpdateException`
+   cruda, no como error de negocio), pero leen los totales sin lock, así que un movimiento que
+   commitea entre la lectura y el insert queda dentro del período y fuera de los totales
+   congelados. **Descuadre silencioso** — y es la misma familia del descuadre de $2.500,75 de
+   agosto 2026 que la Entrega 4 hizo visible.
+7. **`CuentaCorrienteClienteService.RegistrarAjusteAsync`.** Sin guarda de estado y sin índice
+   único: un doble click duplica el ajuste de deuda. Y, a diferencia de `RegistrarCobroAsync`,
+   **no llama a `ValidarPeriodoAbiertoAsync`**, así que mueve el saldo de CC con fecha retroactiva
+   de un mes ya cerrado.
+
+Un octavo, sin plata ni stock pero es el único escritor con `SaveChanges` **intercalados** y sin
+transacción del código publicado: **`ClasificacionAbcAutomaticaService.RecalcularAsync`** guarda por
+lotes dentro del `foreach`, así que un fallo en el lote N deja los N−1 aplicados y el contador
+`ProductosActualizados` del log miente.
+
+**Nada de esto se tocó.** Son candidatos a un segundo hotfix, en el orden 1 → 2 → 4.
 
 
 ## Historial de ajustes
+
+### Bloques archivados (2026-10-06)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-10** — 7 bloques (2026-10-05 a 2026-10-05) → [`5-implementador-2026-10.md`](historial/5-implementador-2026-10.md)
+
+- 2026-10-06 (**HOTFIX de transacciones de ventas**, rama `hotfix-transacciones-ventas` creada desde `2580f7c`): **no es una ola de desarrollo**, es un hotfix sobre el estado exacto de produccion. El codigo publicado tenia **cero** `BeginTransaction` en `VentaWorkflowService`: `ConfirmarAsync` descontaba stock, posteaba caja y debitaba la cuenta corriente decidiendo sobre una lectura sin lock, y `FacturarAsync` podia emitir **dos CAE de AFIP por la misma venta**. Se **porto `PAT-059`** (hit en el paso 1 del escaneo) desde el commit `bdfd99b` del mismo repo, aplicado **solo** a esos dos metodos: transaccion abierta **antes de LEER**, lock de la fila de la venta y de los productos de esa venta, y relectura bajo lock. **No fue copiar y pegar:** de las 7 constantes de tabla del helper original **solo 3 existen en produccion**, y su XML-doc fundamentaba la decision hablando de las reversiones parciales de `AnularAsync`, **metodo que no existe en la rama publicada** — copiar ese texto habria plantado un comentario que describe codigo ausente (`LP-008`). **Dos premisas del brief refutadas ejecutando** y escritas en el codigo como 'lo que NO estaba roto': (a) la falla parcial **ya estaba cubierta** por el `SaveChanges` unico mas la transaccion implicita de EF (verificado abortando el INSERT de caja con un trigger: el criterio 2 pasa **tambien contra el codigo roto**), y (b) el stock **no se duplicaba, se perdia** — los dos competidores leian 100 y escribian 98, y el resultado coincidia con el correcto por casualidad. **SIN migracion EF**, diff aditivo de 3 archivos (+93/−0, 20 lineas de codigo). Concurrencia medida con conexiones separadas y barrera en un clon aislado: **46/46 OK**, y lo que mas vale: el arnes se corrio **contra el codigo roto** y dio 12 fallas (N=8 → 2 exitos, $ 2.840 de caja y $ 2.000 de CC donde iban $ 1.420 y $ 1.000; y `FacturarAsync` **emitio 8 comprobantes AFIP**). El huerfano de AFIP queda **declarado en el codigo** y fuera de alcance con fundamento (AFIP deshabilitado). **Barrido: 7 sitios mas que mueven plata o stock sin lock.** **AMPLIADO despues por decision de Joaquin a 3 de ellos** (contra su propio pedido inicial: "prefiero un deploy a dos"): `RegistrarCobroAsync` —el mas expuesto, es la unica via por la que hoy entra la plata de un fiado—, `GastoService.AnularAsync` (y **se corrigio un dato mio**: produccion tiene **0 gastos**, asi que el bug esta vivo pero no hay nada que corromper) y `CancelarBorradorAsync`. `EsReversion` **NO se porto**: la reversion del gasto va por el monto del documento, con tres razones verificadas (no hay reversiones parciales, `Gasto.Monto` es inmutable porque no hay metodo de edicion, y el lock YA es la exclusion). **EL HALLAZGO QUE CAMBIA EL PATRON, y lo encontro el arnes:** aplicar `PAT-059` mecanicamente a `CancelarBorradorAsync` **FALLO** — 5 exitos de 8 y el estado prohibido en la base (venta **borrada CON la plata movida**). Dos defectos invisibles leyendo: (a) **`Estado` no discrimina**, porque cancelar pone `DeletedAt` y **no toca `Estado`** —la mitad simetrica que nadie habia escrito—, y (b) **`ReloadAsync` no ve las filas que el filtro global esconde**: la entidad queda detached y los valores en memoria siguen siendo los de antes del lock, asi que **la relectura parece hecha y no relee**. Se cerro con un helper unico `RelerEstadoBajoLockAsync` (`IgnoreQueryFilters` + proyeccion de `Estado` y `DeletedAt`) que usan los tres metodos del workflow. La asimetria con `GastoService` **se verifico y quedo escrita** en vez de alinear los dos por prolijidad: ahi `ReloadAsync` si vale porque un `Gasto` nunca se borra. Arnes **82/82 OK en 4 corridas**; control positivo de los 3 sitios nuevos **40 FALLADAS**, con una deuda de $ 1.000 **cobrada 8 veces** (saldo **−$ 7.000**, $ 8.000 de caja) y **+$ 3.500** de reversiones de gasto que nunca entraron. Commit local, **SIN push, SIN deploy**.
+- 2026-10-06 (**Entrega 4**, rama `entrega-1-migracion`): **cuenta corriente de empleados (M12)** y **cuenta corriente del negocio (M13)**. La decision mas importante es la que NO se construyo: el modulo 13 **no tiene entidad ni ledger nuevo**. El nombre engaña — en `marihogar` el `MovimientoCCLocal` de `CCLocalService` **ES la caja** (su unico ledger de dinero, y su `CajaService` es pura agregacion sobre el), y aca ese ledger ya existe y se llama `CajaMovimiento`, con cierres diarios y mensuales que alla no hay. Construir un segundo libro del mismo dinero es como se descubre, meses despues, que ninguno de los dos cuadra. Lo que el presupuesto pide es textualmente una *vista consolidada*, y eso es lo que se hizo: saldo acumulado, actividad del periodo, desglose por medio que **suma exactamente el saldo**, saldo corrido por fila sobre **todo** el libro (no sobre la pagina ni sobre lo filtrado) y cada cierre firmado al lado de su **recalculo**. **Sobre el cero inventado se eligio resolverlo, no rotularlo:** se implemento el **saldo inicial declarado por medio de pago** (`OrigenCajaMovimiento.SaldoInicialCaja`, con fecha, motivo, usuario y una sola vez por medio, pasando por `ValidarPeriodoAbiertoAsync`) **y ademas** la pantalla no llama 'saldo' al numero mientras no haya apertura: el rotulo dice literalmente *Movimiento acumulado del sistema* y cada cuenta sin apertura lleva su badge. El criterio de marihogar de excluir la apertura de los totales del periodo SI aplica y vive en un solo lugar (`EsApertura` + los dos helpers de totales), alcanzando a los **seis** lectores — sin eso, el cierre del dia en que se declara el saldo inicial diria que ese dia entraron $ 500.000 (verificado ejecutando: los ingresos del dia no se movieron y el acumulado paso de $ -46.586,20 a $ 453.413,80). **El contraste encontro un problema real la primera vez que corrio:** el cierre mensual de **agosto 2026 no cuadra por $ 2.500,75**, porque se firmo el 21/08 19:05 y el movimiento #5 (fecha 24/08) se cargo el 25/08 02:00 — cuatro dias despues. Es **residuo historico del defecto que `LP-009` ya cerro** (la guarda funciona, se verifico), no un bug de esta ronda: es la ronda haciendo visible algo que nadie podia ver. **Produccion tiene el mismo codigo viejo que lo genero, asi que puede tener el mismo residuo** (no se consulto, estaba prohibido). Del lado de empleados, `MovimientoCCEmpleado` es el **cuarto ledger** con el molde de `MovimientoCCProveedor`, y lo propio es la distincion **devengar no es pagar** resuelta en un solo lugar invocable (`OrigenCCEmpleado.MueveCaja`, con `_ => false` como default seguro a proposito: un egreso que falta se nota, uno de mas descuadra en silencio). El `Tipo` lo impone el **concepto** y no la vista (verificado: se posteo `Cargo` con concepto `Adelanto` y persistio `Pago`). La guarda de periodo es **asimetrica a proposito** — solo la corren los conceptos que escriben caja, asi que un devengamiento retroactivo a un mes cerrado entra y un pago no. **`MovimientoRevertidoId` es nuevo y necesario:** el par `(OrigenTipo, OrigenId)` de los otros tres ledgers identifica un *documento*, y aca no hay documento (todo comparte `OrigenId = 0`), asi que el neto de `('Adelanto', 0)` sumaria **todos** los adelantos del empleado y revertir uno revertiria la plata de los otros — acotar por empleado, el parche de proveedores, **no alcanzaria**. **`PAT-053` por tercera vez** (primera sobre sueldos, que el patron ya preveia) y **`PAT-017` estrenado con codigo real** tras estar con `pendiente_verificar` desde `cma-centro-medico`: dos pantallas en **dos controllers**, y las acciones del autoservicio **no declaran ningun parametro de identidad** — no es que se valide, es que no existe. Probado inyectando el id del Vendedor por **tres vias** en el form con el claim del Repartidor: devolvio solo las 4 filas del Repartidor, cero ajenas. **`MH-001` era el riesgo central** (la identidad de la cuenta es un `string` de `AspNetUsers`, el caso que ya explotó dos veces) y se cerro con sub-consulta correlacionada y materializar-y-filtrar, extraido a `ResolverNombresAsync` porque ya son cuatro los lugares que lo necesitan; los shapes se **ejecutaron**, no se supusieron. **Barrido `LP-002`: 6 hallazgos**, incluidos que los seis lectores de totales **no** se arrastran solos con el helper de origenes, que `CajaMovimiento.UsuarioId` era una columna de **solo escritura** desde la ola 1 (ninguna pantalla la mostraba) y la **promesa vencida** de `EsReversion` — su XML-doc promete desde la ola 1 que el arqueo puede separar 'plata que entro' de 'plata que nunca salio', y ningun lector de totales usa el flag (medido: ingresos brutos $ 97.415,05 contra netos $ 5.914,55). No se cambio el criterio de los cierres (dejaria sin cuadrar a los ya firmados): la pantalla consolidada muestra **los dos numeros con el puente entre ellos** y la decision queda para Joaquin. Septimo hallazgo fuera de alcance y **sin corregir**: `Views/Clientes/CuentaCorriente.cshtml` es el **unico de los cuatro ledgers sin su helper `Origen*`**. Migracion `EntregaCuatro_CCEmpleadoYSaldoInicialCaja`: **una tabla nueva, cero cambios sobre tablas existentes**. Evidencia: build 0 errores sin advertencias nuevas y sonda EF desechable con ~45 verificaciones contra dev, con la linea base calculada por **SQL crudo** y no por el codigo bajo prueba; base devuelta a su linea base exacta (9 filas / $ 3.413,80 / `MAX(Id) = 9`). **Aviso de impacto:** los retiros del titular y los adelantos al personal son plata que siempre salio y nunca se registraba — el dia que se carguen, los egresos del periodo suben de golpe. Commit local, **SIN deploy, SIN push**.
+- 2026-10-05 (**Entrega 6**, rama `entrega-1-migracion`): **presupuestos en PDF** y **aumento masivo de precios**, los dos declarados reuse total de `marihogar`. El reuse rindio en la ESTRUCTURA (maquina de estados, estado derivado calculado al leer, previsualizar->confirmar, patron de PDF con QuestPDF que ya estaba en el repo) y **no** en la aritmetica, porque el modelo de datos de este proyecto es distinto en los dos casos. En presupuestos hubo que reemplazar cantidad `int` por `decimal(18,3)`, agregar unidad congelada e **IVA por linea discriminado por alicuota** (marihogar tiene el 21% hardcodeado), cambiar la cascada `base*(1-d)*(1+r)` por la formula no-cascada —que es el bug corregido aca el 2026-09-03— y meter el **gate de precio por rol** (`PAT-050`/`LP-014`/`LP-016`) que alla no existe: un presupuesto que acepte precios del navegador reabre el agujero por una puerta nueva. La **conversion a venta** cambio de lugar y es una mejora: alla la transicion a `Convertido` espera a que la venta se confirme porque no hay estado editable intermedio; aca la Venta nace en `Borrador`, que es justo el "carrito precargado" que marihogar tenia que simular. En aumento masivo, el punto de la entrega es que el precio de venta de La Platense es **derivado** (`costo x (1+rec)/(1+IVA)`) y no editable a mano como el `PrecioEfectivo` de marihogar, asi que la corrida opera sobre **dos palancas** —recalcular desde el costo (el modo que **apaga** `PrecioVentaDesactualizado`, la mitad que le faltaba a `PAT-054`) o cambiar el `PorcentajeRecargo`— y en las dos el precio sale de la misma formula. `PAT-004` **no era aplicable**: ninguna entidad de La Platense tiene `RowVersion`, asi que la concurrencia optimista se resolvio con `SoftDestroyable.UpdatedAt` (el mecanismo que el proyecto YA usa, estampado por `SaveChanges`) mas una **guarda de universo** por recuento, que cubre lo que `UpdatedAt` no ve: altas, bajas y productos que cambiaron de categoria. Por eso se descarto `ExecuteUpdateAsync` aunque es mucho mas rapido: no dispara `SaveChanges` y dejaria al proximo aumento sin la marca que usa. **Dos defectos propios encontrados EJECUTANDO:** el preview mostraba el precio nuevo sin redondear (`26254,014876...` contra `26254,02` que escribia el aplicar — exactamente lo que el patron de dos pasos existe para evitar), y la variacion porcentual del preview estaba **secuestrada por tres filas basura** del catalogo migrado (costo de 6,3 billones): daba 0,00% mientras 112.000 productos cambiaban de precio, y se reemplazo por contadores sube/baja/igual. **Tercera exclusion no pedida pero necesaria:** 38 productos con costo cero o negativo, que la formula convertia fielmente en un **precio de venta negativo** (medido: -4,00). El **barrido `LP-002`** rindio **7 hallazgos**, incluido un `LP-008` (el XML-doc de `VentaWorkflowService` seguia declarando que descuento y recargo eran importes monetarios, falso desde el 2026-08-21) y que la regla de la oferta vigente esta escrita en **4 lugares**. Medido sobre 112.485 productos reales: preview 464 ms, aplicar 7,6-10,4 s. Commit local, SIN push y SIN deploy por pedido explicito de Joaquin; la migracion se aplico solo a `laplatense_dev` y la tabla `Productos` se respaldo y restauro para que la base quede en su linea base.
 - 2026-10-05 (**Entrega 3, item 4c + paso 6**, rama `entrega-1-migracion`): aplicados la **moneda y la cotizacion de punta a punta** y construidos los **pagos programados**. El item 4c no era una feature pendiente sino un **bug activo**: `Proveedor.Moneda` y `Proveedor.TipoCambio` existian desde la ola 2 y **no se aplicaban en ningun calculo**, asi que desde que la ola 3 hizo que la recepcion escriba `Producto.PrecioCompra` una compra en dolares persistia el costo **en dolares** en un campo que todo el sistema lee como pesos (medido: $ 8,55 donde correspondia $ 12.658,28). La cabecera ahora **declara su moneda y congela la cotizacion** (mismo criterio que `PAT-052` con el factor de conversion) y los tres importes que SALEN de la compra van en pesos por un punto unico nuevo, `ConversionMoneda` — el `Cargo` de la CC, el `Egreso` de caja y el costo del catalogo. `TotalEnPesos` se **persiste** porque el Cargo y el tope de pago tienen que ser el mismo numero al centavo y porque el listado ordena por el total del lado del servidor. Los pagos programados se copiaron del precedente **menos su scheduler**: no se porto su `BackgroundService` a hora fija porque en SmarterASP el pool se recicla por inactividad y un job de las 03:10 **puede no correr nunca** sin que nada lo delate — en su lugar, chequeo oportunista al primer request del dia, con la idempotencia en la marca `Notificado` dentro de la misma llamada que lee las filas, que es el unico mecanismo del precedente que no depende del scheduler. El **barrido `LP-002`** rindio **7 hallazgos propios**, el mas grande que la resta "total - pagado" estaba escrita a mano en **cuatro** lugares y los cuatro pasaron a restar dolares menos pesos; y la **pasada 6** encontro que la migracion dejaba `TotalEnPesos = 0` en toda compra preexistente, que es peor que un enum sin etiqueta: una compra que se muestra como **totalmente pagada** y que al recibirse postea una deuda de **$ 0,00** en silencio. Commit local, **SIN deploy, SIN push**.
 - 2026-10-05 (Entrega 3, pasos 1 a 3): implementados **Proveedor ampliado + ABM propio, cuenta corriente de proveedores y ordenes de compra**, sobre la rama `entrega-1-migracion`. Commit local, **sin push y sin deploy** (pedido explicito de Joaquin). Frontera deliberada: **nada toca stock, caja ni cuenta corriente** — la recepcion (paso 4) y los pagos (paso 5) no entran, y `IOrdenCompraService` no expone `RecibirAsync` justamente para que no se pueda llamar por accidente. Reutilizacion del paso 1 del escaneo: `PAT-001` (ledger, port de `marihogar/CCProveedorService.cs` con el camino de vuelta ya recorrido en `MovimientoCCCliente`), `PAT-005`, `PAT-008`/`PAT-016`. Sin antecedente y catalogado como **`PAT-052`**: el modelo de unidad de la linea de compra (`Cantidad` decimal + `UnidadCompra` declarada + factor **congelado** en la linea; en marihogar la cantidad es `int` y la linea no declara unidad). Primer consumidor de `CodigoProveedorProducto` en toda la app (110.683 mapeos que ninguna pantalla leia). **Barrido LP-002 completo con 5 hallazgos propios**, incluido que la premisa del brief era falsa (`Proveedor` tenia CERO consumidores en `Web/`, lo que permitio una migracion estrictamente aditiva y mantener `Nombre` como columna) y que la migracion dejaba los 85 proveedores existentes con `Moneda = 0`, un valor que no existe en el enum. **2 bugs propios encontrados ejecutando** (el neto vivo filtrado por tipo, que devolvia la suma en vez del vigente; y el neto vivo sin acotar por proveedor, que habria mezclado el saldo inicial de todos). Migracion `EntregaTres_ProveedoresCCCompras` aplicada **solo a `laplatense_dev`**. Build limpio y 161/161 checks ejecutados contra dev, con la base devuelta a su linea base. Detalle completo en la seccion "Entrega 3 — pasos 1 a 3" arriba.
 - 2026-10-05 (**Sprint 0 - gate de precio por rol en Ventas**, rama `entrega-1-migracion`): cerrado el defecto por el que cualquier usuario con `RequireVentas` podia vender a cualquier precio — `GuardarBorrador` tomaba `PrecioUnitario`/`Descuento`/`Recargo` del formulario y el Service los persistia sin control de rol, abierto en produccion. Se copio el criterio de `marihogar` (CR-22, ya en produccion): un `esAdministrador` resuelto **solo** en el Controller con `User.IsInRole` y pasado al Service como dato explicito del DTO, unica puerta que habilita leer esos campos del payload; para cualquier otro rol el precio se resuelve server-side con `PrecioDeVentaVigente` (oferta vigente por dia de negocio argentino si la hay y es > 0, si no `PrecioVenta`), que es **la misma** resolucion que ya hacia la pantalla, y el descuento y el recargo quedan en 0, descartados **en silencio**. No se trajo de marihogar la cascada de descuento/recargo (el bug corregido el 2026-09-03) ni su manejo de subtotal. El **barrido `LP-002`** rindio dos hallazgos propios: el subtotal c/IVA editable no tiene `name` y por lo tanto el gate de `PrecioUnitario` ya lo cubre (no hacia falta un segundo control), y un **comentario prescriptivo falso preexistente** en `ItemVenta` que declaraba la formula en cascada en dos lugares — el patron de `LP-008`, corregido en la misma pasada. Queda **una deuda explicita para Joaquin**: `Items[].PorcentajeIVA` sigue llegando del cliente para cualquier rol (un vendedor que lo postea en 0 baja el total ~21%), excluido a proposito por el brief de esta ronda. Sin migracion EF. Evidencia ejecutada sin navegador: build limpio, prueba de que las vistas Razor compilan, render del atributo booleano `readonly` verificado ejecutando las tres llamadas que emite Razor, y el Service ejercitado directo contra `laplatense_dev` con los dos roles en una transaccion revertida (15 checks OK, 0 filas sobrevivientes).
