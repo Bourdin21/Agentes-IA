@@ -424,3 +424,18 @@ Detectadas al definir el objetivo USD 35/h. Estado de cada una:
 | I-7 | Ganaderia en dataset con tasa USD 12/h, inconsistente con tasas actuales | El documento de ganaderia usa tasa historica del contrato | PENDIENTE — al usar ganaderia como referencia de horas, ignorar la columna USD; recalcular a USD 35/h |
 | I-8 | Riesgo de usar como verdad las horas de una estimacion sin cierre real | Proyecto de referencia en estado BORRADOR dentro del dataset | RESUELTO 2026-09-08 — el proyecto fue dado de baja del dataset y sus rangos de integracion eliminados; ya no hay estimaciones sin cierre real en las anclas |
 | I-9 | Metodo PERT no diferencia entre precio fijo y horas reales | El PERT siempre produjo estimaciones de "precio fijo maximo" | MITIGADO — seccion "Modelo de facturacion" documenta la diferencia y la regla de ajuste |
+
+## Verificar que la base de reutilizacion EXISTE antes de cotizarla (2026-10-06)
+
+**Regla:** cuando un item del WBS se cotiza contra una base de reutilizacion concreta ("reusa `IXService` de tal proyecto", "patron ya resuelto en tal modulo"), **hay que verificar que ese codigo existe** antes de fijar las horas. Un `grep` del tipo o del archivo citado, en el repo citado. No alcanza con que figure en la memoria de otro agente ni en el WBS de una etapa anterior.
+
+**De donde sale:** La Platense, Entrega 3 (Proveedores/Compras). El item de importacion de listas de precios se cotizo en 3h declarando que reusaba *"el contrato preview->confirmar de `ICatalogoMigracionService`"*. Ese tipo **no existia en ninguno de los dos repos** — figuraba como "3h reuse" en el WBS de Etapa 3 pero nunca se construyo. El proyecto de referencia (`marihogar`) tampoco tenia importacion de listas: su `tools\ImportarHistorico` se declara en su propia primera linea como *"script de un solo uso"*. Reuse real: **cero**. El item paso de 3h a ~10h y arrastro al modulo completo de 18h a 42,5h (2,4x).
+
+**Dos efectos secundarios que agravan el error y hay que anticipar:**
+1. Una base de reuse inexistente **no se nota al cotizar**, se nota al implementar — cuando el precio ya esta cerrado con el cliente.
+2. El item mas riesgoso queda **escondido dentro del modulo mas grande**, asi que el desvio aparece como "el modulo salio caro" en vez de "este item nunca tuvo base".
+
+**Que hacer cuando el chequeo falla:** sacar el item del modulo y cotizarlo aparte, con su propio relevamiento. En La Platense eso dejo la Entrega 3 en 32,5h (todavia alto, pero un bloque coherente) y la importacion de listas como entrega propia pendiente de relevamiento.
+
+**Decision comercial de Joaquin sobre ese caso puntual (2026-10-06):** absorbio el desvio, con la instruccion explicita de *"tener en cuenta estos casos de reestructuracion a la hora de armar presupuestos"*. De ahi esta regla.
+

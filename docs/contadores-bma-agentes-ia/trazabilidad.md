@@ -4,6 +4,50 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-06 - correccion de estado (via Joaquin, conversacion directa)
+- Etapa: **PRODUCCION**
+- Cambio: **El proyecto esta andando en produccion.** Joaquin lo confirmo textual el 2026-10-06
+  ("contadores-bma-agentes-ia YA ESTA ANDANDO EN PRODUCCION"). La documentacion estaba parada en
+  Discovery desde el 2026-08-30 — entre esa fecha y hoy se construyo y se puso en marcha sin que
+  quedara registro, asi que todo lo que se derivo de este repo en el medio partio de un estado falso.
+- Impacto medido: el 2026-10-06 una auditoria de contenido concluyo que el frente "Agentes de IA" no
+  tenia ni un solo caso mostrable y lo saco de la rotacion de publicaciones, apoyandose en este
+  metadata. Con la correccion el frente **si tiene caso** y vuelve. Ver
+  `BotPublicitario/CAMPANAS-POR-FRENTE.md`.
+- Lo que falta para poder comunicarlo: fecha real de puesta en produccion, que agentes estan activos
+  (impuestos / conciliaciones / balances / sueldos / manuales), sobre que integracion quedo
+  (Bejerman Web era 100% cloud y por eso se investigaba computer-use), y si hay permiso del cliente
+  para mostrarlo aunque sea por rubro. Sin eso se puede decir que existe, pero no mostrar que hace.
+- Notas: la leccion es de proceso, no de este cliente — un proyecto que pasa de Discovery a
+  produccion sin tocar su trazabilidad deja al resto del estudio decidiendo sobre datos viejos.
+
+### 2026-10-06 - analisis de proceso real (via conversacion directa)
+- Etapa: Implementacion (configuracion de la organizacion)
+- Cambio: Ingenieria inversa del **proceso real de conciliacion bancaria** de BMA sobre tres planillas de EINKAREM SA
+  (cuenta corriente 5632/4 Banco Provincia, ejercicio 2024-2025): el libro `MAYOR` + `CONCILIACION` y los extractos de
+  julio y agosto 2024. El metodo del estudio difiere en cinco puntos del oficio general que tiene cargado el agente
+  `cont-conciliacion`: (1) el cuadro va **de contabilidad hacia el banco**, no al reves; (2) es **acumulativa**, arrastra
+  pendientes de meses anteriores; (3) **no se escribe la lista de emparejados**, el papel es una sola lista plana de
+  ajustes con el texto literal del extracto o del mayor; (4) el mayor se **controla contra si mismo** recalculando el
+  saldo fila por fila antes de conciliar; (5) la mitad del trabajo es **armar los asientos del mes agrupando el
+  extracto** (gastos bancarios, haberes/aguinaldo/fondo de desempleo, servicios recurrentes), que no estaba escrito en
+  ninguna parte. El agrupado de agosto 2024 da -2.979.979,92 y coincide exacto con el asiento "A.C. Gastos Banco
+  Provincia 25-8-12" del mayor.
+  Se escribio `instructivo-conciliacion-bancaria.md` con el contenido **listo para cargar en el portal**: 1 instructivo
+  de toda la empresa (5.590 caracteres de pasos, tope 8.000), 6 reglas obligatorias (5 con alcance Agente, 1 con alcance
+  Cliente+Agente), 3 recuerdos de cliente y el caso de la prueba de la organizacion con sus cinco numeros esperados.
+- Notas: **Hallazgo que corrige el modelo**: el papel real cierra en cero gracias a una linea descrita solo como
+  "ajuste" por $1.139.686,97 (fila 189 de la hoja CONCILIACION), que es un ajuste sin identificar. La regla R6 lo
+  prohibe explicitamente y la prueba se califica **a favor** del agente que informa esa diferencia en vez de copiar la
+  linea. Confirmar su origen con Gaston.
+  **Dos cosas abiertas**: (a) `planilla_armar` (M19) solo arma hojas tabulares con fila `=SUM()`, sin formulas libres ni
+  links entre hojas, asi que no puede reproducir ese papel tal cual — decision de Joaquin entre la variante tabular o
+  agregar el relleno de una plantilla que sube el cliente; (b) el control del mayor es oficio general y corresponde
+  agregarlo a `conocimiento/35-conciliacion-bancaria.md` del rubro `contable`, con version y evaluacion nuevas.
+  Pendientes de dato de BMA: dias de compensacion de cheques de la cuenta, tolerancia aceptada, y que significan
+  "GASTOS CACHO", "GASTOS HERNAN" y "CAJA CHICA Y GASTOS MAXI" en el mayor.
+
+
 ### 2026-09-23 - implementacion (bloque B: alta y configuracion de la organizacion)
 - Etapa: Implementacion
 - Cambio: BMA queda dada de alta y configurada en el producto. **Tenant `bma`** con licencia del rubro `contable` por
