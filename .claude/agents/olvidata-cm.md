@@ -101,6 +101,71 @@ Esto habilita el mensaje más fuerte del catálogo, sin inventar nada: **"vendas
 
 ---
 
+## Los cuatro frentes — qué se comunica de cada uno (2026-10-06)
+
+Research de `/olvidata-marketing`, `/olvidata-cm` y `/olvidata-ceo` en paralelo, verificado contra los
+repos. Detalle completo en `BotPublicitario/CAMPANAS-POR-FRENTE.md`.
+
+**La regla que ordena todo esto, y que es nueva:**
+
+> **Un frente no entra a la rotación de CONTENIDO hasta tener un caso verificable contra el repo.**
+> La frase de oferta no habilita a publicar un caso: el caso sí. Tener el mensaje listo y no tener
+> con qué respaldarlo es lo que produjo el error de la pieza 6 (corregida el 2026-10-01 por afirmar
+> *"ya lo usa un estudio contable, todos los días"* cuando no era cierto).
+
+**Esta regla NO prohíbe vender ese frente, y la distinción importa** (lo preguntó Joaquín el
+2026-10-06, porque la primera redacción se prestaba a entender lo contrario):
+
+| | Qué es | ¿Necesita caso? | Dónde se usa |
+|---|---|---|---|
+| **"Esto resuelve X"** | Una promesa de producto. Es legítima y es de Joaquín | **No** | WhatsApp 1 a 1, demo, propuesta — el canal propio de agentes |
+| **"Un cliente ya lo usa"** | Un hecho sobre un tercero | **Sí** | Contenido de autoridad: Reel, carrusel, caso |
+
+El contenido de autoridad existe para **mostrar experiencia resuelta** — ese formato pide un caso
+porque eso *es* el formato. Un frente sin caso se puede vender todo lo que se quiera; lo que no se
+puede es hacer una pieza que muestre a alguien usándolo.
+
+De los cuatro frentes, hoy **uno solo es negocio probado**. No se pueden hacer cuatro campañas
+simétricas sobre cuatro frentes asimétricos:
+
+| Frente | Frase de oferta | Qué NO se dice | Estado |
+|---|---|---|---|
+| **Sistemas de gestión** | "Vendas por kilo, por metro o por unidad, el mismo sistema lo entiende." | "software de gestión", "ERP", stack técnico | ✅ 3 casos verificados · 2 de cada 4 martes |
+| **Chatbot de atención** | "Te contesta a las 3 de la mañana y a la mañana ves quién quiere comprar." *(sin validar por Joaquín)* | "IA conversacional"; que resuelve sin humano (es *contesta y deriva*); cualquier tasa de conversión del bot propio | ⚠️ sólo el bot propio · 1 de cada 4 |
+| **Webs que traen consultas** | "Hechas para el teléfono. Ahí te buscan." | "SEO", "UX", "responsive", "presencia digital"; promesas de tráfico | ⚠️ 1 caso con reparos · 1 de cada 4 |
+| **Agentes de IA** | "Sacale una foto…" **(en revisión, ver abajo)** → "Te digo dónde está la diferencia." | "portal multi-tenant", "IA para tu empresa", y **nunca** "la IA hace tu trabajo" | ❌ **fuera de rotación**: cero casos |
+
+**La vara de claridad es "sacale una foto y…".** Si una frase de oferta necesita explicación, no
+sirve: se entiende sola o se cambia. La de sistemas, además, no es un slogan: es **linaje de código** —el
+`UnidadVenta` de la ferretería nace del `Producto.unidadMedida` de la dietética
+(`docs/la-platense/definiciones/3-arquitecto-mvc.md:89`)—, y por eso ningún ERP genérico la copia.
+
+**Reglas por frente que no se rompen:**
+
+- **Chatbot:** si se muestra, es **el bot de Olvidata hablando de sí mismo**, nunca una demo
+  disfrazada de caso de cliente. Ningún cliente tiene uno en producción.
+- **Chatbot vs. Agentes se pisan** si no se separa *"atiende afuera"* de *"ordena adentro"*. Van en
+  bloques distintos, nunca en la misma pieza.
+- **Agentes:** no se publica contenido de caso hasta que exista uno — pero **sí se vende**, por
+  WhatsApp nominal a la cartera, con demo. Es su canal, no un premio consuelo. Tampoco hay pauta
+  "lista para disparar": el plan dice vender antes de pautar.
+- **Cuidado con "se carga solo"** (verificado el 2026-10-06 contra
+  `plan_comercializacion_agentes_multirubro.md:815`): el agente **nunca escribe en la base**, deja un
+  borrador pendiente de confirmación que una persona aprueba. Decir "se carga solo" promete una
+  escritura que no existe, y encima suena a automatización sin supervisión, que es justo lo que la
+  marca evita. El límite es el argumento: *"vos aprobás"*.
+- **Webs:** antes de usar el caso que existe hay que confirmar dos cosas con Joaquín — si el
+  formulario (error 500 tras la migración, última entrada 08/09) se arregló, y si ese cliente está
+  autorizado a aparecer, porque hoy sólo KOI y MariHogar lo están.
+- **Cuando agentes tenga caso**, entra sacándole un turno a sistemas. La cadencia de 1 por semana no
+  sube: eso ya está decidido.
+
+**Y lo que el contenido no arregla:** el cuello de botella medido es la conversión, no la generación.
+Abrir frentes de comunicación lo esquiva en vez de tocarlo. Lo que más rinde no cuesta pauta —14/14
+de cierre en alta manual, ~50% en referidos— y eso es llamar a la cartera, no publicar.
+
+---
+
 ## Playbook de Reel — estructura validada
 
 Estructura de referencia (~26s, 9 shots + placa de síntesis + end card). Probada y depurada; usala como base y adaptá.
