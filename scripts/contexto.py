@@ -276,9 +276,23 @@ def _items_yml(p, campos):
             continue
         if actual is None:
             continue
-        m2 = re.match(r'^\s{2,}(\w+): *"?([^"\n]*)"?\s*$', l)
+        # Dos formas de valor, en este orden:
+        #   1) escalar entre comillas dobles, que puede contener comillas escapadas (\").
+        #      El patron viejo era *"?([^"\n]*)"?* y cortaba en la primera comilla: con un
+        #      valor como "grilla de <input type=\"number\">" el match fallaba ENTERO y el
+        #      campo quedaba sin capturar, asi que el item salia al cat_resumen con "?" de
+        #      titulo y descripcion vacia — invisible en el primer lookup del escaneo de
+        #      reutilizacion, que es justo para lo que existe este indice. Afectaba a
+        #      LP-003, OLV-008, GAN-003, KOI-016 y PAT-054.
+        #   2) escalar sin comillas, hasta el fin de linea.
+        m2 = re.match(r'^\s{2,}(\w+): *"((?:[^"\\]|\\.)*)"\s*$', l)
+        if m2:
+            valor = re.sub(r'\\(.)', r'\1', m2.group(2))
+        else:
+            m2 = re.match(r'^\s{2,}(\w+): *([^"\s].*?)\s*$', l)
+            valor = m2.group(2) if m2 else None
         if m2 and m2.group(1) in campos and m2.group(1) not in actual:
-            actual[m2.group(1)] = m2.group(2).strip().rstrip('"')
+            actual[m2.group(1)] = valor.strip()
     if actual:
         items.append(actual)
     return items

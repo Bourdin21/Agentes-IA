@@ -47,3 +47,10 @@ PAT-046   | integracion      | ninguno todavia (incorpora | Automatizacion con n
 PAT-047   | agentes-ia       | olvidata-agentes-multirubr | Ficha de agente en dos vistas: funcional para el cliente y literal para el staff, con DTOs distintos por tipo
 PAT-048   | agentes-ia       | olvidata-agentes-multirubr | Autocomplete de menciones servido por la MISMA consulta que despues autoriza
 PAT-049   | frontend         | olvidata-agentes-multirubr | Pieza 3D decorativa de carga diferida que se DESMONTA cuando aparece el contenido
+PAT-050   | seguridad        | marihogar (CR-22, en produ | Gate de precio por rol: el override del precio es la UNICA puerta, el resto se recalcula server-side
+PAT-052   | dominio          | la-platense (Ferreteria La | Linea de documento que declara su unidad y CONGELA el factor de conversion
+PAT-051   | financiero       | la-platense (Ferreteria La | Medio/cuenta como dimension de un ledger de caja UNICO (conciliable sin partir el saldo)
+PAT-053   | financiero       | marihogar (CR-84/CRM-001,  | Un pago, dos ledgers: punto unico de egreso con la MISMA clave de origen en los dos
+PAT-054   | negocio          | la-platense (Ferreteria La | Bandera de costo actualizado con precio sin recalcular: el enganche entre el modulo que mueve el costo y el que decide el precio
+PAT-055   | financiero       | la-platense (Ferreteria La | Documento que declara su MONEDA y congela la COTIZACION usada (los importes que salen van en moneda local)
+PAT-056   | infraestructura  | la-platense (Ferreteria La | Chequeo oportunista al primer request del dia, en vez de un job programado (idempotencia en la base, no en el scheduler)

@@ -25,7 +25,7 @@
 # en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
 
 version: 1
-ultima_actualizacion: 2026-09-19
+ultima_actualizacion: 2026-10-05
 
 # IDs retirados / sin asignar (para que un hueco no parezca un error):
 #   PAT-011 - se retiro sin reemplazo y NO se recicla (ver docs/delicias-naturales/definiciones/5-implementador.md)
@@ -45,10 +45,39 @@ patrones:
     proyecto_origen: vinosefue (Cliente)
     proyectos_que_lo_usan:
       - vinosefue (replicado para Proveedor, sprint 2026-07-03)
+      - "la-platense (2026-10-05, Entrega 3 paso 2: MovimientoCCProveedor + CCProveedorService — el circulo completo, el patron volvio a Proveedor despues de haber pasado por Cliente)"
     archivos_referencia:
       - proyecto: vinosefue
         path: "VinoSeFue.Domain/Entities/CuentaCorriente.cs + MovimientoCC.cs + MovimientoCCProveedor.cs"
         motivo: "Entidad + detalle de movimientos (ruta CONFIRMADA 2026-10-05 contra C:/Sistemas/vino-y-se-fue)"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/CCProveedorService.cs (ObtenerSaldosAsync, ListarMovimientosAsync, ObtenerNetoVivoAsync)"
+        motivo: >
+          Variante del ledger con los dos refinamientos que la version de Cliente no tiene:
+          (a) la entidad NO hereda de SoftDestroyable — un movimiento de ledger no se da de baja,
+          se revierte con un contramovimiento, y eso obliga a declarar UsuarioId explicito porque
+          el stamping de auditoria del DbContext no la alcanza; (b) SALDO CORRIDO por fila,
+          calculado sobre TODO el ledger de la cuenta y nunca sobre la pagina visible ni sobre el
+          rango de fecha filtrado (si se calcula sobre lo visible, filtrar "ultimos 7 dias" muestra
+          un acumulado que arranca en cero y no significa nada).
+          Y el bug que define el contrato de ObtenerNetoVivoAsync, encontrado EJECUTANDO: el neto
+          vivo de un documento tiene que ser el NETO CON SIGNO de todos sus movimientos, no
+          "suma de originales menos suma de reversiones DENTRO de un tipo" — porque en un ledger de
+          deuda la reversion de un Cargo se postea como un Pago, asi que filtrar por tipo la deja
+          afuera del calculo. Un saldo inicial de 100.000 reajustado a 60.000 devolvia 160.000.
+          Corolario: con el neto con signo, EsReversion queda como dato informativo y NO participa
+          de la aritmetica — un contramovimiento al que se le olvide el flag igual neutraliza bien.
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Application/Helpers/OrigenCCProveedor.cs"
+        motivo: >
+          El origen del movimiento como STRING (apunta a documentos de tipos distintos) pero con los
+          valores validos y sus etiquetas en UN SOLO LUGAR INVOCABLE, no como literales por call
+          site. Es el antidoto medido a LP-002: en el ledger de Cliente la misma informacion vivia
+          duplicada en el combo del filtro Y en un mapa de etiquetas del JS, y al agregar un origen
+          quedo desincronizada. Con el helper, agregar un origen es agregar una constante y la vista
+          no se toca.
         pendiente_verificar: false
       - proyecto: la-platense
         path: "FerreteriaLaPlatense.Infrastructure/Services/CuentaCorrienteClienteService.cs (RegistrarCobroAsync, RegistrarAjusteAsync)"
@@ -759,6 +788,7 @@ patrones:
     proyecto_origen: marihogar (Ventas, CR-64/CR-65 — bug real reportado por el cliente sobre la Venta #694 en produccion, 2026-09-02)
     proyectos_que_lo_usan:
       - marihogar (replicado proactivamente del lado de Compras, OrdenCompraService.CancelarAsync, CR-67, antes de que el cliente lo reportara ahi)
+      - "la-platense (2026-10-05, VentaWorkflowService.AnularAsync -- tercera aplicacion, primera en un proyecto distinto al de origen)"
     archivos_referencia:
       - proyecto: marihogar
         path: "MariHogar.Infrastructure/Services/VentaService.cs (CancelarAsync, EliminarPagoAsync)"
@@ -767,6 +797,14 @@ patrones:
       - proyecto: marihogar
         path: "MariHogar.Infrastructure/Services/OrdenCompraService.cs (CancelarAsync)"
         motivo: "Mismo patron reaplicado del lado de Compras: PagoOrdenCompra Pendiente sin cheque se da de baja, Pagado se reversa con Cargo de reversion"
+        pendiente_verificar: false
+      - proyecto: marihogar
+        path: "MariHogar.Infrastructure/Services/EgresoPagoProveedorService.cs (ObtenerNetoPosteadoAsync, RevertirEgresoAsync)"
+        motivo: "La forma MADURA del punto 3: el neto vivo de un origen como metodo propio, y la reversion que no postea nada cuando el neto es 0 -- es lo que hace imposible revertir dos veces sin depender de un flag de estado"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/VentaWorkflowService.cs (AnularAsync) + CajaMovimientoService.cs (ObtenerNetoPosteadoAsync, ObtenerNetoPosteadoPorPagoVentaAsync, NetoVivo)"
+        motivo: "Variante con reversion POR LINEA DE PAGO (no agregada) y relevamiento de identificabilidad ANTES de la transaccion: si un solo pago no es identificable se bloquea la operacion completa"
         pendiente_verificar: false
     dependencias:
       - PAT-005
@@ -778,6 +816,33 @@ patrones:
       colgado (ej. "no acreditar sobre una OC Cancelada"), hay que barrer TODOS los consumidores
       de ese estado "huerfano" — no solo el que motivo el cambio (ver MH-019, hallado por QA sobre
       este mismo CR en marihogar: 2 de 5 consumidores quedaron sin el filtro nuevo).
+
+      LO QUE AGREGO LA TERCERA APLICACION (la-platense, 2026-10-05), y conviene traer a la proxima:
+
+      1. **Revertir por el NETO VIVO, no por "la suma de los pagos no pendientes".** Las dos formas
+         coinciden la primera vez y divergen la segunda: el neto vivo
+         (Σ originales no-reversion − Σ reversiones) ya es 0 cuando el documento se reverso, asi que
+         la doble reversion es imposible POR CONSTRUCCION y no por un `if (estado != Cancelada)` que
+         haya que acordarse de poner en cada via nueva de escritura. Eso exige una columna booleana
+         `EsReversion` en el ledger: sin ella un contramovimiento es indistinguible de un movimiento
+         real y el neto no se puede calcular (ver PAT-051).
+      2. **La reversion va por LINEA DE PAGO cuando el ledger tiene identidad por pago.** Un
+         contramovimiento unico y agregado no tiene medio de pago ni cuenta que declarar, asi que
+         rompe cualquier desglose del ledger por esa dimension. Y necesita la identidad: con
+         OrigenTipo+OrigenId apuntando al COMPROBANTE, una venta con dos pagos postea dos filas con
+         la misma clave (MH-027).
+      3. **El relevamiento de identificabilidad va ANTES de abrir la transaccion, y si UN pago falla
+         se bloquea la operacion COMPLETA.** Revertir "los que se pueden" es peor que no cancelar:
+         el stock volvio, el estado cambio, y falta plata que nadie va a ir a buscar. Y el pago no se
+         infiere por monto — esa es exactamente la adivinanza de MH-027.
+      4. **Un comprobante con efecto fiscal emitido se RECHAZA con mensaje, no se cancela.** Y el
+         orden para cuando se implemente la nota de credito importa y conviene dejarlo escrito: la NC
+         se emite ANTES de revertir, porque si el fisco la rechaza la reversion no se puede aplicar;
+         el orden inverso deja la caja revertida con una factura viva.
+      5. **Cantidades decimales.** El contramovimiento de stock usa el MISMO tipo y el MISMO numero
+         que el descuento original, sin conversion de unidad: si la unidad del producto cambio
+         despues, convertir devolveria una cantidad distinta de la que salio. La reversion fiel + un
+         aviso para recontar es mejor que una conversion "correcta".
 
   - id: PAT-021
     nombre: "Modo de precio por item: formula vs. valor manual, con exclusion explicita del recalculo batch"
@@ -2370,3 +2435,492 @@ patrones:
       nadie hizo. (3) El catch silencioso es correcto Y es una trampa: si la URL no existe la pieza nunca aparece y
       nadie se entera -- abrir la URL una vez antes del primer despliegue es parte del trabajo, no una formalidad.
       (4) La pieza no recibe datos, y eso es lo que impide que un dato de la organizacion llegue a un script de CDN.
+
+  - id: PAT-050
+    nombre: "Gate de precio por rol: el override del precio es la UNICA puerta, el resto se recalcula server-side"
+    categoria: seguridad
+    descripcion: >
+      En toda pantalla de venta/presupuesto donde el precio de linea se tipea, el precio que llega del cliente es un
+      privilegio, no un dato. Un booleano "esAdministrador" resuelto EXCLUSIVAMENTE en el Controller con
+      User.IsInRole sobre el ClaimsPrincipal del request autenticado -- nunca un campo del body, ni una propiedad
+      bindeable del ViewModel -- se pasa al Service como dato explicito (el Service no consulta Identity) y es la
+      UNICA puerta que habilita leer del payload los campos monetarios de la linea: precio unitario, descuento,
+      recargo, subtotal. Si es false (vendedor, o cualquier otro rol o caller), el precio se recalcula SIEMPRE desde
+      la entidad Producto y los porcentajes quedan en 0: lo que llego en el payload se descarta EN SILENCIO, no con
+      un error, porque no es un error del usuario -- la UI simplemente no le deja editar esos campos. Los inputs se
+      deshabilitan por rol en la vista como CORTESIA (con readonly, nunca disabled: un input disabled no se postea y
+      rompe los indices contiguos que exige el model binder de List<T>), pero el control que vale es el del servidor.
+      Dos condiciones de borde que deciden si el patron sirve o estorba: (1) la resolucion server-side del precio
+      tiene que ser EXACTAMENTE la que ya hace la pantalla al agregar el item -- misma oferta, misma ventana de
+      vigencia, mismo redondeo -- o el vendedor termina vendiendo a un precio distinto del que vio, que se lee como
+      un bug y no como una politica; (2) la validacion de rango de los porcentajes va ADENTRO de la rama de
+      administrador, porque para el rol sin privilegio los valores se fuerzan a 0 y un error de rango ahi seria
+      ruido sobre un campo que el usuario no puede editar.
+    cuando_usar: >
+      Cualquier modulo donde un rol operativo carga comprobantes con precio tipeado (venta, presupuesto, nota de
+      credito, orden de compra) y el negocio no quiere que ese rol decida el precio. Generalizable a cualquier campo
+      que sea una CONCESION comercial y no un dato del hecho: descuento, bonificacion, condicion de pago, plazo.
+    proyecto_origen: marihogar (CR-22, en produccion) -> La Platense (Sprint 0, 2026-10-05)
+    proyectos_que_lo_usan: [marihogar, la-platense]
+    archivos_referencia:
+      - proyecto: marihogar
+        path: "MariHogar.Infrastructure/Services/VentaService.cs (ConfirmarAsync ~407-465 y EditarAsync ~738-773)"
+        motivo: "Implementacion original del gate, con el comentario de seguridad que nombra la unica puerta y la excepcion razonada (TipoPrecio, un selector entre dos precios que el servidor ya calculo, se respeta para todos los roles)"
+        pendiente_verificar: false
+      - proyecto: marihogar
+        path: "MariHogar.Web/Controllers/VentasController.cs (EsAdministrador)"
+        motivo: "El rol se resuelve en el Controller y se pasa al Service; en la accion que ya es Administrador-only se pasa esAdministrador: true literal"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/VentaWorkflowService.cs (GuardarBorradorAsync + PrecioDeVentaVigente)"
+        motivo: "Segunda aplicacion, con el gate en el unico metodo que escribe ItemVenta y el precio resuelto por la MISMA regla que la pantalla (oferta vigente por dia de negocio o precio de lista)"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Web/Views/Ventas/Editar.cshtml"
+        motivo: "readonly por rol en las filas de Razor Y en las que arma el JS; el subtotal editable no tiene atributo name, asi que el gate del precio unitario lo cubre por elevacion"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      LO QUE HACE QUE EL PATRON SE SOSTENGA: el gate vive en el unico metodo que escribe la linea. Si hay dos
+      caminos de escritura (confirmar y editar, como en marihogar), los dos lo llevan; antes de darlo por cerrado
+      hay que relevar TODOS los puntos de entrada del precio y no solo el que goteo el pedido -- ver LP-002 en
+      32-estandares-qa-implementador.
+      Gotchas medidos: (1) un input de solo-UI SIN atributo name no se postea nunca, asi que un override que la UI
+      resuelve client-side (editar el subtotal y despejar el precio hacia atras) ya queda cubierto por el gate del
+      precio: un segundo control ahi es codigo muerto. Conviene confirmarlo mirando el HTML, no suponiendolo.
+      (2) El flag NO va como propiedad del ViewModel que se bindea del formulario: si se necesita en la vista, se
+      lee ahi con User.IsInRole o se marca [BindNever]; un flag bindeable es el agujero que el patron venia a
+      cerrar. En el DTO que el Controller arma a mano si es seguro, y conviene declararlo `init`.
+      (3) CONSECUENCIA SIMETRICA que hay que decidir a conciencia: si el rol sin privilegio re-guarda un comprobante
+      donde un administrador habia dejado un override, el override se pierde (el precio se recalcula siempre). Es la
+      falla segura y la alternativa -- conservar el valor persistido -- es un agujero, porque permite fijar un
+      precio y despues mantenerlo. Si molesta operativamente, la salida es que ese comprobante no sea editable por
+      ese rol, no relajar el gate.
+      (4) Lo que NO se replico de marihogar a La Platense, y es la leccion de reutilizacion: el criterio de
+      seguridad viaja, la formula comercial NO. La cascada (1-d)*(1+r) de marihogar ya era un bug corregido en La
+      Platense (10% de descuento y 10% de recargo tienen que cancelarse), y el precio base sale de entidades
+      distintas en cada proyecto. Copiar la puerta, no la aritmetica.
+  - id: PAT-052
+    nombre: "Linea de documento que declara su unidad y CONGELA el factor de conversion"
+    categoria: dominio
+    descripcion: >
+      Cuando un negocio COMPRA en una unidad y lleva el STOCK en otra (bulto/unidad, kilo/gramo,
+      metro/rollo), la linea del documento de compra no puede guardar solo una cantidad: tiene que
+      declarar TRES cosas, y la tercera es la que casi siempre se olvida.
+      (1) La cantidad va en la unidad de COMPRA, no convertida — si se compra el bulto, la cantidad
+          es en bultos y el precio es el precio DEL BULTO. Convertir al cargar pierde el dato que el
+          operador tiene delante (la factura dice "5 bultos a $12.000", no "60 unidades a $1.000") y
+          vuelve imposible auditar la linea contra el comprobante.
+      (2) La linea declara EN QUE UNIDAD esta esa cantidad, como columna propia. No alcanza con
+          mirar la ficha del producto: el mismo producto se compra a veces por bulto y a veces por
+          unidad suelta, y la ficha solo puede decir una de las dos.
+      (3) La linea CONGELA el factor de conversion que se uso (snapshot del valor de la ficha al
+          momento de cargar), y la conversion a stock se calcula con ESE factor, no releyendo la
+          ficha. La cantidad en unidad de stock queda como propiedad CALCULADA (cantidad x factor),
+          nunca como columna persistida: es derivada exacta de dos columnas que si se persisten, y
+          duplicarla abre la puerta a que queden en desacuerdo.
+      El tipo de la cantidad es decimal con 3 decimales (el mismo ancho que la columna de stock),
+      no int: una ferreteria compra 12,75 m y 2,5 kg.
+      Y una guarda que no es cosmetica: cuando la unidad de compra COINCIDE con la de stock, el
+      factor se FUERZA a 1 aunque llegue otro valor del formulario. Si no, un factor heredado de la
+      ficha queda de "fantasma" en una linea que en realidad vino en unidades sueltas, y al recibir
+      multiplica el stock.
+    cuando_usar: >
+      Cualquier documento de entrada de mercaderia (orden de compra, remito, ingreso por
+      produccion) en un negocio donde la unidad de compra puede diferir de la de stock. Tambien
+      aplica a la inversa (vender por una unidad distinta de la de stock), con el mismo shape.
+      NO aplica si el negocio compra y vende siempre en la misma unidad — ahi la linea con solo
+      cantidad + precio alcanza y las tres columnas son ruido.
+    proyecto_origen: la-platense (Ferreteria La Platense, Entrega 3 paso 3, 2026-10-05)
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Domain/Entities/OrdenCompraItem.cs"
+        motivo: "Las tres columnas (Cantidad decimal(18,3) + UnidadCompra + FactorConversionAplicado), la unidad de stock tambien congelada, y CantidadEnUnidadVenta como propiedad calculada con Ignore() explicito en el DbContext"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/OrdenCompraService.cs (ResolverItemsAsync)"
+        motivo: "La resolucion y validacion: unidad por defecto desde la ficha, factor forzado a 1 cuando las unidades coinciden, error funcional explicito cuando difieren y no hay factor, y validacion delegada al MISMO contrato que ya usa el catalogo (IUnidadMedidaConversionService.EsFactorConversionValido) en vez de reimplementar la regla"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/OrdenCompraService.cs (RecibirAsync) + FerreteriaLaPlatense.Application/Interfaces/IUnidadMedidaConversionService.cs"
+        motivo: "EL CONSUMIDOR del snapshot (2026-10-05, Entrega 3 paso 4) y la leccion que solo aparece al escribirlo: el servicio de conversion que ya existia leia el factor de la FICHA VIVA, asi que usarlo habria roto el congelamiento que la linea existe para garantizar. La solucion NO fue que la recepcion se arme la multiplicacion aparte (eso parte la regla en dos lugares) sino agregar una sobrecarga que RECIBE el factor — ConvertirConFactor(unidadCompra, unidadVenta, factor, cantidad) — y dejar la version de la ficha como envoltorio. Mas el guard previo ValidarConversion, que devuelve el mensaje en vez de tirar, para decidir ANTES de abrir la transaccion"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      POR QUE EL SNAPSHOT, con el caso concreto: el factor de conversion es un campo EDITABLE de la
+      ficha del producto. Si el proveedor cambia el tamaño del bulto y alguien actualiza la ficha,
+      una compra vieja todavia sin recibir pasaria a ingresar una cantidad de stock distinta de la
+      que se cargo, y una ya recibida mostraria en pantalla un equivalente que no coincide con el
+      movimiento de stock real. Es el mismo criterio con el que una linea de VENTA congela precio e
+      IVA en vez de releerlos del producto, aplicado a la dimension que casi nadie congela.
+      EFECTO COLATERAL QUE VALE LA PENA: el snapshot ABSORBE sin cambio de esquema el caso "el mismo
+      producto llega en bultos de distinto tamaño segun el proveedor" — el operador corrige el factor
+      en la linea y la compra queda bien. No lo RESUELVE de raiz (para eso el factor tendria que
+      vivir en la relacion producto-proveedor, no en el producto), pero compra tiempo para
+      preguntarselo al cliente sin bloquear la entrega.
+      ORIGEN DEL PORT: `marihogar/OrdenCompraItem.cs` tiene `Cantidad` como `int` y la linea no
+      declara unidad, porque su negocio compra y vende de a unidades enteras. Este patron es
+      exactamente la parte del port que NO es mecanica — conviene catalogarlo para que el proximo
+      proyecto de rubro con unidades no lo descubra de nuevo leyendo un int.
+
+  - id: PAT-051
+    nombre: "Medio/cuenta como dimension de un ledger de caja UNICO (conciliable sin partir el saldo)"
+    categoria: financiero
+    descripcion: >
+      Un ledger de caja que recibe cobros y pagos por mas de una cuenta real (efectivo en el cajon,
+      transferencia, tarjeta, billetera) y no guarda por donde se movio la plata NO SE PUEDE
+      CONCILIAR CONTRA NINGUN EXTRACTO, y nada en la pantalla lo dice. El patron: el medio es una
+      COLUMNA del movimiento, nullable, con un enum PROPIO del ledger que es la UNION de los enums
+      de medio de cada documento que postea en el (el de la venta, el del gasto, el de la compra) —
+      no se extiende ninguno de esos, porque agregarles valores mete opciones sin sentido en sus
+      combos. La traduccion de cada enum de origen al del ledger vive en UN helper con switch
+      EXHAUSTIVOS (sin `_ =>`), de modo que un valor nuevo en cualquier enum de origen lo denuncia
+      el compilador en vez de entrar al ledger mal clasificado y en silencio.
+      Y el corolario que define el patron: el medio es un dato para FILTRAR Y CONCILIAR, no una caja
+      con saldo propio. El saldo sigue siendo UNO Y AGRUPADO y el arqueo por medio es un desglose
+      del mismo total. Un saldo agrupado es mas robusto que varios saldos por cuenta mal mantenidos:
+      con saldo unico los traspasos entre cuentas propias se anulan (sale de una, entra a la otra) y
+      el hecho de que nadie los cargue deja de importar; partido en cajas, cada traspaso no cargado
+      descuadra DOS cajas a la vez. Las cajas separadas recien se justifican cuando el cliente se
+      compromete a cargar los traspasos.
+      Las filas que no declaran medio (NULL) se MUESTRAN como "Sin declarar" en vez de esconderse:
+      un importe sin cuenta conocida es justamente lo que no se puede conciliar, y ocultarlo hace
+      que los parciales no sumen el total sin ninguna explicacion.
+    cuando_usar: >
+      Cualquier ledger de caja/tesoreria de un negocio que cobre o pague por mas de un canal, desde
+      el primer sprint del modulo. El costo es asimetrico y medido: agregar la columna al construir
+      el ledger son horas; agregarla despues de miles de movimientos es un job de reconstruccion
+      sobre el texto libre de la descripcion, que es donde el medio termina viviendo si no tiene
+      columna. Tambien aplica al reves: si el alcance deja un canal afuera a proposito, la pantalla
+      tiene que NOMBRAR lo que el saldo mide ("Resultado operativo del periodo", no "Saldo
+      disponible").
+    proyecto_origen: la-platense (Ferreteria La Platense, 2026-10-05) — primera implementacion en el estudio
+    proyectos_que_lo_usan: []
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Domain/Enums/MedioPagoCaja.cs + FerreteriaLaPlatense.Application/Helpers/MedioPagoCajaMapper.cs"
+        motivo: "El enum union y el mapper unico con switch exhaustivos (incluida la etiqueta de UI del caso NULL, para que combo, grilla y arqueo digan lo mismo)"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/CajaMovimientoService.cs (ObtenerTotalesPorMedioRangoUtcAsync) + Views/Caja/_ArqueoPorMedio.cshtml"
+        motivo: "El desglose: GroupBy por (medio, tipo) sobre un rango, partial compartido por el arqueo diario y el mensual, con rotulo que dice 'desglose' y fila de Total que repite el saldo agrupado"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-020
+    notas: >
+      ANTES DE MODELAR, EL CHEQUEO BARATO QUE DECIDE si hace falta la dimension o si el ledger unico
+      alcanza: ver si el negocio consolida todo en una cuenta. Contar los dias en descubierto de esa
+      cuenta y comparar lo cobrado por fuera contra lo que entro por transferencia o deposito. Si hay
+      descubiertos frecuentes o la brecha es grande, NO consolida (en marihogar: 14 de 30 dias en
+      descubierto y $4,19M cobrados que nunca llegaron a la cuenta, sobre un negocio de $23,7M).
+      GOTCHAS MEDIDOS:
+      (1) El medio de pago del COBRO no siempre dice donde quedo la plata. Con tarjeta de credito no
+          coinciden: liquida en el banco o en la billetera segun la terminal que se uso. Para gastos y
+          compras la forma de pago SI alcanza, asi que el campo nuevo suele ser mas chico de lo que
+          parece. Conciliar liquidaciones de tarjeta necesita una dimension "cuenta" ADEMAS del medio.
+      (2) El NULL necesita un parametro PROPIO en el filtro (un booleano `soloSinMedio`), no un valor
+          centinela del enum: un `<option>` no puede postear null y "" ya significa "todos". Meterlo
+          como valor del enum ensucia el dominio con un caso que solo existe en la UI. El literal que
+          viaja va en una constante compartida por la vista y el parseo — si se desincronizan por un
+          typo, el filtro DEJA DE FILTRAR EN SILENCIO.
+      (3) El backfill de las filas existentes se puede derivar del sufijo que el `ToString()` del enum
+          dejo en la Descripcion (el conjunto de literales es cerrado y conocido, no es texto tipeado
+          por un humano). Que haya que leer texto para recuperarlo es, literalmente, la razon por la
+          que la columna tiene que existir.
+      (4) EL SALDO INICIAL ES OTRO PROBLEMA Y NO LO ARREGLA ESTO. Con saldo agrupado se concilia el
+          FLUJO del periodo, no el saldo; y ningun arreglo del flujo hace que un saldo signifique "la
+          plata que hay" si el punto de partida es un cero inventado. Contar la plata una vez y
+          cargarla como saldo inicial por cuenta es barato y de una sola vez.
+      Reglas asociadas: MH-033 y MH-034 en `32-estandares-qa-implementador.instructions.md`, las dos
+      salidas del mismo analisis de conciliacion de marihogar (2026-09-30) — donde el problema se
+      midio pero NO se resolvio: su ledger sigue sin medio de pago. La Platense es la primera
+      implementacion, y por eso el patron se cataloga desde acá y no desde el proyecto que lo descubrio.
+
+  - id: PAT-053
+    nombre: "Un pago, dos ledgers: punto unico de egreso con la MISMA clave de origen en los dos"
+    categoria: financiero
+    descripcion: >
+      Un pago a un tercero (proveedor, prestador, empleado) es UN hecho economico que tiene que
+      quedar escrito en DOS libros a la vez: baja la DEUDA en la cuenta corriente de ese tercero y
+      saca la PLATA de la caja. Los dos movimientos tienen que ser el mismo monto, la misma fecha y
+      la misma transaccion — pero el problema real no es la transaccion, es que con el tiempo
+      aparecen VARIOS caminos que bajan la deuda (pago directo, confirmacion de un pago programado,
+      acreditacion de un cheque, rechazo de un cheque que la reabre, cancelacion del documento,
+      correccion de fecha) y cada uno tiene que mover la caja igual.
+      Mientras el egreso esta armado INLINE en el primer camino, los demas bajan la deuda sin mover
+      la plata y los dos libros empiezan a contar el mismo hecho distinto, en silencio y sin que
+      nada falle. El patron es: UN SOLO SERVICIO que postea y revierte el egreso de caja de un pago,
+      y todos los caminos delegan ahi.
+      La pieza mas valiosa, y la que casi nadie hace: el egreso usa el MISMO `OrigenTipo` y el MISMO
+      `OrigenId` que el movimiento de la cuenta corriente, y ese `OrigenId` es el id de la LINEA DE
+      PAGO, no el del documento. Con eso un pago se rastrea de un ledger al otro sin traduccion y
+      sin heuristicas, y dos lineas del mismo importe nunca se confunden.
+      La reversion va por NETO VIVO de cada ledger por separado (Sigma originales no-reversion menos
+      Sigma reversiones sobre ese par origen), nunca por el monto del documento: eso la hace
+      idempotente POR CONSTRUCCION y arregla el caso en que uno de los dos lados ya se habia
+      revertido y el otro no.
+    cuando_usar: >
+      Cualquier modulo donde un pago (o un cobro) tenga que impactar en DOS ledgers distintos:
+      compras con cuenta corriente de proveedores, honorarios, sueldos, comisiones. Tambien aplica a
+      la inversa (un cobro que baja la deuda del cliente y entra a la caja), con el mismo shape.
+      NO hace falta cuando el pago impacta en UN solo ledger — ahi el punto unico es ceremonia.
+      El momento de crearlo es cuando aparece el SEGUNDO escritor, no el quinto: crearlo despues
+      obliga a un backfill de datos historicos (en el proyecto de origen el backfill fue 500 de las
+      579 lineas del servicio, y NO es portable).
+    proyecto_origen: marihogar (CR-84/CRM-001, en produccion) — portado y simplificado en la-platense (Entrega 3 paso 5, 2026-10-05)
+    proyectos_que_lo_usan:
+      - marihogar
+      - la-platense
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Application/Interfaces/IEgresoPagoProveedorService.cs + FerreteriaLaPlatense.Infrastructure/Services/EgresoPagoProveedorService.cs"
+        motivo: "La version LIMPIA del patron: ~80 lineas, sin el backfill one-shot del original. Es un envoltorio delgado sobre el servicio de caja — no tiene aritmetica propia ni consulta la tabla del ledger por su cuenta; el neto vivo se CONSUME de donde ya vive. Lo que aporta es el OrigenTipo/OrigenId correcto y la disciplina, en un solo lugar"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/PagoProveedorService.cs"
+        motivo: "El caller multi-linea y el ORDEN de las guardas: todo lo que puede rechazar la operacion se valida ANTES de abrir la transaccion (al menos una linea con monto > 0, forma de pago valida, estado pagable, no mas que el saldo pendiente, y periodo de caja abierto). Adentro no queda ninguna decision. El SaveChanges intermedio para obtener el id del pago va DENTRO de la transaccion: hace falta porque ese id es el OrigenId de los dos ledgers y no rompe el todo-o-nada"
+        pendiente_verificar: false
+      - proyecto: marihogar
+        path: "MariHogar.Infrastructure/Services/EgresoPagoProveedorService.cs"
+        motivo: "El original en produccion, con los 6 escritores reales que motivaron el punto unico. Las primeras ~85 lineas son el patron; el resto es backfill de datos historicos suyos y NO se porta"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-001
+      - PAT-020
+    notas: >
+      AVISO DE IMPACTO que hay que dar ANTES del deploy, no despues: este patron es normalmente el
+      primero que mete egresos automaticos en el arqueo del cliente. En marihogar, el dia que se
+      deployo el equivalente, los egresos del periodo "subieron mucho" de golpe. NO ES UN BUG — es
+      plata que siempre salio y hasta ese momento no se registraba en ningun lado. Pero si el cliente
+      lo ve primero y pregunta despues, el modulo nace con sospecha encima.
+      DETALLE QUE PARECE MENOR Y DESCUADRA EL ARQUEO POR MEDIO: la reversion tiene que arrastrar el
+      MISMO medio de pago que el egreso original. Si la plata salio por transferencia y vuelve sin
+      medio declarado, al arqueo por cuenta le falta el ingreso en la cuenta real Y le sobra en la
+      fila "sin declarar" — se descuadra de a dos.
+      LA FECHA DE LA REVERSION ES HOY, NO LA DEL PAGO. Postear el contramovimiento con la fecha
+      original mete plata en un arqueo posiblemente ya firmado, que es exactamente lo que la guarda
+      de periodo cerrado existe para impedir. Y la reversion tambien pasa por esa guarda.
+      QUE NO ES UNA FORMA DE PAGO: "cuenta corriente" / "a plazo" aparece siempre en el enum de
+      formas de pago porque describe un ACUERDO con el tercero, pero no es un pago — es dejar la
+      deuda viva. Aceptarla postea un egreso por plata que no salio Y cancela una deuda que sigue
+      existiendo: descuadra los dos ledgers a la vez. Se rechaza en el Service Y no se ofrece en el
+      combo, las dos puntas.
+      Reglas asociadas: MH-020 punto 3 (reversion por neto vivo) y MH-027 (la clave tiene que
+      identificar la LINEA, no el documento) en `32-estandares-qa-implementador.instructions.md`.
+
+  - id: PAT-054
+    nombre: "Bandera de costo actualizado con precio sin recalcular: el enganche entre el modulo que mueve el costo y el que decide el precio"
+    categoria: negocio
+    descripcion: >
+      Cuando el precio de venta se DERIVA del precio de compra por una formula
+      (`PrecioVenta = PrecioCompra x (1 + Recargo%) / (1 + IVA%)` o similar), el modulo que actualiza
+      el costo — una recepcion de mercaderia, una importacion de lista de precios — se enfrenta a una
+      decision que parece tecnica y es comercial: recalcular el precio de venta, o no.
+      Recalcularlo en el acto es lo que el codigo pide y es casi siempre MAL: mueve los precios de
+      mostrador de miles de productos sin que nadie lo pida y a espaldas del cliente, convirtiendo un
+      aumento de lista del proveedor en un aumento al publico automatico y silencioso. No tocar nada
+      tampoco sirve: el costo nuevo queda escrito y el margen real del producto pasa a ser otro, sin
+      que nadie se entere.
+      El patron es la tercera opcion: ACTUALIZAR EL COSTO (dato objetivo, esta en la factura), NO
+      tocar el precio de venta ni el porcentaje de margen, y dejar una BANDERA booleana en el
+      producto que diga "el costo se movio y el precio no se recalculo", con la fecha. Esa bandera se
+      muestra en el listado del catalogo COMO COLUMNA Y COMO FILTRO, y es el enganche con el modulo
+      de aumento masivo: en vez de proponer todo el catalogo, propone exactamente los productos cuyo
+      costo cambio.
+      La mitad que se olvida: ALGUIEN TIENE QUE APAGARLA. Una alerta que no se apaga deja de
+      significar algo — se vuelve ruido que el usuario aprende a ignorar. Se apaga cuando el usuario
+      toca de verdad el precio de venta o el margen (eso ES reaplicar el margen a mano) y NO cuando
+      simplemente guarda la ficha: guardar no es decidir el precio.
+    cuando_usar: >
+      Cualquier catalogo donde el precio de venta se derive del costo Y el costo lo mueva un proceso
+      distinto del que fija el precio (recepcion de compra, importacion de lista del proveedor,
+      actualizacion por tipo de cambio). Cuanto mas grande el catalogo, mas obligatorio: con 100
+      productos el cliente revisa; con 112.000 necesita que el sistema le diga cuales.
+      NO aplica si el precio de venta es un valor manual independiente del costo — ahi mover el costo
+      no desfasa nada. Tampoco si el negocio QUIERE el recalculo automatico y lo pidio explicitamente
+      (ahi la bandera es ruido), pero conviene confirmarlo y no suponerlo.
+    proyecto_origen: la-platense (Ferreteria La Platense, Entrega 3 paso 4, 2026-10-05) — primera implementacion en el estudio
+    proyectos_que_lo_usan:
+      - la-platense
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Domain/Entities/Producto.cs (PrecioVentaDesactualizado + FechaUltimoCostoCompra)"
+        motivo: "Las dos columnas y el XML-doc con el razonamiento completo de por que NO se recalcula el precio de venta. El bool arranca en false para las filas existentes (es un valor legitimo del dominio, no necesita backfill) y la fecha es nullable"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/OrdenCompraService.cs (RecibirAsync, bloque de costo)"
+        motivo: "QUIEN LA PRENDE, y los dos detalles que importan: (1) el costo se acumula POR PRODUCTO y no por linea, para que una compra con el mismo producto en dos renglones quede con el promedio ponderado real y no con el ultimo renglon cargado; (2) un costo calculado en 0 NO se escribe — pasa con un remito sin precios o un descuento del 100%, y pisar el costo del catalogo con 0 seria destructivo y silencioso"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/ProductoService.cs (EditarAsync + ListarAsync)"
+        motivo: "QUIEN LA APAGA (la mitad simetrica) y como se hace util: se apaga solo si cambio PrecioVenta o PorcentajeRecargo, nunca por el solo hecho de guardar; y el listado la expone como columna, como filtro tri-estado, como criterio de orden y en la busqueda global por su etiqueta visible"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-021
+    notas: >
+      LA BASE DEL COSTO NO ES EL TOTAL DE LA FACTURA, y confundirlas infla el catalogo entero. El
+      costo unitario sale de (subtotal de la linea x prorrateo de los descuentos de cabecera) /
+      cantidad convertida a unidad de stock. SIN el IVA ni las percepciones: eso es lo que se le
+      transfiere al proveedor, no lo que costo la unidad. Sumarselo infla el costo de todo el catalogo
+      un 21% y, por la formula derivada, despues el precio de venta.
+      Es un numero DISTINTO del que va al ledger de deuda del proveedor, que SI es el total con
+      impuestos. Los dos son correctos y responden a preguntas distintas; que no coincidan no es un
+      bug y conviene dejarlo escrito antes de que alguien lo "arregle".
+      DONDE SE CRUZA CON PAT-021: ese patron resuelve el caso del item con precio MANUAL que el
+      recalculo batch no debe tocar. Es el mismo problema visto del otro lado — aca la decision
+      comercial se preserva no excluyendo el item, sino no recalculando a nadie y avisando. Si el
+      proyecto tiene los dos, el modulo de aumento masivo tiene que respetar las dos cosas: la
+      bandera dice "este cambio de costo", el modo manual dice "a este no lo toques nunca".
+
+  - id: PAT-055
+    nombre: "Documento que declara su MONEDA y congela la COTIZACION usada (los importes que salen van en moneda local)"
+    categoria: financiero
+    descripcion: >
+      Cuando un proveedor (o un cliente) factura en moneda extranjera con SU PROPIA cotizacion, el
+      error por defecto es guardar el tipo de cambio en la ficha de la contraparte y usarlo como
+      fuente de verdad. Falla por dos lados a la vez: la cotizacion de la ficha es la de HOY, asi que
+      un documento viejo recalculado da otro numero; y mientras nadie aplica la conversion, los
+      importes del documento quedan en la moneda extranjera dentro de campos que todo el resto del
+      sistema lee como moneda local.
+      El patron: la CABECERA DEL DOCUMENTO declara su moneda y CONGELA la cotizacion usada en esa
+      operacion — precargada de la ficha, EDITABLE, e inmutable despues. Los importes del documento
+      (subtotal, descuentos, impuestos, total, el precio de cada linea) quedan EN SU MONEDA, porque
+      es lo que dice el comprobante y lo que el operador tiene delante. Y TODO importe que SALE del
+      documento hacia otra parte del sistema —el cargo en la cuenta corriente, el movimiento de
+      caja, el costo que se persiste en el catalogo— va EN MONEDA LOCAL, convertido con esa
+      cotizacion congelada.
+      El total convertido se PERSISTE como columna, no se calcula. Dos razones, las dos duras: (1)
+      el asiento del ledger y el tope de pago tienen que ser el mismo numero AL CENTAVO, o pagar el
+      total no deja el saldo en cero, y recalcular pone una multiplicacion y un redondeo en cada
+      consumidor; (2) el listado ordena y filtra por el total DEL LADO DEL SERVIDOR, y una propiedad
+      calculada en C# no traduce a SQL — ordenar por el total del documento mezclando monedas pone
+      una compra de USD 1.000 arriba de una de $ 1.500.000.
+      La conversion vive en UN SOLO helper estatico sin dependencias (una formula, un redondeo), que
+      es tambien el unico lugar que define "cuando hace falta cotizacion" y el unico diccionario de
+      etiquetas y simbolos de moneda. Ese helper LANZA si falta la cotizacion en moneda extranjera:
+      devolver el importe sin convertir "por las dudas" ES el bug.
+    cuando_usar: >
+      Cualquier modulo donde un documento pueda estar en una moneda distinta de la del ledger que lo
+      consume, y especialmente si la cotizacion es PROPIA de la contraparte (no la oficial) y
+      difiere entre contrapartes — ahi una configuracion global no sirve y el tipo de cambio tiene
+      que vivir en la ficha como DEFAULT.
+      Es la misma familia que PAT-052 (linea que congela su factor de conversion de unidades) y se
+      resuelve con el mismo criterio: lo que se pacto en ese documento no cambia despues porque la
+      ficha se actualice. Si el proyecto ya tiene uno de los dos, el otro se construye por analogia.
+      NO aplica si todo el sistema opera en una sola moneda. Si la moneda existe pero NADIE la
+      aplica en un calculo, no es "una feature pendiente": es un bug activo, y el dia que algun
+      modulo empiece a PERSISTIR un importe derivado (un costo en el catalogo, por ejemplo) deja de
+      afectar solo al documento y contamina datos maestros.
+    proyecto_origen: la-platense (Ferreteria La Platense, Entrega 3 item 4c, 2026-10-05) — primera implementacion en el estudio; verificado que marihogar da 0 hits de Moneda/TipoCambio/Cotizacion
+    proyectos_que_lo_usan:
+      - la-platense
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Application/Helpers/ConversionMoneda.cs"
+        motivo: "EL PUNTO UNICO, y es el archivo a copiar primero. Estatico y sin dependencias (mismo rol que ArgentinaTime): APesos (una formula, un redondeo AwayFromZero, y en moneda local devuelve el importe tal cual IGNORANDO la cotizacion), Validar (la unica definicion de cuando hace falta cotizacion, consumida por las cuatro mitades de la guarda) y los diccionarios de etiquetas/simbolos que alimentan el combo de filtro, el renderer de la grilla, los prefijos del formulario y la busqueda global. Valida ademas que el enum no sea 0, el valor que un POST armado a mano manda y que no corresponde a ningun valor"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Domain/Entities/OrdenCompra.cs (Moneda, Cotizacion, TotalEnPesos)"
+        motivo: "Las tres columnas con el XML-doc del razonamiento: por que la cotizacion se congela, por que el total convertido SE PERSISTE y no se calcula, y la advertencia de que el total del documento NO es comparable con ningun otro importe del sistema. Cotizacion con el MISMO ancho decimal que el tipo de cambio de la ficha, o congelarla la trunca"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/OrdenCompraService.cs (AplicarFiscal + RecibirAsync)"
+        motivo: "DONDE SE APLICA. AplicarFiscal congela moneda y cotizacion, valida y calcula el total convertido UNA vez al final. RecibirAsync postea el cargo del ledger por el total convertido (nunca por el del documento) y convierte el costo del producto AL FINAL y una sola vez: el costo acumulado y la cantidad estan los dos en unidades del documento, asi que dividir primero y convertir despues redondea una vez en vez de dos. El ratio de descuento es adimensional y no se toca"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Migrations/20261006011819_EntregaTres_MonedaCompraYPagosProgramados.cs"
+        motivo: "LA MIGRACION, y es la parte que mas se olvida. Las dos columnas NOT NULL nacen con defaultValue 0 y las dos quedan MAL en las filas que ya existian: el enum en 0 no corresponde a ningun valor, y el TOTAL CONVERTIDO EN 0 ES PEOR porque es un importe que miente — todo documento previo pasa a tener saldo pendiente 0, se muestra como totalmente pagado, su tope de pago es 0 y al confirmarse postea un asiento de 0 en silencio. Dos UPDATE con WHERE acotado (correrla dos veces es inocuo) y el indice creado DESPUES del backfill"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-052
+    notas: >
+      LOS IMPORTES QUE SE MUESTRAN Y LOS QUE SALEN SON DISTINTOS, y la pantalla tiene que mostrar los
+      dos. El desglose del documento va en su moneda con su simbolo (incluidos los prefijos de los
+      campos de descuentos e impuestos, que si quedan en "$" mientras el total dice "US$" hacen dudar
+      de toda la pantalla), y el total convertido va aparte, CON LA CUENTA HECHA A LA VISTA
+      ("US$ 1.034,55 x $ 1.480,50"), en el formulario y no solo en el detalle despues de guardar. Es
+      el importe que se va a postear como deuda y el tope de lo que se podra pagar: no puede ser una
+      sorpresa.
+      LA GUARDA TIENE CUATRO MITADES, no una: alta, edicion, confirmacion y recepcion. Exigir la
+      cotizacion al guardar no alcanza — cubre lo nuevo, no un documento cargado antes de que la
+      columna existiera ni un UPDATE directo sobre la base. Sin las guardas de aguas abajo, el total
+      convertido en 0 postea una deuda de cero EN SILENCIO.
+      CUANDO LA FICHA CAMBIA DESPUES, AVISALO. Que la cotizacion del documento difiera de la de la
+      ficha no es un error: es la PRUEBA de que congelar sirve. Mostrarlo como aviso informativo
+      evita que alguien crea que el documento "quedo mal" y lo "arregle".
+      Y OJO CON LA BUSQUEDA POR ETIQUETA: un helper generico que compare el termino contra el nombre
+      del enum ("Dolar") no encuentra lo que el usuario ve y tipea ("Dolares"). Si aparece, la
+      tentacion es escribir las dos etiquetas a mano al lado de la llamada — y eso es la tercera
+      copia del mapa de monedas (las otras dos: el combo del filtro y el renderer de la grilla). Va
+      en el mismo helper que las etiquetas.
+
+  - id: PAT-056
+    nombre: "Chequeo oportunista al primer request del dia, en vez de un job programado (idempotencia en la base, no en el scheduler)"
+    categoria: infraestructura
+    descripcion: >
+      El reflejo para "avisar todos los dias de X que vencio" es un BackgroundService con un timer y
+      una hora fija. En hosting compartido donde el APPLICATION POOL SE RECICLA POR INACTIVIDAD
+      (SmarterASP y equivalentes), ese job es peor que no tener nada: en un sistema que se usa de 8 a
+      20, un job de las 03:10 PUEDE NO CORRER NUNCA, el aviso simplemente no llega y NO HAY NINGUN
+      ERROR QUE LO DELATE. Un scheduler que no se puede garantizar es peor que su ausencia, porque se
+      confia en el.
+      El patron: un middleware en el pipeline web dispara el chequeo en el PRIMER REQUEST
+      AUTENTICADO DE CADA DIA DE NEGOCIO. Tres guardas, de la mas barata a la mas cara: (1) solo
+      requests autenticados — estaticos, login y anonimos se saltean sin tocar nada; (2) un flag
+      estatico con el ultimo dia procesado, que es una comparacion de DateTime, asi que el costo real
+      es UNA consulta por dia y por proceso, no una por request; (3) la idempotencia REAL, que NO es
+      el flag.
+      LA IDEMPOTENCIA VIVE EN LA BASE: la consulta filtra "pendiente Y no notificado" y MARCA
+      notificado = true EN LA MISMA LLAMADA, con su propio SaveChanges. Correrlo dos veces, o dos
+      veces en paralelo, no duplica nada porque la segunda corrida ya no encuentra las filas. El
+      orden importa y es lo central del patron: si la garantia viviera en el flag en memoria, CADA
+      RECICLADO DE POOL MANDARIA LOS AVISOS DE NUEVO.
+      El bloque de notificacion va en su PROPIO try/catch y no relanza: lo dispara un request del
+      usuario, y que no se pueda crear un aviso no puede tumbar la pantalla que estaba abriendo.
+    cuando_usar: >
+      Avisos y chequeos periodicos de baja criticidad (vencimientos, recordatorios, banderas que hay
+      que levantar) en aplicaciones alojadas en hosting compartido con reciclado por inactividad, y
+      en general en cualquier proyecto que NO tenga ya infraestructura de hosted services — portar un
+      BackgroundService ahi no reusa nada, construye una capacidad nueva que el entorno no sostiene.
+      NO aplica si el trabajo tiene que correr a una hora exacta aunque nadie use el sistema
+      (cierres contables, envios a terceros con ventana horaria, reintentos de cola). Para eso la
+      decision es DE HOSTING y no de codigo: application pool en startMode AlwaysRunning con Idle
+      Time-out en 0, y conviene consultarlo con infraestructura ANTES de escribir el job.
+      Tampoco aplica si el chequeo es caro: aca se asume una consulta corta, porque corre dentro del
+      request de un usuario que esta esperando una pantalla.
+    proyecto_origen: la-platense (Ferreteria La Platense, Entrega 3 paso 6, 2026-10-05) — divergencia deliberada de marihogar, que resuelve lo mismo con BackgroundService + PeriodicTimer a hora fija
+    proyectos_que_lo_usan:
+      - la-platense
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Web/Middleware/AvisoPagosProgramadosMiddleware.cs"
+        motivo: "EL DISPARADOR. Las tres guardas en orden, el flag estatico bajo lock que RESERVA el dia antes de correr (no despues: dos requests simultaneos al abrir la mañana es el caso normal) y el XML-doc que explica por que el flag es una optimizacion y no la garantia. Se AWAITEA, no es fire-and-forget con `_ =`: un Task suelto se queda sin el scope del request y sin el DbContext justo cuando el request termina, que es la forma clasica de que esto falle en silencio una vez cada tanto"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Web/Program.cs (UseAvisoPagosProgramados)"
+        motivo: "DONDE SE REGISTRA, y es un detalle que rompe el patron si se equivoca: VA DESPUES de UseAuthentication, porque su primera guarda es 'solo requests autenticados' y antes de ese middleware context.User todavia no esta poblado — puesto mas arriba NO DISPARARIA NUNCA"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/PagoProveedorService.cs (ObtenerYMarcarPagosVencidosNoNotificadosAsync)"
+        motivo: "LA IDEMPOTENCIA REAL: filtra por 'pendiente Y no notificado' y marca en la MISMA llamada con su propio SaveChanges. Incluye la mitad simetrica que se olvida — al REPROGRAMAR el vencimiento se vuelve a poner notificado = false, porque la fecha nueva es un vencimiento nuevo y el aviso que ya se dio era del anterior; sin eso, reprogramar deja la fila marcada como avisada para siempre y el vencimiento nuevo pasa en silencio"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/AvisoPagosProgramadosService.cs"
+        motivo: "EL NOTIFICADOR, separado del disparador a proposito (el middleware no sabe de notificaciones y el servicio no sabe de requests). La reserva va PRIMERO y el trabajo caro detras. Los destinatarios salen de UserManager.GetUsersInRoleAsync, que resuelve el join EN LA BASE — deduplicados por Id porque un usuario puede tener los dos roles. NO se construye una lista de ids en memoria para despues hacer .Contains() sobre Users, que es la forma que revienta contra MySQL incluso con la lista vacia (MH-001). Todo el cuerpo en un try/catch que loguea y devuelve 0"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      EL TRADE-OFF HAY QUE DECLARARLO, no esconderlo: si nadie entra al sistema un dia, ese dia no
+      sale el aviso. Es aceptable precisamente porque tampoco hay a quien avisarle, y es mejor que un
+      job que puede no correr nunca — pero es una decision, no una propiedad, y va escrita en el
+      XML-doc del contrato para que el proximo que lo lea no lo tome por un descuido.
+      LA ALTERNATIVA QUEDA DOCUMENTADA EN EL CODIGO: si en el futuro hacen falta jobs de verdad, la
+      decision es de hosting (pool always-running) y corresponde consultarla con infraestructura. Eso
+      evita que alguien "complete" el patron escribiendo el hosted service que se evito a proposito.
+      POR QUE NO SE PORTO EL PRECEDENTE AUNQUE EXISTIA Y FUNCIONA: en marihogar el job anda porque su
+      pool se mantiene vivo. El mismo codigo en otro hosting falla de la peor manera posible —
+      silenciosamente y solo a veces. Es el caso de libro de que copiar un patron de un proyecto que
+      funciona NO alcanza: hay que verificar la premisa del ENTORNO, no solo la del codigo. Lo que si
+      se copio tal cual es su mecanismo de idempotencia, que es justamente la parte que no depende
+      del scheduler.
