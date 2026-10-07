@@ -464,6 +464,15 @@ O sea `Dias=1` = **solo los martes** (y `Lunes` NO es 1, es 8). Las 10 campanas 
 - **Probado contra la app local**: la card muestra 28 y 7, guardar 5/7 se rechaza y deja los valores como estaban, y guardar 28/7 con las 2 plantillas las deja asignadas. **Deploy hecho**: migracion aplicada en produccion y publish (12 archivos), `portal.olvidata.com.ar` 200. Commits `4d0901f` (CRM) y `9c90ab1` (BotPublicitario).
 - **Pendiente**: `olv_renovacion_notificacion_v3` estaba en PENDING al cerrar. Hasta que Meta la apruebe y se la marque en `/Templates`, la notificacion no sale (el recordatorio si, si se prende el switch) — el scheduler valida cada aviso por separado justamente para esto.
 
+### 2026-10-07 (5) - implementador (revision de la configuracion real de produccion)
+
+Chequeo de solo lectura contra la base de produccion y contra la Graph API, pedido por el cliente ("que quede todo ok configurado"). Lo que se encontro:
+
+- **Desalineacion corregida**: el switch estaba PRENDIDO con 28/7 dias, pero la notificacion seguia asignada a `olv_renovacion_notificacion_v2`, la del texto **"Este mes vence la renovacion"** — el que justamente dejo de ser cierto al pasar a 4 semanas de anticipacion. Si un cliente hubiera entrado en la ventana de 28 dias, recibia un mensaje falso. **No alcanzo a pasar**: 0 clientes con vencimiento dentro de 28 dias y 0 avisos enviados en toda la historia. Se corrigio la fila de configuracion a `olv_renovacion_notificacion_v3` (UPDATE puntual, verificado despues). La leccion: cuando se cambia la REGLA de disparo hay que revisar que la plantilla asignada siga diciendo la verdad bajo la regla nueva — el deploy del codigo no reasigna lo que ya estaba elegido en la base.
+- **Verificado que coinciden los 3 lados** del texto de las 2 plantillas en uso: Meta (Graph API), el catalogo de produccion y las constantes de `PlantillaRenovacion`. Identicos caracter por caracter, 4 placeholders en los 3. Es el chequeo que faltaba en la ronda de las combo `_v1`.
+- **Estado final**: aviso habilitado, notificacion 28 dias / recordatorio 7, `olv_renovacion_notificacion_v3` y `olv_renovacion_recordatorio_v1` ambas APPROVED/UTILITY en Meta y activas+aprobadas en el catalogo. Datos de cobro completos y respuesta automatica activa. Los 16 contactos de clientes activos estan todos en `Cerrado`, asi que el bot no los trata como leads.
+- **Cartera, para el dueño**: 1 renovacion **ya vencida** (ESCABA, 02/10, USD 160) que el aviso NO toma por diseño — eso es cobranza atrasada, no anticipacion. 3 clientes activos **sin valor pactado** (Contadores BMA - front, Instituto Privado de Analisis Clinicos, Bourdin Mendy & Asociados - Conversor): no reciben aviso hasta que se les cargue el ticket, y en su lugar llega una notificacion al admin. **El primer aviso real sale el 29/12/2026**, 28 dias antes de Recotrack (26/01/2027): hasta entonces el sistema no manda nada.
+
 ## Historial de ajustes
 
 ### Bloques archivados (2026-09-25)
