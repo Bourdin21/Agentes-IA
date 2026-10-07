@@ -28,7 +28,7 @@ Ver `1-analista-funcional.md` — 4 bloques funcionales (captación/calificació
 
 **`Contactos/Index`** (CU-02) — DataTable server-side (Teléfono, Nombre, Negocio, Rubro, Canal, Estado, Última actividad), filtro por columna visible (Rubro/Canal/Estado Select2, fecha daterangepicker, buscador libre por teléfono/nombre), orden por click de columna. `ov-badge` de color por `EstadoEmbudo`.
 
-**`Contactos/Details/{id}`** (CU-02, soporte CU-05/06/21) — card Datos + card Estado (`EstadoEmbudo`/`FaseConversacion` badges, presupuesto cotizado si hay, selector "Cambiar estado" manual — solo `[Cerrado, Descartado]`, con confirmación SweetAlert2 si el destino es `Descartado`) + card Historial de calificación (`ContactoRespuesta`) + card Notas + botón "Convertir en Cliente" (CU-21, visible solo si `EstadoEmbudo=Cerrado`).
+**`Contactos/Details/{id}`** (CU-02, soporte CU-05/06/21) — card Datos + card Estado (`EstadoEmbudo`/`FaseConversacion` badges, presupuesto cotizado si hay, selector "Cambiar estado" manual — solo `[Cerrado, Descartado]`, con confirmación SweetAlert2 si el destino es `Descartado`) + card Historial de calificación (`ContactoRespuesta`) + card Notas + botón "Convertir en Cliente" (CU-21, visible siempre que el contacto no tenga ya un `Cliente` activo — 2026-10-07; antes exigía `EstadoEmbudo=Cerrado` y el botón directamente no aparecía, sin explicar por qué).
 
 **`Contactos/Create`** (CU-01) — Teléfono* (cualquier país, formato `\d{10,15}`), Nombre*, Negocio, Email (opcional), Rubro (Select2 + libre), Zona, Notas. `CanalOrigen=Manual` fijo sin mostrar. Al guardar: `EstadoEmbudo=Pendiente`, `FaseConversacion=Nuevo`.
 
@@ -145,7 +145,7 @@ de ads pagos, el canal que convierte al 41%. Las reacciones y stickers siguen si
 | `Respondido` | `Completed` con industria que cotiza | `PresupuestoEnviado` | Envía presupuesto |
 | `Respondido` | `Completed` sin cotización | `DerivadoManual` | Notifica sin presupuesto |
 | cualquiera antes de `Cerrado`/`Descartado` | manual (`Contactos/Details`, `Chats/Detail`) | `Cerrado`/`Descartado` | Único destino manual permitido, no se puede volver a `Pendiente` |
-| `Cerrado` | manual (CU-21) | — | Puede convertirse en `Cliente` |
+| `Cerrado` | manual (CU-21) o automático al convertirlo en `Cliente` (2026-10-07) | — | Es cliente, o puede serlo |
 
 ### 5. Reglas de negocio y permisos
 
@@ -158,7 +158,7 @@ de ads pagos, el canal que convierte al 41%. Las reacciones y stickers siguen si
 - `CampanaOutbound`: una `ClaveRubro` no puede estar en 2 campañas **activas** a la vez; no se puede activar sin industrias o con alguna industria sin queries.
 - No leído en `Chats`: `MarcadoNoLeidoManual==true` **o** (`FaseConversacion>=AskingQuestions` **y** `FechaRespuesta!=null` **y** actividad más nueva que la última lectura).
 - Ventana por vencer: desde el último mensaje **entrante** real (nunca actividad saliente) + 24hs. Notificación in-app solo para `DerivadoManual`.
-- `Cliente` solo se crea desde un `Contacto` con `EstadoEmbudo=Cerrado`. `FechaProximaRenovacion` default `FechaAlta.AddYears(1)`, editable.
+- `Cliente` solo se crea desde un `Contacto` — nunca suelto, porque el `Contacto` es la fuente de verdad de nombre/teléfono/chat. **2026-10-07**: ya no hace falta que el contacto esté en `Cerrado` de antemano; la conversión lo pasa a `Cerrado` sola. El estado del embudo es la CONSECUENCIA de haberse convertido en cliente, no su precondición: exigirlo antes obligaba a adivinar que primero había que cambiarlo a mano. Punto de entrada nuevo `Clientes/Nuevo` (buscar el contacto o crearlo) además del botón en la ficha del contacto. `FechaProximaRenovacion` default `FechaAlta.AddYears(1)`, editable.
 - `CampanaExperimento`: 1 activo máximo por campaña, A≠B.
 - `TemplateWhatsApp` con `EstadoAprobacionMeta != Aprobado` no aparece en selectores de envío real.
 - `SugerenciaSeguimiento`: matchea `EstadoEmbudo`+`Rubro` exacto, si no hay, cae a genérica (`Rubro=null`) antes de "sin sugerencia".
