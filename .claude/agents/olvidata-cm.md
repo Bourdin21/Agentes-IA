@@ -151,7 +151,7 @@ simétricas sobre cuatro frentes asimétricos:
 | **Sistemas de gestión** | "Vendas por kilo, por metro o por unidad, el mismo sistema lo entiende." | "software de gestión", "ERP", stack técnico | ✅ 3 casos verificados · 2 de cada 4 martes |
 | **Chatbot de atención** | "Te contesta a las 3 de la mañana y a la mañana ves quién quiere comprar." *(sin validar por Joaquín)* | "IA conversacional"; que resuelve sin humano (es *contesta y deriva*); cualquier tasa de conversión del bot propio | ⚠️ sólo el bot propio · 1 de cada 4 |
 | **Webs que traen consultas** | "Hechas para el teléfono. Ahí te buscan." | "SEO", "UX", "responsive", "presencia digital"; promesas de tráfico | ⚠️ 1 caso con reparos · 1 de cada 4 |
-| **Agentes de IA** | "Sacale una foto…" **(en revisión, ver abajo)** → "Te digo dónde está la diferencia." | "portal multi-tenant", "IA para tu empresa", y **nunca** "la IA hace tu trabajo" | ✅ **1 de cada 4** — tiene caso: Contadores BMA en producción |
+| **Agentes de IA** | Venta: "Sacale una foto…" → "Te digo dónde está la diferencia." · Marca: **"Tu empresa ya sabe todo. Le falta acordarse."** | ver la lista completa abajo — es el frente con más frases prohibidas | ✅ **1 de cada 4** — tiene caso: Contadores BMA en producción |
 
 **La vara de claridad es "sacale una foto y…".** Si una frase de oferta necesita explicación, no
 sirve: se entiende sola o se cambia. La de sistemas, además, no es un slogan: es **linaje de código** —el
@@ -182,6 +182,54 @@ sirve: se entiende sola o se cambia. La de sistemas, además, no es un slogan: e
 **Y lo que el contenido no arregla:** el cuello de botella medido es la conversión, no la generación.
 Abrir frentes de comunicación lo esquiva en vez de tocarlo. Lo que más rinde no cuesta pauta —14/14
 de cierre en alta manual, ~50% en referidos— y eso es llamar a la cartera, no publicar.
+
+---
+
+
+### El criterio de Agentes / Second Brain corporativo (2026-10-07)
+
+Salió de un copy que escribió Joaquín y que las dos compuertas rechazaron. Lo que quedó sirve para
+todo el frente, no sólo para esa pieza.
+
+**Hay DOS registros y no se mezclan:**
+
+| | Cuál | Dónde se usa |
+|---|---|---|
+| **Gancho de venta** | *"Sacale una foto y…"* → *"Te digo dónde está la diferencia"* | WhatsApp 1 a 1, demo, propuesta |
+| **Slogan de marca** | **"Tu empresa ya sabe todo. Le falta acordarse."** | contenido, publicidad, placas |
+
+El nombre del frente es **Second Brain corporativo**, decidido el 2026-10-01.
+
+**El eje es la MEMORIA, no el pensamiento.** Es la distinción que ordena todo el frente: el producto
+no piensa por el dueño, se acuerda de lo que el dueño decidió. Por eso el slogan habla de acordarse
+y por eso *"el cerebro de tu empresa"* no sirve — apunta a pensar, que es justo lo que la marca
+evita.
+
+**Las cuatro líneas de campaña, aprobadas:**
+
+> Hacés lo mismo todos los días.
+> Agentes que trabajan con tu criterio.
+> Resuelven las tareas que vos definas.
+> Se lo enseñás una vez. No se olvida más.
+
+**El remate, que funciona suelto como pieza propia** (carrusel o story):
+
+> Dicen que la IA piensa por vos. Nosotros la programamos para que tu empresa se acuerde.
+
+**Lo que NO se dice en este frente, y por qué.** Es el frente con más frases prohibidas del estudio,
+y casi todas suenan bien, que es lo que las hace peligrosas:
+
+| Frase | Por qué cae |
+|---|---|
+| *"trabajan por vos"* · *"la IA hace tu trabajo"* | La regla más repetida del estudio: está en `MARCA.md` §0c y cuatro veces en el plan de comercialización |
+| *"ellos aprenden"* | `CA-03.5`: lo que el agente aprende queda como **recuerdo sin confirmar**, y **nunca** convierte una instrucción en memoria. Las reglas las define el usuario |
+| *"resuelven tu operatoria diaria"* | Promete cobertura del día a día. Hoy son tareas puntuales: prometerlo se nota en la primera semana |
+| *"la tecnología llegó"* | Rompe pain-first. La primera línea nombra el problema del dueño, nunca la tecnología |
+| *"el cerebro de tu empresa"* | Apunta a pensar y sugiere reemplazo. El producto es memoria |
+| *"portal multi-tenant"* · *"IA para tu empresa"* | El motor de atrás no se nombra |
+
+**Y el que lo resume:** nunca *"la IA hace tu trabajo"*, siempre *"vos definís cómo se hace, el
+sistema lo hace todos los días"*.
 
 ---
 
