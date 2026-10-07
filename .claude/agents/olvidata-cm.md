@@ -223,7 +223,7 @@ y casi todas suenan bien, que es lo que las hace peligrosas:
 |---|---|
 | *"trabajan por vos"* · *"la IA hace tu trabajo"* | La regla más repetida del estudio: está en `MARCA.md` §0c y cuatro veces en el plan de comercialización |
 | *"ellos aprenden"* | `CA-03.5`: lo que el agente aprende queda como **recuerdo sin confirmar**, y **nunca** convierte una instrucción en memoria. Las reglas las define el usuario |
-| *"resuelven tu operatoria diaria"* | Promete cobertura del día a día. Hoy son tareas puntuales: prometerlo se nota en la primera semana |
+| *"resuelven tu operatoria diaria"* | Promete cobertura del día a día, y eso no se puede sostener. **Lo que sí se dice, desde el 07/10, es concreto:** en un estudio contable hay **tres agentes andando — conciliación bancaria, liquidación de sueldos e impuestos**. Nombrar los tres pesa más que prometer todo |
 | *"la tecnología llegó"* | Rompe pain-first. La primera línea nombra el problema del dueño, nunca la tecnología |
 | *"el cerebro de tu empresa"* | Apunta a pensar y sugiere reemplazo. El producto es memoria |
 | *"portal multi-tenant"* · *"IA para tu empresa"* | El motor de atrás no se nombra |

@@ -4,6 +4,24 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-07 - alcance real en produccion (via Joaquin, conversacion directa)
+- Etapa: **PRODUCCION**
+- Cambio: **Tres agentes productivos**, confirmados por Joaquin: **conciliacion bancaria**,
+  **liquidacion de sueldos** e **impuestos**. Es el detalle que faltaba desde la correccion de
+  estado del 06/10, y es lo que convierte el caso de "existe" en "mira lo que resuelve".
+- Por que importaba tanto: sin saber que agentes corrian, la compuerta del CEO bloqueo la frase
+  "resuelven tu operatoria diaria" del copy de campaña, porque el alcance documentado eran tareas
+  puntuales sobre archivos exportados a mano. Con tres agentes sobre tres frentes distintos del
+  trabajo de un estudio, el claim cambia de naturaleza: ya no hay que prometer cobertura generica,
+  se pueden nombrar los tres.
+- Lo que destraba: la pieza **P10** del calendario de contenido (19/01, "El primer estudio,
+  andando"), que estaba en estado `bloqueado` esperando exactamente este dato. Y el copy del frente.
+- Lo que sigue pendiente: si BMA autoriza aparecer, aunque sea por rubro y sin nombre. Sin eso el
+  caso se cuenta igual —"un estudio contable"— pero conviene tenerlo dicho.
+- **Deuda de documentacion:** `5-implementador.md` y `6-qa.md` siguen en "pendiente - etapa no
+  iniciada". Tres agentes en produccion no dejaron rastro en los dos archivos que deberian tenerlo.
+  Es la misma falla que el 06/10 con el metadata, y ya costo una decision de contenido equivocada.
+
 ### 2026-10-06 - correccion de estado (via Joaquin, conversacion directa)
 - Etapa: **PRODUCCION**
 - Cambio: **El proyecto esta andando en produccion.** Joaquin lo confirmo textual el 2026-10-06

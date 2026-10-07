@@ -2,10 +2,11 @@
 
 - nombre: contadores-bma-agentes-ia
 - fecha_inicio: 2026-08-30
-- estado: **EN PRODUCCION** — confirmado por Joaquin el 2026-10-06. La documentacion habia
-  quedado en "Discovery en curso" desde el 2026-08-30: el repo no registro ni la construccion
-  ni la puesta en marcha. **Faltan los datos finos** (fecha de arranque, que agentes estan
-  activos, sobre que integracion) y hacen falta antes de poder comunicar el caso
+- estado: **EN PRODUCCION con 3 agentes productivos** — confirmado por Joaquin el 2026-10-07:
+  **conciliacion bancaria**, **liquidacion de sueldos** e **impuestos**. La documentacion habia
+  quedado en "Discovery en curso" desde el 2026-08-30 y se corrigio el 06/10; el detalle de que
+  agentes estan activos llego el 07/10. Ojo: `5-implementador.md` y `6-qa.md` siguen diciendo
+  "etapa no iniciada" — quedaron sin registro de la construccion y hay que rehacerlos
 - owner: bourdinjoaquin@gmail.com
 - descripcion: Plataforma de agentes IA para automatizar tareas operativas del estudio contable Contadores BMA (impuestos, conciliaciones bancarias, balances, sueldos, asistencia con manuales de Bejerman Onvio), con servidor central orquestador + agente liviano por PC de empleado. Mismo cliente que `contadores-bma-conversor` (proyecto previo, ya entregado y en producción) — carpeta separada porque el alcance es mucho mayor: plataforma de agentes vs. conversor puntual de un archivo.
 - ruta_definiciones: /docs/contadores-bma-agentes-ia/definiciones
