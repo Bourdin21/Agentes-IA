@@ -503,6 +503,13 @@ Primer uso real de "varios sistemas por cliente" (entrada anterior). Dato del cl
 - Estado de produccion mientras tanto: **la base ya tiene el cambio de datos de BMA, el codigo no esta deployado**. El sitio responde normal (200 en `/`, 302 en `/Clientes`). La version vieja no se rompe con 2 clientes por contacto — los dos tienen `NombreSistema`, asi que el listado los distingue — pero no muestra el subtitulo con el titular, ni los otros sistemas en la ficha, ni el boton "Otro sistema". Hasta que el deploy entre, un tercer sistema de un mismo contacto hay que cargarlo por SQL.
 - FTP descartado: instruccion explicita del cliente de no deployar nunca por FTP.
 
+### 2026-10-08 (4) - implementador (el deploy entro al destrabarse el puerto)
+
+- El puerto 8172 volvio solo a los ~23 minutos (12:55 cerrado → 13:19 abierto) y el reintento automatico deployo al primer intento. Confirma otra vez que el `ERROR_DESTINATION_NOT_REACHABLE` de este hosting es transitorio y no se arregla desde el repo: se espera y se reintenta.
+- **Ojo con la salida del publish**: `dotnet publish` con verbosity `m` imprimio "Se publico correctamente" y **"Numero total de cambios: 1 (1 actualizado: web.config)"**, que leido suelto parece que no subio nada — ni los DLL. Es solo el resumen de la ULTIMA operacion del ciclo de AppOffline, no del sync de contenido. Verificado contra el servidor con `msdeploy -verb:dump` sobre `OlvidataCRM.Web.dll`: size 2.249.728 y lastWriteTime 16:15:06 UTC, identicos al binario local recien compilado. El codigo nuevo esta arriba. Para la proxima: el conteo de cambios de esa linea no sirve para decidir si el deploy subio el codigo, el `dump` si.
+- Rutas despues del deploy: `/` 200, `/Clientes`, `/Contactos`, `/Chats` y `/Negocio/Dashboard` 302 (redirect a login, rutas vivas, sin 500). El ciclo de AppOffline reinicio la app, asi que el 200 prueba que arranco con el codigo nuevo.
+- **No se hizo login en produccion** a proposito: el `Seed:SuperUser` no esta configurado en `appsettings.Production.json`, asi que la password del admin no es conocida con certeza y probarla arriesgaba el lockout de Identity (5 intentos) sobre la cuenta real del dueño. La verificacion funcional de los 4 caminos del alta se hizo end-to-end contra dev con sesion real (entrada 2026-10-08 (1)).
+
 ## Historial de ajustes
 
 ### Bloques archivados (2026-09-25)
