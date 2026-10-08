@@ -28,7 +28,7 @@ Ver `1-analista-funcional.md` — 4 bloques funcionales (captación/calificació
 
 **`Contactos/Index`** (CU-02) — DataTable server-side (Teléfono, Nombre, Negocio, Rubro, Canal, Estado, Última actividad), filtro por columna visible (Rubro/Canal/Estado Select2, fecha daterangepicker, buscador libre por teléfono/nombre), orden por click de columna. `ov-badge` de color por `EstadoEmbudo`.
 
-**`Contactos/Details/{id}`** (CU-02, soporte CU-05/06/21) — card Datos + card Estado (`EstadoEmbudo`/`FaseConversacion` badges, presupuesto cotizado si hay, selector "Cambiar estado" manual — solo `[Cerrado, Descartado]`, con confirmación SweetAlert2 si el destino es `Descartado`) + card Historial de calificación (`ContactoRespuesta`) + card Notas + botón "Convertir en Cliente" (CU-21, visible siempre que el contacto no tenga ya un `Cliente` activo — 2026-10-07; antes exigía `EstadoEmbudo=Cerrado` y el botón directamente no aparecía, sin explicar por qué).
+**`Contactos/Details/{id}`** (CU-02, soporte CU-05/06/21) — card Datos + card Estado (`EstadoEmbudo`/`FaseConversacion` badges, presupuesto cotizado si hay, selector "Cambiar estado" manual — solo `[Cerrado, Descartado]`, con confirmación SweetAlert2 si el destino es `Descartado`) + card Historial de calificación (`ContactoRespuesta`) + card Notas + botón "Convertir en Cliente" (CU-21, **visible siempre** — 2026-10-07: antes exigía `EstadoEmbudo=Cerrado` y el botón directamente no aparecía, sin explicar por qué; 2026-10-08: tampoco desaparece si ya es cliente, porque se le puede agregar otro sistema — ahí pasa a "Otro sistema", al lado de "Ver cliente" o del desplegable con sus N sistemas). Mismo juego de botones en `Chats/Detail`, donde además seguía exigiendo `Cerrado` (precondición quitada el 2026-10-07 que no se había propagado al chat).
 
 **`Contactos/Create`** (CU-01) — Teléfono* (cualquier país, formato `\d{10,15}`), Nombre*, Negocio, Email (opcional), Rubro (Select2 + libre), Zona, Notas. `CanalOrigen=Manual` fijo sin mostrar. Al guardar: `EstadoEmbudo=Pendiente`, `FaseConversacion=Nuevo`.
 
@@ -61,9 +61,9 @@ Distinción deliberada, no redundante, entre 2 filtros que se prestan a confusi�
 
 **`Templates/Index` + `Create`/`Edit`** (CU-26) — CRUD (Nombre, Texto, Rubro, País, `EstadoAprobacionMeta`, Activo).
 
-**`Clientes/Index`** (CU-22) — semáforo por `FechaProximaRenovacion` (rojo <30 días, ámbar <90). Columnas: Negocio, Plan, TicketAnualUsd, FechaAlta, FechaProximaRenovacion, Activo.
+**`Clientes/Index`** (CU-22) — semáforo por `FechaProximaRenovacion` (rojo <30 días, ámbar <90). Columnas: Negocio, Plan, TicketAnualUsd, FechaAlta, FechaProximaRenovacion, Activo. La columna Negocio muestra `NombreSistema` si lo tiene, y en ese caso el nombre del `Contacto` que lo paga va de subtítulo (2026-10-08) — si no, dos sistemas del mismo cliente se leen como dos clientes sin relación.
 
-**`Clientes/Details/{id}`** (CU-23) — datos + card Upsells (alta rápida inline) + link al `Contacto` de origen.
+**`Clientes/Details/{id}`** (CU-23) — datos + card Upsells (alta rápida inline) + link al `Contacto` de origen + línea "el mismo contacto también tiene: …" con los otros sistemas activos de ese contacto (2026-10-08), porque el ticket de la ficha es de ESE sistema y no de todo lo que factura el cliente.
 
 **`Negocio/Dashboard`** (CU-24) — stat-cards Clientes activos / Ticket promedio real / NRR del período / Avance hacia la meta + tabla Próximas renovaciones. NRR muestra "Datos insuficientes" (no un número aproximado) si no hay período anterior con el que comparar.
 
@@ -94,7 +94,7 @@ TemplateWhatsAppCreateVM { Nombre [Required], Texto [Required], Rubro, Pais, Est
 
 ClienteListItemVM   { Id, NombreNegocio, Plan, TicketAnualUsd, FechaAlta, FechaProximaRenovacion, DiasParaVencer, Activo }
 ClienteDetailsViewModel { datos completos, Upsells: List<{ Id, Tipo, MontoUsd, Fecha }> }
-ConvertirClienteViewModel { ContactoId, Plan [Required], TicketAnualUsd [Required, >0], FechaAlta [Required], FechaProximaRenovacion [calculada, editable] }
+ConvertirClienteViewModel { ContactoId, NombreContacto, Plan [Required], TicketAnualUsd [Required, >0], NombreSistema [Required solo si el contacto ya tiene otro sistema], NombreSistemaExistente [Required solo si el que ya estaba no tiene nombre propio], SistemasExistentes: List<{ ClienteId, Nombre, SinNombrePropio }>, FechaAlta [Required], FechaProximaRenovacion [calculada, editable], PrimerAnioGratis, Notas }
 NegocioDashboardViewModel { ClientesActivos, TicketPromedioReal, Nrr (nullable), AvanceMeta, ProximasRenovaciones }
 ```
 
@@ -159,6 +159,11 @@ de ads pagos, el canal que convierte al 41%. Las reacciones y stickers siguen si
 - No leído en `Chats`: `MarcadoNoLeidoManual==true` **o** (`FaseConversacion>=AskingQuestions` **y** `FechaRespuesta!=null` **y** actividad más nueva que la última lectura).
 - Ventana por vencer: desde el último mensaje **entrante** real (nunca actividad saliente) + 24hs. Notificación in-app solo para `DerivadoManual`.
 - `Cliente` solo se crea desde un `Contacto` — nunca suelto, porque el `Contacto` es la fuente de verdad de nombre/teléfono/chat. **2026-10-07**: ya no hace falta que el contacto esté en `Cerrado` de antemano; la conversión lo pasa a `Cerrado` sola. El estado del embudo es la CONSECUENCIA de haberse convertido en cliente, no su precondición: exigirlo antes obligaba a adivinar que primero había que cambiarlo a mano. Punto de entrada nuevo `Clientes/Nuevo` (buscar el contacto o crearlo) además del botón en la ficha del contacto. `FechaProximaRenovacion` default `FechaAlta.AddYears(1)`, editable.
+- **Un `Contacto` puede tener VARIOS `Cliente` activos a la vez (2026-10-08).** Un mismo negocio nos compra más de un producto y cada uno es un cliente aparte, con su plan, su ticket, sus upsells y su propia renovación (ej. Gastón Bourdin: Conversion + la web institucional de BMA). Hasta esta fecha la conversión lo rechazaba con "ese contacto ya tiene un cliente activo" y redirigía al existente, dando por sentado 1 contacto = 1 sistema, aunque el modelo ya lo soportaba (`Cliente.NombreSistema` existe para eso y los avisos de renovación ya iban por `Cliente`). La única condición es que queden **distinguibles**:
+  - del segundo sistema en adelante, `NombreSistema` es **obligatorio** (en el primero sigue siendo opcional: sin él se muestra el nombre del `Contacto`);
+  - si el que ya estaba no tiene `NombreSistema` propio, se le pone en el mismo paso del alta (`NombreSistemaExistente`) — si no, las dos filas de `Clientes/Index` se verían idénticas y el aviso de renovación no diría cuál vence;
+  - dos sistemas del mismo contacto no pueden quedar con el mismo nombre;
+  - caso de datos viejos con 2+ sistemas sin nombre: se bloquea y se pide nombrarlos desde `Clientes/Edit`.
 - `CampanaExperimento`: 1 activo máximo por campaña, A≠B.
 - `TemplateWhatsApp` con `EstadoAprobacionMeta != Aprobado` no aparece en selectores de envío real.
 - `SugerenciaSeguimiento`: matchea `EstadoEmbudo`+`Rubro` exacto, si no hay, cae a genérica (`Rubro=null`) antes de "sin sugerencia".
@@ -620,3 +625,4 @@ El outbound se reactiva con E1-E5 en producción (S4). E1-E2 se pueden desplegar
 - 2026-09-14: conversacion agentica con LLM como camino normal (el arbol pasa a fallback), fase `ConversandoConIa`, pausa del bot por contacto a 48hs, respuesta a multimedia en vez de silencio, reestructuracion de `Bot/Index` en 5 secciones y ampliacion del control de costos a 3 herramientas con reparto y techos derivados.
 - 2026-09-14: Diseño de "reorientar el bot de prospección a los 4 frentes" (seccion 8, pendiente de aprobacion) — tabla de decision de frente (web propia + grupo de rubro), lista de dominios, 4 borradores de plantilla, conversacion post-boton por frente (hallazgo: el boton lo resuelve el arbol forzando `rent`), fallback de categorias nuevas, card "Oferta" + filtros en Contactos/Chats, plantillas por frente en `/Bot`, modulos por frente sin alterar Build, plan en 7 etapas. Patron nuevo PAT-031 en el catalogo.
 - 2026-09-14: Seccion 8 rediseñada tras respuestas de Joaquin — combo Landing 3D + AI Agents + Chatbots para todos con gancho segun perfil (el dato por contacto pasa de "frente ofrecido" a "gancho"), Build y Landing 2D siguen, web propia = solo dominio propio, grupos/dominios en codigo, 4 plantillas combo por gancho (Gestion cae a la plantilla de campaña), venta cruzada en el prompt, selector multiple de frentes en Armar presupuesto. Pendiente confirmar 4 interpretaciones (8.16).
+- 2026-10-08: varios sistemas por cliente — un `Contacto` puede tener N `Cliente` activos (un negocio nos compra más de un producto, ej. Gastón Bourdin: Conversion + front de Contadores BMA). La conversión dejó de rechazar al segundo; a cambio exige `NombreSistema` desde el segundo en adelante y nombrar al que ya estaba si no tenía nombre propio. Se agregó `NombreSistema` al formulario de alta (antes solo existía en Editar, REG-012), el subtítulo con el titular en `Clientes/Index`, los otros sistemas en `Clientes/Details`, y el botón "Otro sistema" en `Contactos/Details`, `Chats/Detail` y `Clientes/Nuevo`.
