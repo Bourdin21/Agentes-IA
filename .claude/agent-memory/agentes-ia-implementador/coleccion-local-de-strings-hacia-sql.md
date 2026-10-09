@@ -26,3 +26,20 @@ el bug hasta el primer dato. Si la tabla se midio con la collation case-insensit
 tambien, o los tres criterios dejan de hablar del mismo universo.
 
 Relacionado: [[verificar-criterios-contra-produccion]].
+
+## El primo del mismo problema: `StartsWith` revienta por COLLATE, no por la coleccion
+
+`EF.Functions.Like(col, prefijo + "%")` y no `col.StartsWith(prefijo)`. El provider
+`MySql.EntityFrameworkCore` traduce `StartsWith` a una expresion con `COLLATE utf8mb4_bin` a la que
+**no le asigna type mapping**, y la consulta revienta en RUNTIME con *"Expression ... COLLATE
+utf8mb4_bin in the SQL tree does not have a type mapping assigned"*. Compila, pasa code review y solo
+falla contra MySQL: es MH-001 con otra cara y por eso vive aca.
+
+**Why:** medido en la-platense el 2026-10-07, y lo peor fue **donde** paso: en la LIMPIEZA del arnes.
+La corrida habia medido 40 afirmaciones en verde y murio con exit 3 al contar las filas propias para
+afirmar que no quedaba ninguna. Si la limpieza hubiera estado **fuera** del `try`, el proceso habria
+terminado con un codigo que parecia limpio.
+
+**How to apply:** `grep -rn "\.StartsWith(\|\.EndsWith("` sobre lo que viaja a SQL. `Contains` sobre
+una **columna** si traduce (va a `LIKE '%x%'`); los otros dos, no. Y la conclusion general:
+**la limpieza de un arnes corre DENTRO del try y se AFIRMA**, no al final y a la buena de Dios.

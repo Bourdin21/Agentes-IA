@@ -1,7 +1,7 @@
 ﻿# Memoria - Analista funcional
 
 ## Proyecto: delicias-naturales
-## Ultima actualizacion: sesion Dashboard Ampliado
+## Ultima actualizacion: 2026-10-07 - relevamiento cuantitativo de la diferencia de caja mensual (seccion 9 de "Cierre de Caja Diaria y Mensual")
 
 ## Contexto del sistema
 
@@ -223,6 +223,106 @@ Cambios adicionales identificados (a validar en Diseno, no implementar aqui):
 ### 8. Clasificacion de perfil de cliente
 **B2B/B2C mixto** — la cartera de clientes de Delicias Naturales incluye tanto consumidores finales como empresas (S.A./S.R.L., ej. Antigal, Comunidad GH, El Modelo, Nutridiet, Le Bourguignon) con compras mayoristas recurrentes de montos altos.
 **Escala: mediano-grande** — cliente activo desde 2025 con 26 entidades y 19 controladores en produccion, integracion AFIP x5, ~500+ ventas/mes, facturacion mensual del orden de $85-90M ARS. Cliente historico del estudio con multiples entregas ya facturadas (Dashboard Ampliado, hotfixes, etc.) y capacidad de pago establecida — corresponde precio de lista / trato de cliente fiel al presupuestador, no descuento agresivo de cierre.
+### 9. Relevamiento cuantitativo de la diferencia mensual (2026-10-07)
+
+Segunda medicion, ahora sobre **septiembre 2026** y con conciliacion linea a linea reproducible (extracto XLS "detalle movimientos septiembre" vs `pagos` de produccion). Reemplaza las hipotesis de agosto por numeros cerrados: la conciliacion cuadra al centavo, asi que la lista de causas de abajo es exhaustiva para ese mes, no indicativa.
+
+#### 9.1 Causa raiz #0 — el cliente compara dos magnitudes que no son comparables
+
+El numero que el cliente llama "lo que dice el banco" **no es la suma de las cobranzas del mes**:
+
+| Concepto | Importe |
+|---|---|
+| Total del archivo de extracto | 40.346.813,07 |
+| (-) Depositos de efectivo propios al banco (3 lineas `DEPOSITO AUTOSERVICIO PLUS`, 29/09) | -5.000.000,00 |
+| (-) Intereses ganados y ajustes | -301,83 |
+| **= Transferencias de clientes realmente acreditadas (242 lineas)** | **35.346.511,24** |
+| Sistema, `Pago` con `MetodoPago = Transferencia` de septiembre (245 pagos) | 36.019.758,88 |
+| **Diferencia real (sistema - banco)** | **+673.247,64** |
+
+El cliente venia reportando ~7.000.000 de diferencia: 5.000.000 de eso son **sus propios depositos de efectivo**, que el sistema ya contabilizo como `Efectivo` y el banco vuelve a mostrar como credito. Mientras el control siga siendo "total del extracto vs total de Transferencias", la caja **no puede dar nunca**, con o sin errores de carga. Ademas el archivo que usan es un listado **solo de creditos** (0 debitos en las 248 lineas), asi que tampoco sirve para arquear el saldo de la cuenta.
+
+**Consecuencia de diseño (vinculante para la etapa 2):** la carga de extracto (CU2) tiene que **clasificar y excluir los creditos que no son cobranzas de clientes** antes de conciliar — no es un detalle de implementacion, es lo que hace que el numero final tenga sentido.
+
+#### 9.2 Resultado del matcheo automatico sobre datos reales
+
+Algoritmo probado: tolerancia escalonada ($1 → $2 → $25 → $150, por pasadas, el mas cercano primero), ventana de fecha ±4 dias, y despues combinaciones N:1.
+
+| Resultado | Lineas de extracto | Importe |
+|---|---|---|
+| Concilia 1-a-1 | 215 | diferencia acumulada de centavos: $80,46 |
+| Concilia N pagos → 1 credito (una transferencia paga varias ventas) | 6 | -$21,61 |
+| **Subtotal automatico** | **221 de 242 (91,3 %)** | |
+| Cruza pero por **otro importe** | 6 | -$14.111,93 |
+| Credito sin pago en el sistema | 15 | -$1.160.554,56 |
+| Pago sin credito en el banco | (11 pagos) | +$1.847.855,28 |
+| **Total** | | **+$673.247,64** (cuadra exacto) |
+
+**Dos requisitos nuevos que el analisis de agosto no contemplaba:**
+1. **Matcheo N:1 obligatorio.** 6 de 242 creditos pagan 2-3 ventas en una sola transferencia (ej. 02/09 $618.038,00 = ventas 9250 + 9349 + 9388). El criterio original asumia 1 pago ↔ 1 linea; con 1:1 puro esas 6 lineas y sus 14 pagos caen a "pendiente" por error del algoritmo, no del dato.
+2. **Tolerancia escalonada, no fija.** Los clientes transfieren el importe **redondeado** y el sistema guarda el importe facturado con centavos identificatorios. Con tolerancia unica de $0,50 (lo que decia el criterio de aceptacion preliminar) el matcheo baja de 91 % a ~86 %; con la escalonada, los 215 cruces 1-a-1 acumulan $80,46 de ruido total en el mes — despreciable.
+
+#### 9.3 Taxonomia de las causas, con importe (septiembre)
+
+| # | Causa | Evidencia | Efecto |
+|---|---|---|---|
+| C1 | **Pago bancario cargado como `Efectivo`** | $223.669,16 venta 9598, pago 15798 (17/09) — el banco lo acredita el 18/09 como TRANSFERENCIA | Infla Efectivo, desinfla Transferencia |
+| C2 | **Borrar y recrear un pago por otro importe** en vez de editarlo | venta 9324: el banco acredito $92.550,00; en el sistema quedaron 3 pagos de $92.550,05 borrados y uno activo de $64.550,05 | -$28.000 |
+| C3 | **Importe registrado distinto al acreditado** (se carga el total de la factura, no lo que entro) | 9080 (-6.556,21), 9209 (-7.897,76), 9318 (-5.816,25), 9457 (-3.617,03), 9639 (**+9.999,23**, tipeo de 10.000 de mas) | -$14.111,93 |
+| C4 | **Corte de mes** — credito del 01/09 con pago fechado 31/08 | pagos 15098 ($152.599,96, venta 9257) y 15185 ($30.550,01, venta 9356) | -$183.149,97, se compensa con agosto |
+| C5 | **Creditos duplicados en el extracto sin pago que los explique** | $107.350,02 (29/09) y $107.350,00 (30/09) con un solo pago; dos lineas de $58.222,00 el 14/09 con un solo pago | a investigar con el banco |
+| C6 | **Pago marcado Transferencia sin acreditacion en el mes** (11 pagos) | el mayor: $434.000,00 venta 9581 (18/09), sin credito parecido en ±7 dias; tambien 9517, 9665, 9487 (x2), 9311, 8945, 8948, 9325, 9384, 9425 | +$1.847.855,28 |
+| C7 | **Credito bancario sin ningun pago en el sistema** (15 lineas) | **7 de las 15 son del 18/09** ($107.167,50 / $90.934 / $39.838 / $39.792,80 / $33.775 / $20.942 / $20.000) — patron de dia entero mal cargado | -$1.160.554,56 |
+
+#### 9.4 Causas estructurales, medidas mes a mes (abril–octubre 2026)
+
+Esto es lo que contesta **"por que pasa todos los meses"**: no es un bug de calculo, son cinco huecos de validacion en el circuito de `Pago` que producen ruido de forma estable, mes tras mes.
+
+| Hallazgo | Medicion |
+|---|---|
+| `Pago.Fecha` distinta del dia real de carga (`CreatedAt`) | **9,2 % – 20,0 %** de los pagos de cada mes (87–153 pagos/mes). Carga tardia de mas de 3 dias: 15–49 por mes |
+| Pagos borrados | **82–116 por mes** (10–14 % del volumen mensual) |
+| Borrar-y-recrear el mismo monto en la misma venta | **37–61 casos por mes** — septiembre: 40 casos, $4.336.253,16 |
+| Uso real de **"Editar Pago"** (deployado 2026-09-07 para resolver exactamente esto) | **0 usos.** De los 840 pagos posteriores al deploy, ninguno tiene `PagoAnteriorId`; 1 solo tiene `Observacion`. La herramienta correcta existe y no se adopto |
+| `MetodoPago.MercadoPago` | **0 pagos en todos los meses** desde junio 2026 — confirma el hallazgo 3 de agosto: MercadoPago sigue cayendo en Transferencia o Efectivo |
+| `Pago.Fecha` sin validacion de rango | **3 pagos activos con fecha futura**: $688.425,33 con `Fecha` 16/10/2026 cargado el 29/09 (sale del cierre de septiembre y entra al de octubre), y 2 de diciembre 2026 cargados en enero 2026 ($163.780,83) que **no entran en ningun cierre** |
+
+La C2 y la C3 son consecuencia directa de la fila de "Editar Pago": mientras el operador corrija por borrar-y-recrear, cada correccion es una oportunidad de dejar el importe mal. El modulo de conciliacion **detecta** eso despues; no lo evita.
+
+#### 9.5 Dos frentes, no uno
+
+El relevamiento parte el problema en dos entregas separables, y conviene hacerlas en este orden:
+
+**Frente A — preventivo, sobre el circuito de Pagos ya en produccion (barato, ataca la causa):**
+- A1. Validar `Pago.Fecha`: rechazar fecha futura, rechazar fecha anterior a la fecha de la venta, y avisar (no bloquear) si se aparta mas de N dias del dia de carga. Elimina de raiz la fila "fecha sin validacion" y acota el 9–20 % de desfasaje.
+- A2. Cerrar el camino del borrar-y-recrear: pedir motivo en `EliminarPago` y dirigir al usuario a "Editar Pago" cuando lo que quiere es cambiar monto/metodo/fecha. Sin esto, A3 y el modulo de conciliacion trabajan sobre datos que se siguen ensuciando.
+- A3. Advertir en el registro de pago cuando la suma de pagos no cierra contra el total de la venta (hoy septiembre tiene 2 ventas sobrepagadas y 9 con saldo).
+- A4. Habilitar `MercadoPago` y `Cheque` como metodos reales (P5 ya decidido: `Cheque` con `FechaAcreditacion`), y dejar de usar Transferencia como cajon de sastre.
+- A5. En la pantalla de Pagos, separar los metodos **bancarios** (Transferencia / Debito / Credito / MercadoPago / Cheque acreditado) de los de **caja** (Efectivo), para que el total que el cliente compara contra el banco sea el total correcto.
+
+**Frente B — detectivo, el modulo de Cierre y Conciliacion (CU1–CU5 de las secciones 1–4), con el algoritmo ya validado al 91,3 %.** Requiere incorporar 9.1 (clasificar creditos que no son cobranzas), 9.2.1 (matcheo N:1) y 9.2.2 (tolerancia escalonada).
+
+Hacer solo B deja al cliente conciliando el mismo ruido todos los meses, mas rapido. Hacer A primero baja el volumen de pendientes que B tiene que mostrar.
+
+#### 9.6 Preguntas nuevas para el cliente
+
+**P8 — Los depositos de efectivo propios al banco (los $5.000.000 del 29/09), se registran hoy en algun lado del sistema?**
+- Hipotesis A: no se registran — el efectivo cobrado figura como `Pago` Efectivo y el deposito al banco no deja rastro. La conciliacion tendria que simplemente excluir esos creditos del matcheo (marcarlos "deposito propio") y, opcionalmente, cruzarlos contra el efectivo acumulado del periodo.
+- Hipotesis B: el cliente espera que esos depositos se registren como movimiento (seria el `MovimientoCaja` que hoy no usa, o una entidad nueva) — amplia el alcance al modulo de Caja que hoy esta abandonado.
+
+**P9 — Que paso el 18/09?** 7 creditos bancarios de ese dia ($576.118,46 en total, ninguno mayor a $110.000) no tienen pago que los explique, y el mismo dia hay 3 pagos Transferencia en el sistema sin credito ($936.925,24). Es el unico dia con ese patron en el mes.
+- Hipotesis A: se cargaron esos cobros como `Efectivo` (misma causa C1, en bloque).
+- Hipotesis B: son cobranzas de ventas que todavia no estaban registradas ese dia y se cargaron despues con otra fecha.
+- Impacto: si es A, refuerza la prioridad de A5; si es B, refuerza A1.
+
+**P10 — Los creditos duplicados del extracto (C5) son doble acreditacion del banco o dos clientes distintos con el mismo importe?** Sin el remitente (el XLS simplificado no lo trae) no se puede decidir desde los datos. Si el caso es frecuente, reabre P3 a favor del PDF (que si trae remitente) para esas lineas puntuales.
+
+**P11 — Por que no se usa "Editar Pago"?** 0 usos en un mes de produccion.
+- Hipotesis A: el operador no sabe que existe (falta de aviso/capacitacion) — se resuelve fuera del sistema.
+- Hipotesis B: el boton pide algo que al operador le resulta caro (motivo obligatorio) o esta donde no lo ve.
+- Hipotesis C: el riesgo DN-004 ya documentado (editar un pago exige caja chica abierta) lo bloquea en la practica.
+- Impacto: A2 no sirve de nada si la alternativa a la que se dirige al usuario esta rota o escondida. **Esta pregunta condiciona el frente A completo.**
+
 
 ## Sesion: Ajuste directo de un Pago
 
@@ -320,5 +420,6 @@ Analisis cerrado (alcance chico y sin ambiguedad, no requirio preguntas al clien
 - Sesion Dashboard Ampliado: analisis cerrado, 5 items aprobados. Presupuesto USD 100 acordado (lista USD 125, descuento fidelidad USD 25). Documento cliente en repo del proyecto.
 - 2026-09-23: Analisis cerrado de "Agrupar por categoria en modal Stock Bajo" — mejora de presentacion, sin cambios de reglas de negocio.
 - 2026-09-01: Discovery/analisis preliminar de "Cierre de Caja Diaria y Mensual" a partir de investigacion extensa de la diferencia de cierre de agosto 2026. 7 preguntas abiertas para el cliente (P1-P7) antes de poder cerrar el alcance — gate de Diseno NO habilitado todavia.
+- 2026-10-07: **Relevamiento cuantitativo de la diferencia de caja mensual** (seccion 9 de la sesion "Cierre de Caja Diaria y Mensual"). Conciliacion linea a linea de septiembre 2026 que cuadra al centavo: diferencia real $673.247,64 (no los ~7M que reportaba el cliente — 5M de eso son sus propios depositos de efectivo). 7 causas con importe (C1-C7) y 6 causas estructurales medidas mes a mes abril-octubre. Hallazgos que cambian el alcance previo: la carga de extracto debe clasificar y excluir los creditos que no son cobranzas; el matcheo necesita N:1 y tolerancia escalonada (91,3 % automatico medido); "Editar Pago" tiene 0 usos reales en un mes de produccion. El problema se parte en Frente A (preventivo, 5 items sobre el circuito de Pagos) y Frente B (el modulo de conciliacion ya relevado). 4 preguntas nuevas (P8-P11); P11 condiciona el Frente A completo. **Gate de Diseno sigue NO habilitado** (P1b, P3, P5b-d, P8-P11 abiertas).
 - 2026-09-07: Discovery/analisis de "Ajuste directo de un Pago", a partir del incidente de la venta 9444 (Factura desconectada por reversion de estado sin guard). Patron PAT-020 (ledger inmutable) identificado como base de diseño. P1-P3 resueltas por Joaquin el mismo dia (Administrador+Vendedor, mostrar ambos pagos viejo/nuevo, sin limite de tiempo) — Analisis cerrado, gate de Diseno habilitado.
 

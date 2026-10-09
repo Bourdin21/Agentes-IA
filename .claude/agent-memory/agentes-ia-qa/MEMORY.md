@@ -11,5 +11,7 @@ Como usar este archivo (limite duro: 200 lineas o 25KB — lo que llegue antes; 
 
 ## Aprendizajes
 
-- [Metodo de QA con datos reales](project_metodo_qa_datos_reales.md) — runner de solo lectura contra produccion + SQL cruzado: el camino que encuentra los defectos, y las trampas de levantar la app en Windows.
-- [Lotes en paralelo](project_lotes_en_paralelo.md) — colision de ids del catalogo, `keys/` de Data Protection y la app que se cae sola cuando dos lotes corren juntos.
+- [Metodo de QA con datos reales](project_metodo_qa_datos_reales.md) — runner de solo lectura + SQL cruzado + mutacion de arneses + backfills por conteo; sin MCP, playwright de Python cubre el navegador (el `fetch` consume el TempData: el oraculo del cartel es el `Swal.fire` del HTML servido); perimetro de plata por tipos declarados, no por nombres.
+- [Lotes en paralelo](project_lotes_en_paralelo.md) — colision de ids, `keys/` de Data Protection, la app que se cae sola, el clon que los arneses rechazan por su nombre, el puerto asignado ya tomado y los `bin/` de arneses con un DLL de otra semana.
+- [Herramientas de la corrida](project_herramientas_de_la_corrida.md) — nada de heredocs, `trazas.tsv` solo con `traza.py`, mutacion sobre copia del arbol, y mutantes derivados del diff.
+- [Medir un gate que es un instrumento](project_medir_un_gate_de_instrumento.md) — darle trabajo nuevo, mutante de la REUBICACION, mutacion semanticamente nula para la guarda de derivacion; y el par discriminante que se invalida por el route value, la cookie jar por perdedor, `bit_xor` en vez de `group_concat`, y el control de que la primera pasada hizo algo.

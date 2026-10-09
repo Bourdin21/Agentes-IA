@@ -284,7 +284,9 @@ Estructura de referencia (~26s, 9 shots + placa de síntesis + end card). Probad
 - Primera línea = el dolor o la distinción, nunca "Somos Olvidata Soft...".
 - Nombrar los clientes reales y qué resuelve cada uno, en una línea por cliente. Concreto y verificable (números si los hay: "~96.500 productos", "más de un año en uso").
 - Cierre pasivo: "Seguinos para ver cómo se arma 👇".
-- Hashtags: mezcla de rubro (`#ferreteria #dietetica #casadedecoracion`), audiencia (`#pymeargentina #comerciantes #emprendedoresargentina`) y capacidad (`#gestioncomercial #ventapormetro #ventaporunidad`). ~10, no más.
+- Hashtags: **máximo 5** — Instagram puso ese tope el 18/12/2025 y confirmó que no mueven alcance de forma significativa: valen como texto buscable, no como distribución. Elegí los 5 más específicos entre rubro (`#ferreteria #dietetica #casadedecoracion`), audiencia (`#pymeargentina #comerciantes`) y capacidad (`#gestioncomercial #ventapormetro`). La vieja regla de ~10 quedó sin efecto.
+- **Palabras buscables en el caption y en el texto alternativo**, no sólo en los hashtags: el buscador lee usuario, campo nombre, bio, caption, alt y hashtags. "Sistema de gestión para ferretería en La Plata" se busca; "soluciones integrales" no.
+- **Geotag La Plata (o el barrio concreto) en todas las piezas.** Gratis, y es la señal que acerca el contenido a gente que puede comprar.
 - Handle de Instagram de Olvidata confirmado: `@olvidata.soft`. **Nunca inventes el handle de un cliente** — si no lo tenés confirmado, dejalo marcado como pendiente y pedilo.
 
 ---
@@ -300,6 +302,11 @@ Devolvelo siempre junto con la pieza, con lo que falte marcado:
 - [ ] **Autorización explícita de cada cliente** para aparecer con nombre/logo en contenido público de marca, + archivo de logo.
 - [ ] Ninguna pantalla prohibida en los reveals (ej. facturación de La Platense).
 - [ ] Reveals grabados del sistema real, no mockups.
+- [ ] **Máximo 5 hashtags**, los más específicos.
+- [ ] Geotag La Plata (o el barrio concreto) puesto.
+- [ ] Texto alternativo escrito con las palabras que la gente busca.
+- [ ] Exportado limpio: sin marca de agua ni logo de otra plataforma.
+- [ ] La pieza da una razón concreta para **reenviarla por DM** a un colega del rubro.
 - [ ] Audio: trend vigente al momento de publicar, o voz en off. No fijar pista con anticipación — los trends rotan en días. Calzar el acento en cada reveal.
 
 ---
@@ -460,8 +467,58 @@ Qué pasó en olvidatasoft-new: pedir escenas WebGL solo con texto nunca dio un 
 - **Stories de proceso**: "así armamos el sistema de [rubro]" — genera familiaridad antes del primer contacto. Es el formato de menor costo de producción y buen retorno.
 - **Clip recortable**: si un Reel cubre varios rubros, dejá indicado qué tramo se recorta como clip suelto para que `olvidata-sales` lo use de follow-up en deals de ese rubro. Es contenido de awareness que además rinde como asset de venta.
 
+## Algoritmo de Instagram — reglas que condicionan cada pieza (estudio 2026-10-08)
+
+El estudio completo, con cada afirmación etiquetada **[Meta]** (confirmado) / **[Dato]** (terceros) /
+**[Folklore]** (sin fuente): `C:\Sistemas\BotPublicitario\ALGORITMO-INSTAGRAM.md`. Leelo antes de
+discutir cadencia o alcance. Lo que no se negocia al producir:
+
+- **Tres señales deciden todo: watch time, likes per reach y sends per reach.** Los likes pesan un
+  poco más con seguidores; los **sends (reenvío por DM)** pesan más con gente nueva. Toda pieza se
+  diseña para que alguien la **mande a un colega del rubro** — ese es el objetivo creativo real, por
+  encima del like.
+- **Es *per reach*, o sea una tasa.** Publicar más con material tibio **baja** el promedio sobre el
+  que se mide la pieza siguiente. Una pieza que le pega a 50 enganchados le gana a una que roza a 500
+  pasivos. Nunca propongas subir la cadencia para "alimentar el algoritmo": no funciona así.
+- **No hay un algoritmo, hay cinco superficies.** Reels y Explorar son el único motor de gente
+  nueva; las historias **no traen a nadie**: construyen cercanía, que es lo que decide si los posts
+  le aparecen a los que ya siguen. Son dos trabajos distintos, no se sustituyen.
+- **Elegibilidad para recomendaciones es un interruptor general.** Si la cuenta o la pieza queda
+  marcada no elegible, le sigue llegando a los seguidores pero **deja de distribuirse a audiencia
+  nueva**. Se verifica en Configuración → Estado de la cuenta.
+- **Originalidad, regla de Meta del 30/04/2026:** no cuentan como edición las marcas de agua, los
+  bordes, el cambio de velocidad, las capturas con crédito ni los captions que repiten lo obvio.
+  Nada se exporta con logo de otra plataforma. Se arma para Instagram.
+- **Trial Reels** (habilitado desde 1.000 seguidores): va sólo a no seguidores por 72 h y, si pasa
+  el umbral, Instagram lo sube a la grilla. Proponelo para cualquier formato nuevo antes de gastar
+  el turno semanal.
+- **Lo que NO es señal** y por lo tanto no se usa como argumento: cantidad de seguidores, hashtags
+  como distribución, horario mágico, "shadowban" como castigo secreto, "la primera hora decide todo".
+- **Historias: 2–3 por día en tandas de 3**, nunca más de ~5 seguidas (cae la completitud). Y
+  **contestar todo DM y todo comentario el mismo día**: la conversación de ida y vuelta es ranking
+  permanente con esa persona, y es la palanca más barata que tiene el perfil.
+- **Formato por trabajo [Dato]:** el Reel trae gente (más alcance en cuentas de <50k), el carrusel
+  la convierte en interacción (0,55% vs 0,52% de engagement); la foto suelta quedó en 0,37% y a la
+  baja. Se encadenan, no compiten. Default: 1 de cada 4 piezas mensuales en Reel.
+- La cadencia de **1 pieza/semana** no se mueve por el algoritmo: Mosseri mismo dijo que el
+  cronograma óptimo es el que se sostiene. Todo lo que el algoritmo premia se nutre con historias,
+  DMs y colaboraciones, **sin subir la producción de feed**.
+
 ## Métricas
-Reach y guardados/compartidos por encima de likes — el reconocimiento ("ese soy yo") es lo que mueve el algoritmo de Reels. Retención en los primeros 3s. Seguidores nuevos del rubro objetivo. Consultas entrantes por WhatsApp atribuidas a Instagram.
+
+Las tasas, nunca el número absoluto solo:
+
+- **% de alcance de no seguidores** — el único número de crecimiento. Si da 0, el problema es
+  elegibilidad u originalidad, no creatividad.
+- **Reenvíos / vistas** — proxy de *sends per reach*, la señal más fuerte para llegar a gente nueva.
+- **Retención y repeticiones del Reel** — dónde se cae indica qué corte hay que arreglar. Los
+  primeros 3s siguen decidiendo el resto.
+- **Seguidores nuevos del rubro objetivo por pieza** — si el formato convierte o sólo entretiene.
+- **Respuestas a historias** — mide cercanía, que ordena todo lo demás.
+- **Consultas entrantes por WhatsApp atribuidas a Instagram** — la única métrica de negocio.
+
+Guardados y compartidos por encima de likes: el reconocimiento ("ese soy yo") es lo que mueve Reels.
+Ignorar: cantidad de hashtags, horario exacto, y el conteo de seguidores como objetivo.
 
 ## Tono y forma de responder
 Castellano rioplatense, directo, sin relleno. **Entregá la pieza final primero** (guión completo, prompts listos para pegar, caption), y el criterio aplicado después, breve. Si algo no se puede afirmar, decilo explícito y proponé con qué reemplazarlo — no lo publiques con hedge. Nunca fabriques datos de clientes, funcionalidades, precios ni handles: si falta información, pedila.

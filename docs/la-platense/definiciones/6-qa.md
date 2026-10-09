@@ -1,1311 +1,692 @@
 # Memoria - QA
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-10-06 (v13 — **HOTFIX de transacciones de ventas, rama `hotfix-transacciones-ventas`, commits `c5b27a4`+`7ca5ce3`: GO**, gate de publicacion a produccion. 6/6 criterios en PASS con evidencia ejecutada; arnes 82/82 en 4 corridas y **control positivo contra el codigo roto: 40 fallas** con los importes reproducidos (deuda de $1.000 cobrada 8 veces, saldo -$7.000); la relectura bajo lock verificada **por mutacion** en los 3 metodos del workflow. 1 hallazgo nuevo `LP-034` `minor` no bloqueante. Antes: 2026-10-06 (v12 — Entrega 6 **LOTE 5: presupuestos en PDF y aumento masivo de precios, commit `eec79d4`: NO-GO**, los 14 criterios en PASS pero 2 partes de defecto del alcance — `LP-030` `major` (el aplicar tarda 44-46 s contra los 7,6-8,0 s declarados, medidos sobre una pasada que no escribe) y `LP-029` `minor` (el desglose de IVA del PDF no cierra con su propio total) — mas 3 hallazgos `low` `LP-031`/`LP-032`/`LP-033`. Antes: 2026-10-06 (v11 — Entrega 3 **LOTE 3: recepcion de mercaderia y pagos a proveedores, commit `7cda85b`: GO**, los 14 criterios en PASS; 3 hallazgos nuevos no bloqueantes `LP-024` `major` (carrera del tercer escritor de Producto.Stock, riesgo 1 de liberacion), `LP-025` y `LP-026` `trivial`. Corrida por lotes en paralelo: ver tambien los bloques de los otros lotes mas abajo, cada uno con su propio alcance y su propia base clonada. Antes: v10 LOTE 4 `4246b42` NO-GO, v9 LOTE 2 `4686a27` GO, v8 re-verificacion del Sprint 0, rama `entrega-1-migracion`))
-## Ultima validacion de reglas cross-proyecto: 2026-10-06
+## Ultima actualizacion: 2026-10-09 (v27 - **FASE 1 DEL TOKEN CERRADA Y COMMITEADA (`46da1c2`): QA la declara CERRABLE, 7 PASS y 1 parcial.** `LP-125`, `LP-126`, `LP-127` y `LP-128` **CERRADOS**. **El criterio que decidia paso, medido como correspondia:** navegador real, misma sesion, misma URL, los mismos bytes de negocio congelados, cambiando solo el token -- el propio del form **emite**, el **fresco** del form de logout se **rechaza antes de reservar** con cero filas en `SubmitsProcesados`. **No es `M21`: la pantalla no rechaza todo.** **El gate dejo de ser una lista disfrazada y se probo agregandole trabajo nuevo:** QA creo una entidad de dominio con un `decimal` mas un POST que la escribe, **sin declararla en ninguna parte, y el detector la encontro y fallo**; la guarda de derivacion en 0 **aborta con exit 2** ante una mutacion semanticamente nula que compila. **El hallazgo mas caro es de deploy: `LP-133` `major`** -- la huella se calcula de **dos fuentes distintas** (el `action` del form y `Request.Path`), y con `UsePathBase` (la forma de sub-aplicacion de IIS) difieren y **el formulario posteado con SU PROPIO token se rechaza**, silencioso porque falla cerrado, y ni los arneses ni el verificador lo ven porque corren sin PathBase. **Verificado por el orquestador: hoy NO aplica** -- el codigo no usa `UsePathBase` y el sitio va a la raiz de su dominio, no a una carpeta virtual; queda como **condicion de deploy**. **Dos clasificaciones que corrigen un instinto:** `AumentoMasivoPrecios/Aplicar` **es idempotente por construccion** (la huella de los precios de 112.486 productos queda identica, con el control que prueba que la primera corrida si los cambio), y lo que duplica es **la fila de auditoria** (`LP-132`); y en el segundo cierre de caja los perdedores leen un mensaje **en castellano limpio, sin texto crudo de EF**, asi que `LP-116` **no reaparece**. `Presupuestos/ConvertirAVenta`, el de mayor impacto aparente del grupo sin evaluar, **esta protegido** en serie y en paralelo. **Quedan abiertos del gate `LP-129` y `LP-130`** (la clave de escritores sale del **nombre del archivo**, y un POST que escribe desde el Controller nunca entra al perimetro): **ninguno tiene instancia viva, asi que no bloquean el merge -- si bloquean apoyarse en el gate para dar la fase 2 por enumerada**, que es su unico proposito. **El patron entro al catalogo del estudio como `PAT-065`**, recien ahora que hay codigo entregado y medido, con su `cuando_no_usar` y la verificacion de que **el token no es una credencial** (huella fabricada a mano: no compra nada, los topes y los locks siguen corriendo). Catalogo de regresiones: 249 -> **254**. Cola de produccion: **13 pendientes**.)
+## Anterior: 2026-10-09 (v26 - **FASE 1 DEL TOKEN DE SUBMIT: el mecanismo FUNCIONA y es mergeable; el GATE DE LA FASE 2 no es confiable.** **El criterio que no se podia falsear PASO:** `ArnesNotaCredito` volvio de 62/1 a **63/0 con `git diff -- tools/ArnesNotaCredito` vacio** -- se puso verde **solo** al retirar la clave natural, y QA lo re-midio en dos pasadas. Ese fixture era el unico testigo honesto: escrito antes del problema, para otra familia, con sus dos tandas en menos de un segundo, y era el caso que **ninguna ventana podia satisfacer**. **El par discriminante que prueba que el problema se resolvio y no se movio: mismos bytes de negocio, solo cambia el token -> EMITEN LOS DOS.** El consumo **es** el `INSERT` sobre la PK del token: atomico, cubre serie y concurrencia **sin ventana de lectura**, que era el agujero estructural de `PAT-059`. **Los locks de `PAT-059` no se tocaron y ahora estan medidos** (el mutante que le saca el lock a `EmitirAsync` tira 3 comprobantes y 3.000 facturado sobre 2.000 vendidas). **El modo de falla que mas preocupaba se midio por NAVEGADOR real** (Chromium, SweetAlert2, doble clic) porque **el filtro falla cerrado** y si el token no llegara la pantalla rechazaria TODA emision -- una caida total, peor que el defecto, y ningun arnes la cubre: **la pantalla NO esta muerta**, delta exactamente 1 con el mismo token, y 2 y 3 al recargar. **Pero los dos `major` que QA encontro son del INSTRUMENTO y bloquean la fase 2:** `LP-127` -- el verificador de perimetro enumera por **lista a mano de 7 entidades y una sola forma**, asi que un `new CierreCajaDiario` y una escritura por **SQL crudo** **no los detecta, exit 0** (es la forma del bloque `MISMA FORMA` aplicada al instrumento que debia protegernos de eso); y `LP-126` -- el chequeo del cableado esta **inerte en un build normal y aun asi imprime que esta bien**, un verde falso en el unico chequeo del modo de falla total. Mas `LP-125` `minor` (un token **fresco** del form de logout posteado a `Emitir` **emite**: `RutaAccion` solo rechaza post-consumo, y el XML-doc afirma lo contrario) y `LP-128` `minor` (de las 15 afirmaciones retiradas, 14 bien y **la vieja 9.10 perdio cobertura**). **El perimetro real son 28 POST que escriben plata, no 23**: faltaban `Caja/CerrarDia` y `Caja/CerrarMes` (no crean `CajaMovimiento`, por eso el detector no los veia), `AumentoMasivoPrecios/Aplicar`, `Presupuestos/ConvertirAVenta` y `Ventas/GuardarBorrador` -- **y 13 sitios siguen declarados SIN EVALUAR**. **Correccion medida al orden de riesgo:** `Ventas/Facturar` es el **menos** urgente, no el mas (deriva sus lineas del pendiente), `Gastos/Anular` esta protegido a proposito y `CCEmpleado/Revertir` tiene una clave natural **buena**. **Dos hallazgos de metodo:** una **renumeracion vuelve inauditable una retirada** (QA tuvo que auditar por texto porque `9.3`-`9.7` y `9.9` existen en las dos versiones con sentidos distintos), y **la trampa del `copy2`** -- restaurar un mutante preservando el mtime deja el mutante vivo en la DLL con el `md5` del fuente en verde, la unica falla que el control recomendado NO atrapa, **ya subida a la instruccion 33 del estudio**. Primera migracion de toda la ronda: la cola de produccion pasa de 12 a **13**. **Y el script de saneamiento NO hace falta**, verificado contra produccion en lectura: prod tiene **0 ventas, 29 tablas y la tabla `ComprobantesAfip` NO EXISTE** -- el riesgo no pudo materializarse; lo que queda es una **condicion de orden de deploy**. Catalogo: 245 -> **249** items.)
+## Ultima validacion de reglas cross-proyecto: 2026-10-08
 
 ---
 
----
+# Fase 1 del token de submit — el mecanismo estructural de idempotencia, aplicado a un solo sitio (2026-10-09, rama `entrega-1-migracion`, sin commitear)
 
-# HOTFIX de transacciones de ventas — gate de publicación (QA, 2026-10-06, rama `hotfix-transacciones-ventas`)
+## **El mecanismo FUNCIONA y la fase 1 es mergeable. El GATE de la fase 2 no es confiable todavía, y eso es lo que hay que arreglar antes de seguir.** El criterio que no se podía falsear **pasó**: `ArnesNotaCredito` volvió de 62/1 a **63/0 con `git diff -- tools/ArnesNotaCredito` vacío** — se puso verde **solo**, al retirar la clave natural del Service, y QA lo re-midió de forma independiente en dos pasadas. Ese fixture es el único testigo honesto que teníamos: escrito antes del problema, para otra familia, con sus dos tandas legítimas en menos de un segundo, y era el caso que **ninguna ventana podía satisfacer** (§0-quater de la arquitectura). **Que se ponga verde sin tocarlo es la prueba de que el token resuelve el problema en vez de moverlo.** Pero la re-verificación encontró que **el verificador de cobertura —el instrumento que debía impedir que la fase 2 se olvide un sitio— pasa en verde ante dos formas de escritura que el repo ya usa**, y que el **perímetro real son 28 POST, no 23**.
 
-Gate de los commits `c5b27a4` + `7ca5ce3` sobre `2580f7c` (= lo publicado hoy). 5 sitios que duplican
-plata, vivos en producción. Contexto nuevo: los 6 criterios arrancaron **en FAIL**; no se leyó la
-transcripción del implementador, sólo el diff y los mensajes de commit.
+## El mecanismo, y las decisiones que lo hacen distinto de una clave natural
 
-## **GO.** 6 de 6 criterios en PASS con evidencia ejecutada. 1 hallazgo `minor` nuevo (`LP-034`), no bloqueante y fuera del alcance del hotfix.
+`SubmitsProcesados` con la **PK sobre el token**, así que **el consumo *es* el `INSERT`**: atómico en el motor, cubre serie y concurrencia **sin ventana de lectura** — que era el agujero estructural de `PAT-059`. `INSERT IGNORE` decidido por filas afectadas, en **conexión aparte**, con una razón que vale retener: *"la reserva tiene que ser visible en el acto, y un `SaveChanges` desde el mecanismo de idempotencia arrastraría lo que el Service de negocio tenga trackeado"*. `IRegistroDeSubmit` en Application, filtro y tag helper en Web — **las dos primeras convenciones de ese tipo en el proyecto**, porque no había ninguna.
 
-Las dos afirmaciones que el implementador pidió no creerle **se verificaron ejecutando y las dos son
-ciertas**. Y el arnés **tiene dientes**: contra el código roto da 40 fallas, reproducidas de forma
-independiente con los importes exactos que él reportó.
+**Los locks de `PAT-059` no se tocaron, y ahora están medidos**, que es lo que la decisión de arquitectura pedía explícitamente (*"quitar un lock al poner el token sería la peor lectura posible"*): el mutante que le saca el lock a `EmitirAsync` tumba una afirmación con **3 comprobantes y 3.000 facturado sobre 2.000 vendidas**.
 
-## Entorno y metodología
+## Lo que QA midió, criterio por criterio
 
-- **Fixture fiel a producción, no un clon de dev.** `laplatense_dev` tiene **14** migraciones; la rama
-  publicada tiene **8**. Probar el hotfix contra el clon de dev habría sido probarlo contra un esquema
-  que producción no tiene. Se creó `laplatense_gate_fix` **desde las 8 migraciones de la rama**
-  (verificado: 8 filas en `__EFMigrationsHistory`, 29 tablas) y se espejó a `laplatense_gate_broken` y
-  `laplatense_gate_mut`. `laplatense_qa_hotfix` (clon de dev) se usó sólo para el ensayo de locks.
-- **El repo del sistema no se tocó.** Los árboles de prueba salieron por `git archive HEAD` al
-  scratchpad; el control y los mutantes se armaron ahí con `git show 2580f7c:<archivo>`.
-  `git status --porcelain` al cerrar: sólo `?? .claude/`, que ya estaba al abrir la sesión.
-- **Producción intacta.** Nada contra `mysql8001.site4now.net`. Los fixtures `laplatense_qa_l1..l6` y
-  `laplatense_qa_d9` de los otros lotes no se tocaron.
-- **La guarda del arnés se corrió, no se asumió**: apuntado a `laplatense_dev`, a `laplatense_qa_l1` y a
-  `mysql8001.site4now.net` **aborta antes de abrir la conexión** en los tres casos. (Efecto colateral: la
-  guarda rechaza cualquier base que matchee `laplatense_qa`, así que el clon pedido en el brief
-  —`laplatense_qa_hotfix`— **no sirve para correr el arnés**; de ahí el nombre `laplatense_gate_*`.)
-
-## Cobertura por criterio (PASS / FAIL / BLOCKED)
-
-| # | Criterio | Estado | Evidencia observada |
-|---|---|---|---|
-| 1 | N llamadas simultáneas por conexiones separadas → **un** efecto, en los 5 sitios, con N=3 y N=8 | **PASS** | Arnés **82/82 OK**, corrido **4 veces** (corridas propias, no las del implementador). Confirmar N=3/N=8: 1 éxito, caja $1.420, CC $1.000, stock 98. Facturar: 1 éxito y **AFIP invocado 1 sola vez**. Cobro CC: saldo exacto $0, 1 crédito, $1.000 de caja. Gasto: 2 movimientos, neto $0. Cancelar vs confirmar N=4/N=8: 1 ganador, invariante respetado |
-| 2 | **El arnés corrido contra el código roto detecta las fallas** | **PASS** | Control independiente sobre `laplatense_gate_broken`: **42 OK / 40 FALLADAS**, exit 1. Importes reproducidos al centavo: cobro N=8 → **saldo −$7.000, 8 créditos, $8.000 de caja**; N=3 → **−$2.000, $3.000**; gasto N=8 → **9 movimientos, neto +$3.500**; facturar N=8 → **8 invocaciones a AFIP**; confirmar N=8 → $2.840 de caja y $2.000 de CC; cancelar → `borrada=True` **con** caja=1, cc=1, stock=98 |
-| 3 | Sin regresión en el camino secuencial, con los mismos importes | **PASS** | Criterio 3 del arnés (8 afirmaciones) **pasa idéntico en el código roto y en el arreglado**: total $2.420, caja $1.420 (el pago en CC no va a caja), CC $1.000, stock 98. Mismos números en los dos ⇒ el camino secuencial no cambió |
-| 4 | Confirmar una venta ya confirmada, cobrar sin deuda y anular un gasto ya anulado siguen siendo rechazos explícitos | **PASS** | `4.1` "La venta no está en estado Borrador: no se puede confirmar." + `4.2` el rechazo **no escribió nada** (caja=1 cc=1 stock=98). `6.7` "El cliente no tiene deuda pendiente en su cuenta corriente." `7.5` "Este gasto ya está anulado." Y dos rechazos **nuevos** que el fix agrega: "Este borrador de venta ya está cancelado." y "La venta fue cancelada: no se puede confirmar/facturar." |
-| 5 | Nada queda a medio aplicar si una escritura falla — **verificar la afirmación, no aceptarla** | **PASS** | **La afirmación es cierta.** El criterio 2 del arnés (inyección de falla en el INSERT de caja) da las **7 afirmaciones OK idénticas con y sin el fix**: venta en Borrador, 0 caja, 0 CC, stock 100, y el reintento posterior deja **un solo** cierre. La atomicidad la daba el `SaveChanges` único + la transacción implícita de EF, **no** el hotfix. Mérito correctamente atribuido en el comentario del código |
-| 6 | El diff se entiende de una sola pasada | **PASS** | 1.126 líneas de diff, de las cuales **32 son código productivo** (27 en `VentaWorkflowService` incluyendo el helper, 3 en `GastoService`, 2 en `CuentaCorrienteClienteService`) + 3 constantes en `BloqueoDeFila` + 755 del arnés. El resto son comentarios, y **los comentarios dicen la verdad**: las 2 afirmaciones centrales se verificaron por mutación (abajo). Sin migración EF — `__EFMigrationsHistory` de la rama = 8, igual que producción |
-
-## Lo que el brief pidió mirar: verificado por **mutación**, no por lectura
-
-La pregunta era si `RelerEstadoBajoLockAsync` **realmente relee bajo lock en los tres métodos** o si hay
-algún camino donde la relectura sea decorativa. Se construyeron dos mutantes del árbol arreglado y se les
-corrió el mismo arnés. Si el arnés sigue verde con la relectura rota, la garantía era una ilusión.
-
-| Mutante | Qué se rompió | Resultado | Qué prueba |
-|---|---|---|---|
-| **M3** | La relectura **ocurre** pero se devuelven los valores de la entidad cargada **antes** del lock (relectura decorativa) | **58 OK / 24 FALLADAS** — rompe `1.x` (confirmar: 3 de 3 éxitos, **$4.260** de caja), `5.x` (facturar: **8 invocaciones a AFIP**) y `8.x` (cancelar) | La relectura es **portante en los tres métodos**. El lock solo **no alcanza**: con el lock puesto y la lectura vieja, la plata se duplica igual |
-| **M1** | Se quitó `IgnoreQueryFilters()` (se deja la proyección) | **78 OK / 4 FALLADAS**, exactamente el invariante de `8.x`: 8 ganadores de 8, `borrada=True` **con** caja=4, cc=4, stock=92 | La segunda afirmación invisible es cierta: sin `IgnoreQueryFilters` la relectura **no ve** la fila que el soft delete esconde y **parece hecha sin releer** |
-
-**Conclusión: no quedó ningún camino decorativo en los tres métodos del workflow.** Las dos razones que el
-implementador dio por las que el patrón mecánico falló son reales y están cerradas.
-
-## Las tres decisiones que el brief pidió juzgar
-
-1. **`ReloadAsync` en `GastoService` (asimetría deliberada) — correcta.** `IGastoService` expone sólo
-   `ListarAsync`/`CrearAsync`/`AnularAsync`/`ObtenerGastosMesPorCategoriaAsync`: **no hay baja de gastos**.
-   Barrido del repo completo: el único uso de `_gastoRepository` es el `AddAsync` del alta y **nadie
-   escribe `Gasto.DeletedAt`**. `Anulado` es columna normal y `ReloadAsync` sí la ve. Verificado, no aceptado.
-2. **Bloquear el *cliente* y no un documento en `RegistrarCobroAsync` — correcta, y la granularidad es la
-   declarada.** Ensayado con dos sesiones MySQL reales sobre el mismo SQL que emite el helper:
-   **mismo cliente → bloquea** (timeout de lock a los 3.271 ms); **clientes distintos → paso libre**
-   (234 ms); **id inexistente → paso libre** (199 ms). Serializa lo que tiene que serializar y **no
-   serializa de más**. El saldo es un agregado del ledger sin fila propia: bloquear al dueño es el
-   equivalente correcto, y la relectura es volver a correr `ObtenerSaldoAsync` ya bajo el lock.
-3. **No portar `EsReversion` y revertir por el monto del documento — correcta.** Confirmado que
-   `EsReversion` **no existe en ninguna parte de la rama** (0 apariciones fuera del comentario que la
-   explica). Y el criterio coincide con **`MH-036`** del catálogo, que es justamente la regla de preferir
-   el **monto del documento** por sobre "la suma del ledger hermano". La alternativa descartada (inferir
-   la reversión por el signo) habría sido una regla nueva disfrazada de port.
-
-## Máquina de estados (`EstadoVenta`: Borrador=1, Facturada=2, Anulada=3, Confirmada=4)
-
-| Transición | Estado | Evidencia |
+| # | Criterio | Veredicto |
 |---|---|---|
-| Borrador → Confirmada | **PASS** | Secuencial y con N=3/N=8 concurrentes: exactamente una |
-| Confirmada → Facturada | **PASS** | Una sola, con **una** invocación a AFIP (doble de AFIP que cuenta llamadas) |
-| Borrador → cancelada (`DeletedAt`, **sin** tocar `Estado`) | **PASS** | La segunda cancelación se rechaza con mensaje propio; el invariante "nunca borrada **con** plata movida" se sostiene en N=4 y N=8 |
-| Borrador ⇄ cancelación, carrera cruzada | **PASS** | Un solo ganador; **el ganador es legítimamente no determinista** (en mis 4 corridas ganó confirmar con N=4 y cancelar con N=8) y el estado final queda coherente con el ganador en los dos sentidos |
-| → Anulada | **N/A** | `EstadoVenta.Anulada` existe en el enum pero **`IVentaWorkflowService` no expone `AnularAsync`**: la transición no está implementada en la rama publicada |
+| 1 | **Facturación parcial por navegador**, el modo de falla total | **PASS** |
+| 2 | `ArnesNotaCredito` re-medido por QA | **PASS** (63/0, `git diff` vacío) |
+| 3 | Los tres controles con par discriminante | **PASS** |
+| 4 | Auditoría de las 15 afirmaciones retiradas | **FAIL en 1 de 15** → `LP-128` |
+| 5 | Perímetro real de POST que escriben plata | **FAIL**: son **28**, no 23 |
+| 6 | ¿El verificador protege contra el olvido? | **FAIL en lo que importa** → `LP-126`, `LP-127` |
+| 7 | Migración aditiva | **PASS** (cola de prod: 12 → **13**) |
+| 8 | No-regresión de los 10 cerrados | **PASS**, 6 líneas base verdes |
+| 9 | Retención de tokens | **PASS** |
+
+**El criterio 1 era el que más preocupaba y se midió como correspondía: con Chromium real, SweetAlert2 real y doble clic real**, no por HTTP. Importaba porque **el filtro falla cerrado**: si el token no llegara al formulario, la pantalla rechazaría **toda** emisión — una caída total de la función, peor que el defecto original, y **ningún arnés la cubre**. Resultado: 1 de 3 unidades emite correctamente, 2 POST paralelos más 1 en serie con el mismo token dan **delta exactamente 1**, recargar (token nuevo) y emitir da 2 y después 3 hasta igualar lo vendido, y un POST sin token da 0 emisiones con cartel de rechazo. **La pantalla no está muerta.**
+
+**El par discriminante del criterio 3 es el que prueba que el problema se resolvió y no se movió:** mismos bytes de negocio, **sólo cambia el token** → **emiten los dos**. Eso es exactamente lo que ninguna clave derivada del payload podía hacer.
+
+## Los dos `major` son del instrumento, no del sistema — y es la distinción que decide qué sigue
+
+- **`LP-127` `major` — el verificador de perímetro repite el error que esta ronda vino a corregir.** Enumera por **una lista a mano de 7 entidades y una sola forma de escritura**: un `new CierreCajaDiario` (entidad no listada) y una escritura **por SQL crudo** **no los detecta, exit 0**. Es la forma del bloque `MISMA FORMA, SIN TOCAR` —una lista a mano que envejece— aplicada al instrumento que debía protegernos precisamente de eso.
+- **`LP-126` `major` — el chequeo del cableado está inerte en un build normal y aun así imprime *"el cableado del helper esta bien"***. Un verde falso en el único chequeo del modo de falla total.
+- **`LP-125` `minor` — el token no nace atado a la acción.** Un token **fresco** del `<form>` de logout, posteado a `Emitir`, **emite**: `RutaAccion` sólo rechaza post-consumo. Y el XML-doc afirma lo contrario, que es la familia `LP-044`/`LP-045`/`LP-051` otra vez.
+- **`LP-128` `minor`** — de las 15 retiradas, 14 están bien clasificadas y **la vieja `9.10` perdió cobertura**.
+
+**Por qué esta distinción importa:** los dos `major` **no bloquean el merge de la fase 1** —el mecanismo está medido y funciona— **pero bloquean confiar en el verificador como gate de la fase 2**, que es el único trabajo que queda de esta familia. Arreglar el instrumento antes de tocar los 6 sitios restantes no es prolijidad: es la lección de `LP-114`/`LP-117`/`LP-121` aplicada.
+
+## El perímetro: 28, y 13 sitios que nunca se evaluaron
+
+El implementador declaró **23** POST que escriben plata (contra los 13 que la ronda conocía) y **13 de ellos como "SIN EVALUAR"**: sin parte de defecto y sin medición, nunca. QA enumeró de forma independiente y encontró **28**. Los 5 que faltaban: **`Caja/CerrarDia` y `Caja/CerrarMes`** —que crean `CierreCajaDiario`/`Mensual` con `Saldo`/`TotalIngresos`/`TotalEgresos` y **no** crean `CajaMovimiento`, que es exactamente por qué el detector no los veía—, `AumentoMasivoPrecios/Aplicar`, `Presupuestos/ConvertirAVenta` y `Ventas/GuardarBorrador`. **Ni cubiertos ni declarados.**
+
+**Y una corrección al orden de riesgo, medida:** el implementador declaró `Ventas/Facturar` como *"el que más necesita el token"* y es **el menos urgente** de los cuatro de forma peligrosa conocida — deriva sus líneas del pendiente, así que el segundo submit no tiene nada que facturar (1 comprobante en serie y en paralelo). `Gastos/Anular` está protegido **a propósito** (lee `gasto.Anulado` dentro de la transacción, después del lock) y `CCEmpleado/Revertir` tiene una clave natural **buena**, porque usa la identidad del movimiento revertido y no un monto. `OrdenesCompra/RevertirPago` quedó BLOCKED por falta de órdenes en el clon.
+
+## Dos hallazgos de método que valen para todo el estudio
+
+1. **Una renumeración vuelve inauditable una retirada.** QA tuvo que auditar las 15 afirmaciones **por texto y no por id**, porque la renumeración dejó `9.3`–`9.7` y `9.9` existiendo en las dos versiones **con sentidos distintos**. Retirar afirmaciones con una explicación razonable es la forma más limpia de que la cobertura desaparezca sin que nadie lo note, y renumerar al mismo tiempo elimina la única forma barata de controlarlo.
+2. **La trampa del `copy2`, que ya subió a la instrucción 33 del estudio.** Restaurar un archivo mutado con una copia que **preserva el mtime** hace que MSBuild no recompile: **el mutante sigue vivo en la DLL y el chequeo de `md5` del fuente pasa en verde**. Es la única falla de la ronda que el control de integridad recomendado **no detecta**, y es peor que las otras porque aparece al limpiar y contamina las mediciones **siguientes**. QA verificó que no afectó ninguna de las suyas, y **por una razón estructural y no por suerte**: su verificación es análisis estático sobre los `.cs`, sin DLL en el circuito. Lo que sí la mordió fue su propia versión: su primer mutante usó una convención de nombres que el verificador no pudo resolver, el POST quedó invisible, y estuvo **a un paso de publicar que el verificador no detecta el olvido ni en el caso fácil**.
+
+## CIERRE DE LA FASE 1 — 2026-10-09, commit `46da1c2`: **QA la declara CERRABLE.** 7 PASS, 1 parcial
+
+El pase que arregló el gate cerró los cuatro defectos que la re-verificación había abierto, y la verificación final midió lo único que nadie había podido medir.
+
+- **`LP-125`, `LP-126`, `LP-127`, `LP-128`: CERRADOS**, cada uno con par discriminante.
+- **El criterio que decidía, PASÓ y se midió como correspondía:** navegador real, **misma sesión, misma URL, la misma lista de bytes de negocio congelada**, cambiando sólo el token. Positivo (token propio del form) → emite, con su comprobante en la base. Negativo (token **fresco** del `<form>` de logout) → rechazado **antes de reservar**, con **cero filas** en `SubmitsProcesados`. **No es `M21`: la pantalla no rechaza todo.** El doble clic real por pantalla también entra una sola vez: 3 emisiones = 3 filas de token, y los dos rechazados no dejaron ninguna.
+- **El gate dejó de ser una lista disfrazada, y se probó agregándole trabajo nuevo:** QA creó en su copia una entidad de dominio nueva con un `decimal` más un POST que la escribe, **sin declararla en ninguna parte**, y el detector **la encontró y falló**. El perímetro base re-medido de forma independiente coincide: **35 POST, 27 entidades, 1 cubierto + 34 declarados**. La guarda de derivación en 0 probada con una mutación **semánticamente nula** (`decimal` → `Decimal`, que compila): **aborta con exit 2**, no sale 0.
+- **Las dos clasificaciones nuevas, verificadas, y las dos corrigen un instinto.** `AumentoMasivoPrecios/Aplicar` **es idempotente por construcción**: la huella de los precios de 112.486 productos es **idéntica** tras la segunda aplicación, con el control que prueba que la primera sí cambió precios (33.451 suben / 22.188 bajan); lo que duplica es **la fila de auditoría** (`LP-132` `minor`: el segundo aviso sale en **verde** diciendo "Se actualizaron 112.071 producto(s)" cuando su propio preview dice `suben=0 bajan=0`). Y en el **segundo cierre de caja**, con 4 sesiones independientes simultáneas, 1 gana y los 3 perdedores leen *"La caja de ese día ya fue cerrada."* — **castellano limpio, cero texto crudo de EF, cero 500: `LP-116` no reaparece**, y el índice nunca contesta porque lo ataja el candado de `LP-037` con relectura.
+- **`Presupuestos/ConvertirAVenta`, el de mayor impacto aparente del grupo sin evaluar: está protegido.** En serie, 3 POST → 1 venta y los dos siguientes avisan con el número de la venta ya creada; en paralelo, 4 simultáneos → 1 gana y exactamente 1 venta apunta al presupuesto.
+
+### El hallazgo más caro de la verificación final: `LP-133` `major`, y es de deploy
+
+**La huella del token se calcula de DOS fuentes distintas** —el `action` del form por un lado y `Request.Path` por el otro— **y cualquier cosa que las haga diferir rompe todo en silencio, porque falla cerrado.** Medido: con `app.UsePathBase("/laplatense")`, que es la forma de sub-aplicación de IIS, el `action` lleva el prefijo y `Request.Path` no, y **el formulario posteado con SU PROPIO token se rechaza** (comprobantes 4→4, `SubmitsProcesados` 5→5). **Es `M21` disparado por el deploy**, y ni los arneses ni el verificador lo ven porque corren sin PathBase.
+
+**Verificado por el orquestador contra la configuración real: hoy NO aplica.** El código **no usa `UsePathBase`** (QA lo agregó para provocar el caso) y el deploy apunta a `msdeploySite="olvidatasoft-002-site17"`, un sitio propio con `AllowedHosts` en el dominio raíz — **no una carpeta virtual**. Queda como **condición de deploy**: confirmar que el sitio va a la raíz de su dominio, o derivar las dos huellas de la misma fuente.
+
+### Los dos `major` que quedan abiertos del gate, y por qué no bloquean el merge
+
+- **`LP-129`** — la clave de escritores sale del **nombre del archivo**: dos clases de Service en un mismo archivo dejan el POST **invisible**. Latente hoy (el único caso real no escribe), y se vuelve visible con sólo partir una clase a su propio archivo, **sin tocar código**.
+- **`LP-130`** — un POST que escribe la entidad **directo desde el Controller** nunca entra al perímetro, y ese límite **no estaba** en los "límites reales" declarados.
+- **`LP-131` `minor`** — el encabezado "CÓMO MIDE" sigue describiendo los dos mecanismos ya retirados (la lista de 5 entidades y el "si existe el Razor generado"). Es la familia `LP-044`/`LP-045`/`LP-051`: un comentario que afirma algo falso sobre su propio archivo.
+
+**Ninguno tiene instancia viva**, así que no bloquean el merge de la fase 1. **Sí bloquean apoyarse en el gate para dar la fase 2 por enumerada**, que es su único propósito.
+
+### Estado final de la fase 1
+
+**Mergeable y commiteada (`46da1c2`).** El patrón entró al catálogo del estudio como **`PAT-065`** —recién ahora, con código entregado, ruta real y medición— con sus seis decisiones, su `cuando_no_usar` (no sirve para un cliente que reenvía sin pedir el formulario, y **no es una credencial**: QA fabricó una huella a mano y verificó que **no compra nada**, porque los topes, el `UsuarioId` y los locks siguen corriendo detrás) y los dos modos de falla total que sólo aparecen midiendo.
+
+**Lo que queda de esta familia:** la **fase 2** —los 6 sitios restantes y el retiro gradual de las claves naturales, cada retiro con su re-verificación— con `LP-129`/`LP-130` arreglados primero, porque son el gate. Más los **12 POST del grupo D que siguen sin evaluar**.
+
+## Riesgos de liberación
+
+1. **El gate de la fase 2 no es confiable** (`LP-126`, `LP-127`). Es lo único que bloquea seguir.
+2. **13 sitios sin evaluar nunca**, y 5 recién descubiertos sin declarar — incluidos los dos cierres de caja, que escriben los totales del arqueo.
+3. **Primera migración de toda la ronda**: la cola de producción pasa de 12 a **13 pendientes**.
+4. **Condición de orden de deploy, verificada contra producción:** prod tiene **0 ventas, 29 tablas y la tabla `ComprobantesAfip` NO EXISTE** (llega con una de las pendientes). Así que el riesgo de la factura duplicada e irrecuperable **no pudo materializarse** y **no hace falta script de saneamiento**. Lo que sí hace falta: **no deployar las migraciones pendientes antes de que el token esté puesto y verificado**, porque traen la tabla y abren la ventana.
+
+## Checklist de salida
+
+- [x] El criterio que no se puede falsear: `ArnesNotaCredito` 63/0 **sin que nadie toque el arnés**, re-medido por QA
+- [x] Facturación parcial por navegador real: la pantalla funciona y el filtro falla cerrado sin matarla
+- [x] Par discriminante del mecanismo: mismo payload y distinto token **emiten los dos**
+- [x] Locks de `PAT-059` intactos y ahora medidos
+- [x] Migración aditiva reversible; 6 líneas base verdes con md5 de DLL verificados antes de correr
+- [x] La trampa del `copy2` subida a la instrucción 33 del estudio
+- [ ] **`LP-126` + `LP-127`: el gate de la fase 2, sin arreglar — bloquea la fase 2, no el merge de la fase 1**
+- [ ] `LP-125` (token no atado a la acción en la emisión) y `LP-128` (cobertura perdida), sin arreglar
+- [ ] Los 5 sitios nuevos sin declarar y los 13 sin evaluar: alcance a decidir
+- [ ] Fase 2: los 6 sitios restantes y el retiro de las claves naturales, **cada retiro con su re-verificación**
+- [ ] El patrón al catálogo del estudio, **recién cuando la fase 1 cierre** (no se publica un patrón sin código entregado)
+---
+
+# Lote 1 de fixes de la ronda — guardas transaccionales y revocación de acceso — 2 pases de implementación y 2 re-verificaciones independientes (2026-10-08, rama `entrega-1-migracion`, sin commitear)
+
+## **9 defectos CERRADOS con par discriminante. Y la ronda NO se libera, porque hacer la enumeración bien destapó SIETE sitios más de la misma familia, uno `critical` y fiscal.** Los 6 del lote original (`LP-088` `critical`, `LP-106` `high`, `LP-095`, `LP-064`, `LP-082`, `LP-093`) cerraron, más los 3 que la re-verificación del pase 1 abrió (`LP-114`, `LP-115`, `LP-116`). **Pero el saldo de la familia de idempotencia empeoró, no mejoró**: arrancó con 6 sitios conocidos y hoy tiene **7 abiertos** (`LP-112`, `LP-113`, `LP-117`, `LP-118`, `LP-119`, `LP-120`, `LP-121`), y el peor es nuevo: **`LP-119` `critical` — un doble clic en facturación parcial emite DOS comprobantes AFIP, y el remedio (la nota de crédito) también duplica (`LP-120`).** La conclusión operativa de este lote no es "faltan 7 parches": es que **arreglar sitio por sitio ya produjo una regresión y dos huecos en el mecanismo nuevo**, y eso es un dato sobre el método, no sobre el cuidado de quien lo hizo.
+
+## Cómo se corrió
+
+Dos pases de implementación (el primero cortado por un límite de sesión de la API a mitad de escribir su arnés, retomado con su contexto intacto) y **dos re-verificaciones independientes**, en contextos limpios, con el contrato de la 30: el implementador describe, QA mide, **y ningún defecto lo cierra quien lo arregló**. Nada commiteado: los fixes viven en el working tree y las dos re-verificaciones los midieron ahí. **Cero migraciones en los dos pases** — la cola de producción sigue en 12 pendientes.
+
+## Las 6 guardas del pase 1, con su costo declarado y su veredicto
+
+| Defecto | Guarda | Costo declarado | Veredicto |
+|---|---|---|---|
+| `LP-088` `critical` | lock de `OrdenesCompra` + relectura de estado + **saldos releídos dentro de la transacción** | ninguno: cambió *cuándo* se lee, no qué se decide | **CERRADO** |
+| `LP-095` `major` | clave natural **por línea y con multiplicidad** | dos líneas de pago legítimamente iguales **sin nota** colapsan | **CERRADO** |
+| `LP-064` `major` | clave de 6 campos, **serializada por el candado del período** (un gasto no tiene dueño que bloquear) | dos fletes de $8.000 el mismo día con igual descripción | **CERRADO** |
+| `LP-082` `major` | `BloquearUsuarioAsync` (nuevo, PK string) + clave natural, en los dos caminos | dos movimientos idénticos el mismo día | **CERRADO** |
+| `LP-093` `major` | transacción (no tenía) + `BloquearAsync(Proveedores)` + clave natural | dos ajustes idénticos el mismo día | **CERRADO** |
+| `LP-106` `high` | **las dos mitades**: rotar el stamp al togglear + chequear `Estado` en `OnValidatePrincipal`, **chaineado y no reemplazado** | una consulta por PK por request | **CERRADO** |
+
+**`LP-106` es el que más importaba y se midió con el rigor que correspondía**, en las dos mitades por separado y aisladas: con el stamp rotado por SQL y `Estado=1`, a t=0 escribe y a t=330s da **302 a Login con 0 filas**; con `Estado=2` por SQL y el stamp intacto, **302 y 0 filas**, y al revertir `Estado=1` con la misma cookie vuelve a escribir — o sea que el rechazo lo causa `Estado` y nada más. El chaineo verificado: el cambio de password sigue rotando el stamp y matando la cookie vieja, así que **el `SecurityStampValidator` sigue vivo**. Y el control positivo: superusuario y víctima activa trabajan normal. **Con esto el sistema puede revocar un acceso, que antes no podía.** (Nota de honestidad del propio QA: su control de "antes escribía" dio 200 por `ModelState` y no probó la escritura en una de las corridas; lo declaró en vez de dejarlo pasar.)
+
+## El escenario de `LP-088` se auto-invalidó, y conviene que quede escrito
+
+Con `LP-095` arreglado, los "3 POST idénticos de $300.000" del parte original **son un doble submit**: la idempotencia los absorbe y los tres contestan éxito. **Medido: la letra del parte da `pagos=1` tanto con el código sano como sobre el mutante roto — no discrimina.** QA diseñó el escenario que sí discrimina (3 POST paralelos con **notas distintas**, 300k cada uno sobre una orden de 400k): entra **1 pago / 1 caja / 1 CC** y dos rechazos nombrando el saldo en castellano, con el control positivo de que 150k+150k **siguen entrando los dos**. Una guarda que rechaza todo también da "0 excesos", así que ese control no es opcional.
+
+**Regla que sale de esto, y es nueva:** cuando se arregla más de un defecto sobre el mismo endpoint, **el criterio de re-verificación del segundo puede quedar invalidado por el fix del primero**. Un parte guarda un escenario, y un escenario envejece. Antes de correr la letra de un criterio viejo hay que preguntarse si todavía discrimina — y la forma de saberlo es correrlo **también sobre el mutante**: si da verde en los dos, no mide nada.
+
+## `LP-114` — la regresión del propio fix, y la forma de baja que faltaba
+
+**El pase 1 bloqueó el pago de un adelanto.** La secuencia **registrar → revertir → re-registrar el mismo día** quedaba rechazada, **con ícono de ÉXITO**, diciendo *"ya estaba registrado… Saldo actual: $ 0,00"*: el adelanto no entraba, **el empleado no cobraba**, y el operador leía verde y se iba.
+
+**La causa es una asimetría de dominio que no se ve leyendo el código de un solo sitio.** En los otros tres la baja vive **en la fila vieja** (`Estado=Revertido` en pago, flag `Anulado` en gasto, soft delete en CC-cliente) y la clave natural sola alcanza. En CC-empleado, `RevertirMovimientoAsync` postea un **contramovimiento** y deja el original intacto con `EsReversion = false`: es **la única familia donde "¿está vivo?" no se responde mirando la fila**. El fix cuenta el candidato sólo si su **neto vivo ≠ 0**, reusando `ObtenerNetoVivoAsync` para no tener un segundo contador del mismo número — y de paso cubre la reversión parcial. Queda declarada en el comentario, que es lo que importa para la próxima.
+
+**Cerrado con par discriminante en las dos direcciones:** re-registrar deja Id nuevo, `EsAviso=False`, **2 movimientos de alta / 2 egresos / 1 ingreso de reversión**; y el control positivo que impide el fix fácil — 3 POST del movimiento **vivo** siguen dejando 1 fila, con el 2.º y 3.º devolviendo el Id del 1.º. Los dos mutantes (`M12`, que vuelve al bug, y `M13`, que abre la guarda del todo y reabre `LP-082`) **tumban los dos la misma afirmación**, que es la que exige que el doble submit del movimiento vivo siga colapsando.
+
+## `LP-115` — el arnés tenía razón, y no tocarlo fue la decisión difícil
+
+El fix del pase 1 hizo caer `ArnesReconciliacionTx` de 153/153 a **152/153**. La salida cómoda era actualizar la afirmación "con justificación escrita". **No se hizo, y fue correcto:** el escenario 16 corre `foreach (n in {3,8})` y siembra las dos veces con la **misma clave natural** (el `Motivo` es una constante, sin `n` adentro), así que la siembra de `N=8` colapsaba contra el movimiento de `N=3` ya revertido y las 8 reversiones fallaban. **`LP-114` y `LP-115` eran el mismo defecto por dos lados**, y actualizar la afirmación habría tapado justo lo que bloqueaba el merge. Con el fix vuelve a **153/153 y exit 0 sin un solo cambio en el instrumento** — verificado por QA con `git diff -- tools/` vacío y con un mutante propio que tumba **exactamente** `16.1/N=8`. La tesis quedó **medida, no declarada**.
+
+**Regla:** cuando un fix hace caer un arnés, las dos lecturas posibles no valen lo mismo. "La afirmación quedó vieja" es la cómoda y "el arnés detectó algo" es la que hay que descartar primero, porque el costo de equivocarse es tapar el defecto con el instrumento que lo encontró.
+
+## El mecanismo nuevo de aviso, y los dos huecos que abrió
+
+El costo de `LP-064` y `LP-095` lo midió QA y su juicio de negocio fue que **el de `LP-064` es alto**: dos fletes de $8.000 el mismo día con igual descripción es rutina en una ferretería (dos viajes del mismo flete, mismo precio, descripción "flete"), y **el problema real no es el bloqueo sino el ícono de éxito** — la operación no entra y nadie se entera. La salida elegida no fue sacar la guarda: se agregó un tercer resultado, `ServiceResult.CreateAviso` + bandera `EsAviso`, con `TempData["WarningMessage"]`, `icon: 'warning'` y título *"No se registró de nuevo"*. **Verificado por navegador**: diálogo visible, `.swal2-icon.swal2-warning`, cero `icon:'success'`, y el par discriminante de que con descripción nueva vuelve a `swal2-success`.
+
+**Pero `CreateAviso` deja `Success` en `true` a propósito** ("la operación no falló, y los callers que sólo miran `Success` siguen igual"). Eso es defendible y **crea un lector nuevo del contrato**, que es exactamente la forma de `LP-076` aplicada a un resultado en vez de a una regla. La enumeración de callers —hecha por **injection sites de las 4 interfaces, no por nombre de método**— encontró **2 huecos sobre 8 callers**:
+
+| Caller | Qué hace con el resultado | Veredicto |
+|---|---|---|
+| `CCEmpleadoController`, `GastosController`, `ProveedoresController` | sólo muestran, mapean `EsAviso` | seguros |
+| `OrdenesCompraController:390` | redirige por `vm.OrdenCompraId`, no por el Id del resultado | seguro |
+| **`PlanEcheqService:199`** | lee sólo `!Success`, **descarta `EsAviso`**, encadena `ObtenerSaldosAsync` y arma su propio `CreateSuccess` con `EcheqsGenerados = input.Lineas.Count` | **`LP-117` `major`** |
+| **`ClientesController:264`** | el service **ni emite** el aviso: colapsa con `CreateSuccess` | **`LP-121` `minor`** |
+
+`LP-117` medido: con un plan de 3 echeqs ya cargado, recargarlo con **números nuevos** deja **0 filas nuevas** y la pantalla dice, en verde, *"Plan de 3 echeq(s) generado por $ 300.000,00"*. Y lo que **no** rompió, también medido: cero `switch` exhaustivo sobre `ServiceResult` en el repo, el JS consumidor lee sólo `.success`/`.message` (así que `esAviso` es aditivo), y ningún endpoint `Json(result)` está en un camino que pueda devolver el aviso.
+
+## `LP-116` — cerrado, y la guarda no quedó demasiado ancha
+
+Mensaje de negocio en castellano que **nombra el CUIT**, matcheando **por nombre de índice y no por el error 1062** (el número dice que hay duplicado pero no de qué, y los dos índices necesitan mensajes distintos). Par discriminante del `when(...)`: un `CHECK` inyectado produce una `DbUpdateException` de otra naturaleza y **sigue al catch genérico sin afirmar una causa falsa**. Nombre y CUIT dan mensajes **distintos**. Hallazgo de método del propio QA: **el catch sólo se alcanza por la carrera** —en serie frena la pre-validación con el mensaje viejo—, y eso le había dado un falso verde en su primera corrida.
+
+## El trío que estuvo BLOCKED dos veces: los tres duplican
+
+Era la categoría "A con residual" que el implementador declaró y que dos corridas dejaron sin medir por falta de fixture. **Armado el fixture (borrador → pago exacto → confirmar), los 2 POST idénticos PARCIALES en serie duplican en los tres, reproducido en dos corridas:**
+
+- **`LP-119` `critical`** — facturación parcial: **2 comprobantes AFIP**. Camino fiscal: un doble clic emite dos facturas, y la única salida es una nota de crédito que **también duplica**.
+- **`LP-120` `major`** — nota de crédito: 2 notas, **$1.210 por un pedido de $605**.
+- **`LP-118` `major`** — devolución: 2 devoluciones, 2 unidades de stock, **$2.000 de caja por 1 unidad**.
+
+Los seis resultados vuelven `Success=True, EsAviso=False`. La guarda de residual **acota el daño al remanente pero no impide el duplicado**. Y el dato que explica por qué nadie lo veía: **los arneses de esos tres sitios están verdes y no cubren el submit parcial.**
+
+## Estado de la familia de idempotencia, que es el entregable de este lote
+
+**Arreglados y cerrados (6):** alta de gasto, adelanto de CC empleado (los dos caminos), ajuste de CC proveedor, alta de pago a proveedor, el tope de pago sin lock, y la revocación de acceso.
+
+**Abiertos (7):** `LP-112` ajuste manual de caja · `LP-113` divergencia campo/ledger en `ProveedorService.EditarAsync` (QA corrigió el diagnóstico del implementador: la causa es `cambioElSaldoInicial` leído **antes** de la transacción, no el neto vivo) · `LP-117` el hueco del aviso en el plan de echeqs · `LP-118` devolución · **`LP-119` facturación parcial, `critical` y fiscal** · `LP-120` nota de crédito · `LP-121` CC cliente colapsa sin avisar.
+
+**Y un sitio que está bien por accidente:** `ProveedorService.CrearAsync` depende de 2 índices únicos sin declararlo — con índice deja 1 fila, sin índice deja 3 en paralelo. La dependencia quedó declarada en el call site; no se le agregó lock porque el dueño del nombre y del CUIT es la tabla entera, así que **la solución correcta es el índice**.
+
+**El bloque `MISMA FORMA, SIN TOCAR` se rehízo por enumeración** (15 archivos, ~35 métodos) con el criterio de regeneración escrito al lado, y **QA verificó que el criterio es ejecutable**: lo volvió a correr y el grep devuelve exactamente los 15 archivos que declara. Eso es lo que impide que la lista vuelva a envejecer.
+
+## Lo que este lote dice sobre el método, y la recomendación
+
+Nueve defectos cerrados con evidencia es un buen resultado. Pero en el camino, **arreglar sitio por sitio produjo una regresión que bloqueaba el pago de un sueldo (`LP-114`) y dos huecos en el mecanismo que se creó para arreglarlo (`LP-117`, `LP-121`)**, y la enumeración honesta descubrió que la familia era el doble de grande de lo que parecía, con un `critical` fiscal adentro. Eso no es falta de cuidado: es lo que pasa cuando **la misma invariante se re-implementa una vez por sitio**, con una forma de baja distinta en cada familia y un contrato de resultado que cada caller interpreta a su manera.
+
+**Recomendación, que es una decisión de arquitectura y no de implementación:** antes de escribir siete parches más, evaluar una solución **estructural** para "este POST ya se procesó" —un token de submit por formulario, o un decorador de idempotencia sobre los Services que escriben plata— contra el costo de seguir sitio por sitio. Los siete abiertos son la oportunidad de decidirlo con datos en la mano. **Queda para el arquitecto (etapa 3); no se implementa nada más de esta familia hasta que esa decisión esté tomada.** `LP-119` es la excepción: es `critical`, es fiscal, y no espera.
+
+## Riesgos de liberación
+
+1. **`LP-119` `critical`.** Un doble clic emite dos comprobantes AFIP con CAE y el remedio duplica. **No se libera el lote sin los tres del trío.**
+2. **Los 7 abiertos de la familia** siguen duplicando plata en producción el día que esos módulos se usen.
+3. **`LP-108` sigue como riesgo aceptado por decisión del cliente** (ver la sección de esa decisión). `LP-106` cerrado **baja** ese riesgo de *no revocable* a *revocable con intervención*, que era el objetivo de incluirlo.
+4. **Nada está commiteado.** Los fixes viven en el working tree; si alguien hace `git checkout` se pierden los dos pases.
+5. Cero migraciones en los dos pases, confirmado dos veces: **la cola de producción sigue en 12 pendientes** y este lote no la mueve.
+
+## Trampas de medición declaradas en estos dos pases
+
+Las de QA, que son las que casi produjeron veredictos falsos: contar `CajaMovimientos` sin mirar la dirección (la reversión escribe su ingreso con el `OrigenId` del original, así que daba 3 donde esperaba 2); el signo del neto de un Adelanto es negativo y el contramovimiento sembrado iba con el `Tipo` equivocado; `offsetParent` es `null` en un `position: fixed`, lo que da "diálogo invisible" sobre un diálogo visible; una assertion que buscaba una subcadena **compartida por el mensaje viejo y el nuevo**, que dio falso verde hasta forzar la carrera; `last_insert_id()` no sirve para sembrar porque cada `mysql -e` es una conexión nueva; un mutante por árbol, porque el proceso vivo bloquea el DLL; y un `nohup` huérfano que cambió la password de la víctima antes del test de chaineo e hizo parecer defecto del sistema lo que era basura propia. Del lado del implementador: el primer mutante del lock de `OrdenesCompra` **no mató nada**, y recién un mutante dirigido al pago **programado** demostró que el lock es portante ahí.
+
+## Checklist de salida
+
+- [x] Los 6 defectos del lote original cerrados con par discriminante y control positivo
+- [x] `LP-114` (regresión propia), `LP-115` (el arnés tenía razón) y `LP-116` cerrados
+- [x] `LP-106`: el sistema puede revocar un acceso, medido en las dos mitades por separado
+- [x] El bloque `MISMA FORMA` regenerado por enumeración, con criterio ejecutable verificado
+- [x] Cero migraciones; líneas base de los arneses re-medidas hoy, ninguna citada de corridas anteriores
+- [x] Repo sin un solo archivo tocado por QA en ninguna de las dos re-verificaciones
+- [ ] **`LP-119` `critical` (fiscal): sin arreglar, y no espera la decisión de arquitectura**
+- [ ] **`LP-118`, `LP-120`: el resto del trío, sin arreglar**
+- [ ] **`LP-117`, `LP-121`: los dos huecos del mecanismo de aviso, sin arreglar**
+- [ ] `LP-112`, `LP-113`: alcance aparte, sin arreglar
+- [ ] **Decisión de arquitectura sobre idempotencia estructural vs. sitio por sitio, antes de escribir más parches**
+- [ ] Commit de los dos pases (hoy sin commitear, a la espera de la decisión de Joaquín)
+---
+
+# Ronda de QA completa del sistema — 9 lotes en paralelo, barrido de los 26 controllers (2026-10-08, rama `entrega-1-migracion`, HEAD `05d44f2`)
+
+## **NO-GO para producción. 34 defectos nuevos: 2 `critical`, 2 `high`, 11 `major`.** No es una corrida de un alcance entregado: es un barrido del sistema entero pedido por Joaquín, con 9 lotes de contexto limpio sobre los 26 controllers. **Lo que la ronda encontró no son 34 bugs sueltos: son tres familias y un agujero de seguridad.** La familia de **idempotencia** (un POST repetido duplica plata) aparece en **6 escritores distintos** y tiene en el código una lista de pendientes que nombra 2 de ellos. La familia de **lectores de una regla** (`LP-039`/`LP-040`/`LP-052`) suma **tres puntas nuevas** que los barridos anteriores no alcanzaban: el ViewModel de la Web, el endpoint AJAX de preview, y el precargado de un campo editable. La familia de **tope leído fuera de la transacción** produce el peor defecto de la ronda. Y aparte de las tres: **el sistema no puede revocar un acceso y su cuenta más privilegiada tiene una password fijada en un archivo versionado que es la que corre en producción.** Lo único que se verificó sano de punta a punta es el hotfix `LP-057` del 2026-10-07, que **nunca había pasado por QA**: 8 de 8 criterios PASS, incluida la réplica del backup de producción con diff vacío.
+
+## Por qué esta corrida existió y cómo se armó
+
+`6-qa.md` v23 cerraba en el commit `3758423`. Los dos commits siguientes de código (`1c472fa`, `42c4667`) **no tenían corrida de QA** y eran el hotfix de los 16 índices únicos, con el SQL de 14 de ellos corrido **a mano contra producción**. Eso definió el lote 1. El resto de la ronda es el barrido que el proyecto nunca había tenido: los módulos se habían probado de a uno, en el sprint que los construyó, y nunca todos juntos ni contra el catálogo cross-proyecto completo.
+
+**Reparto en 9 lotes** (instrucción 39 §5, lotes de a lo sumo 3 módulos y 1 si es financiero o de integración), en 3 oleadas de 3 para no pasar de 6 simultáneos:
+
+| Lote | Alcance | Veredicto | Defectos |
+|---|---|---|---|
+| 1 | Hotfix `LP-057` (16 índices entre vivos) + migraciones y deploy (`LP-050`) | **8/8 PASS** | `LP-058`, `LP-059` |
+| 2 | Ledger de caja + gastos | 8 PASS, 1 FAIL, 1 BLOCKED | `LP-064` |
+| 3 | Ventas / POS + medios de pago (CR-01, CR-03, CR-05) | 6 PASS, 4 FAIL | `LP-070`, `LP-071`, `LP-072` |
+| 4 | Facturación parcial + NC + devoluciones (re-verificación dirigida) | 3 PASS, 4 FAIL, 1 BLOCKED | `LP-076`..`LP-080` |
+| 5 | Clientes + CC clientes + CC empleados + entregas | 7 PASS, 1 FAIL | `LP-082`..`LP-086` |
+| 6 | Proveedores + CC + pagos + plan de echeqs | 6 PASS, 3 FAIL | `LP-088`..`LP-093` |
+| 7 | Compras: órdenes, recepción, moneda | 7 PASS, 2 BLOCKED | `LP-094`, `LP-095` |
+| 8 | Catálogo + stock + presupuestos + aumento masivo | 5 PASS, 4 FAIL, 1 BLOCKED | `LP-100`..`LP-103` |
+| 9 | Transversal: autorización, usuarios, config, notificaciones, dashboard, higiene | 6 PASS, 3 FAIL | `LP-106`..`LP-111` |
+
+**Chequeo de reglas cross-proyecto nuevas (33): hecho UNA vez, por el orquestador, y pasado como dato a los 9.** Última validación declarada 2026-10-07; `regresiones-manuales.yml` sin ítems posteriores; en la 32 las dos entradas de 2026-10-07 son `LP-004` (crm-olvidata, plantillas de WhatsApp, N/A) y `LP-057` (de este proyecto, objeto del lote 1). **Resultado: ninguna regla nueva pendiente.** Nueve lotes repitiendo ese chequeo habría sido el gasto más caro y más inútil de la ronda.
+
+**Lo que NO hicieron los lotes, y por qué.** Joaquín pidió auto-fix de lo trivial. No se aplicó: la instrucción 33 y el contrato de evaluación independiente de la 30 prohíben que el evaluador sea el que arregla, porque un generador que se autocalifica aprueba su propio trabajo. Los 9 lotes reportaron; los fixes los decide Joaquín. Tampoco escribieron en `6-qa.md` ni en `trazabilidad.md`: ese archivo era el quinto recurso que los lotes paralelos se pisaban, y lo consolidó el orquestador. **Verificado al cierre: `git status --porcelain` del repo del sistema no tiene un solo archivo de código, vista, migración o configuración tocado por ningún lote.**
+
+## Los tres hallazgos sistémicos
+
+### 1. Idempotencia: un POST repetido duplica plata, en 6 escritores, y la lista de pendientes del código nombra 2
+
+Cuatro lotes independientes encontraron la misma forma, **y todos la reprodujeron EN SERIE** — no hace falta concurrencia, alcanza un doble clic, un F5 o un retry de red:
+
+- **`LP-064` `major`** — alta de gasto: 2 POST idénticos → 2 `Gastos` y 2 `CajaMovimientos`, los dos con mensaje de éxito.
+- **`LP-082` `major`** — adelanto de CC empleado: 3 POST → 3 movimientos y 3 egresos de caja.
+- **`LP-093` `major`** — ajuste de CC proveedor (2 en serie → 2 filas) y alta de pago.
+- **`LP-095` `major`** — pago de orden de compra: 3 POST → 3 pagos, 3 egresos y 3 movimientos de CC.
+
+**El dato que convierte esto en un hallazgo de proceso y no en cuatro bugs:** el bloque de comentario `MISMA FORMA, SIN TOCAR` de `CuentaCorrienteClienteService.cs:364` enumera **sólo dos** sitios pendientes (`CCProveedorService.RegistrarAjusteAsync` y el devengamiento de `CCEmpleadoService`) y **no nombra ninguno de los cuatro que fallaron**. Alguien relevó la familia, escribió la lista a mano, y la lista envejeció mal. **Tres lotes encontraron por separado un sitio que no estaba en ella.**
+
+Y el agravante que invalida el fix barato: **el token antiforgery de ASP.NET no es de un solo uso.** El lote 6 reenvió el mismo payload con el mismo token tres veces y duplicó igual. Un `disabled` en el botón no cubre el F5 ni el retry de red. **El único sitio de la familia que resiste el triple submit es `CuentaCorrienteClienteService.RegistrarAjusteAsync`, que tiene idempotencia por clave natural: ése es el molde del fix.**
+
+**Lo que pasó bien, y conviene no perderlo:** el aumento masivo de precios **no** reincide — su guarda `UpdatedAt > PreviewGeneradoEn` funciona, y el 2.º y 3.er envío aplican 0 productos. Y el ajuste de stock tampoco, porque lo frena su chequeo de `StockEsperado`. Dos formas distintas de resolverlo que ya existen en el sistema.
+
+### 2. Lectores de una regla de negocio: tres puntas nuevas que los barridos anteriores no podían ver
+
+La familia `LP-039`/`LP-040`/`LP-052` llevaba tres recurrencias. Esta ronda le suma **tres superficies estructuralmente invisibles** para la forma en que se venían barriendo (grep sobre Services y DTOs):
+
+- **`LP-076` `major` — el ViewModel de la Web.** `Web/Models/FacturacionParcialViewModels.cs` recalcula el pendiente a facturar (`Cantidad - YaFacturada`) sin restar lo devuelto, y el mapeo nunca copia el campo bueno del DTO. **La pantalla muestra 7, el server acepta 6, y el botón "Todo" precarga el 7 que rebota** — con el `Subtotal` de la misma fila calculado sobre 6. Es el **séptimo** lector de una regla cuyos seis anteriores estaban todos correctos y contados.
+- **`LP-078` `low` — el endpoint AJAX de preview.** `POST /Devoluciones/Preview` no evalúa la habilitación ni acota la cantidad: informa importes sobre una venta que el botón, el GET y el POST rechazan, y con cantidad 999999 devuelve nueve cifras. Cuarta punta de `LP-052`; no aparece en un barrido por "dónde hay un botón o un form".
+- **`LP-077` `low` / `LP-055`** — el **valor precargado** de un campo editable. Los arneses afirman sobre lo que el POST acepta, no sobre lo que el GET precarga, así que los mutantes de esas ramas sobreviven con el arnés entero en verde. Los tres precargados del alcance (`ACobrar`, `AAcreditar`, `ADevolver`) están sin red; los tres hidden de confirmación sí la tienen.
+
+**Dos lotes buscaron la forma `LP-076` en su propio módulo y volvieron limpios, por medición y no por suposición:** en ventas no hay ninguna propiedad calculada en `Web/Models` (el mapeo copia los nueve números del DTO), y en compras las cuatro calculadas delegan en `SaldosCompraDto`. En clientes hay una (`DevolucionViewModels.cs:89`) que duplica literalmente la fórmula del DTO y hoy **coincide**: riesgo de divergencia futura, no defecto.
+
+### 3. Topes leídos fuera de la transacción
+
+- **`LP-088` `critical`** — el tope de "saldo sin comprometer" de una compra se lee **fuera de la transacción y sin lock**: **3 POST paralelos de $300.000 entran los tres contra una compra de $400.000**. Medido en 5 tandas, con un exceso acumulado de **$2.500.000 sobre cinco compras de $400.000**, 9 egresos de caja y el saldo de CC del proveedor en **−$2.228.131**. Confirmado de forma independiente por el lote 7 desde el lado compras. Re-confirmado por el lote 6 con la cadena de conexión fiel al repo, después de detectar que su propio parámetro `UseAffectedRows=False` podía estar fabricando un síntoma distinto.
+- **El contraste que prueba que es resoluble:** la **recepción** de mercadería **sí** tiene el lock, y el lote 7 lo midió como portante — con la fila tomada por fuera (`FOR UPDATE` + `DO SLEEP(20)`) la recepción **esperó 18.018 ms** antes de completar. El mismo módulo tiene el mecanismo bien en una punta y ausente en la otra.
+
+## El agujero de seguridad, que es independiente de las tres familias
+
+- **`LP-108` `high` — la password del SuperUsuario de producción está en un archivo versionado y es la que corre.** `appsettings.json` (trackeado por git) fija `Seed:SuperUser:Password`; `appsettings.Production.json` no tiene la clave; y el app pool del sitio de producción **no define** `Seed__SuperUser__Password`. **Verificado de forma independiente por el orquestador contra el hosting real**, no sólo por el lote. Agravante: la misma credencial está escrita en texto en un archivo de memoria de agente versionado dentro del repo del cliente (`LP-111`), así que también está en el historial de git. **Rotarla no alcanza: hay que sacarla del archivo y del historial, y definirla como secreto del app pool.**
+- **`LP-106` `high` — el sistema no puede revocar un acceso.** Bloquear a un usuario (`POST /Users/ToggleEstado`) **no rota su `SecurityStamp`** y `OnValidatePrincipal` no chequea `Estado`: la cookie ya emitida sigue sirviendo hasta 8 horas. El lote bloqueó un Vendedor, esperó 7m36s (más que el `ValidationInterval` de 5 min) y con la cookie vieja **escribió**: `POST /Clientes/Create` → 302 y fila `clientes.Id=2994` con el `CreatedByUserId` del usuario bloqueado. Asimetría probada en el mismo controller: `Users/Edit` con `NewPassword` **sí** rota el stamp.
+- **Combinados son peores que por separado:** la cuenta más privilegiada tiene una password pública y, si se la usa, no se puede cortar la sesión en caliente.
+- **`LP-110` `minor`** — el app pool de La Platense tiene definido un `ConnectionStrings__RecoTrackMySql`, de otro cliente del estudio. Nadie lo lee, pero es una credencial ajena dentro de este proceso. Hallazgo del orquestador al verificar `LP-108`.
+
+**Lo que la revisión de autorización encontró sano, y vale como línea base:** 206 acciones × 4 identidades = 824 requests. Sin cookie, 195 de 206 redirigen a login; las 11 alcanzables sin autenticar son exactamente las que deben serlo, y las 13 alcanzables por cualquier autenticado son todas de autoservicio. Ningún endpoint JSON/AJAX quedó abierto. Un Administrador no alcanza ninguna de las 10 acciones de SuperUsuario. El IDOR de `MiCuenta` y el de notificaciones están cerrados, con oráculo no vacuo. Y el filtro por tarjeta del Dashboard —lo único que tapa la fuga de la política `ConsultaDashboard`, deliberadamente floja— **funciona**: con sondas sembradas, el Vendedor ve 1 de 5 tarjetas y el Repartidor ninguna.
+
+## Decision del cliente sobre `LP-108` (2026-10-08)
+
+**Joaquin decidio dejar la password del superadmin como esta.** Se le reporto el hallazgo con la cadena de precedencia verificada de punta a punta contra el hosting real -- `appsettings.json` versionado la fija, `appsettings.Production.json` no la sobrescribe, el app pool del sitio de produccion no define `Seed__SuperUser__Password` -- y pidio no tocarla. **Queda como riesgo aceptado, no como defecto abierto**, anotado asi en el `fix_aplicado` del item del catalogo, que **no se cierra**: el fix y las pruebas minimas siguen escritas por si el criterio cambia.
+
+La consecuencia, en una linea y sin volver sobre ella: **cualquiera con acceso al repositorio, a su historial de git o al artefacto de deploy tiene la cuenta de maximo privilegio de produccion, y mientras `LP-106` siga abierto esa sesion no se puede cortar hasta que expire.** Por eso `LP-106` **si** entra al primer lote de fixes: arreglarlo no elimina este riesgo, pero lo baja de *no revocable* a *revocable con intervencion*, que es la diferencia entre un incidente y un problema.
+
+`LP-111` (la memoria de agente versionada en el repo del cliente, que es uno de los lugares donde la credencial quedo escrita) **conserva su valor igual**: la parte de "rotar porque esta en el historial" queda fuera por esta decision, pero sacar el directorio del repo del cliente sigue correspondiendo por las otras dos razones -- es metodologia del estudio, no entregable, y muta durante las corridas ensuciando el arbol de todos los lotes.
+
+## Defectos nuevos: 34
+
+| Severidad | Ids |
+|---|---|
+| `critical` | `LP-088` (tope de pago sin lock), `LP-100` (código de barras en dos productos vivos) |
+| `high` | `LP-106` (no se puede revocar acceso), `LP-108` (credencial de producción versionada) |
+| `major` | `LP-064`, `LP-070`, `LP-076`, `LP-082`, `LP-089`, `LP-090`, `LP-093`, `LP-094`, `LP-095`, `LP-101`, `LP-103` |
+| `minor` | `LP-058`, `LP-071`, `LP-072`, `LP-083`, `LP-084`, `LP-085`, `LP-086`, `LP-091`, `LP-092`, `LP-102`, `LP-109`, `LP-110` |
+| `low` | `LP-059`, `LP-077`, `LP-078`, `LP-079`, `LP-080`, `LP-107` |
+| `trivial` | `LP-111` |
+
+Los 34 están en `docs/qa/regresiones-manuales.yml` (198 → **232** ítems, sin duplicados, YAML válido, índice `cat_resumen.txt` regenerado). **13 de ellos los publicó el orquestador al consolidar**, porque los lotes 4, 7 y 9 reportaron sus partes y no los escribieron al catálogo: el 4 no lo intentó, y el 7 y el 9 se abstuvieron a propósito al ver que el archivo se movía bajo sus pies con 9 lotes en paralelo. **La aritmética cierra exacta (198 + 2 + 1 + 3 + 5 + 6 = 215 antes de la consolidación), así que ninguna escritura concurrente se perdió** — se verificó, porque una escritura perdida en un catálogo compartido no avisa.
+
+Sigue abierto de antes: **`LP-051` `trivial`**, confirmado hoy en el árbol en `Views/Configuracion/InteresesTarjeta.cshtml:243`, con el mecanismo reproducido en las líneas 238-242, inmediatamente arriba del comentario que promete no reproducirlo.
+
+## Los dos `critical`, con su evidencia
+
+- **`LP-088`** — ver arriba. $2.500.000 de exceso en 5 tandas.
+- **`LP-100`** — `POST /Productos/Create` con un EAN que ya es **código de barras alterno activo de un producto vivo** devuelve **200 sin un solo mensaje** y crea el producto. El código queda en **dos productos vivos a la vez** y, peor, **las dos pantallas resuelven a productos distintos**: `/Productos/BuscarPorCodigoBarras` devuelve el nuevo y `/Presupuestos/BuscarProductos` el original — **dos precios para el mismo código escaneado** ($11,04 contra $150,00). El caso de `LP-057` (código tomado por un producto borrado) **sí** pasa; lo que falta es la validación contra los alternos vivos. Con 8.276 códigos alternos en producción sobre 3.865 productos, la superficie es real.
+
+## Lo que se cerró o se acotó de la corrida anterior
+
+- **El hotfix `LP-057`: verificado de punta a punta, 8/8 PASS.** 16 índices `UX_*_Vivo` enumerados uno por uno sobre 14 tablas; los 16 `IX_` originales en `NON_UNIQUE=1` como el commit declara; la barrida de reuso anda **16/16** y el control positivo sobre la base con el `Down` aplicado da **0/16**, cada caso con su `1062`. End-to-end por HTTP: el `POST /Productos/Edit` con el código del producto dado de baja el 2026-10-07 devuelve 302 sin pantalla de error, y el mismo POST contra el fixture pre-hotfix devuelve 500 con `Duplicate entry`.
+- **La pregunta que el estado de producción no podía responder leyendo el repo, respondida:** réplica del backup de prod + el SQL **del archivo de hoy** + la fila en `__EFMigrationsHistory` → snapshot **idéntico a producción real, diff vacío sobre 67 hechos**. O sea: lo que se corrió a mano coincide con lo que quedó en el repo después de que `42c4667` le sacara 51 líneas, y **nada quedó sin aplicar**. Después, `ef database update` sobre esa réplica aplica las 12 pendientes, **saltea** `203515`, aplica `232224` y termina en 119 hechos idénticos a una base desde cero. Las dos asimetrías también cerradas: de las 12 pendientes, **ninguna toca una columna base** de las 14 generadas que prod ya tiene.
+- **`LP-050` `major`: ACOTADO, no cerrado.** 3 de las 4 migraciones con backfill **sí** autorrevierten, porque su `Down` dropea las columnas que el `UPDATE` escribió. La única con `UPDATE` sobre datos que se quedan es `D9`, y eso se convirtió en `LP-058`. El ensayo sobre la réplica con datos reales dio `MedioPago` NO NULL y conteos idénticos antes/después (112.485 / 2.990 / 85 / 128 / 8.276 / 110.683).
+- **`LP-020` y `LP-013`** siguen abiertos por decisión de negocio declarada, no por defecto. El criterio "las reversiones restan del total de ingresos" quedó **BLOCKED** y vuelve al analista: netearlo descuadraría cierres ya firmados.
+- **`LP-023`** (reclamo concurrente de pagos programados) **realmente cerrado**: 4 tandas × 8 llamadas concurrentes con `Barrier`, siempre una sola reclama y las otras siete devuelven 0.
+- **`LP-014`, `LP-031`, `LP-037`, `LP-039`, `LP-040`, `LP-047`, `MH-001`** y una veintena más del catálogo: re-medidos PASS por los lotes que los tocaban.
+
+## Correcciones a afirmaciones de corridas anteriores y de los propios commits
+
+Esto es lo que más conviene leer de todo el bloque, porque son cosas que el proyecto creía ciertas:
+
+1. **El PASS de v23 sobre el gate de AFIP se apoyaba en evidencia que no cubría lo que afirmaba.** v23 dice que "Confirmar y facturar" está gateado por `afipConfigurado`, *"que es el mismo guard server-side"*, y lo midió por la **ausencia del botón en el DOM**. El lote 3 posteó `continuar=facturar` directo con AFIP apagado y dejó una venta en `Facturada` con un `ComprobanteAfip` creado. **Pero el lote reconcilió la contradicción y la resolvió en contra de su propio hallazgo:** el estado final del bypass es **idéntico** al que produce un botón que la UI **sí ofrece** (`POST /Ventas/Facturar` desde Details, visible con AFIP apagado), porque desde `LP-040` eso es el comportamiento buscado. Así que no hay bypass funcional: hay una **inferencia no cubierta por la evidencia** (forma `LP-052`) y un comentario que afirma un guard inexistente → **`LP-072` `minor`**, y nada más. El `continuar=facturar` tiene **un solo emisor** en toda la solución y el input lo crea el JS en el click: hace falta armar el POST a mano.
+2. **La afirmación del commit `1c472fa` sobre `LineasEcheq` es falsa.** El commit dice que el hotfix *"habilita el único de `LineasEcheq (Banco, Numero)` que la Entrega 3 había dejado sin poner por este mismo hueco"*. El lote 6 midió que **la baja del plan le escribe `DeletedAt` al pago, no a la línea**, así que una columna `NumeroVivo` no liberaría nada. Y el índice **sigue sin estar**: en serie la validación del Service rechaza bien, pero **en paralelo entran dos líneas vivas con el mismo banco y número** → **`LP-092`**.
+3. **El dato de producción que `6-qa.md` declara está desactualizado.** El documento dice "5 ventas (3 `Confirmada`) y 4 movimientos de caja". Medido hoy contra prod: **0 `Ventas` y 1 `CajaMovimiento`**. No usarlo como oráculo.
+4. **`2-disenador-funcional.md`, flujo 16 punto 1, está equivocado y el código tiene razón.** Afirma el principio de escritor único de `Producto.Stock`; el único escritor que el proyecto defiende es el de la **tabla** del ledger, y `IMovimientoStockService` declara explícito que **no** toca la columna, que tiene 5 escritores, todos callers. Ya hizo que un brief mandara al implementador por el camino equivocado. **Pendiente de corregir en el documento de diseño.**
+5. **`LP-056` necesita refinarse: su regla no es ejecutable como está escrita.** Dice "los arneses que la afirman, enumerados por `grep`". El lote 4 midió que grepear el nombre de la función mudada da **0 arneses**, y que el ancla que sí funciona es la propiedad del DTO que los arneses leen. El criterio tiene que nombrar el ancla.
+6. **El conteo de advertencias del build tiene una trampa:** si el proyecto Web no recompila, el `CS0114` no reaparece y el build da **8** en vez de 9. Tres lotes lo pisaron. La línea base real es **0 errores / 9 advertencias**, confirmada con recompilación forzada.
+
+## Gaps de alcance: cosas que no existen, no defectos
+
+- **La importación de listas de precios de proveedor no está construida** (`IListaPreciosProveedorImportService`: 0 hits). Declarada como pendiente en diseño y arquitectura, pero el `metadata.md` del proyecto la lista **dentro** del alcance ("compras con listas de precios de proveedor"). **Decisión de alcance para Joaquín.**
+- **La recepción parcial de mercadería no existe**, y la frase no aparece en **ninguna** definición: era un criterio del brief sin requisito detrás. Vuelve al analista.
+- **`CodigosProveedorProducto` no tiene camino de escritura en la aplicación**: lo escribe únicamente `tools/MigracionCatalogo`. No hay pantalla que probar.
+- **No existe baja de usuario**, sólo bloqueo — y el bloqueo es `LP-106`.
+- **No existe edición de gasto** (`IGastoService` = Listar/Crear/Anular).
+- **No hay endpoint para dar de baja un comprobante**, así que una venta en `Facturada` **no tiene salida**: la única puerta que el catch-all de `MotivoParaNoAnularVenta` deja abierta ("llega acá sólo si TODOS sus comprobantes fueron dados de baja") no tiene implementación. Preexistente, idéntico por el camino normal, y es condición de entrada para habilitar AFIP real.
+- **`Home/Index` autenticado redirige a `/Notifications`** con un TODO *"redirigir al Dashboard cuando se defina"* — y el Dashboard existe y es, según el análisis, la pantalla de mayor prioridad del cliente. Pantalla de arranque equivocada.
+- La cartera de cheques y los impuestos por cheque/plataforma/gasto son **exclusión confirmada**, no gap.
+
+## Mejoras priorizadas
+
+1. **`NU1902`, primero porque son CVE con dependencia:** MailKit 4.14.1 → **4.16.0** y MimeKit 4.14.0 → **4.15.1**. Un solo bump de MailKit arrastra MimeKit y **no es breaking** para `EmailService` (misma línea 4.x). Riesgo real **menor** al que sugiere la advertencia: el camino STARTTLS no se ejecuta porque producción usa `SslOnConnect` en el puerto 465; el de MimeKit sí es alcanzable, porque las direcciones vienen de `user.Email`.
+2. **Los listados de 112k filas leen de 337.480 a 642.084 filas por página de 25** (≈3–6 barridos completos: dos `CountAsync` más un `ORDER BY` sobre columna sin índice), medido con `Innodb_rows_read` y con el ruido de fondo verificado en 0. Contra el MySQL compartido de SmarterASP con tope de 500 MB, es riesgo de liberación.
+3. **`CS0114` en `HomeController.cs:38`**: es **intencional pero mal declarado** — `StatusCode(int)` es la acción de `UseStatusCodePagesWithReExecute` y funciona (404/403/500 verificados). Falta `new`. No es bug hoy, pero la próxima línea que llame a `StatusCode(...)` dentro de ese controller va a devolver una vista 200 en silencio.
+4. **Mensajes de EF Core en inglés llegando al usuario** en dos superficies distintas (alta de proveedor concurrente y aumento masivo fallido): *"Could not save changes. Please configure your entity type accordingly."*
+5. **`.ov-monto`**: la usan 5 vistas y **26 de las 31** con importes no. Lo nuevo es que la inconsistencia está **dentro de un mismo sprint**: `Devoluciones/Registrar` la usa y `FacturacionParcial/Emitir` y `NotasCredito/Emitir` no.
+6. **`AutoValidateAntiforgeryToken` global** en vez del atributo por acción (ver `LP-107`): la protección aplicada acción por acción se degrada sola.
+7. **`ICCProveedorService.ObtenerSaldoTotalAsync` no tiene ningún lector** y, si se cableara a un dashboard, sumaría saldos de todos los proveedores **mezclando monedas**. Conviene borrarlo o acotarlo antes de que alguien lo use.
+8. **El `id` de compra en `Confirmar/CancelarPagoProgramado` es cosmético**: acepta un par (compra, pago) inconsistente y actúa igual. Sin frontera de rol cruzada, pero la URL miente.
+9. **Declarar en el código las ramas dominadas** (`D3`, `H6`), que el cierre anterior ya había recomendado y sigue sin hacerse: `grep "defensa en profundidad\|dominad"` da **1 hit en todo el código**, sin relación.
+
+## Riesgos de liberación, ordenados
+
+1. **`LP-108` + `LP-106`** — bloqueantes absolutos de producción: password pública en la cuenta más privilegiada, y sin capacidad de revocar la sesión.
+2. **`LP-088` + `LP-095`** — plata duplicada y topes vulnerados en el pago a proveedor. Producción tiene **0 órdenes de compra**: el primer día de uso real los encuentra el cliente.
+3. **`LP-064` + `LP-082` + `LP-093`** — plata duplicada en caja, CC empleado y CC proveedor, **y entra al cierre firmado, que después no se puede corregir** (`LP-013`). Mitigación inmediata mientras se implementa la idempotencia: guarda de submit en las vistas, sabiendo que **no cubre el F5 ni el retry**.
+4. **`LP-100`** — un código de barras en dos productos vivos con dos precios según la pantalla. Es catálogo, el corazón del sistema para este cliente.
+5. **`LP-070`** — sobrepago: una venta de $121 con pagos de $50 + $1.000 se confirma y postea $1.050 en caja; por cuenta corriente, $5.000 de débito sobre $242 de mercadería. **Se alcanza con un cero de más al tipear**, sin POST armado, y los importes cierran entre sí, así que el descuadre no se ve hasta el arqueo.
+6. **`LP-076`** — no escribe dato malo, pero muestra un número equivocado en una pantalla fiscal y lleva al usuario a una operación que rebota.
+7. **`LP-101`** — `Producto.Stock` y la suma del ledger difieren en una milésima por redondeo, y **el ledger está partido en dos tablas** (`AjustesStock` no escribe `MovimientosStock`), así que la reconciliación completa cierra en esa misma diferencia.
+8. **Los 12 pendientes de producción siguen pendientes.** Todo lo verificado en el lote 1 es del **deploy futuro**, no del estado actual. `ef database update` contra prod sigue aplicando las 12 de una, que es el deploy entero de las Entregas 3 a 6.
+
+## Defectos de la propia red de medición
+
+Que la ronda haya encontrado estos es parte del resultado: son la razón por la que los verdes anteriores no eran tan verdes.
+
+- **`LP-091` `minor`** — la guarda de nombre de base de **los nueve arneses** corta por substring contra `laplatense_qa` (`MigracionCatalogo/Program.cs:165`), que es exactamente el prefijo que la convención de aislamiento por lote manda usar. **Ningún arnés del repo corre contra un clon llamado `laplatense_qa_lN`**: cuatro lotes lo pisaron y tuvieron que renombrar su base o escribir un runner propio. Es un defecto del harness causado por el choque de dos convenciones del propio estudio.
+- **`LP-077`, `LP-055`** — los precargados sin red (ver familia 2).
+- **`LP-056`** — el set de regresión armado por archivos editados en vez de por la condición medida, más el agravante del DLL equivocado: `HabilitacionDeAccion` vive en `Domain`, así que un chequeo de "el mutante entró al binario" escrito contra `Infrastructure.dll` **descarta los mutantes en silencio**. El lote 4 lo reprodujo exacto: mutar la clase deja `Infrastructure.dll` byte-idéntico.
+- **`LP-080`** — un camino de cálculo sin consumidor: puede divergir para siempre sin que ninguna pantalla lo delate.
+- **`LP-111`** — la memoria de los agentes versionada en el repo del cliente, que además mutaba durante las corridas y ensuciaba el `git status` de todos los lotes.
+
+## Trampas de medición que los lotes declararon
+
+Las anoto porque varias casi produjeron defectos falsos, y las mismas van a reaparecer en la próxima corrida:
+
+- **Aislamiento entre lotes paralelos.** Dos lotes encontraron su **puerto asignado ya tomado** por otro proceso; uno de ellos murió al bindear con un `AddressInUseException` visible sólo en el log y **escribió 6 POST en la base de otro lote** antes de darse cuenta. Los revirtió y lo declaró; **el lote dueño de esa base lo verificó de primera mano y lo descartó con evidencia** (el hueco de `AUTO_INCREMENT` 67-72 sin fila viva, y su primera fila en la 73). La regla que sale: **no derivar el puerto del número de lote; elegirlo verificando que esté libre y confirmar que el PID que escucha es propio antes de la primera medición** — y confirmar la identidad por una fila que sólo exista en la base propia, no por el log, que a dos lotes les mostró el arranque de **otra** aplicación.
+- **Leer HTML como texto plano miente en las dos direcciones.** Los banners `d-none` aparecen como si estuvieran en pantalla (un lote casi reportó tres contradicciones falsas); y quitarle los `<script>` **borra los mensajes de rechazo**, que en este proyecto viven dentro del `Swal.fire`. Un lote concluyó dos veces "el POST volvió sin explicar nada" cuando el mensaje era bueno, y después rehizo la medición con un oráculo que ve los scripts, con control positivo que pasa, y **su hallazgo se sostuvo**.
+- **Cuatro tablas en juego para el cierre de caja, no dos.** `EstaCerradoAsync` lee `CierresCajaDiarios`, `EstaMesCerradoAsync` lee `CierresCajaMensuales`, y **`CandadosPeriodoCaja` es sólo el `FOR UPDATE` del lock: nadie la lee como dato.** Un lote estuvo a un paso de publicar un blocker inexistente por encontrar `CierresCajaDiarios` vacía cuando el cierre mensual vivía en otra tabla.
+- **El propio instrumento midiendo de más.** El conteo ingenuo de migraciones da 23 y son 22 (`AppDbContextModelSnapshot.cs` no es una migración). Un lote usó `UseAffectedRows=False` en su cadena de conexión, que es justo el parámetro que produce el mensaje de EF que estaba reportando, y relanzó con la cadena fiel para confirmar que el defecto era real. Otro midió `Innodb_rows_read`, que es un contador **global** del server compartido, y verificó 0 de ruido en tres ventanas antes de creerle. Y un `grep` de un nombre de acción matcheó el `Url.Action` del JS y dio un falso positivo: el oráculo correcto es el `id` del elemento.
+- **Oráculos con cero en los dos lados no prueban nada.** Un IDOR que devuelve `recordsTotal=0` para víctima y atacante no está cerrado: hay que sembrar la fila de la víctima primero.
+- **Rate limiting leído como autorización.** Un barrido de 206 acciones no entra en la ventana de 300 req/min: sin pausas aparecen 429 que se leen como denegaciones.
+- **El `Set-Cookie` de `TempData` de un POST cuyo redirect no se siguió** se lo come el **siguiente** GET: a un lote el Details de una venta le sirvió el mensaje de otra. Se resolvió leyendo el estado por SQL y no por la alerta.
+- **Compilar en paralelo no se puede:** varios lotes se encontraron `bin/Debug` tomado por otro (`MSB3027`), y redirigir `obj` compartido falla con `CS0579`. La salida es copiar el source a un árbol propio (`git archive HEAD`).
+
+## Checklist de salida
+
+- [x] Hotfix `LP-057`: 8/8 criterios PASS, verificado contra réplica de producción con diff vacío
+- [x] Chequeo de reglas cross-proyecto nuevas: hecho una vez, ninguna pendiente
+- [x] Los 26 controllers barridos; 206 acciones × 4 identidades en la superficie de autorización
+- [x] 34 defectos publicados en `regresiones-manuales.yml` (198 → 232), sin duplicados, YAML válido, índice regenerado
+- [x] Ninguna escritura concurrente perdida (aritmética verificada)
+- [x] Repo del sistema sin un solo archivo de código tocado por ningún lote
+- [ ] **`LP-108` + `LP-106`: bloqueantes de producción, sin arreglar**
+- [ ] **`LP-088` + `LP-095` + `LP-064` + `LP-082` + `LP-093`: la familia de idempotencia y topes, sin arreglar**
+- [ ] **`LP-100`, `LP-070`, `LP-076`, `LP-101`, `LP-103`, `LP-089`, `LP-090`, `LP-094`: `major`/`critical` restantes, sin arreglar**
+- [ ] El bloque `MISMA FORMA, SIN TOCAR` rehecho **por enumeración** de escritores, no ampliado a mano
+- [ ] `2-disenador-funcional.md` flujo 16 punto 1 corregido (afirma lo contrario del código)
+- [ ] `LP-056` refinado para que su criterio nombre el ancla greppeable
+- [ ] Decisión de alcance sobre la importación de listas de precios de proveedor
+- [ ] `LP-020` y el criterio de reversiones en el total de ingresos: vuelven al analista
+- [ ] Quién puede emitir una nota de crédito y quién puede devolver: el diseño no lo dice, hoy es `RequireVentas` (incluye Vendedor). Vuelve al analista
+---
+
+# Entrega 5 lote 2 — devoluciones + mecanismo único de habilitación + cierre de `LP-052` y `LP-053` — QA lote único financiero (2026-10-07, rama `entrega-1-migracion`, commits `001d983`..`3758423` sobre `1116cdf`)
+
+## **GO para merge. `LP-052` CERRADO y `LP-053` CERRADO.** Los 13 criterios del lote en PASS con evidencia ejecutada; 2 BLOCKED por inalcanzables (AFIP). **Los dos defectos propios que el implementador encontró antes de medir están los dos verificados en la BD**, y son los de mayor impacto. **La premisa de mi brief anterior era falsa y el implementador tenía razón en la dirección**: el único escritor que el proyecto defiende es el de la TABLA del ledger, no el de la columna. **Mi conteo independiente de lectores del "ya facturado" da exactamente 6**, el número declarado. **Los 24 mutantes no se pueden auditar de a uno (no están enumerados): se sustituyeron por 21 mutantes propios derivados del diff**, con 15 muertos, 4 sobrevivientes explicados y 2 controles negativos en cero. 2 defectos nuevos, los dos `low` y los dos de red de medición: `LP-055` y `LP-056`.
+
+## Cómo se corrió (y la caída declarada)
+
+**Playwright MCP NO está disponible en la sesión**: `ToolSearch` no devuelve ninguna herramienta `mcp__playwright__*`. Caída declarada al procedimiento por HTTP de `33-verificacion-automatizada-qa`: app levantada sobre un **segundo clon** (`C:/qaE5w`) y la base desechable `lp_e5http`, login real por POST a `/Account/Login` con antiforgery, asserts sobre el HTML servido y sobre la BD. El segundo clon existe para que los rebuilds del driver de mutación (sobre `C:/qaE5`) no choquen con el DLL que la app tiene tomado.
+
+**Bases desechables**, las 7, armadas **siempre con `dotnet ef database update`** y nunca con `mysqldump --no-data` (regla de `LP-054`, adoptada): `lp_e5devol`, `lp_e5nc`, `lp_e5recon`, `lp_e5seis`, `lp_e5http`, `lp_e5vsf`, las 6 verificadas en **20 migraciones**. **Producción y `laplatense_dev` no se tocaron.** El repo del sistema es read-only: la mutación salió por `git archive HEAD` a `C:/qaE5`, con fidelidad probada por `diff` módulo CR (el archive queda en CRLF y el árbol de trabajo en LF; el contenido es idéntico).
+
+## Cobertura por criterio de aceptación
+
+| # | Criterio | Resultado | Evidencia observada |
+|---|---|---|---|
+| 1 | Devolución parcial de ítems facturados: reingresa stock, revierte la plata acotada a lo posteado, emite la NC | **PASS** | V1 (5 vendidas, 3 facturadas, 1 acreditada), `POST /Devoluciones/Registrar` de 2 → 302. BD: NC nueva `tipo3 Pendiente asoc=1 total=2420,00`; stock 1006→1008; mensaje *"Devolución #3 registrada. Se reingresó el stock de 1 ítem(s), se devolvieron $ 2.420,00 por caja, se emitieron 1 nota(s) de crédito."* |
+| 2 | …y deja el **pendiente de facturar y el badge IDÉNTICOS** (R18/R19) | **PASS** | Antes: badge `('Confirmada', True)`, `Items[0].ACobrar = 2.000`. Después: badge `('Confirmada', True)`, `ACobrar = 2.000`. **Idénticos**, comparados por igualdad y no a ojo. |
+| 3 | Devolución de ítems NO facturados: **no emite ningún comprobante** y queda completa | **PASS** | V6 (sin factura, efectivo): 302, `select count(*) from ComprobantesAfip where VentaId=6` → **0**. Mensaje sin mención de NC. |
+| 4 | Devolución total → la venta pasa a `Anulada` | **PASS** | V6 → `Estado=3`; V7 → `Estado=3`; V10 tras devolución total → `Estado=3`. Neto vivo de caja de V6 = **0,00** exacto. |
+| 5 | Devolución **parcial** → la venta **NO** cambia de estado (no hay flag "con devoluciones") | **PASS** | V1 tras devolver 2 de 5 → `Estado=4` (Confirmada). V8 tras devolver 2 de 4 → `Estado=4`. V10 tras devolver 1 de 3 → `Estado=4`. Y la migración **no agrega ninguna columna a `Ventas`** (verificado operación por operación). |
+| 6 | No se puede devolver más que lo vendido menos lo ya devuelto, **por ítem**, validado en el Service | **PASS** | `POST` con 99 sobre 5 vendidas / 2 ya devueltas → 200, nada escrito (`count(Devoluciones)` igual antes y después), mensaje *"…vendieron 5 y quedan 3 por devolver; se pidieron 99. Ya hay 2 devueltas en devoluciones anteriores de esta venta."* Y un ítem de **otra** venta → *"uno de los ítems a devolver ya no pertenece a esta venta."* |
+| 7 | `LP-052`: el GET sobre una NC **ya no devuelve 200 con formulario** | **PASS** | `GET /NotasCredito/Emitir/2` (es una NC) → **302** a `/Ventas/Details/1`, `form=0 boton=0 camposItems=0`. |
+| 8 | `LP-052`: el GET sobre un comprobante en `Error` tampoco | **PASS** | `GET /NotasCredito/Emitir/3` (`Estado=Error`, pendiente 2) → **302**, `form=0`. |
+| 9 | `LP-052`: el mensaje es **el mismo** en la vista, el GET y el POST | **PASS** | Comparación literal: el texto del GET para `Error` y para `ya acreditado` es **carácter por carácter idéntico** al `title` de la leyenda de `Ventas/Details`. Para "ya es una NC" la vista no muestra leyenda **a propósito** (`else if (!esNota)`), y es correcto: en una fila que ya es NC la acción no se ofrece. En devoluciones, el POST rechaza con *"La venta #6 está anulada: ya se le devolvió el stock y se le revirtió la plata entera, así que no hay nada que devolver."*, **idéntico** al que el GET deja en pantalla para V5. |
+| 10 | `LP-052`: **no quedó una cuarta punta** con su propia copia de las condiciones | **PASS** | Grep de las 4 condiciones sobre todo el árbol: `EstadoComprobanteAfip.Error` aparece en 1 solo sitio de decisión (`HabilitacionDeAccion:105`); los 4 hits restantes son **display** (`"Sin emitir"`/`"Acreditado"`). `TodoAcreditado` sobrevive solo en 4 comentarios. Los 4 call-sites de `MotivoParaNoEmitirNotaCredito` son los 3 puntas + el planificador de NC, y **ninguno repite una condición**. Ver el residuo declarado más abajo. |
+| 11 | Los tres criterios nuevos, **en el Service y en la UI** | **PASS** | (a) venta con devoluciones no se anula: POST rechaza con el texto exacto y `Estado` queda en 4; la vista **no renderiza** `<button id="btnAnular">` (preguntado por el TAG, no por el string). (b) ítem devuelto no se factura: `ACobrar` precargado = 2 sobre V8 (4 vendidas, 0 facturadas, 2 devueltas) — sin la resta daría 4. (c) comprobante con NC no recibe otra por lo mismo: `GET /NotasCredito/Emitir/4` → 302 *"ya está acreditado por completo"*. |
+| 12 | Devolución imputada a un período de caja cerrado: rechazada (`LP-037`) | **PASS** | Con una fila en **`CierresCajaDiarios`** para hoy: 200, **0** devoluciones, **0** egresos de caja, **0** movimientos de stock, mensaje *"La caja del día 07/10/2026 ya está cerrada: no se puede registrar una devolución de la venta #10, que es de ese período."* **Control positivo**: se borra el cierre y la MISMA devolución entra (302, 1 devolución, stock +1). |
+| 13 | El preview de lo que se va a revertir se muestra antes de confirmar, con los importes exactos y calculado por el **Service** | **PASS** | `POST /Devoluciones/Preview` devuelve el JSON del Service (`plata`, `totalDevuelto`, `recargoCuotasQueNoVuelve`, `notasDeCredito`). Y el eco es real: mi primer POST con `TotalARevertirConfirmado` vacío **fue rechazado** por la comparación. |
+| B1 | Transición `Emitido → NC` | **BLOCKED — inalcanzable** | Sin certificado todos los comprobantes nacen en `Pendiente`. Sin cambio respecto del lote 1. |
+| B2 | `CbtesAsoc` en el request de AFIP | **BLOCKED — inalcanzable** | `AfipComprobanteRequestDto` no lo tiene y nadie llama a `IAfipService`. Riesgo de liberación 1. |
+
+## Los dos defectos propios del implementador: los dos verificados en la BD
+
+**(a) El mismo producto en dos líneas de la misma venta.** Es el peor tipo de defecto de este proyecto y está cerrado. V6 con el producto 1 en **dos líneas** (1 y 3 unidades), devolución de las dos:
+
+- `Producto.Stock` **1000,000 → 1004,000** (exactamente 1+3, no 3);
+- el **ledger** suma `4,000` en **dos filas** (`Tipo=5/1,000/Devolucion/1` y `Tipo=5/3,000/Devolucion/1`) → **la columna y el ledger coinciden**;
+- mutante propio: escribir el reingreso **por ítem** en vez de acumularlo por producto → **MUERTO**, tumba `3B.2`. Y el control negativo sobre la misma línea (`+ reingreso * 0m + reingreso`, que es un no-op) → **0 tumbadas**, así que el driver no está roto.
+
+**(b) El recargo de cuotas en la devolución total.** V7, tarjeta en 6 cuotas al 10%: base 2000, recargo 200, la caja había posteado **2200**.
+
+- egreso de caja de la devolución total = **2000,00** (la base), neto vivo = **200,00** = exactamente el recargo que la financiera ya cobró;
+- el **preview lo avisa antes de confirmar**: `recargoCuotasQueNoVuelve: 200.00`;
+- mutante propio: acotar la devolución total al **neto vivo** en vez de al remanente de la base → **MUERTO**, tumba `5.2` y `5.3`.
+
+## La premisa de mi brief que era falsa: el implementador tenía razón
+
+Mi brief anterior decía *"nunca escribas `Producto.Stock` directo: el proyecto tiene un único escritor y se respeta"*. **Es falso, y la dirección importa.** Verificado:
+
+- `IMovimientoStockService.RegistrarMovimientoAsync` declara **explícitamente** que *"NO toca `Producto.Stock` y es a propósito: el stock del producto lo mueve el caller sobre la entidad que ya tiene cargada y trackeada"*;
+- el proyecto tiene **5 escritores** de la columna, todos callers: `AjusteStockService:190`, `OrdenCompraService:925`/`945`, `VentaWorkflowService:843`/`966`/`1373`/`1487`. `DevolucionService:492` sigue la misma convención.
+- **Obedecer el brief al pie de la letra dejaba el stock sin mover**, y está medido por la contraria: el stock se movió (1000→1004) y el ledger quedó consistente.
+
+**Acción para el Diseñador funcional, no para el Implementador:** `2-disenador-funcional.md`, flujo 16, punto 1, dice *"por el ledger de stock (`MovimientoStock`), **nunca escribiendo `Producto.Stock` directo**"*. Esa frase es **falsa sobre este código** y es la que originó el desvío. Hay que reescribirla sobre el invariante real: *"el stock se mueve escribiendo la columna sobre la entidad trackeada **y** registrando la fila del ledger — las dos cosas, nunca una sola"*. Si no se corrige, el próximo que lea el diseño vuelve a tomar el camino equivocado.
+
+## `LP-052` — CERRADO
+
+Cerrado por las tres puntas y con la cuarta auditada. Lo que lo hace valioso no es que las tres rechacen, es que **rechazan con el mismo texto porque leen la misma función**:
+
+| Condición | Mutante sobre `HabilitacionDeAccion` | Resultado |
+|---|---|---|
+| 1 — es una NC | `if (false && esNotaCredito)` | **MUERTO**, tumba `5.4` |
+| 2 — está en `Error` (R17) | `if (false && estado == …Error)` | **MUERTO**, tumba `11.2`, `11.3`, `11.4`, `11.5` |
+| 3 — ya acreditado por completo | `if (false && pendienteDeAcreditar <= 0)` | **MUERTO**, tumba `13.3` y `13.4` |
+| control negativo | `if (esNotaCredito == true)` (no-op) | **0 tumbadas**, como corresponde |
+
+**El residuo que queda, declarado y no bloqueante:** la *condición* se escribe una vez, pero su *entrada* `pendienteDeAcreditar` se calcula por **cuatro caminos independientes** — `FacturacionParcialService:520` y `VentaWorkflowService:1713` (subconsulta en la base, texto idéntico), `NotaCreditoDto.PendienteDeAcreditar` (`Items.Sum`) y el planificador de `DevolucionService:1121-1164`. El XML-doc de la clase lo declara fuera de alcance a propósito (*"la aritmética: estos métodos no calculan pendientes ni saldos, los reciben"*) y verifiqué que los cuatro coinciden en los casos probados (el GET abre con pendiente 2 y la vista ofrece el botón sobre el mismo comprobante). **Es la mitad del problema que el mecanismo no resuelve, y es correcto que no lo resuelva acá — pero el día que un lector se desincronice, las tres puntas van a seguir "leyendo la misma función" y decidiendo distinto.** Es el barrido de lectores, no este mecanismo.
+
+**Y una afirmación del propio XML-doc que no se cumple en dos de sus tres consumidores** (`trivial`, anotado y sin parte): la clase dice que *"la **vista** oculta el botón cuando hay razón, **y la muestra como leyenda**"*. Para `MotivoParaNoEmitirNotaCredito` se cumple; para `MotivoParaNoRegistrarDevolucion` y `MotivoParaNoAnularVenta` la vista hace `@if (motivo == null) { botón }` **sin `else`**, así que el usuario ve desaparecer la acción sin saber por qué. No es un defecto de datos ni de seguridad: es la mitad que el propio comentario promete y que evita el ticket de soporte.
+
+## `LP-053` — CERRADO, y la distinción "se mide por la razón, no por el dato" está bien hecha
+
+Los tres criterios de re-verificación, arrancando en FAIL:
+
+| Criterio de `LP-053` | Mutante | Resultado |
+|---|---|---|
+| (a) el filtro de `ListarComprobantesAsync` tiene que hacer fallar algo | `.Where(c => c.VentaId == ventaId)` | **MUERTO**, tumba `10.2` y `10.3` |
+| (b) la guarda del comprobante en `Error` | `if (false && estado == …Error)` | **MUERTO**, tumba 4 afirmaciones de la familia 11 |
+| (c) la cota `Math.Min(proporcional, remanente)` | `return proporcional;` | **MUERTO**, tumba `12.4` |
+
+**Los tres criterios: MUERTOS los tres**, sobre línea base verificada en 63/63 antes de medir. Y la cota exigió buscarla: **ya no está en `NotaCreditoService`** — la fórmula se movió a `Domain/Reglas/CargoDeIvaDiferido.cs:92` porque desde este lote tiene dos consumidores. El ancla del criterio viejo da **0 hits**, y el driver se negó a medir en vez de inventar un resultado. Es el mismo agravante de `LP-056`: la cota ahora vive en `Domain`, así que el chequeo de "el mutante entró al binario" hay que hacerlo contra `Domain.dll`.
+
+**La cuarta afirmación, la que no venía en el parte: la distinción es legítima y no es una excusa.** El mutante de `pendienteDeAcreditar <= 0` sobrevivía con 59/59 y el implementador declara que no era una afirmación vacía sino un **segundo mecanismo** (el tope por ítem frena igual, con otro mensaje). **Lo verifiqué por los dos lados, que es lo que separa una distinción de una coartada:**
+
+- contra `ArnesNotaCredito`, el mutante **MUERE** y tumba `13.3` y `13.4` — la familia 13 es la que mide **la razón**;
+- contra `ArnesDevoluciones`, el **mismo** mutante **SOBREVIVE** con 63/63 — que es exactamente lo que la declaración predice: ahí la condición la consume el planificador de NC, y el tope por ítem la domina.
+
+Las dos mediciones juntas son la prueba. Si la afirmación nueva fuera débil, el mutante habría sobrevivido en los dos. **La distinción "se mide por la razón y no por el dato" está bien hecha**, y el agregado es una red real, no un relleno.
+
+## Los 24 mutantes: no se pueden auditar de a uno, así que se sustituyeron
+
+**El brief pide verificar que los 24 mutantes sean válidos. No es posible: `5-implementador.md` no los enumera** — declara el total (18 + 6), los tres sobrevivientes de la primera corrida y el inválido, pero no la lista. **Verificar la validez de un conjunto que no está escrito es inverificable, así que ese pedido queda BLOCKED.** Lo que sí hice, y es más fuerte: **21 mutantes propios derivados del DIFF**, con el conjunto construido sin mirar las afirmaciones de los arneses.
+
+**Resultado: 15 muertos, 4 sobrevivientes y 2 controles negativos en cero tumbadas.** Los cuatro sobrevivientes tienen **tres causas distintas**, y separarlas es el trabajo:
+
+| Mutante | Qué apaga | Veredicto |
+|---|---|---|
+| `D3` | la cota interna de la devolución **parcial** (`baseRemanente` → `neto`) | **RAMA DOMINADA, no es hueco.** `proporcional = Monto·(dev/total)` y `baseRemanente = Monto·(1 − devAnterior/total)`: con el mismo denominador, `proporcional ≤ baseRemanente` **por construcción**, así que el `Min` interno solo puede morder por redondeo de centavos, y el `Math.Min(pedido, neto)` final ya acota. Hice la aritmética de tres escenarios de dos parciales sucesivas sobre tarjeta con recargo y en los tres el mutante da **el mismo número**. **No publico parte: no es un defecto de plata.** Corresponde declararlo en el código como defensa en profundidad. |
+| `H5` | `if (comprobantesVivos > 0)` de anular (la condición de `LP-039`) | **CUBIERTO EN OTRO ARNÉS.** Ver `LP-056`. |
+| `H6` | `if (cantidadDevolvible <= 0)` | **RAMA DOMINADA.** Una venta devuelta por completo **siempre** queda `Anulada` (lo hace `RegistrarAsync`), así que la rama `Anulada` se evalúa primero y esta no es alcanzable por los servicios reales. Defensa en profundidad. |
+| `F1` | la resta de lo devuelto en el **precargado** de `ACobrar` | **HUECO REAL → `LP-055`.** |
+
+**Y una trampa de medición propia que vale escribir, porque casi me costó el informe:** mis nueve mutantes de `HabilitacionDeAccion` se declararon los nueve *"el DLL no cambió, la mutación no entró al binario"* y no se midieron. La causa: **`HabilitacionDeAccion` vive en `Domain`, no en `Infrastructure`**, y mi chequeo vigilaba `FerreteriaLaPlatense.Infrastructure.dll`. El chequeo falla-cerrado funcionó — se negó a medir en vez de reportar nueve falsos "sobrevive" — pero si lo hubiera escrito como un `warning` en vez de como un abort, el informe habría dicho que **ninguna** de las cuatro condiciones de `LP-052` tiene red. Está en `LP-056`.
+
+**Segunda trampa propia, y es la de la memoria 12 otra vez:** al re-correr la serie con el chequeo arreglado, la **línea base dio 61/63** con el fuente limpio y `git status` limpio — porque restaurar el fuente **no actualiza el binario** y los arneses seguían corriendo el DLL del mutante anterior. El driver ahora **reconstruye al restaurar y exige que el md5 del DLL vuelva al valor limpio**, y aborta si la base no arranca en 0 falladas. Con eso la línea base volvió a 63/63 y toda la tabla de arriba se re-midió.
+
+## Mi conteo de lectores del "ya facturado": **6**, el número declarado
+
+Contado por mi cuenta, con un parser que **clasifica** en vez de contar hits sueltos (comentarios y copias a DTO aparte):
+
+- **6 lectores del "ya facturado"** (`ComprobanteAsociadoId == null` como filtro de una suma): `DevolucionService:882` y `:1164`, `FacturacionParcialService:429` y `:495`, `VentaWorkflowService:172` y `:1732`. **Coincide con lo declarado.** (El commit cita `:806` y `:1061` para `DevolucionService`: son las líneas del XML-doc del método, no del filtro — mismo par de métodos.)
+- **6 lectores del contrario** ("lo acreditado", `!= null`): `DevolucionService:901`, `:1139`, `:1156`, `FacturacionParcialService:475`, `VentaWorkflowService:184`, `:1751`.
+- 1 uso de `!EsNotaCredito` en la vista, que es **agrupación para display** y no una suma (`Details.cshtml:297`), + 8 usos derivados y 18 copias a DTO / config de EF.
+
+El contador subió 3 → 4 → 6 en tres rondas. **Los 3 que forman el pendiente se barrieron juntos en el mismo commit** y los tres están medidos por mutación (`F2` tumba `3.7` y `8.6`; `V1` tumba `8.12`; `V2` tumba `8.6` y `8.12`).
+
+## Medición: los arneses
+
+| Arnés | Declarado | Medido por QA | Veredicto |
+|---|---|---|---|
+| `ArnesDevoluciones` (nuevo) | 63/0 | **63 evaluadas, 63 OK, 0 FALLADAS, 0 NO MEDIDAS**, dos rondas seguidas sobre la misma base | **coincide, idempotente** |
+| `ArnesNotaCredito` (45→63) | 63/0 | **63/63/0/0**, dos rondas | **coincide, idempotente** |
+| `ArnesReconciliacionTx` | 153/0 | **153/153/0**, dos rondas | **sin regresión por el refactor de `AnularAsync`** |
+| `ArnesSeisSitiosRestantes` | 32/0 | **32/32/0 + 2 NO MEDIDAS**, dos rondas | **coincide.** Las 2 NM son la precondición de concurrencia (`estado=Borrador`: la guarda optimista ganó), igual que en la corrida anterior. |
+| `ArnesVentaSinFacturaYParcial` | **no declarado — no se corrió** | **82/82/0**, dos rondas | **verde, pero es el dueño de la condición que el lote movió** → `LP-056` |
+
+Los 5 compilados **explícitamente** (`tools/` no está en la solución) y con los **md5 de `FerreteriaLaPlatense.Infrastructure.dll` idénticos** entre el proyecto y los 5 `bin/` antes de declarar cualquier número (trampa de `LP-041`).
+
+## Migración
+
+**Aditiva pura, confirmado operación por operación** con el patrón que incluye los métodos genéricos (`\.(\w+)(?:<[^>]*>)?\(`, sin el cual un `AddColumn<int>(` no matchea y la migración se lee mal):
+
+- **`Up`: 9 operaciones** — 2 `CreateTable` (`Devoluciones`, `DevolucionItems`), 1 `AddColumn` (`ComprobantesAfip.DevolucionId`, **nullable, sin default**), 5 `CreateIndex`, 1 `AddForeignKey`. **Cero `Sql()`, cero `InsertData`, cero `UpdateData`, cero `AlterColumn`, cero `DropColumn`.**
+- **`Down`: 5 operaciones**, simétrico.
+- **4 FK nuevas**: `Devoluciones→Ventas` Restrict, `DevolucionItems→Devoluciones` Cascade, `DevolucionItems→ItemsVenta` Restrict, `ComprobantesAfip→Devoluciones` Restrict. La única sobre tabla preexistente es **nullable**, así que el código viejo inserta NULL y pasa.
+- **`LP-050` N/A por AUSENCIA de backfill** (0 `Sql()` contados), no por razonamiento. **No está aplicada a `laplatense_dev` y es correcto**: es parte del deploy.
+- **Ninguna columna nueva en `Ventas`**, consistente con la decisión de no tener flag "con devoluciones".
 
 ## Cobertura del catálogo cross-proyecto
 
-| Item | Severidad | Aplica | Resultado |
+| Ítem | Aplica | Resultado | Nota |
 |---|---|---|---|
-| `LP-018` — el neto vivo se lee antes de la transacción y nada bloquea la fila (anulación de venta) | `critical` | **No** | Misma clase de defecto, pero `AnularAsync` **no existe en la rama publicada** (verificado en `IVentaWorkflowService`). N/A para este deploy |
-| `MH-036` — espejar la suma del ledger hermano en vez del monto del documento | `high` | **Sí** | **PASS por diseño**: la reversión del gasto va por `Gasto.Monto`. Es la decisión que el item prescribe |
-| `REG-001` / `MH-016` — `RowVersion` en MySQL | `blocker` / `minor` | **Sí (como prohibición)** | **PASS**: el fix **no** usa `RowVersion`. Ninguna entidad del proyecto lo tiene; se resolvió con `SELECT … FOR UPDATE` dentro de transacción, que es la vía correcta en este stack |
-| `LP-023` — leer-y-marcar no atómico (aviso de pagos a proveedor) | `major` | **No** | El módulo de proveedores no existe en la rama publicada (entra por una de las 6 migraciones que esta rama no tiene) |
-| `MH-001` — `IN`/`.Contains()`/`Any()` sobre colección local de **strings** | — | **Sí** | **PASS, sin violación nueva.** `BloqueoDeFila` arma SQL a mano con parámetros `int` (no es traducción de LINQ) y la lista vacía sale por un `return` previo. Las apariciones de `.Contains()` en los archivos tocados son preexistentes, en los listados, y sobre colecciones de `int`/enum, no de strings |
-| `LP-009` — toda escritura de caja pasa por `ValidarPeriodoAbiertoAsync` | `major` | **Sí** | **PASS, y el fix no la salteó al mover la transacción.** `ConfirmarAsync`: tx 580 → validación 629 → commit 668. `RegistrarCobroAsync`: tx 191 → validación 206 → commit 259. `GastoService.AnularAsync`: tx 266 → validación 299 → commit 314. Las tres **dentro** de la transacción. `FacturarAsync` y `CancelarBorradorAsync` no la necesitan: verificado que **no escriben caja** (facturar sólo toca `CAE`, `VencimientoCAE` y `Estado`) |
-| Día de negocio por `ArgentinaTime` (producción corre en huso Pacífico) | — | **Sí** | **PASS**: el hotfix **no toca ninguna frontera de día/mes**. `diaNegocio`, `ArgentinaTime.Hoy` y `InicioDiaUtc` quedaron exactamente como estaban; el diff sólo mueve el `BeginTransaction` y agrega lock + relectura |
+| `LP-052` (el botón guarda N condiciones y el GET guarda M) | sí | **PASS → CERRADO** | Las 3 condiciones en una función, 4 call-sites, mensaje idéntico verificado carácter por carácter, par discriminante con control positivo en 200 |
+| `LP-053` (la matriz de mutación del autor hereda su punto ciego) | sí | **PASS → CERRADO** | 3 criterios + la cuarta afirmación verificada por los dos lados (muere en un arnés, sobrevive en el otro) |
+| `LP-054` (base desechable por `mysqldump --no-data`) | sí | **PASS** | Las 7 bases por `dotnet ef database update`, 20 migraciones verificadas en cada una |
+| `LP-039` (anular mira el estado y no los comprobantes) | sí | **PASS** | `POST /Ventas/Anular` sobre V1 (2 comprobantes vivos) rechaza nombrándolos; `ArnesVentaSinFacturaYParcial` 7.2 verde, y con el mutante reporta textualmente *"SE ANULÓ una venta con un comprobante fiscal vivo (es el defecto LP-039)"* |
+| `LP-040` (el fix no barre el sitio hermano) | sí | **PASS** | Los 3 lectores del pendiente barridos juntos y los 3 medidos por mutación |
+| `LP-037` (período de caja cerrado) | sí | **PASS** | Rechazo con 0 filas escritas + control positivo. **Ojo: el guard lee `CierresCajaDiarios`, no `CandadosPeriodoCaja`** — ver la trampa de medición abajo |
+| `LP-041` (cada arnés tiene su propia copia del DLL) | sí | **PASS** | 5 md5 idénticos verificados antes de declarar números |
+| `LP-002` (valor de enum nuevo sin propagar a sus lectores) | sí | **PASS** | `TipoMovimientoStock.Devolucion=5` leído en la BD (`Tipo=5`); `OrigenMovimientoCC` con los dos lectores de `CuentaCorriente.cshtml` propagados |
+| `PAT-020` / `MH-027` (reversión acotada a lo posteado) | sí | **PASS** | Egreso 2000 sobre 2200 posteado. Y la guarda de MH-027 **se disparó de verdad** cuando mi fixture no tenía movimiento de caja identificable: *"1 pago(s) … no tienen un movimiento de caja identificable de forma exacta … Revertirlos a ciegas descuadraría la caja"* — falla cerrado, correcto |
+| `PAT-059` (tope bajo concurrencia) | sí | **PASS** | Familia 11 del arnés: 4 devoluciones simultáneas de 2 unidades devuelven 2, no 8; stock +2; neto vivo 0 |
+| `LP-034` (relectura decorativa si el producto se borra) | sí | **PASS** | Guarda presente en `DevolucionService:344`, falla cerrado |
+| `LP-018` / `LP-035` (lock y orden canónico) | sí | **PASS** | `ArnesReconciliacionTx` 153/0 |
+| `KOI-001` (botón fuera del form con SweetAlert) | sí | **PASS** | `btnAnular` vive fuera de todo `<form>` y arma el POST por JS |
+| `LP-050` (backfill probado contra base con 0 filas) | **N/A** | — | Por ausencia de backfill, contada |
+| `LP-046`/`LP-047`/`LP-048`/`LP-049` | no | — | Otros módulos |
 
-## Cobertura de reglas nuevas / modificadas desde la última corrida
+## Validación de reglas cross-proyecto
 
-`6-qa.md` declaraba "Ultima validacion de reglas cross-proyecto: **2026-10-06**" (hoy, puesta por un lote
-anterior de esta misma corrida). Diferencial contra el estado vigente:
-`git log --since=2026-10-06 -- .github/instructions/32-estandares-qa-implementador.instructions.md docs/qa/regresiones-manuales.yml`
-devuelve **0 commits**. **No hay reglas nuevas ni modificadas que ejecutar en este lote**; el estado de
-reglas que validó el lote anterior sigue vigente y se pasa como dato a los lotes siguientes.
+`6-qa.md` declaraba **"Ultima validacion de reglas cross-proyecto: 2026-10-07"** (hoy). Verificado:
+`git log --since=2026-10-07 -- .github/instructions/32-estandares-qa-implementador.instructions.md docs/qa/regresiones-manuales.yml` → **sin commits**. El índice de `32` y `cat_resumen.txt` coinciden con lo validado. **Ninguna regla nueva ni modificada desde la última validación.** Esta corrida agrega `LP-055` y `LP-056`: el catálogo pasa de 195 a **197 ítems**, sin duplicados (validado con `yaml.safe_load` + `Counter`), índice regenerado con `scripts/contexto.py resumenes`.
+
+## Mis propias trampas de medición, declaradas
+
+1. **`CandadosPeriodoCaja` no es la tabla del guard.** Sembré un candado ahí, el POST entró, y la firma era un **blocker**: *"una devolución se registró con la caja cerrada"*, con `LP-037` de fondo. El guard lee **`CierresCajaDiarios`**. Lo destapó leer cómo siembra el cierre la familia 9 del arnés, en vez de creerle a mi medición. **Un oráculo construido sobre la tabla equivocada produce un defecto perfecto y falso.**
+2. **`"btnAnular" in html` no es oráculo.** Dio `True` sobre una venta con devoluciones y parecía que la vista seguía ofreciendo anular. El string vive también en el `<script>` que engancha el SweetAlert. El parser correcto saca los `<script>`, busca el **TAG** y pregunta por el `id` **sin fijar el orden de los atributos**; ahí da `False` en los 3 casos bloqueados y `True` en el control positivo (una venta limpia). Es la memoria 16 otra vez, en forma nueva.
+3. **Dos premisas del propio brief refutadas al medir** (además de la del stock): los 24 mutantes no están enumerados, así que auditarlos de a uno es inverificable; y `D3`, que el brief sugiere como el riesgo del recargo, es una rama **dominada** y no un defecto de plata.
 
 ## Defectos
 
-### `LP-034` (`minor`, **nuevo**) — la relectura del **stock** sí puede quedar decorativa: `ReloadAsync` sobre un `Producto` soft-borrado
+**De la corrida anterior:**
 
-Es el **único** camino decorativo que quedó, y no está en el estado de la venta (que está cerrado) sino en
-el stock, cinco líneas más abajo, en `ConfirmarAsync`:
+- **`LP-052` `major` → CERRADO.** Criterio de re-verificación cumplido arrancando en FAIL, por las tres puntas, con mensaje idéntico y par discriminante.
+- **`LP-053` `low` → CERRADO.** Los tres criterios + la cuarta afirmación verificada por los dos lados.
+- **`LP-054` `low` → CERRADO.** Adoptado como regla de método; las 7 bases de esta corrida se armaron así.
+- **`LP-051` `trivial`** — fuera del alcance de este lote, sigue **ABIERTO**.
 
-```csharp
-foreach (var item in venta.Items.Where(i => i.DeletedAt == null))
-    await _context.Entry(item.Producto).ReloadAsync();
-```
+**Emitidos en esta corrida: 2, los dos `low` y los dos de red de medición. Ninguno de producto.**
 
-El razonamiento de la asimetría se hizo para `Gasto` (correcto, no hay baja) y para `Venta` (correcto, se
-cerró con el helper), **pero no se hizo para `Producto`** — y `Producto` **sí se puede borrar**:
-`Producto : SoftDestroyable`, el filtro global `HasQueryFilter(e => e.DeletedAt == null)` lo alcanza, e
-`IProductoService` expone `EliminarAsync` y `EliminarLoteAsync`, cuyo `EliminarAsync` llama a
-`_repository.DeleteAsync(entity)` (que escribe `DeletedAt`) **sin ninguna guarda de uso**: borra un
-producto que está en un borrador de venta.
+### Parte de defecto `LP-055` `low` — el precargado de `ACobrar` no tiene red
 
-Consecuencia: si un producto se borra en la ventana entre la carga de la venta y el lock, `ReloadAsync` no
-trae nada, EF deja la entidad **detached** y el `item.Producto.Stock -= item.Cantidad` de abajo se aplica a
-una entidad que `SaveChanges` ya no trackea → **la venta se confirma con la plata correcta y el stock no se
-descuenta, en silencio**. Es exactamente el modo de falla (b) que el implementador documentó para `Venta`.
-
-**Por qué es `minor` y no bloquea el deploy:**
-- **No duplica plata.** La guarda de la venta es sólida (probada por M1/M3): caja, CC y comprobantes quedan
-  correctos. Lo único afectado es el descuento de stock.
-- **Requiere borrar un producto exactamente durante la confirmación de una venta que lo contiene.**
-- **El caso "producto ya borrado antes" es preexistente, no una regresión:** el código de `2580f7c`
-  también dereferencia `item.Producto.Stock`, así que ya fallaba. Lo que el hotfix agrega es la variante
-  "detached silencioso" en la ventana estrecha — y lo hace **dentro de una transacción**, que al menos
-  revierte lo demás si algo tira.
-
-`archivos_fix` sugeridos (hipótesis para el Implementador, no instrucción cerrada):
-`FerreteriaLaPlatense.Infrastructure/Services/VentaWorkflowService.cs` — releer el stock con el mismo
-criterio que el estado (`IgnoreQueryFilters` + proyección de `Stock` y `DeletedAt`, y rechazo explícito si
-el producto quedó borrado), o bien poner en `ProductoService.EliminarAsync` la guarda de uso que hoy no
-tiene. `migracion_ef`: **ninguna**.
-
-**Criterio de re-verificación (vuelve en FAIL):** sembrar una venta en Borrador con un producto, soft-borrar
-el producto por SQL después de que la venta se cargó, confirmar, y afirmar que **o** la confirmación se
-rechaza explícitamente **o** el stock queda descontado — nunca "confirmada con stock intacto".
-
-### Hallazgo declarado, sin parte (fuera del alcance del hotfix)
-
-- **`RegistrarAjusteAsync` de CC — sí mueve plata del ledger, y es uno de los 4 sitios sin tocar.** Escribe
-  un `MovimientoCCCliente` que cambia el saldo del cliente. **Pero el lock no es su arreglo**: no tiene
-  ninguna guarda de estado que una relectura pudiera proteger (sólo valida el DTO), así que su exposición
-  es **doble submit** (dos ajustes de $X cada uno), que se cierra con una clave de idempotencia, no con
-  `FOR UPDATE`. **No cambia el alcance de este deploy** y el hotfix no lo empeora. Correctamente fuera de
-  `ValidarPeriodoAbiertoAsync` porque por diseño no toca caja. Los otros 3 sitios sin tocar siguen
-  relevados y declarados.
-
-### Partes de defecto de la corrida anterior
-
-Ninguno de los 6 lotes previos abrió un parte sobre estos 5 sitios: el hotfix nace del barrido `LP-002` del
-implementador, no de un reporte de QA. No hay partes pendientes de re-verificación en este alcance.
-
-## Riesgos de liberación
-
-1. **`FacturarAsync` sostiene el lock durante el round-trip a AFIP** (decisión declarada y correcta: es la
-   única forma de que el segundo request no emita). Si AFIP tarda más que `innodb_lock_wait_timeout` (50 s
-   por defecto) un segundo POST **sobre la misma venta** muere con un error de base crudo en vez de un
-   mensaje lindo. Bloquea **una** fila: ninguna otra venta se entera. **Hoy inalcanzable** (facturación
-   deshabilitada por falta de certificado).
-2. **Comprobante AFIP huérfano** — declarado en el código y **no resuelto**: si el proceso muere entre la
-   respuesta de AFIP y el commit, el CAE existe en AFIP y no en el sistema, y un reintento emitiría un
-   segundo comprobante. No es concurrencia y el lock no puede cubrirlo. **Hay que cerrarlo ANTES de
-   habilitar la facturación electrónica, no después.** Riesgo cero hoy.
-3. **`LP-034`** (arriba): stock silenciosamente no descontado en una ventana estrecha. `minor`.
-4. **El arnés viaja en el repo** (`tools/ArnesHotfixTransacciones`, 755 líneas, `OutputType=Exe`). **No
-   está en el `.sln`**, así que un build de solución no lo toca y publicar el proyecto Web no lo incluye.
-   Su guarda de base se verificó funcionando. Sin riesgo de deploy; queda como herramienta de
-   re-verificación.
-5. **Producción está en cero transaccional**, así que **no hay dato real que reparar**. El hotfix llega
-   antes de la primera operación real del cliente, que era el objetivo.
-
-## Checklist de merge
-
-- [x] Rama correcta: `hotfix-transacciones-ventas`, nacida de `2580f7c` (= lo publicado), **no** de
-      `entrega-1-migracion`.
-- [x] **Sin migración EF** y sin columnas nuevas. 8 migraciones en la rama = 8 en producción.
-- [x] Build **0 errores** (9 advertencias, todas preexistentes: NU1902 MailKit/MimeKit).
-- [x] Arnés **82/82 OK en 4 corridas propias** sobre un fixture de 8 migraciones.
-- [x] **Control positivo ejecutado**: 40 fallas contra el código roto, con los importes reproducidos.
-- [x] **Mutación ejecutada**: la relectura es portante en los 3 métodos del workflow (M3 24 fallas, M1 4).
-- [x] `LP-009` preservado en las 3 vías que escriben caja, **dentro** de la transacción.
-- [x] Granularidad del lock de cliente ensayada: serializa el mismo cliente y **no** clientes distintos.
-- [x] `git status --porcelain` limpio en el repo del sistema (sólo `?? .claude/`, preexistente).
-- [x] Producción y los fixtures de los otros 6 lotes intactos.
-- [ ] **Pendiente post-deploy**: `LP-034` (`minor`) y el huérfano de AFIP antes de habilitar facturación.
-
----
-
-# Entrega 6 — LOTE 5: presupuestos en PDF y aumento masivo de precios (QA, 2026-10-06, rama `entrega-1-migracion`)
-
-Gate del commit `eec79d4` "Entrega 6: presupuestos en PDF y aumento masivo de precios" (31 archivos, 7.738
-líneas, migración `20261005221452_EntregaSeis_PresupuestosYAumentoMasivo`). Contexto nuevo: los 14 criterios
-arrancaron **en FAIL** y se re-ejecutaron contra el sistema corriendo; no se leyó la transcripción del
-implementador, sólo el diff y el mensaje del commit.
-
-## **NO-GO.** 14 de 14 criterios en PASS, pero se emiten **2 partes de defecto bloqueantes del alcance** (`LP-030` `major`, `LP-029` `minor`) y 3 hallazgos `low`.
-
-El veredicto no sale de un criterio fallado: sale de que **el tiempo declarado del aplicar no reproduce** (se
-midió sobre una pasada que no escribe ninguna fila) y de que **el desglose de IVA del PDF no cierra con su
-propio total** en un caso de datos que la primera prueba no muestra. Las dos cosas son del alcance del lote y
-las dos son observables.
-
-## Entorno y metodología
-
-- `dotnet build` → **0 errores**, 8 advertencias **todas preexistentes** (NU1902 MailKit/MimeKit).
-- `dotnet ef migrations has-pending-model-changes` → **"No changes have been made to the model since the last
-  migration."** Verificado de forma independiente, no asumido del commit.
-- **Base propia:** `laplatense_dev` clonada a **`laplatense_qa_l5`** (`mysqldump` + restore, 35 MB, 112.485
-  productos) y la app levantada contra la copia pasando `ConnectionStrings__DefaultConnection` por variable
-  de entorno, en el puerto **7255** (propio, para no chocar con los otros 5 lotes en paralelo).
-  **`laplatense_dev` y producción no se tocaron.** Este lote mueve los 112.485 productos: sin el clon
-  propio habría arruinado la línea base de todos los demás.
-- **Navegador real.** El MCP `playwright` sigue sin estar expuesto; se condujo el **Chromium completo** de
-  `ms-playwright/chromium-1243/chrome-win64/chrome.exe` con `locale: es-AR` y
-  `timezoneId: America/Argentina/Buenos_Aires`. El harness HTTP (cookies de Identity + antiforgery sobre el
-  mismo contexto del navegador) se usó para las guardas de servidor, los POST manipulados y las mediciones
-  de tiempo; el navegador, para lo que sólo se ve en pantalla (submit real del formulario, validez HTML de
-  los inputs, hidden del preview, badges de estado, sidebar por rol).
-- **Oráculos recalculados contra SQL independiente**, no contra el servicio: el universo del modo
-  "recalcular" con filtro vacío se replicó en SQL (incluyendo el `DeletedAt is null` del query filter global,
-  MH-049) y dio **112.021**, exactamente lo que informa el preview.
-- **Siembras deliberadas, todas declaradas y sobre el clon:** `UnidadVenta = Metro` en el producto 31356 (el
-  catálogo no tenía ninguno y el criterio 1 lo pide); `PrecioVentaDesactualizado = 1` en 6 productos de la
-  categoría 15 y 6 de afuera (el catálogo venía con **0** productos marcados, así que el criterio 10 era
-  inverificable sin sembrar); una oferta vigente de $1,50 en el producto 53349; `PrecioOferta = 0` con
-  ventana vigente en el 85054 (para `LP-032`, revertida al terminar); `ValidoHasta` en el pasado en los
-  presupuestos 27 y 28 (la UI no permite nacer vencido, y el criterio 6 vive justo ahí); y el
-  `PasswordHash`/`SecurityStamp` del superusuario copiado a `vendedor.qa@test.local` para poder entrar con
-  ese rol. Snapshots `qa_l5_base_productos` y `qa_l5_pre_full` de las 112.485 filas para poder comparar el
-  antes y el después columna por columna.
-- **El repo del sistema bajo prueba no se modificó.** `git status --porcelain`: sólo `?? .claude/`, que ya
-  estaba al abrir la sesión. `Logs/` está en `.gitignore` (verificado con `git check-ignore`).
-- **0 `pageerror` y 0 `console.error`** en todo el recorrido de navegador, y **0 entradas** de
-  Presupuestos/AumentoMasivo en los logs de error de Serilog del día (los que hay son de otros lotes).
-
-## Cobertura por criterio de aceptación
-
-| # | criterio | resultado | evidencia observada |
-|---|---|---|---|
-| 1 | cantidades fraccionarias sin truncar + unidad en el PDF | **PASS** | Presupuesto 24: `ItemsPresupuesto` guarda `Cantidad = 2.500` con `UnidadVenta = 2` (Peso) y `0.750` con `UnidadVenta = 3` (Metro). El PDF imprime **"2,500 Kg"** y **"0,750 Mt"** (texto extraído con `pdftotext`) |
-| 2 | 10% desc + 10% rec = precio de lista exacto | **PASS** | Línea de `PrecioUnitario 100.00`, `Descuento 10`, `Recargo 10` → `Subtotal = 100.00` **exacto** en la base (la cascada daría 99,00). El PDF dibuja `$ 100,00 (-10% +10%)` y `Subtotal c/IVA $ 121,00` |
-| 3 | el total discrimina IVA con alícuotas mixtas | **PASS**, con el defecto `LP-029` al lado | Presupuesto 24 (21% y 10,5%): `TotalIVA = 18.170,78` = 10.601,79 + 1,17 + 21,00 + 7.546,82 (IVA redondeado línea por línea, recalculado a mano). El PDF discrimina `IVA 10,5%: $ 7.546,82` + `IVA 21%: $ 10.623,96` = `IVA total: $ 18.170,78`. El caso mixto **cierra**; el que no cierra es el de dos líneas de la MISMA alícuota → `LP-029` |
-| 4 | precio manipulado por `Vendedor` / IVA manipulado para todos | **PASS** | El Vendedor posteó `PrecioUnitario=0.01`, `Descuento=99`, `PorcentajeIVA=0` → la base guardó **`6.00` / `0.00` / `21.00`** (presupuesto 31, `Subtotal 18.00` = 3 × 6). El Administrador posteó `PorcentajeIVA=0` con precio 1000 → guardó **`21.00`** y `TotalIVA 210.00` (presupuesto 26). `LP-014`/`LP-016` cerrados por la puerta nueva |
-| 5 | conversión precarga, deja `Convertido` y vincula | **PASS** | Venta **9027** nace en `Borrador` con `PresupuestoOrigenId = 24` y los **4 ítems copiados 1 a 1** (cantidades 2.500/0.750/1/1, unidades 2/3/1/1, descuentos y recargos incluidos) y `Subtotal/TotalIVA/Total` idénticos al presupuesto. El presupuesto 24 queda `Estado = Convertido` con `VentaGeneradaId = 9027`. Reintentar la conversión → "Este presupuesto ya se convirtió en la venta #9027." |
-| 6 | un vencido no se convierte sin acción explícita | **PASS** | Presupuesto 28 `Aprobado` con `ValidoHasta = 04/10/2026`: sin confirmar → **rechazado** con "La vigencia de este presupuesto venció el 04/10/2026… confirmalo explícitamente desde el botón de conversión", **cero** ventas creadas. Con `confirmarVencido=true` → venta **9028** más el aviso "Se convirtió un presupuesto VENCIDO: revisá los precios antes de confirmar la venta." |
-| 7 | el PDF no expone nota interna, costo ni margen | **PASS** | 4 PDFs generados (24, 25, 27, 28) y barridos por texto: **0 ocurrencias** de `NOTA-INTERNA`, "interna", "costo", "margen", `PrecioCompra` y del costo real del producto cotizado (`18795`). La nota interna **sí** aparece en `Details` (pantalla de staff), que es donde corresponde |
-| 8 | el preview muestra actual, resultante y total de afectados | **PASS** | Respuesta del preview sobre la categoría 15: `alcanzados=5`, y por fila `precioVentaActual` → `precioVentaNuevo` (5905,5→5905,5; 4030→4030; …) más `suben/bajan/sinCambio`, `conOfertaVigente=1`, `sinRecargo=0`, `conCostoNoPositivo=0`. En pantalla los hidden `PreviewGeneradoEn` y `ProductosAlcanzadosEsperados` quedan cargados (`…T06:51:37.5672297Z` / `5`) |
-| 9 | aplicar con filtro de categoría toca SOLO esos productos | **PASS** | Snapshot de las 112.485 filas antes y después. `CambiarRecargo 55%` + `CategoriaId=15` → cambian **exactamente los 6** productos de esa categoría; las otras **112.479** quedan byte a byte iguales (las únicas diferencias extra son las 6 banderas que **yo** sembré). Control a escala: `CategoriaId=2` → 62.689 productos con recargo 41 y **0** productos con recargo 41 fuera de la categoría 2 |
-| 10 | recalcular desde el costo apaga la bandera en los aplicados y no en el resto | **PASS** | `RecalcularDesdeCosto` + `CategoriaId=15`: los **5 aplicados** quedan en `0`; el 53349 (excluido por oferta vigente) **sigue en `1`**; los **6 sembrados fuera del filtro** siguen en `1`. A escala del catálogo entero: después del aplicar con filtro vacío quedan **exactamente 2** banderas encendidas, que son los 2 productos con oferta vigente |
-| 11 | "cambiar recargo" deja `PorcentajeRecargo` y `PrecioVenta` consistentes | **PASS** | Los 6 de la categoría 15 quedaron en `PorcentajeRecargo = 55` y `PrecioVenta` = `round(PrecioCompra × 1,55 / 1,21; 2)` **al centavo** (2,78 / 5,97 / 3,78 / 6,89 / 5.905,50 / 4.030,00, comparados contra la fórmula calculada en SQL). A escala: después del aplicar sobre todo el catálogo, **0 productos** violan la fórmula (`count` en SQL sobre los 112.021) |
-| 12 | una oferta vigente no se pisa sin decirlo, y el preview lo hace visible | **PASS** | Por defecto: universo 6, `conOfertaVigente = 1`, `alcanzados = 5`, y la fila del 53349 viaja con `tieneOfertaVigente: true` (badge). Con el checkbox: `alcanzados = 6`. A escala: tras el aplicar con filtro vacío, **0 de los 377/378** productos con oferta vigente cambiaron de precio o de bandera |
-| 13 | el aumento queda auditado: quién, cuándo, qué filtro, cuántos | **PASS** | 15 filas en `AumentosMasivosPrecio` (ids 10–24) con `Fecha` UTC, `UsuarioId`, `Modo`, `PorcentajeRecargoAplicado`, `CategoriaId/MarcaId/ProveedorId`, `SoloPrecioVentaDesactualizado`, `IncluyoConOfertaVigente`, `ProductosAlcanzados/Aplicados/RechazadosPorConcurrencia/SinRecargo` y `PreviewGeneradoEn`. El historial de la pantalla los describe en castellano ("Todo el catálogo (excluyó ofertas vigentes)") |
-| 14 | con el catálogo real, preview y aplicar no revientan | **PASS funcional + HALLAZGO de tiempo** | **No revientan:** 15 combinaciones de filtro + 2 modos + 5 páginas de muestra, **0 HTTP 500**, 0 respuestas no-JSON, 0 errores de consola, 0 entradas en el log. **Los tiempos no se parecen:** ver `LP-030`. Medido por mí: preview con filtro vacío **593–904 ms** (declarado 464 ms), por proveedor **428–460 ms** (declarado 465 ms, coincide), PDF **23–594 ms** (declarado 585 ms, coincide), **aplicar todo el catálogo cambiando todas las filas 44,2 s y 46,2 s** (declarado 7,6–8,0 s), aplicar por categoría de 62.689 productos **22,2 / 23,1 / 26,7 s** (declarado 10,4 s) |
-
-## Máquina de estados de `Presupuesto`
-
-Estados persistidos `Borrador → Enviado → Aprobado → Convertido`, más `Rechazado`; **`Vencido` es estado
-EFECTIVO**, derivado al leer (`Enviado`/`Aprobado` + `ValidoHasta < hoy`) y nunca persistido. Las **11
-transiciones válidas y las 18 inválidas** se recorrieron por POST directo, no por los botones (la tabla
-agrupa los casos equivalentes):
-
-| transición | desde | resultado observado |
-|---|---|---|
-| `Enviar` | Borrador | **aceptada** — "Presupuesto marcado como enviado." |
-| `Enviar` | Borrador **sin ítems** | **rechazada** — "Agregá al menos un ítem antes de enviar el presupuesto." (presupuesto 30 sigue en Borrador) |
-| `Enviar` | Enviado / Aprobado / Convertido / dado de baja | **rechazada** — "Solo se puede enviar un presupuesto que está en borrador." / 404 en el dado de baja |
-| `Aprobar` | Enviado | **aceptada** — "Presupuesto aprobado." (y con vigencia vencida agrega el aviso de que convertirlo va a pedir confirmación) |
-| `Aprobar` | Borrador / Rechazado / Convertido | **rechazada** — "Solo se puede aprobar un presupuesto que fue enviado al cliente." |
-| `Rechazar` | Enviado y Aprobado | **aceptada** — `MotivoRechazo` persistido ("El cliente compro en otro lado") |
-| `Rechazar` | Borrador / Convertido | **rechazada** — "Solo se puede rechazar un presupuesto enviado o aprobado." |
-| `ConvertirAVenta` | Aprobado vigente | **aceptada** — venta 9027 en Borrador |
-| `ConvertirAVenta` | Aprobado **vencido**, sin confirmar | **rechazada** con el mensaje de vigencia; **con** `confirmarVencido` → aceptada (venta 9028) |
-| `ConvertirAVenta` | Borrador / Enviado / Rechazado | **rechazada** — "Solo se puede convertir en venta un presupuesto aprobado. Aprobalo primero." |
-| `ConvertirAVenta` | Convertido | **rechazada** — "Este presupuesto ya se convirtió en la venta #9027." (no hay doble venta) |
-| `Cancelar` (baja lógica) | Borrador | **aceptada** — `DeletedAt` + `DeletedByUserId` en el presupuesto y en sus ítems |
-| `Cancelar` | Enviado+ | **rechazada** — "…uno ya enviado al cliente es historia y se conserva." |
-| `Guardar` (editar) | Convertido | **rechazada** — "El presupuesto ya salió de borrador: no se puede editar." y `GET /Editar` redirige a `Details` |
-| `Vencido` efectivo | Aprobado con `ValidoHasta = 02/10` | el filtro `estado=Aprobado` devuelve **0** y `estado=Vencido` devuelve **27**: no aparece en los dos a la vez. El listado y `Details` lo rotulan **"Vencido"**, y el botón de convertir sigue ofrecido (por diseño, con confirmación aparte) |
-
-## Cobertura del catálogo cross-proyecto
-
-| id | aplica | resultado | acción |
-|---|---|---|---|
-| `MH-001` | sí (el candidato obvio a la 7ª aparición) | **NO REPRODUCE** — ejecutadas **15 combinaciones** de filtro × 2 modos: vacío, categoría, marca, proveedor, desactualizados, las 4 juntas, los 3 ids inexistentes, un cruce vacío, `0`, `-1`, texto `abc`, página 99999 y página negativa → **todas 200**, incluidas las **5 que devuelven 0 filas**. No hay ninguna colección local en el módulo: los 3 filtros de catálogo son comparación por id escalar y el de proveedor es un `EXISTS` correlacionado sobre 110.683 mapeos | ninguna |
-| `MH-054` | sí (es literalmente este patrón) | **NO REPRODUCE** — el Aplicar recibe `PreviewGeneradoEn` + `ProductosAlcanzadosEsperados`. Sin timestamp → "Falta la previsualización"; con recuento distinto (moví un producto a la categoría entre las dos fases) → "El catálogo cambió desde la vista previa: ahora el filtro alcanza 6 producto(s) y la vista previa mostraba 5", **cero** filas escritas. Y en el navegador, cambiar cualquier filtro o el % **limpia** los dos hidden (`""` / `0`) | ninguna |
-| `MH-016` | sí (variante) | **MEJOR QUE EL ORIGINAL** — un **ajuste de stock real por la pantalla** del sistema entre previsualizar y aplicar hace que esa fila se **rechace** (no se pise, no se ignore en silencio): "Se actualizaron 4 producto(s). 1 se saltearon porque alguien los modificó después de la vista previa", el producto 85737 quedó en 55%/6,89 mientras los otros 4 pasaron a 60%, y la auditoría guarda `RechazadosPorConcurrencia = 1`. No aborta el lote entero como en marihogar | ninguna |
-| `LP-003` | sí (dos pantallas de puros inputs numéricos) | **NO REPRODUCE** — reabrir el borrador 34 (cantidad 2,5 · descuento 12,5% · recargo 7,25%) deja los inputs **con valor**: `2.500`, `20193.88`, `12.50`, `7.25`, `21.00`, `57879.44`. La vista usa un helper `num()` con `InvariantCulture` | ninguna |
-| `GAN-006` | sí | **NO REPRODUCE** — `checkValidity()` sobre **todos** los inputs y selects del formulario: **0 inválidos**, formulario válido, y el submit real desde el navegador guardó sin tocar un número (`2.500 / 20193.88 / 12.50 / 7.25 / 47834.25` idénticos antes y después) | ninguna |
-| `LP-007` | sí (el `Guardar` encadena `continuar`) | **NO REPRODUCE** — `continuar=zzz` → "Acción no reconocida (\"zzz\"): el presupuesto se guardó pero NO se marcó como enviado." y el presupuesto **sigue en Borrador**. Control: `continuar=""` → "Presupuesto guardado correctamente." | ninguna |
-| `LP-012` | sí (listado nuevo server-side) | **NO REPRODUCE** — 17 términos: `conversion`/`CONVERSION` → 1 (insensible a mayúsculas), `iva centavo` → 1, `287.437,32` y `287437.32` → 1 (importe en los dos formatos), `140635` → 1 (fragmento), `16/10/2026` → 3, `Convertido`/`Rechazado` → 2/1, y `'`, `%`, `_`, `'; DROP TABLE x;--`, `Zzz-nadie` → 0 filas sin romper nada | ninguna |
-| `MH-015` | sí | **NO REPRODUCE** — las **6 columnas × 2 direcciones = 12 órdenes** devuelven 12 secuencias de ids distintas y coherentes; ninguna cae a un orden fijo | ninguna |
-| `LIP-001` | sí | **NO REPRODUCE** — los 10 rechazos de negocio probados (sin destinatario, sin vigencia, vigencia pasada, cantidad 0, precio negativo, descuento 120%, sin ítems, sin preview, recuento cambiado, % de recargo faltante/negativo) llegan **todos** a pantalla como toast de SweetAlert | ninguna |
-| `LP-014` / `LP-016` | sí | **NO REPRODUCE** — ver criterio 4 | ninguna |
-| `KOI-005` / `KOI-006` | sí (2 links nuevos de sidebar) | **NO REPRODUCE** — el Administrador ve los dos y los dos responden 200. El **Vendedor** ve "Presupuestos" y **no** ve "Aumento masivo", y las 3 rutas del aumento masivo (`GET`, `POST Preview`, `POST Aplicar`) le devuelven `AccessDenied` **también por POST directo con token robado de otra pantalla** | ninguna |
-| `KOI-017` | sí (confidencialidad por complemento) | **NO REPRODUCE** — el PDF no imprime costo ni margen, y tampoco el precio de lista junto al cotizado, así que no se puede derivar el margen por resta. El descuento/recargo impreso es información que el cliente **sí** tiene que ver | ninguna |
-| `MH-049` | sí (aplicado a mi propio oráculo) | **EVITADO** — el universo se replicó en SQL incluyendo el `DeletedAt is null` del query filter global; dio 112.021 contra los 112.021 del servicio (0 filas borradas en esta base, así que la diferencia era 0, pero queda declarado) | ninguna |
-| `MH-005` | sí (PDF nuevo) | **N/A razonado** — el PDF se sirve en cualquier estado y a cualquier rol con `RequireVentas`. No hay estado en el que deba negarse: un presupuesto es un documento comercial, no un remito que compromete mercadería. Se verificó que un id inexistente da **404** y no 500 | ninguna |
-| `REG-009` | no | **N/A** — no hay cascada categoría→subgrupo; son 3 combos independientes | ninguna |
-| `LP-004` | sí | **NO EJECUTADO** — la persistencia del buscador en `Session` al volver al listado no se probó en este lote. Queda declarado como hueco | pendiente |
-
-## Reglas nuevas o modificadas desde la última corrida
-
-El diferencial lo hizo el **lote 1** de esta misma tanda y su resultado se tomó como dato (instrucción 39,
-sección 5): `git log --since=2026-10-05` sobre `32-estandares-qa-implementador.instructions.md` y
-`regresiones-manuales.yml` no devuelve **ninguna regla agregada ni modificada** después del 2026-10-05, sólo
-el commit de cierre del Sprint 0 y un fix del parser de `contexto.py`. Verificado por mi cuenta por índice
-(`cat_resumen.txt` + `git log`) antes de aceptarlo: coincide. **Sin reglas nuevas que ejecutar fuera del
-catálogo ya validado.**
-
-## Lo que busqué por mi cuenta y no estaba en el brief
-
-- **El redondeo del agregado, no sólo el de la fila.** El implementador arregló el preview fila por fila
-  (y lo verifiqué: **121 filas** de 5 páginas distintas del catálogo completo comparadas contra el valor
-  escrito, **0 diferencias**). Pero el **total de control** sigue sumando los precios sin redondear:
-  `sumaNueva` del preview = 21.883.240.756.300,56 contra `SUM(PrecioVenta)` real post-aplicar =
-  21.883.240.756.302,02. **$1,46 de desvío** → `LP-031`.
-- **El mismo error de forma en el PDF.** Buscando el patrón `Round(Sum(x))` vs `Sum(Round(x))` en el otro
-  módulo del lote apareció `LP-029`: el desglose de IVA por alícuota se redondea una sola vez sobre el neto
-  del grupo mientras el total se suma por línea. Reproducido con dos líneas de $10,50 al 21%: el PDF dice
-  `IVA 21%: $ 4,41` y `IVA total: $ 4,42`.
-- **La familia completa de los 38 productos con costo no positivo.** Confirmada la exclusión (37 negativos +
-  1 en cero, **0 tocados** por el aplicar) y buscados más miembros: el mínimo costo positivo del catálogo es
-  **$0,01** y con la fórmula ningún producto de costo > 0 redondea a 0,00 (`count = 0` en SQL), así que la
-  exclusión está completa. Dato aparte: los **37 precios de venta negativos ya existían** antes de correr
-  nada (verificado contra el snapshot) — son del catálogo migrado, el módulo no los creó pero tampoco los
-  arregla, y nadie los está viendo.
-- **Las 6 copias de la regla de oferta vigente, comparadas ejecutando y no leyendo.** Divergen: las **2
-  nuevas** incluyen `PrecioOferta > 0` y la **definición de referencia** (`Producto.EsOfertaVigente`) más 2
-  superficies de Productos no. Sembrando `PrecioOferta = 0` con ventana vigente, el mismo producto en el
-  mismo instante da: grilla de Productos `ofertaVigente: true`, `Productos/Edit` badge **"Vigente hoy"**,
-  aumento masivo `tieneOfertaVigente: false`, y las dos resoluciones de precio cobran el precio de lista. La
-  pantalla de presupuesto **se salva por casualidad**: el JS hace `producto.precioOferta || producto.precioVenta`
-  y el `0` es falsy (verificado: el input queda en $3,90, no en $0). Las copias nuevas son las **correctas**;
-  la que hay que corregir es la referencia → `LP-032`.
-- **El binder de decimales.** `PorcentajeRecargo=10,5` (coma, como lo escribe una persona) se bindea como
-  **105**: `InvariantDecimalModelBinder` prueba `InvariantCulture` con `NumberStyles.Any` primero y la coma
-  pasa como separador de miles. **No es alcanzable desde la UI** — verificado en el navegador: tipeando
-  `10,5` en el `<input type=number>` el DOM entrega `10.5` y `checkValidity()` da `true`. Es preexistente
-  (commit `f5e6af9`, Entrega 1) y compartido por toda la app, pero el campo más caro que pasa por ahí es
-  justo el % de recargo de 112.485 productos → `LP-033`, `low`, declarado como riesgo latente.
-- **El modo "cambiar recargo" también apaga `PrecioVentaDesactualizado`.** El diseño declarado atribuye eso
-  sólo al modo "recalcular desde el costo" ("este modo **apaga** la bandera"), pero el código lo hace en los
-  dos sin condición de modo. Medido: el producto 53349 pasó de bandera `1` a `0` en una corrida de
-  `CambiarRecargo 55%`. **No es un bug**: los dos modos recalculan `PrecioVenta` desde el `PrecioCompra`
-  actual, así que después de cualquiera de los dos el precio **está** actualizado y apagar la bandera es
-  correcto. Es una divergencia entre el código y su documentación: hay que elegir cuál de las dos es la
-  verdad y alinear la otra. Sin parte de defecto, va como observación.
-- **Qué pasa si el cliente corta el aplicar.** Aborté el POST a los 30 s en una corrida de todo el catálogo:
-  la transacción **revirtió bien** (0 productos con el recargo nuevo, **0 filas** en la auditoría). Pero el
-  usuario no recibe ningún mensaje y no tiene forma de saber si se aplicó: entra en `LP-030`.
-- **Cambiar el recargo rellena los recargos faltantes.** Tras la corrida por categoría, los productos
-  `sin recargo` bajaron de 48 a 16 y el universo del otro modo creció de 112.021 a 112.053. Es el
-  comportamiento correcto del modo, pero significa que la exclusión "sin recargo" del modo "recalcular" se
-  encoge sola después de cada corrida del otro. Observación, no defecto.
-
-## Defectos detectados
-
-| id | sev. | qué | parte emitido |
-|---|---|---|---|
-| `LP-030` | **major** | El aplicar sobre todo el catálogo tarda **44–46 s** en un POST sincrónico (no 7,6–8,0 s); el número declarado corresponde a una pasada que no escribe ninguna fila (medida: 3,5–3,7 s cuando nada cambia). Por categoría: 22–27 s contra 10,4 s declarados. Si el cliente corta, se pierde la corrida sin aviso | **sí** |
-| `LP-029` | **minor** | El desglose de IVA por alícuota del PDF no cierra con el total del mismo documento (`$ 4,41` contra `$ 4,42`) porque usa `Round(Sum)` donde el total usa `Sum(Round)` | **sí** |
-| `LP-031` | low | El total de control del preview suma los precios sin redondear: $1,46 de diferencia contra el catálogo que el aplicar escribe | sí |
-| `LP-032` | low | Las copias de la regla "oferta vigente" divergen en el `> 0`: con oferta en cero, Productos dice "Vigente hoy" y ninguna vía de cobro la aplica | sí |
-| `LP-033` | low | El binder de decimales resuelve `'10,5'` como `105`; no alcanzable desde la UI hoy, preexistente, con el blast radius de este módulo | sí |
-
-## Partes de defecto emitidos al Implementador
-
-1. **`LP-030`** (`major`, Infrastructure) — `archivos_fix`: `AumentoMasivoPrecioService.AplicarAsync` (evaluar
-   `ExecuteUpdateAsync` estampando `UpdatedAt` en el mismo `SET`, o subir el lote y re-medir con filas que SÍ
-   cambian, o sacar la corrida del request) y `AumentoMasivoPreciosController.Aplicar` (si se queda en el
-   request, avisar el tiempo esperado antes de confirmar y aclarar que cortar la página no aplica nada a
-   medias). **Sin migración EF.** *Re-verificación:* cronometrar `CambiarRecargo` con filtro vacío sobre el
-   catálogo real **dos veces** y que las dos entren en el presupuesto de tiempo que el equipo fije para
-   SmarterASP; y que el tiempo documentado en `5-implementador.md` sea el del peor caso, con la cantidad de
-   filas que cambiaron declarada.
-2. **`LP-029`** (`minor`, Infrastructure) — `archivos_fix`: `PresupuestoService.GenerarPdfAsync`, armado de
-   `ivaPorAlicuota`: calcular el IVA del grupo como la **suma de los IVA redondeados por línea**, la misma
-   expresión que ya usa `RecalcularTotales`. **Sin migración EF.** *Re-verificación:* un presupuesto con dos
-   líneas de subtotal $10,50 al 21% imprime `IVA 21%: $ 4,42`, `IVA total: $ 4,42` y `TOTAL: $ 25,42`; y el
-   caso de alícuotas mixtas sigue cerrando.
-3. **`LP-031`** (`low`) — `ObtenerPreviewAsync`, `sumaNuevo`: sumar la expresión ya redondeada en SQL, igual
-   que ya hace `ContarPorDireccion` en el mismo archivo. *Re-verificación:* `sumaNueva` del preview igual al
-   `SUM(PrecioVenta)` post-aplicar del mismo universo, al centavo.
-4. **`LP-032`** (`low`) — `Producto.EsOfertaVigente` + las 2 proyecciones de `ProductoService` + el badge de
-   `Productos/Edit.cshtml`; alternativa complementaria: rechazar `PrecioOferta = 0` en la validación del
-   alta/edición. **Toca Ventas en producción**, así que es decisión de alcance, no de QA.
-   *Re-verificación:* con `PrecioOferta = 0` y ventana vigente, las 6 superficies responden lo mismo.
-5. **`LP-033`** (`low`) — `InvariantDecimalModelBinder`: usar `AllowDecimalPoint | AllowLeadingSign` (sin
-   `AllowThousands`) en el intento invariante para que el fallback a es-AR llegue a ejecutarse.
-   *Re-verificación:* `'10,5'` → 10,5; `'10.5'` → 10,5; `'1.234,56'` → 1234,56; `'abc'` → sigue dando error.
-
-**Estado de los partes de la corrida anterior:** los 7 defectos del Sprint 0 (`LP-006`…`LP-012`) quedaron
-cerrados en la re-verificación del 2026-10-05 y no se re-abrieron por nada de este lote. `LP-013` sigue
-abierto y es de Caja, fuera de este alcance.
-
-## Riesgos de liberación
-
-1. **`LP-030` es el riesgo real de este lote.** 44–46 s de POST sincrónico en localhost con MySQL local
-   significan bastante más en SmarterASP (disco compartido, MySQL remoto). El `requestTimeout` por defecto de
-   ANCM son 2 minutos: el margen existe pero es finito, y el día que el catálogo crezca o el hosting esté
-   cargado la operación más visible del módulo se cae del lado malo. **Mitigación mientras no se arregle:**
-   usar el aumento masivo **por categoría o por proveedor** y no con filtro vacío, y avisarle al cliente que
-   la pantalla puede tardar un minuto y que **no hay que cerrarla** — si se corta no se aplica nada a medias
-   (eso está verificado), pero tampoco se aplica nada.
-2. **`LP-029` sale impreso y se lo lleva el cliente.** Es 1 centavo, pero es un documento de venta cuyo
-   desglose no cierra con su propio total. En un presupuesto grande con muchas líneas de la misma alícuota el
-   desvío crece. Mitigación: ninguna operativa; se arregla o se convive sabiéndolo.
-3. **Los 37 precios de venta negativos del catálogo migrado siguen ahí.** El módulo nuevo hace lo correcto al
-   no tocarlos, pero nadie los está mirando y son productos que el mostrador puede llegar a vender. No es un
-   defecto de esta entrega; es una limpieza de datos pendiente que conviene decidir con el cliente.
-4. **La conversión a venta la puede hacer el `Vendedor`**, igual que aprobar y rechazar: la policy
-   `RequireVentas` cubre todo el controller sin separar acciones. Es lo declarado en el alcance, no un
-   defecto, pero si el negocio quiere que aprobar sea de Administración hay que pedirlo explícitamente.
-
-## Pruebas mínimas ejecutadas
-
-- **11 presupuestos** creados (ids 24–34), 2 convertidos en venta (9027, 9028), 1 rechazado, 1 dado de baja.
-- **29 transiciones** de la máquina de estados (11 válidas + 18 inválidas), todas por POST directo.
-- **5 PDFs** generados y extraídos a texto (`pdftotext`), incluido el de un presupuesto vencido.
-- **15 corridas aplicadas** del aumento masivo sobre el catálogo real (ids 10–24 de la auditoría), de 5 a
-  112.069 productos, en los 2 modos, más 1 abortada a propósito desde el cliente.
-- **15 combinaciones** de filtro del preview (5 de ellas con resultado vacío) × 2 modos.
-- **17 términos** de búsqueda y **12 ordenamientos** en el listado nuevo.
-- **2 snapshots** completos de las 112.485 filas de `Productos`, comparados columna por columna.
-- **5 pantallas** en navegador real con `0 pageerror` y `0 console.error`, más el submit real del formulario
-  de presupuesto y el ciclo previsualizar→confirmar completo por UI.
-
-## Checklist de salida para merge
-
-- [x] `dotnet build` 0 errores, sin advertencias nuevas.
-- [x] `has-pending-model-changes` limpio: la migración de la entrega está completa.
-- [x] Autorización verificada **por POST directo**, no sólo por la ausencia del botón.
-- [x] Gate de precio por rol y alícuota de IVA no leídos del payload, verificado posteando valores adulterados.
-- [x] Máquina de estados completa, válidas e inválidas.
-- [x] Sin `IN`/`Contains` sobre colección local; 15 filtros ejecutados, incluidos los de resultado vacío.
-- [x] Totales recalculados server-side y verificados contra SQL independiente.
-- [x] Repo del sistema sin modificar (`git status --porcelain` limpio).
-- [ ] **`LP-030` resuelto o el riesgo aceptado por escrito** con la mitigación operativa acordada.
-- [ ] **`LP-029` resuelto** (el documento que ve el cliente tiene que cerrar).
-- [ ] `LP-031` resuelto o aceptado.
-- [ ] `LP-032` y `LP-033` triados: los dos tocan código compartido con Ventas/producción, así que es decisión
-      de alcance y no de este lote.
-- [ ] `LP-004` (persistencia del buscador al volver al listado) ejecutado en la próxima corrida.
-
----
-
-# Entrega 3 — LOTE 3: recepción de mercadería y pagos a proveedores (QA, 2026-10-06, rama `entrega-1-migracion`)
-
-Gate del commit `7cda85b` "Entrega 3 pasos 4 y 5: recepcion de mercaderia y pagos a proveedores"
-(48 archivos, migración `EntregaTres_RecepcionMercaderiaYPagosProveedor`), probado sobre el HEAD de la
-rama (`d08f8c4`), que es donde el código vive hoy. Contexto nuevo: los 14 criterios arrancaron **en
-FAIL**; no se leyó la transcripción del implementador, sólo el diff y el bloque del sprint de
-`5-implementador.md`.
-
-## **GO.** Los 14 criterios en PASS, con evidencia observada en los tres ledgers. Deja 3 hallazgos nuevos no bloqueantes (`LP-024` `major` de riesgo de liberación, `LP-025` y `LP-026` `trivial`).
-
-## Entorno y metodología
-
-- `dotnet build FerreteriaLaPlatense.slnx` → **0 errores**, 8 advertencias **todas preexistentes**
-  (NU1902 MailKit/MimeKit).
-- **Base aislada propia: `laplatense_qa_l3`**, clon de `laplatense_dev` (`mysqldump` + restore, 35 MB,
-  39 tablas, 112.485 productos, 85 proveedores). `laplatense_dev` **no se usó para probar** y
-  **producción no se tocó**. La copia queda viva: es el fixture de la re-verificación.
-  Línea base del clon: 9 `CajaMovimientos`, 0 `MovimientosCCProveedor`, 0 `MovimientosStock`,
-  0 `OrdenesCompra`, 1 cierre diario (21/08) y 1 cierre mensual (**08/2026**, que es lo que hizo
-  alcanzable la guarda `LP-009` sin sembrar nada).
-- App levantada contra la copia en `https://localhost:7733` vía `ConnectionStrings__DefaultConnection`.
-- **Navegador real.** El MCP `playwright` sigue sin estar expuesto; se condujo el Chromium de
-  `ms-playwright/chromium-1243/chrome-win64` con `locale: es-AR` y
-  `timezoneId: America/Argentina/Buenos_Aires`. **Dato de entorno nuevo: hay que apuntar a
-  `https://127.0.0.1:7733`, no a `localhost`** — con `localhost` el `page.goto` muere por timeout
-  aunque `curl` al mismo URL responda 200 (costó un reintento). El harness HTTP (cookies de Identity
-  + `__RequestVerificationToken`) se usó para las guardas de servidor y los barridos.
-- **Siembra declarada, toda en la copia:** 3 productos `ZZQA3-*` creados **por la UI**
-  (`UnidadCompra=Bulto` / `UnidadVenta=Unidad` con factor 12; unidad simple; `Bulto`→`Metro` factor 25),
-  porque `laplatense_dev` tiene **0 productos** con unidad de compra distinta de la de venta y sin eso
-  el camino de conversión no se ejercita; 13 órdenes de compra; el factor de la línea 92 **corrompido a 0**
-  por SQL para el criterio 3; una reversión **parcial** de $400 sembrada en los dos ledgers para el
-  criterio 12; y dos `CHECK` constraints de **inyección de falla** (`Monto <> 77.77` en
-  `CajaMovimientos`, `Monto <> 999.99` en `MovimientosCCProveedor`) para los criterios 10 y la
-  atomicidad de la recepción — **las dos eliminadas al terminar** (`information_schema` → 0 CHECK).
-- Credencial QA reutilizada del lote 1: `qa.super@test.local` / `QaD9#2026x` (el hash reescrito en
-  `laplatense_dev` viajó en el clon). **No se creó ni se modificó ningún usuario.**
-- **El repo del sistema bajo prueba no se modificó.** `git status --porcelain` al cerrar: sólo
-  `?? .claude/`, que ya estaba al abrir la sesión.
-
-## Cobertura por criterio de aceptación
-
-| # | Criterio | Resultado | Evidencia observada |
-|---|---|---|---|
-| 1 | Recibir una OC de un producto comprado **por bulto** suma la cantidad **convertida** | **PASS** | OC 79, línea de **5 bultos × factor 12**: `Productos.Stock` de `ZZQA3-BULTO` pasa de `0.000` a **`60.000`**. Toast: *"entraron 67 unidades al stock"* (60 + 7 de la otra línea). En pantalla, la tarjeta **"Lo que entró al stock"** de `/OrdenesCompra/Details/79` dibuja **`+60 unidad`** con el detalle *"Recepción de la compra #79 — 5 bulto"* |
-| 2 | Un producto de unidad simple suma la cantidad tal cual | **PASS** | Misma OC 79, línea de **7 unidades** (`UnidadCompra == UnidadVenta`): `ZZQA3-SIMPLE` de `0.000` a **`7.000`**, y la tarjeta muestra `+7 unidad`. Extra verificado: **factor fantasma** — OC 83 cargada con unidades iguales y factor **99** se persiste con `FactorConversionAplicado = 1.000` y el equivalente queda en 3, no en 297 |
-| 3 | Una línea sin factor válido **impide la recepción completa**, nombra el producto y **no deja nada a medio aplicar** | **PASS** | Factor de la línea 92 (`ZZQA3-ROLLO`) corrompido a `0` en la base. `POST /OrdenesCompra/Recibir/80` → *"La recepción no se aplicó: hay líneas que no se pueden convertir a unidad de stock. **ZZQA3 Cable por rollo** se compró por bulto y el stock se lleva por metro, pero la línea no tiene un factor de conversión válido…"*. **Ni la línea que sí convertía quedó aplicada:** `ZZQA3-SIMPLE` siguió en `7.000` (no `10.000`), `MovimientosStock` siguió en 2 filas, `MovimientosCCProveedor` en 1, y la OC 80 siguió en `Confirmada` con `FechaRecepcion = NULL` |
-| 4 | La recepción postea el `Cargo` por el total y **ningún** movimiento de caja | **PASS** | `MovimientosCCProveedor` id 66: `Tipo=Cargo`, `Monto=54630.00` = **exactamente** `OrdenesCompra.TotalEnPesos` de la 79, `OrigenTipo='OrdenCompra'`, `OrigenId=79`. `SELECT COUNT(*) FROM CajaMovimientos` **9 antes y 9 después**. Toast: *"No movió la caja: la plata sale al pagar."* |
-| 5 | Deja un movimiento en el ledger de stock por línea, trazable a la OC | **PASS** | 2 filas en `MovimientosStock` para la OC 79 (ids 16 y 17), `Tipo=Compra`, cantidades `60.000` y `7.000`, **`OrigenTipo='OrdenCompra'` y `OrigenId=79` — el MISMO par con el que entró el `Cargo`**, lo que permite cruzar los dos ledgers sin traducción. `UsuarioId` no nulo y `Fecha` igual a la de la recepción |
-| 6 | `PrecioCompra` actualizado (convertido y neto de descuentos); `PrecioVenta` **no cambia**; `StockVerificado` **no se toca** | **PASS** | OC 79: subtotal 60.700, descuento 6.070 → ratio 0,9. `ZZQA3-BULTO`: `60.000 × 0,9 / 60 u` = **`PrecioCompra = 900.00`** (venía de 100); `ZZQA3-SIMPLE`: `700 × 0,9 / 7` = **`90.00`**. `PrecioVenta` quedó en `200.00` y `90.00`, **sin tocar**. `StockVerificado` siguió en **`0`** en los dos. `PrecioVentaDesactualizado = 1` y `FechaUltimoCostoCompra` seteada en los dos |
-| 7 | Una OC `Recibida` **no se puede cancelar** | **PASS** | `POST /OrdenesCompra/Cancelar/79` → *"La compra ya fue recibida (impactó stock y cuenta corriente), no se puede cancelar."* y la OC sigue en `Recibida`. En el navegador, los botones visibles de una `Recibida` son **sólo** `Registrar pago` / `Volver a Compras` / `Guardar nota` — no hay `Cancelar compra` ni `Registrar recepción` |
-| 8 | Un pago multi-línea genera un `Pago` de CC y un `Egreso` de caja **por línea**, con el `MedioPago` correcto | **PASS** | Pago de la OC 81 en 3 líneas (3.000 Efectivo + 2.000 Transferencia + 1.000 Cheque): **3** `PagosOrdenCompra` (30, 31, 32), **3** `MovimientosCCProveedor` `Tipo=Pago` y **3** `CajaMovimientos` `Tipo=Egreso` con **`MedioPago` 1 / 4 / 5** (Efectivo / Transferencia / Cheque), mismo monto, misma fecha y **`OrigenId` = el id de la LÍNEA de pago, no del documento** (MH-027 aplicado). En pantalla, la CC del proveedor 2 lista `Pago a proveedor #30 / #31 / #32` con su medio |
-| 9 | El saldo del proveedor baja exactamente lo pagado y queda en 0 al pagar el total | **PASS** | Columna de saldo acumulado de `/Proveedores/CuentaCorriente/2`, leída en el navegador: `Cargo 10.000,00 → **10.000,00**`; `Pago 3.000 → **7.000,00**`; `Pago 2.000 → **5.000,00**`; `Pago 1.000 → **4.000,00**`; `Pago 4.000 → **$ 0,00**`. Cruzado con la base: `SUM(Cargo) − SUM(Pago)` = 0 en ese momento. Y la ficha del proveedor 3 muestra `$ 192,73`, el mismo número que la base |
-| 10 | Si cualquiera de las dos escrituras falla, **ninguna** queda persistida | **PASS** | **Inyección de falla real**, no deducción. `CHECK (Monto <> 77.77)` en `CajaMovimientos` → pago de 77,77: *"No se pudo registrar el pago y no quedó nada aplicado"*, y `PagosOrdenCompra` / `MovimientosCCProveedor` / `CajaMovimientos` **11 / 18 / 24 antes y 11 / 18 / 24 después**. **Caso multi-línea con la primera línea sana** (50 + 77,77): los mismos 11 / 18 / 24 — **la línea sana tampoco sobrevivió**. Simétrico del lado de la recepción: `CHECK (Monto <> 999.99)` en `MovimientosCCProveedor` → recibir la OC 84 falla y `Stock` (60.000), `PrecioCompra` (900.00), `FechaUltimoCostoCompra`, `MovimientosStock` (4) y el estado (`Confirmada`, `FechaRecepcion NULL`) quedan **todos** intactos |
-| 11 | No se puede pagar más que el saldo pendiente | **PASS** | OC 81 con saldo 10.000 → pagar 10.001: *"El total a pagar ($ 10.001,00) supera el saldo pendiente de la compra #81 ($ 10.000,00)."*, **visible en pantalla en el navegador** sobre la OC 82: *"supera el saldo pendiente de la compra #82 ($ 192,73)."*, y el formulario se repinta conservando lo cargado (`metodo=Transferencia`, `monto=999999`). Con la compra 81 ya 100% pagada, el `GET /OrdenesCompra/RegistrarPago/81` **redirige** con *"La compra #81 ya está totalmente pagada."* y el POST forzado igual se rechaza |
-| 12 | Revertir usa el **neto vivo**, nunca el monto del documento, y es idempotente | **PASS** | **Las dos mitades probadas por separado.** (a) *Neto vivo:* pago 37 de **$1.000** con una reversión **parcial de $400 sembrada** en los dos ledgers → la reversión posteó **$600**, no $1.000 (`MovimientosCCProveedor` 80 = `Cargo 600.00`, `CajaMovimientos` 66 = `Ingreso 600.00`), y **arrastró el mismo `MedioPago=4`** del egreso original. (b) *Idempotencia por construcción, no por el flag:* se forzó el pago 30 (ya revertido) de vuelta a `Estado=Pagado` en la base para **saltear la guarda de estado**, con los dos netos en 0 → la segunda reversión **no escribió ni una fila** (`MovimientosCCProveedor` 25→25, `CajaMovimientos` 24→24). Por la vía normal, la guarda de estado responde *"Este pago ya fue revertido."* |
-| 13 | No se puede imputar un pago a un día ni a un mes de caja ya cerrado (`LP-009`) | **PASS** | Pago imputado al **15/08/2026** (mes 08/2026 con cierre mensual) → *"La caja del mes 08/2026 ya tiene cierre mensual: no se puede registrar un pago a proveedor con esa fecha."*; ídem al **21/08/2026** (día **y** mes cerrados). **Controles positivos:** el mismo pago imputado a **hoy** (06/10, mes abierto) se acepta y escribe sus dos asientos; y la fecha **futura** (01/12/2026) se rechaza con *"La fecha del pago no puede ser futura."*. La recepción, que **no** toca caja, acepta con razón una fecha pasada (15/09) y persiste `FechaRecepcion = 2026-09-15 03:00:00` UTC = **00:00 ART**, el día de negocio correcto |
-| 14 | El `OrigenTipo` nuevo aparece en el combo de filtros de Caja y en todo lector de `OrigenTipo` (`LP-002`) | **PASS** | Combo `#fOrigenTipo` renderizado: los **7** orígenes de `OrigenCajaMovimiento.Todos` con etiqueta legible, incluido `PagoOC = "Pago a proveedor"`. El filtro **filtra de verdad**: `origenTipo=PagoOC` → `recordsFiltered=15` y todas las etiquetas devueltas son `"Pago a proveedor"`; los otros 6 valores y uno inexistente devuelven 200 y el subconjunto correcto. **La grilla ya no muestra el valor crudo:** la fila trae `origenTipo:"PagoOC"` **y** `origenEtiqueta:"Pago a proveedor"`, y la columna pinta la etiqueta — verificado en el navegador, con el arqueo por medio desglosando los egresos en Efectivo / Transferencia / Cheque |
-
-## Máquina de estados de `OrdenCompra` (probada entera)
-
-| desde | acción | resultado esperado | observado |
-|---|---|---|---|
-| Borrador | Confirmar | permitido | *"Compra #N confirmada. El stock y la deuda se aplican con «Registrar recepción»…"* |
-| Borrador | Recibir | **rechazado** | *"La compra está en borrador: confírmela antes de registrar la recepción de la mercadería."* |
-| Borrador | Cancelar | permitido | *"Compra #91 cancelada correctamente."* |
-| Confirmada | Recibir | permitido | ver criterios 1–6 |
-| Confirmada | Confirmar | **rechazado** | *"Solo se puede confirmar una compra en Borrador (esta está confirmada)."* |
-| Confirmada | Cancelar | permitido | botón visible y acción aceptada (OC 83) |
-| Confirmada | Pagar | permitido (anticipo) | pago de $1.000 sobre la OC 80 sin recibir, aceptado |
-| Recibida | Recibir otra vez | **rechazado** | *"Esta compra ya fue recibida: el stock y la deuda ya se aplicaron. Recibirla otra vez duplicaría las dos cosas."* |
-| Recibida | Cancelar | **rechazado** | criterio 7 |
-| Recibida | Pagar | permitido | criterios 8–9 |
-| Cancelada | Recibir | **rechazado** | *"La compra está cancelada: no se puede recibir."* |
-| Cancelada | Pagar | **rechazado** | *"La compra está cancelada: no se le pueden imputar pagos."* |
-
-Botones visibles **coinciden** con las transiciones reales en los 4 estados (verificado en navegador).
-El único desajuste es el formulario **oculto** `formConfirmar`, que se renderiza también en
-`Confirmada` → `LP-026`, `trivial`, sin consecuencia porque el Service rechaza el POST.
-
-## Cobertura del catálogo cross-proyecto
-
-| id | aplica | resultado | acción |
-|---|---|---|---|
-| **MH-001** | sí | **NO REPRODUCE** | **Ejecutado, no leído.** 25 términos × `/OrdenesCompra/Listar` + 18 ordenamientos (9 columnas × 2 direcciones) + 18 términos × `/Caja/Listar` + 10 variantes × `/Productos/Listar` → **0 respuestas no-JSON, 0 HTTP 500**. Incluyó el caso de **colección vacía** (`ids` sin elementos cuando el término no matchea nada) y caracteres hostiles (`'`, `%`, `_`, `a%b`, `'; DROP TABLE x;--`). Las 8 apariciones nuevas del lote son `List<int>`/`List<enum>`, no de texto |
-| **MH-027** | sí | **PASS** | El `OrigenId` del egreso y del `Pago` es el id de la **línea** `PagoOrdenCompra`, no del documento: 3 líneas → 3 pares `(PagoOC, 30/31/32)` distintos, y `PagoVentaId` queda `NULL` (esa columna es de `PagoVenta`). La reversión encuentra el movimiento exacto |
-| **MH-033** | sí | **PASS** | El pago a proveedor **sí** baja la caja: 7 `CajaMovimientos` `Tipo=Egreso` con `OrigenTipo='PagoOC'`. Es exactamente el agujero que MH-033 describe, cerrado de entrada |
-| **MH-020** (patrón) | sí | **PASS** | Reversión por neto vivo y sin flag `YaRevertido`: ver criterio 12(b), donde la idempotencia se sostuvo con el flag de estado **forzado en contra** |
-| **LP-002** | sí | **PASS** | `OrigenCajaMovimiento` centraliza los 7 orígenes + etiquetas; combo y grilla salen del mismo diccionario (criterio 14). `OrigenMovimientoStock` y `MedioPagoCajaMapper` nacen con el mismo patrón, y los `switch` del mapper son **exhaustivos sin `_ =>`** |
-| **LP-009** | sí | **PASS** | Criterio 13. Simetría verificada: la guarda corre **sólo** si alguna línea escribe caja, y la recepción (que no toca caja) queda afuera con razón |
-| **LP-013** | sí | **SIGUE ABIERTO, sin regresión** | La query de detección devuelve **1 fila**, y es **preexistente** del clon (`CajaMovimientos` id 5, `OrigenTipo='Gasto'`, creada después del cierre de 08/2026) — daño histórico que este lote no causó. **Ninguna escritura de este lote generó una fila nueva**: todos los pagos cayeron en 10/2026, abierto. La expectativa de LP-013 (aviso de desfasaje + remedio) sigue **no implementada** |
-| **GAN-005** | sí | **NO REPRODUCE** | Las filas de colección (`Lineas[i].Monto`) **se parsean bien**: `123.45` → `$ 123,45` persistido como `123.45`. No hace falta el marcador `__Invariant` por fila porque el proyecto registra un `InvariantDecimalModelBinderProvider` global (`Program.cs:119`) y los inputs son `type="number"` |
-| **SG-001** | sí | **NO REPRODUCE** | Un POST de pago con todas las líneas en cero no bloquea el binding: devuelve *"Cargue al menos una forma de pago con importe mayor a cero."* |
-| **MH-003** | parcial | **N/A declarado** | No hay cartera de cheques: un pago con cheque no tiene fecha de emisión que validar. Simplificación declarada y vigente |
-| **MH-016** | sí | **ver `LP-024`** | En marihogar el problema fue el `RowVersion` de `Producto`; acá **no hay** `RowVersion`, y el lote agrega el tercer escritor de `Producto.Stock`. Es la cara opuesta del mismo riesgo → `LP-024` |
-| **MH-025** | sí | **PASS** | Dos renglones del mismo producto en una compra no dejan el costo a merced del orden de las filas: el costo se acumula **por producto** y queda el promedio ponderado (`costoPorProducto`) |
-| **MH-021** | sí | **PASS** | La reversión se imputa a **hoy** y no a la fecha original del pago, y corre `ValidarPeriodoAbiertoAsync` sobre hoy |
-| **DN-003** | sí | **PASS** | No hay fallback heurístico por `(documento, monto)`: el neto se acota por `(OrigenTipo, OrigenId)` **y** por proveedor |
-| **DN-004** | sí | **N/A** | No existe "editar un pago" en este módulo; sólo revertir |
-| **OLV-019** / **MH-047** | sí | **PASS** | `FormaPagoProveedor.CuentaCorriente` no se ofrece en el combo **y** el Service lo rechaza por POST armado a mano: *"«Cuenta corriente» no es una forma de pago: es dejar la deuda a plazo…"*. Las dos puntas, no una sola |
-| **VSF-002** / **REG-004** | sí | **PASS** | `Borrador → Cancelada` existe (probado), y la máquina de estados completa coincide con el diseño |
-| **LP-004** | sí | **no ejercitada** | El bug es de concurrencia de `Session` entre respuestas del listado; no se forzó el escenario. Fuera del alcance del lote |
-| **MH-004** / **MH-007** / **MH-013** / **MH-019** / **MH-022** | no | **N/A** | Son de desgloses de caja mensual, proyección financiera, AFIP y cartera de cheques — fuera de este lote |
-| **MH-034 / 035 / 036 / 037 / 038 / 040 / 044 / 048 / 053** | no | **N/A** | Son de backfills de ledger y corrección de fechas de pagos históricos; este lote no hace backfill |
-
-## Cobertura de reglas nuevas/modificadas desde la última corrida
-
-Última validación registrada: **2026-10-05**. Diferencias contra el estado vigente, por índice
-(`cat_resumen.txt` + `git log --since=2026-10-05` sobre la instruction 32 y el YAML):
-
-| regla | origen | resultado | acción |
-|---|---|---|---|
-| **LP-013** | `regresiones-manuales.yml`, agregado el 2026-10-05 14:20 (después de la validación) | **ejecutada en esta corrida** | Query de detección corrida sobre el clon: 1 fila **preexistente**, 0 filas nuevas por este lote. Sigue abierto, sin regresión. Ver la tabla del catálogo |
-| instruction `32` | sin cambios desde 2026-10-05 13:43 | **ninguna nueva** | — |
-| LP-014 … LP-023 | agregados **hoy** por los otros lotes de esta misma corrida en paralelo | **no se cargaron** | Son hallazgos de esta tanda, no reglas previas sin validar; cada lote los reporta en su bloque |
-
-## Lo que busqué por mi cuenta y no estaba en los criterios
-
-- **La carrera del tercer escritor de `Producto.Stock`** (lo que el brief pidió buscar con ganas).
-  **Reproducida, no deducida** → `LP-024`, `major`. `Producto` **no tiene** token de concurrencia
-  (barrido sobre `Producto.cs` y `AppDbContext.cs`: ni `RowVersion` ni `[Timestamp]`), y los tres
-  escritores son incompatibles: la venta resta, `RecibirAsync` suma, y `AjusteStockService` hace un
-  **SET absoluto** del valor que el operador tipeó más `StockVerificado = true`. Secuencia real:
-  la pantalla de ajuste mostró **"Stock actual 30,000"** → entró una recepción de **+5** (stock 35)
-  → el operador guardó su conteo de **29** → quedó `Stock = 29`, **las 5 unidades recibidas
-  desaparecieron de la columna**, `StockVerificado = 1` sobre un número equivocado, y
-  **`SUM(MovimientosStock) = 35` contra `Productos.Stock = 29`**. No hay bloqueo ni aviso antes de
-  escribir; el único indicio es el toast posterior (*"actualizado de 35,000 a 29"*), con un número
-  que el operador nunca vio. **No es una regresión de este lote** (la carrera venta-vs-ajuste ya
-  existía y el alcance declarado dice que el ledger no reconstruye la columna), pero el lote agrega
-  el tercer escritor y, con el ledger nuevo, vuelve el daño **medible por primera vez** — y nada lo
-  mide. Es el principal riesgo de liberación.
-- **El hueco del ledger de stock sin historia — clasificado: contenido.** El ledger tiene **un solo
-  lector** (`OrdenesCompraController:486`), y lee **acotado por `(OrigenTipo, OrigenId)`** de una
-  compra puntual: nunca pide "todos los movimientos de un producto", así que **ninguna pantalla
-  espera historia completa** y la falta de migración hacia atrás no rompe nada hoy. Verificado además
-  que la pantalla de historial de stock lee `AjustesStock` (otra tabla), no el ledger nuevo.
-  **Consecuencia a declarar:** el sistema queda con **dos historias parciales de stock que no
-  coinciden** (`AjustesStock` y `MovimientosStock`) y ninguna completa. El primer lector que pida
-  "el historial del producto X" va a tener que elegir una de las dos o unirlas.
-- **`PrecioVentaDesactualizado`: se prende bien y NO se prende cuando no corresponde.** Las tres
-  ramas probadas bajando la bandera a `false` antes de cada una: recibir al **mismo costo** (10 → 10)
-  deja la bandera en **`0`** y sólo actualiza `FechaUltimoCostoCompra` (el toast omite el aviso de
-  costo); recibir a costo **distinto** (10 → 25) la prende y actualiza `PrecioCompra`, dejando
-  `PrecioVenta` en 90; y recibir a costo **0** (compra sin precios) **no pisa** el costo (queda 25) ni
-  prende la bandera. La columna, el filtro, el orden y la búsqueda global por *"Precio sin
-  recalcular"* funcionan y el badge se ve en el navegador con la fecha en el `title`.
-- **Autorización, con antiforgery válido.** Como `Vendedor`: las 6 pantallas del lote devuelven 302 a
-  `/Account/AccessDenied`, el **sidebar no ofrece** Compras / Proveedores / Caja / Pagos programados,
-  y los 4 POST de dinero y stock (`Recibir`, `RegistrarPago`, `RevertirPago`, `Cancelar`) —
-  **con un token tomado de una pantalla que el Vendedor sí puede abrir**, para probar autorización y
-  no antiforgery — se rechazan todos, con `PagosOrdenCompra` / `CajaMovimientos` / `MovimientosStock`
-  en 11 / 24 / 11 antes y después.
-- **El toast de advertencia de los rechazos de pago: NO es un defecto.** Mi extractor levantaba el
-  literal `Swal.fire({icon:'warning'… 'Cargá al menos una forma de pago con importe mayor a cero.'})`
-  del script inline de `RegistrarPago.cshtml` en **toda** respuesta rechazada, y parecía un mensaje
-  engañoso. Es un **guard de submit del cliente** que sólo dispara cuando el total es ≤ 0 y nunca
-  llegó a ejecutarse. Confirmado en el navegador: lo que el operador ve es el mensaje correcto del
-  Service en el resumen de validación.
-- **`buscar "Al día"` en el catálogo devuelve 0** → `LP-025`, `trivial`. La etiqueta minoritaria
-  (*"Precio sin recalcular"*) se encuentra; la mayoritaria (*"Al día"*, 112.486 filas) devuelve
-  **0** porque `AgregarAcotadoAsync` **descarta el conjunto entero** cuando supera su tope, en vez
-  de degradar. El filtro de columna equivalente sí devuelve 112.486.
-- **`precioVentaDesactualizado=xxx`** (valor basura por query string) cae en "Todos" con HTTP 200,
-  sin 500. Criterio laxo coherente con cómo se resolvió `LP-011`. **No es defecto.**
-- **Impacto declarado por el implementador, confirmado y NO reportado como bug:** es el primer egreso
-  automático del arqueo. El arqueo por medio de `/Caja` ya muestra egresos de **$8.240,61** en
-  Efectivo, **$3.566,66** en Transferencia y **$1.000,00** en Cheque, todos nuevos. Es el salto
-  esperado, igual que en marihogar.
-- **Dato de entorno para los próximos lotes:** el scratchpad de la sesión **se comparte entre lotes
-  paralelos**. Un `lib.js` mío fue sobrescrito en disco por el harness de otro lote a mitad de
-  corrida. Trabajar siempre en un subdirectorio propio (`scratchpad/qa_l3/`), no en la raíz.
-
-## Partes de defecto emitidos al Implementador
-
-### `LP-024` — `major` — la carrera del tercer escritor de `Producto.Stock` (riesgo de liberación, NO bloquea el gate)
-
-- **Reproducción:** abrir `/Stock/Ajuste?productoId=112507` (muestra `Stock actual 30,000`); sin
-  cerrarlo, recibir una OC de ese producto por 5 unidades; guardar el ajuste con `CantidadNueva = 29`.
-- **Evidencia observada:** `Productos.Stock = 29.000`, `StockVerificado = 1`,
-  `SUM(MovimientosStock WHERE ProductoId=112507) = 35.000`. Ningún aviso previo a la escritura.
-- **`archivos_fix` sugeridos (hipótesis, no instrucción):** `Web/Models/AjusteStockViewModel.cs` y
-  `Web/Views/Stock/Ajuste.cshtml` (hacer viajar el stock leído como hidden),
-  `Infrastructure/Services/AjusteStockService.cs` (comparar contra `producto.Stock` antes del SET
-  absoluto y rechazar si cambió; opcionalmente escribir la fila de `MovimientoStock` del ajuste, cuyo
-  origen `AjusteManual` ya está declarado sin escritor). Camino de fondo alternativo: token de
-  concurrencia en `Producto` — **ojo con MH-016 y con el aumento masivo de la Entrega 6** antes de
-  tomarlo. **`migracion_ef`:** ninguna por el camino del hidden; sí por el del token.
-- **Criterio de re-verificación:** con el formulario de ajuste abierto, una recepción que entra en el
-  medio hace que el guardado sea **rechazado** nombrando lo que entró, y `Producto.Stock` conserva el
-  valor que dejó la recepción. Control negativo: sin recepción en el medio, el ajuste se guarda normal.
-
-### `LP-025` — `trivial` — la búsqueda global por la etiqueta mayoritaria devuelve 0
-
-- **Reproducción:** `POST /Productos/Listar` con `search[value] = "Al día"`.
-- **Evidencia observada:** `recordsFiltered = 0`, contra `112.486` del filtro de columna equivalente
-  (`precioVentaDesactualizado=false`). `"Precio sin recalcular"` → 2, correcto.
-- **`archivos_fix` sugerido:** `Infrastructure/Services/ProductoService.cs` — que la rama de `"Al día"`
-  entre al `WHERE` final como **predicado booleano** en vez de pasar por `AgregarAcotadoAsync`, que
-  silencia su aporte al pasarse del tope. Revisar las otras ramas que usan ese helper por si alguna
-  más puede ser mayoritaria. **`migracion_ef`:** null.
-- **Criterio de re-verificación:** `search[value]="Al día"` devuelve el mismo `recordsFiltered` que el
-  filtro de columna, o 0 **con un aviso explícito** de que la búsqueda por etiqueta no se aplicó; y
-  `"Precio sin recalcular"` sigue devolviendo las filas con la bandera prendida.
-
-### `LP-026` — `trivial` — formulario oculto de una transición no disponible
-
-- **Reproducción:** `GET /OrdenesCompra/Details/80` (estado `Confirmada`) y buscar `form[action]`.
-- **Evidencia observada:** `formConfirmar` presente sin botón que lo dispare. El POST se rechaza
-  (*"Solo se puede confirmar una compra en Borrador…"*), así que es superficie muerta, no un agujero.
-- **`archivos_fix` sugerido:** `Web/Views/OrdenesCompra/Details.cshtml` — partir el
-  `@if (Model.PuedeConfirmar || Model.PuedeCancelar)` en dos bloques, uno por bandera.
-  **`migracion_ef`:** null.
-- **Criterio de re-verificación:** en `Confirmada` el HTML **no** contiene `formConfirmar` y sí
-  `formCancelar` y `formRecibir`; en `Borrador` contiene los dos primeros y no el tercero; en
-  `Recibida` y `Cancelada`, ninguno.
-
-### Estado de los partes de la corrida anterior
-
-Los 7 defectos del Sprint 0 (`LP-006`..`LP-012`) quedaron **CERRADOS** en la re-verificación del
-2026-10-05 y **no reaparecieron** en este alcance: `LP-009` se re-ejercitó con la vía nueva del pago a
-proveedor (criterio 13, PASS) y `LP-002` con el `OrigenTipo` nuevo (criterio 14, PASS). `LP-013`
-sigue **abierto** por diseño (era una mejora, sin decisión pendiente) y esta corrida confirma que no
-regresó.
-
-## Riesgos de liberación y mitigaciones
-
-1. **`LP-024`, el más importante.** Hoy, en producción, un conteo físico guardado sobre una pantalla
-   abierta desde antes de una recepción borra las unidades recibidas sin dejar rastro en la columna.
-   La ferretería va a recibir mercadería y ajustar stock el mismo día, así que la ventana es real.
-   *Mitigación hasta el fix:* indicarle al cliente que cierre y reabra la pantalla de ajuste antes de
-   guardar un conteo, y correr la query de detección de `LP-024` como control post-deploy.
-2. **Dos historias parciales de stock.** `AjustesStock` y `MovimientosStock` conviven, ninguna
-   completa, y el ledger nuevo arranca vacío. *Mitigación:* no construir ninguna pantalla de
-   "historial de stock del producto" hasta decidir cuál de las dos es la fuente, y dejar escrito que
-   el ledger arranca el día del deploy.
-3. **El salto de egresos del arqueo.** Primer egreso automático de caja del módulo de Compras: los
-   egresos del período suben de golpe el día del deploy. No es un bug. *Mitigación:* avisarlo antes,
-   no después — en marihogar se tomó como un error de la caja.
-4. **El camino de conversión no tiene ni un dato real que lo ejercite.** `laplatense_dev` tiene **0**
-   productos con `UnidadCompra != UnidadVenta` sobre 112.485, y los 2.635 candidatos a corte por metro
-   esperan marcación manual. Todo lo verificado del bulto se midió con productos sembrados.
-   *Mitigación:* que el cliente marque unos pocos productos reales por bulto y recibir **una** compra
-   chica antes de usarlo en serio.
-5. **`FactorConversion` es fijo por producto** (pregunta abierta 6 de `4-presupuestador.md`, sin
-   resolver). El snapshot en la línea absorbe el caso del bulto distinto por proveedor **si el
-   operador corrige el factor a mano al cargar la compra**; no lo resuelve de raíz.
-6. **`LP-013` sigue abierto** y el clon arrastra 1 movimiento posteado dentro de un mes ya cerrado.
-   *Mitigación:* la query de detección como control de pre/post-deploy, que es lo acordado.
-
-## Pruebas mínimas ejecutadas
-
-- Build de la solución; 14 criterios de aceptación; 12 transiciones de la máquina de estados
-  (válidas e inválidas).
-- **4 inyecciones de falla** por `CHECK` constraint (pago de una línea, pago multi-línea con la
-  primera sana, recepción, y el `CHECK` quitado al final) con los tres ledgers contados antes y después.
-- **71 llamadas** a los listados server-side del alcance (25 términos + 18 ordenamientos en
-  `/OrdenesCompra/Listar`, 18 términos y 9 valores de filtro en `/Caja/Listar`, 10 variantes en
-  `/Productos/Listar`) → 0 no-JSON, 0 HTTP 500.
-- 3 ramas de `PrecioVentaDesactualizado` (mismo costo / costo distinto / costo 0), con la bandera
-  bajada antes de cada una.
-- 2 reproducciones de la carrera recepción-vs-ajuste y 1 verificación de que el ledger y la columna
-  divergen.
-- Autorización: 6 GET + 4 POST como `Vendedor`, con token válido.
-- **Navegador real:** 8 pantallas de smoke (todas 200, con contenido) + 5 verificaciones de render
-  (tarjeta del ledger de stock, botones por estado, rechazo del pago visible, filtro de Caja por el
-  origen nuevo, columna y filtro nuevos del catálogo) + la CC del proveedor con su saldo acumulado.
-  **0 `pageerror` y 0 `console.error` en todo el recorrido.**
-
-## Checklist de salida para merge
-
-- [x] Build sin errores nuevos; 8 advertencias, todas preexistentes.
-- [x] Migración `EntregaTres_RecepcionMercaderiaYPagosProveedor` aplicada y verificada en la copia.
-- [x] Los 14 criterios de aceptación en PASS con evidencia observada.
-- [x] Máquina de estados completa, válidas e inválidas, y botones que coinciden con las transiciones.
-- [x] Atomicidad de los dos y de los tres ledgers probada **por inyección de falla**, no por lectura.
-- [x] `LP-002` / `LP-009` / `MH-001` / `MH-027` / `MH-033` / `GAN-005` verificados ejecutando.
-- [x] Autorización de las acciones de dinero y stock probada con antiforgery válido.
-- [x] Sin errores de JS en el recorrido del navegador.
-- [x] `git status --porcelain` limpio en el repo del sistema (sólo `?? .claude/`, preexistente).
-- [x] `CHECK` constraints de inyección de falla eliminados de la copia.
-- [ ] **`LP-024` emitido al Implementador** — no bloquea este gate (ningún criterio lo cubre y el
-      comportamiento coincide con el alcance declarado), pero es el riesgo 1 de liberación y
-      conviene cerrarlo **antes** de que el cliente empiece a recibir mercadería y contar stock el
-      mismo día.
-- [ ] `LP-025` y `LP-026` emitidos, `trivial`, pueden viajar en la próxima ronda de fixes.
-- [ ] Avisar el salto de egresos del arqueo **antes** del deploy.
-
-
-# Entrega 3 — LOTE 4: moneda congelada en la compra y pagos programados (QA, 2026-10-06, rama `entrega-1-migracion`)
-
-## Commit evaluado: `4246b42` "Entrega 3 item 4c + paso 6: moneda congelada en la compra y pagos programados"
-
-## **NO-GO.** 10 de los 11 criterios en PASS con evidencia observada; **el criterio 10 FALLA** (`LP-023`, `major`). Deja además 1 hallazgo `minor` (`LP-022`).
-
-El núcleo de plata de la ola — la conversión a pesos, la cotización congelada y el par de asientos
-del pago programado — está **correcto al centavo** y reproduce exactamente los 5 números que midió
-el Implementador. Lo que falla es la **idempotencia del aviso**: la garantía que el diseño declara
-que vive en la base no vive ahí, vive en un flag en memoria del middleware, y el propio diseño dice
-explícitamente que no debe depender de eso.
-
-## Entorno y metodología
-
-- Base **clonada y aislada**: `laplatense_dev` → **`laplatense_qa_l4`** (`mysqldump` + restore,
-  39 tablas, 112.485 productos, 85 proveedores, **0 compras**). Nunca se tocó `laplatense_dev` ni
-  producción. El clon **queda vivo** porque es el fixture de la re-verificación de `LP-023`.
-- App levantada contra el clon pasando `ConnectionStrings__DefaultConnection` por variable de
-  entorno, en `https://localhost:7415` (puerto propio del lote).
-- MCP `playwright` **no disponible** en la sesión. Se usó un **arnés HTTP propio en Node** (cookies
-  de Identity + `__RequestVerificationToken` del form) que recorre las pantallas reales, más
-  **assertions SQL** contra el clon. Para la concurrencia se usó además un **arnés .NET propio**
-  (scratchpad) que resuelve `IAvisoPagosProgramadosService` en N scopes y lo llama con `Barrier`.
-- **No se usó el arnés del Implementador** (`tools/ArnesEntrega3Item4c`): evaluación independiente.
-  Nota al margen: ese arnés apunta a `laplatense_dev` hardcodeado, o sea escribe la base compartida.
-- Usuario de prueba: `qa.super@test.local`, con contraseña fijada **en el clon** y los roles
-  `SuperUsuario` + `Administrador` (para ejercitar la deduplicación de destinatarios).
-- **El repo del sistema no se modificó**: `git status --porcelain` en `C:\Sistemas\Ferreteria La
-  Platense` devuelve únicamente `?? .claude/` (directorio de memoria de agentes, ya presente y sin
-  trackear al abrir la sesión). Cero `Edit`/`Write`/`sed` sobre el repo bajo prueba.
-
-## Los 5 números del Implementador: reproducidos, uno por uno
-
-Compra en USD, 10 bultos a US$ 100, 10% + 5% en cascada, IVA 21%, cotización congelada $ 1.480,50,
-`FactorConversionAplicado` 10, producto #1 (`PrecioCompra` previo $ 6.320,12). Compra **#84**.
-
-| Medición | Esperado | Observado | |
-|---|---|---|---|
-| Total del documento | US$ 1.034,55 | `OrdenesCompra.Total = 1034.55` | PASS |
-| `Cargo` en la CC del proveedor | $ 1.531.651,28 | `MovimientosCCProveedor` #66, `Tipo=1`, `1531651.28` | PASS |
-| `Egreso` en caja al pagar el total | $ 1.531.651,28 | `CajaMovimientos` #55, `Tipo=2`, `1531651.28` | PASS |
-| Saldo del proveedor al pagar el total | $ 0,00 | `SUM(cargos) - SUM(pagos) = 0.00` | PASS |
-| `Producto.PrecioCompra` resultante | $ 12.658,28 | `Productos.PrecioCompra = 12658.28` | PASS |
-
-El `8,55` del bug viejo se observó **como control positivo** en la compra en pesos (#85/#86): con el
-mismo precio nominal de 100 por bulto pero en pesos, `PrecioCompra` queda en `8.55`, que ahí **es
-correcto**. Es exactamente la diferencia que la ola vino a arreglar.
-
-## Cobertura por criterio de aceptación
-
-| # | Criterio | Resultado | Evidencia observada |
-|---|---|---|---|
-| 1 | Compra en USD postea el `Cargo` en pesos por el total convertido | **PASS** | Compra #84: `Total=1034.55`, `TotalEnPesos=1531651.28`, `Cargo` #66 = `1531651.28` |
-| 2 | El pago postea el `Egreso` en pesos y el saldo cierra en cero | **PASS** | `CajaMovimientos` #55 `Tipo=2 1531651.28`; saldo del prov. 113 = `0.00` exacto |
-| 3 | `Producto.PrecioCompra` en pesos, neto de descuentos, por unidad de venta | **PASS** | `12658.28` = 855 USD × 1480,50 ÷ 10 bultos ÷ factor 10. `PrecioVentaDesactualizado=1` |
-| 4 | Cambiar `Proveedor.TipoCambio` después no altera ninguna compra cargada | **PASS** | Ficha 113 → 9.999,0000; #84 sigue `Cotizacion=1480.5000`, `TotalEnPesos=1531651.28`, saldo `0.00`. La pantalla sigue diciendo "Cotización congelada: $ 1.480,50" y agrega aparte "Hoy el proveedor tiene $ 9.999,00" |
-| 5 | Compra en pesos sin regresión | **PASS** | #85/#86: `Total == TotalEnPesos == 1034.55`; `Cargo` en pesos; una cotización colgada posteada a mano **se descarta** (`Cotizacion` persiste `NULL`) |
-| 6 | No se puede confirmar en moneda extranjera sin cotización | **PASS** | Las **4 mitades** de la guarda, por texto en pantalla: alta sin cotización y con cotización `0` → rechazadas; **confirmar** (#87 sembrada) → "La compra está en dólares: no se puede confirmar la compra sin la cotización usada…", queda en Borrador; **recibir** (#88 sembrada) → mensaje equivalente, queda Confirmada, **sin `Cargo` y sin mover stock** |
-| 7 | Un pago programado no mueve ni CC ni caja hasta confirmarse | **PASS** | Pago #31 nace `Pendiente`; CC del prov. 114 queda en `2069.10` y `CajaMovimientos` en 10 filas, idénticos al snapshot previo; 0 movimientos con `OrigenId` del pago |
-| 8 | Confirmarlo postea el par con la fecha de HOY, no la tentativa | **PASS** | Tentativa `2026-10-16`; al confirmar, `Egreso` #56 y `Pago` #70 **ambos** con `Fecha` = `2026-10-06`. `FechaPagoTentativa` **se preserva** (16/10) como registro del plazo |
-| 9 | Una notificación por pago y por usuario, no se repite al día siguiente | **PASS** | 2 pagos vencidos × 2 destinatarios únicos = **exactamente 4** filas. El usuario con **dos roles** recibió 2 y no 4 (dedup por Id). Filas marcadas `Notificado=1`. Importes **en pesos** también para la compra en USD |
-| 10 | Corriendo el chequeo dos veces no se duplica ninguna notificación | **FAIL** | **En serie PASA** (20 requests más → 4; 3 reciclados de proceso → 4). **En paralelo FALLA**: ver `LP-023` |
-| 11 | `ValidarPeriodoAbiertoAsync` (`LP-009`) sigue aplicando al confirmar | **PASS** | Las **dos** ramas: cierre **mensual** 10/2026 sembrado → "La caja del mes 10/2026 ya tiene cierre mensual: no se puede confirmar un pago programado (se imputa al día de hoy)"; cierre **diario** de hoy → "La caja del día 06/10/2026 ya está cerrada: …". En los dos casos el pago queda `Pendiente` y la caja sin mover |
-
-### Nota metodológica sobre el criterio 11 (instrumento corregido en vivo)
-
-El primer intento de la rama "día cerrado" **no bloqueó**, y el reflejo era anotar un defecto. No lo
-era: `CierreCajaDiario.Fecha` se persiste como **medianoche naive** (`CerrarDiaAsync` guarda
-`fechaDia` ya `.Date`, y `EstaCerradoAsync` compara `c.Fecha == dia`), no como el instante UTC
-`03:00` que usa `CajaMovimientos`. La fila preexistente de la base (`2026-08-21 00:00:00`) lo
-confirma. Sembrado con la convención real, la guarda bloquea. **El síntoma era del instrumento.**
-
-## Defecto nuevo — `LP-023` — `major`
-
-### El chequeo del aviso duplica TODAS las notificaciones cuando corre concurrente
-
-`PagoProveedorService.ObtenerYMarcarPagosVencidosNoNotificadosAsync` lee con `ToListAsync()` y
-**recién después** marca `Notificado = true` y hace `SaveChangesAsync`: sin transacción, sin bloqueo
-de fila y sin token de concurrencia. Entre el `SELECT` y el `UPDATE` todos los lectores concurrentes
-ven `Notificado = 0` y **todos se llevan el mismo lote**.
-
-Reproducido por **dos vías independientes**, con 2 pagos vencidos y 2 destinatarios (esperado: 4):
-
-- **Service, grado 8 con `Barrier`:** las 8 llamadas devuelven `4` (ninguna devuelve `0`) y
-  `Notifications` queda con **32 filas**. Cada par usuario/pago repetido 8 veces. **3/3 rondas.**
-- **HTTP, dos worker processes** contra la misma base (web garden / ventana de reciclado solapado),
-  primer request del día en simultáneo: **8 filas** en vez de 4, cada notificación duplicada ×2.
-
-Lo que hace esto `major` y no cosmético: el XML-doc afirma *"correrlo dos veces, o dos veces en
-paralelo, no duplica avisos"* y *"si dos requests entran a la vez, el segundo encuentra la lista
-vacía"*. **Las dos afirmaciones son falsas.** La carrera hoy queda tapada por el `lock` + flag
-`static` de `AvisoPagosProgramadosMiddleware`, que serializa **dentro de un proceso** — y el propio
-diseño declara que la garantía **no debe** vivir en ese flag porque se pierde con cada reciclado de
-pool. Efectivamente no vive ahí: **vive sólo ahí.**
-
-Es la **misma familia** que el `LP-018` que levantó otro lote de esta corrida (neto vivo leído antes
-de abrir la transacción, sin bloquear la fila). Dos apariciones del mismo patrón en una sola corrida.
-
-## Defecto nuevo — `LP-022` — `minor`
-
-El total en pesos es la cifra **principal** de la grilla de compras, pero el buscador global sólo lo
-encuentra con el importe **exacto y con centavos**: `"1531651,28"` → 2 filas; `"1531651"` → **0
-filas**; `"1531"` y `"531651"` → 0 filas. El control `"1034"` (total del **documento** sin centavos)
-→ 4 filas, correcto. Causa: `RangoImporte` es un match exacto de ±medio centavo, y la pasada que
-hace el match parcial (`IdsPorSubstringDeImporte`) recibe únicamente pares `(Id, o.Total)`, nunca
-`TotalEnPesos`. El comentario del propio código declara la intención contraria.
-
-## El hallazgo más caro de la ola: el backfill de `TotalEnPesos`. **Verificado, cierra bien**
-
-Dev tiene **0 compras**, así que se **fabricaron 4 compras preexistentes** en el clon (una por
-estado: Recibida, Confirmada, Borrador, Cancelada; totales `1234.56`, `999999.99`, `0.00`, `121.00`),
-se **simuló el estado pre-migración** (drop del índice y de las 3 columnas) y se corrió el **`Up()`
-exacto** que genera `dotnet ef migrations script` para `20261006011819`.
-
-- Las 4 filas quedan `Moneda = 1` (Peso) y `TotalEnPesos = Total`. **Ninguna quedó en 0 indebidamente.**
-- La compra con `Total = 0` queda en `TotalEnPesos = 0`, que es lo correcto (el `WHERE Total <> 0`
-  no la toca y no hay nada que convertir).
-- **Idempotencia:** correr los dos `UPDATE` una segunda vez no cambia ninguna fila.
-- El `Moneda = 0` que dejaría el `defaultValue` de EF **no sobrevive**: el primer `UPDATE` lo repara,
-  y se verificó que el filtro y la comparación con `Peso` encuentran las filas después.
-
-## La resta `total − pagado`: no quedó una quinta copia
-
-Barrido de `total - pagado` y de todo uso de `OrdenCompra.Total` en Application/Infrastructure/Web:
-la **única** resta viva es `SaldosCompraDto.SaldoPendiente => TotalEnPesos - TotalPagado` y
-`SaldoSinComprometer => TotalEnPesos - TotalPagado - TotalProgramado`. Punto único, en pesos.
-
-Los lugares que el parte marcaba como riesgo, verificados **por observación**:
-
-- **Listado ordenando por `Total`:** el `switch` mapea `"total"` → `OrderBy(o.TotalEnPesos)`,
-  server-side. Observado: las compras en USD ordenan **arriba** de una de $ 999.999,99 pese a que su
-  número de documento es menor. Sin mezcla de monedas.
-- **CC del proveedor:** la cifra principal de cada fila es la de **pesos** y el importe en moneda
-  extranjera va como sub-línea atenuada con su cotización congelada ("US$ 1.034,55 a $ 1.480,50").
-  Correcto, sin mezcla.
-- **Dashboard:** no referencia compras. No aplica.
-- Los 5 usos restantes del `Total` del documento en vistas van **siempre** acompañados de
-  `MonedaSimbolo`. Ninguno queda "pelado".
-
-## Cobertura del catálogo cross-proyecto
-
-| id | Resultado | Evidencia |
-|---|---|---|
-| `MH-001` (IN sobre colección local) | **PASS, por ejecución** | Los destinatarios salen de `GetUsersInRoleAsync` (join en la base), no de un `Contains` sobre lista local: 4 notificaciones creadas sin 500. Y el otro candidato real, `ProveedorService` con `monedas.Contains(p.Moneda)`, **se ejecutó con la colección vacía** (`"zzzzqqqq"` → 0 monedas): HTTP 200, 0 filas, sin excepción. MH-001 es específico de colecciones locales de **string**, no de enums |
-| `LP-002` (3ª copia del mapa de monedas) | **PASS** | Búsqueda de proveedores por `"dolares"`, `"Dólares"` y `"Dolar"` → 1 fila cada una. La etiqueta visible y el nombre del enum resuelven los dos desde `ConversionMoneda` |
-| `LP-003` / `GAN-005` / `GAN-006` (cultura e inputs decimales) | **PASS** | `Cotizacion` es `decimal(18,4)` y es la superficie nueva de riesgo: renderiza `value="1480.5075"` (punto invariante, no coma), `step="0.0001"` coherente con la precisión, y emite el `<input name="__Invariant" value="Cotizacion">`. Round-trip de 3 guardados consecutivos: la cotización no deriva y `TotalEnPesos` queda en `1531659.03`, igual al cálculo independiente de QA |
-| `MH-021` (fecha sugerida en vez de la real) | **PASS** | Es el criterio 8. El par va con la fecha de hoy, no con la tentativa |
-| `MH-003` (fecha futura por POST directo) | **PASS** | `Fecha = 2027-01-15` por POST directo al pago → rechazado server-side (repintado, sin redirect) y **no se creó ninguna fila** con fecha futura |
-| `MH-019` (compromiso zombi de una compra cancelada) | **PASS** | Compra #90 cancelada con un pago programado vivo: **no aparece** en la grilla de Pagos programados y **no se notifica** (las dos consultas filtran `Estado != Cancelada`). La fila queda `Pendiente` e inerte, sin superficie que la cuente |
-| `MH-020` / `MH-027` (reversión por el neto vivo) | **PASS** | Reversión del pago #30 de la compra en USD: contramovimientos **en pesos** (`CajaMovimientos` #57 `Tipo=1 1531651.28 EsReversion=1`; CC #72 `Cargo 1531651.28`), pago → `Revertido`, y el saldo del proveedor vuelve a `3063302.56` = exactamente los `TotalEnPesos` de las dos compras recibidas |
-| `MH-015` / `MH-018` (columna ordenable sin `SortColumn`) | **N/A** | La grilla de Pagos programados es una `<table>` plana sin DataTables: no hay encabezados ordenables ni caja de búsqueda |
-| `LP-004` (buscador que no busca) / `LP-006` (reloj 12h) | **N/A** | Ídem: sin buscador, y la grilla no muestra hora (columnas: Vence, Proveedor, Compra, Forma de pago, Importe, Nota) |
-| `LP-022` (nuevo) | **FAIL** | Ver arriba |
-| `LP-023` (nuevo) | **FAIL** | Ver arriba |
-
-## Cobertura de reglas nuevas/modificadas desde la última corrida
-
-El campo "Última validación de reglas cross-proyecto" ya quedó en **2026-10-06** por un lote previo
-de esta misma corrida, así que el barrido completo de reglas nuevas **se hereda** y no se repite acá.
-Lo que sí se ejecutó contra este alcance son las reglas agregadas **durante** esta corrida por los
-lotes en paralelo y que tocan superficie mía: `LP-017` (buscador global que no alcanza una columna
-**derivada**) — se ejecutó sobre la grilla de compras y **destapó `LP-022`**, que es la misma familia
-sobre una columna **persistida** pero cubierta por sólo una de las dos pasadas de búsqueda. Y
-`LP-018` (lectura sin bloqueo antes de la transacción), que es la familia de `LP-023`.
-
-## Cobertura de la máquina de estados
-
-- **Compra:** `Borrador → Confirmada → Recibida` recorrido de punta a punta (#84, #85, #86, #89).
-  `Borrador|Confirmada → Cancelada` verificado (#90, desde Confirmada, con motivo registrado).
-  `Recibida → Cancelada` **no se ofrece** (coherente con que `Recibida` ya posteó stock y deuda).
-  Confirmar y recibir **bloqueados** sin cotización en moneda extranjera (#87, #88).
-- **Pago a proveedor:** `Pendiente → Pagado` por confirmación (#31), `Pagado → Revertido` por
-  reversión (#30), alta inmediata directo en `Pagado` (#30). `Pendiente` reprogramado: la tentativa
-  se mueve al 25/10 y **`Notificado` vuelve a 0** (reabre el aviso), sin tocar caja ni CC.
-
-## Lo que no se pudo observar (declarado, no aprobado por interpretación)
-
-- **"No se repite al día siguiente"** (mitad del criterio 9): no se corrió el reloj. Se cubrió por el
-  mecanismo equivalente y más fuerte: 3 **reciclados de proceso** (que resetean el flag en memoria y
-  fuerzan el re-chequeo) dejan las notificaciones en 4. La exclusión del día siguiente la da el mismo
-  `!Notificado` que ahí se ejercita, y es independiente de la fecha.
-- **El día que nadie entra al sistema:** por diseño el chequeo no corre, y el día que alguien entra
-  los vencidos se avisan igual porque el filtro es `FechaPagoTentativa <= hoy` (no "= hoy"). Se
-  verificó que un pago vencido el 02/10 y otro el 05/10 se avisan el 06/10. Consecuencia aceptada del
-  chequeo oportunista: el aviso puede **llegar tarde**, nunca perderse.
-- **50 personas en el mismo segundo:** no se simularon 50 sesiones reales. Lo que decide el criterio
-  es la atomicidad del reclamo, y eso se midió con grado 8 sincronizado por `Barrier` y con dos
-  worker processes, que es la forma en que el fallo aparece. El resultado es `LP-023`.
-
-## Riesgos de liberación
-
-1. **`LP-023` (`major`) — bloqueante del criterio 10.** El impacto es ruido en la campana, no plata:
-   ningún asiento se duplica. Pero la garantía declarada es falsa y el único freno es un flag en
-   memoria que el propio diseño descarta. Si el hosting corre un solo worker process, en la práctica
-   casi no se ve; en una ventana de reciclado solapado, sí. **Y queda una trampa para el próximo
-   que agregue un segundo llamador del Service** (un botón "correr ahora", un hosted service si
-   alguna vez hay pool always-running): hereda la duplicación sin ninguna señal.
-2. **El `TotalEnPesos` de una compra en moneda extranjera queda congelado.** Es la decisión correcta,
-   pero significa que corregir una cotización mal tipeada **después de recibida** no tiene camino por
-   UI: el `Cargo` ya está posteado. No se probó porque no está en los criterios; se declara como
-   superficie a cubrir en la próxima ola (misma forma que `LP-013`).
-3. **`LP-022` (`minor`)** degrada el buscador en la columna que el operador más mira, sin riesgo de dato.
-4. El backfill de la migración **es correcto pero se verificó sobre filas fabricadas**, porque dev
-   tiene 0 compras. En producción (6 migraciones atrás) **sí hay compras**: conviene correr el conteo
-   de `OrdenesCompra WHERE TotalEnPesos = 0 AND Total <> 0` **después** del deploy como control, que
-   tiene que dar 0.
-
-## Estado go/no-go
-
-**NO-GO** para el criterio 10. El resto del lote (los 10 criterios restantes, el backfill, la
-unificación de saldos y las 11 entradas del catálogo aplicables) está en condiciones de merge.
-La recomendación es cerrar `LP-023` y re-verificar en contexto nuevo: es un cambio acotado a un
-método y no toca la aritmética de plata, que ya está verificada.
-
-## Partes de defecto emitidos al Implementador
-
-### Parte 1 — `LP-023` — `major` — idempotencia del aviso de pagos programados
-
-- **Reproducción:** sembrar 2 `PagoOrdenCompra` `Pendiente` con `FechaPagoTentativa <= hoy` y
-  `Notificado = 0` sobre compras no canceladas; 2 usuarios únicos en `SuperUsuario`/`Administrador`;
-  vaciar `Notifications`. Resolver `IAvisoPagosProgramadosService` en 8 scopes independientes y
-  llamar `EjecutarChequeoDelDiaAsync()` en los 8 sincronizados con `Barrier`.
-- **Evidencia observada:** las 8 llamadas devuelven `4`, `Notifications` queda con **32 filas**
-  (esperado 4), cada par usuario/pago ×8. 3/3 rondas. Por HTTP con dos worker processes: **8 filas**.
-- **`archivos_fix` sugeridos (hipótesis, no instrucción):**
-  `FerreteriaLaPlatense.Infrastructure/Services/PagoProveedorService.cs` —
-  **Hipótesis A (preferida):** reclamar primero con un `UPDATE` condicional único
-  (`ExecuteUpdateAsync` sobre el mismo `Where`, poniendo `Notificado = true`) y leer después lo
-  reclamado; un `UPDATE` con `WHERE` es atómico bajo InnoDB, así que el segundo llamador afecta 0
-  filas. Para saber **cuáles** filas se reclamó hace falta un discriminador: marcar dentro de una
-  transacción y leer en la misma tx, o agregar `NotificadoAt` y filtrar por el valor de esta corrida.
-  **Hipótesis B:** transacción + `SELECT … FOR UPDATE` de los candidatos antes de marcar.
-  **No usar `RowVersion`**: en este stack ya mordió dos veces (`REG-001`, `MH-016`).
-- **`migracion_ef`:** sólo si se toma el camino de la columna discriminadora (`NotificadoAt`
-  `datetime(6) NULL`). Aditiva, sin backfill: `NULL` = "no notificado", coherente con
-  `Notificado = 0` preexistente. Con `SELECT … FOR UPDATE` no hace falta migración.
-- **Criterio de re-verificación (la assertion que decide el PASS):** con 2 pagos vencidos y 2
-  destinatarios únicos, **8 llamadas concurrentes dejan exactamente 4 filas en `Notifications` y 7
-  de las 8 devuelven 0**; ídem con 2 worker processes; la corrida en serie sigue sin duplicar; y
-  reprogramar sigue reabriendo el aviso una sola vez por destinatario.
-- **Fixture listo:** base `laplatense_qa_l4`, pagos `#32`/`#33`, 2 destinatarios ya configurados.
-
-### Parte 2 — `LP-022` — `minor` — buscador global por el total en pesos
-
-- **Reproducción:** `POST /OrdenesCompra/Listar` con `search[value] = "1531651"` sobre una compra con
-  `TotalEnPesos = 1531651.28`.
-- **Evidencia observada:** `recordsFiltered = 0`. Con `"1531651,28"` → 2 filas. Control `"1034"`
-  (total del documento) → 4 filas.
-- **`archivos_fix` sugerido (hipótesis):**
-  `FerreteriaLaPlatense.Infrastructure/Services/OrdenCompraService.cs` — en el bloque de búsqueda
-  global, la proyección que alimenta `IdsPorSubstringDeImporte` trae sólo `o.Total`; pasar también
-  `o.TotalEnPesos` y unir los ids, respetando el tope `MaxFilasSubstringNumerico`.
+- **Pasos:** línea base `ArnesDevoluciones` 63/63 → en `FacturacionParcialService.ObtenerFacturableAsync` cambiar `ACobrar = Math.Max(0m, item.Cantidad - facturada - devueltoSinNc)` por `ACobrar = Math.Max(0m, item.Cantidad - facturada)` → verificar que el md5 del `Infrastructure.dll` **del bin del arnés** cambió → correr.
+- **Evidencia observada:** **63 evaluadas, 63 OK, 0 FALLADAS. El mutante sobrevive.** Que la rama es alcanzable y el mutante semánticamente real: `GET /FacturacionParcial/Emitir/8` (4 vendidas, 0 facturadas, 2 devueltas, 0 acreditadas) sirve `name="Items[0].ACobrar" value="2.000"` con el código sano; con el mutante serviría **4.000**, ofreciendo facturar mercadería que el cliente ya trajo de vuelta. Los otros dos lectores de la misma regla **sí** están medidos (`V1` tumba `8.12`; `V2` tumba `8.6` y `8.12`).
+- **`archivos_fix` sugeridos** (hipótesis, no instrucción): `tools/ArnesDevoluciones/Program.cs` — una afirmación sobre el valor **precargado**, con un fixture donde `vendidas−facturadas` y `vendidas−facturadas−devueltas` sean números distintos.
 - **`migracion_ef`:** ninguna.
-- **Criterio de re-verificación:** buscar `"1531651"` devuelve la compra; `"1531651,28"` y `"1034"`
-  siguen funcionando (no-regresión); un importe inexistente devuelve 0 filas.
+- **Criterio de re-verificación:** neutralizar la resta de lo devuelto en el precargado de `ACobrar` hace **FALLAR** al menos una afirmación de `ArnesDevoluciones`. Hoy deja 63 OK / 0 FALLADAS.
 
-## Estado de los partes de la corrida anterior (lo que este lote cubría)
+### Parte de defecto `LP-056` `low` — el arnés dueño de la condición movida no está en el set de regresión
 
-- **`LP-008`** (`minor`, XML-doc de `OrdenCompraItem.PrecioCompra` que decía "en pesos"): el commit
-  lo declara corregido en su mensaje. **Verificado y CERRADO**: el XML-doc ya no afirma pesos y el
-  campo efectivamente guarda el precio en la moneda del documento, con la conversión a pesos
-  ocurriendo en la recepción vía `ConversionMoneda`.
-- **`LP-009`** (`major`, período cerrado): **sigue CERRADO** en la superficie nueva — es el
-  criterio 11, verificado en sus dos ramas sobre la confirmación del pago programado, que es una
-  vía de escritura de caja que **no existía** cuando se cerró el defecto.
+- **Pasos:** `grep -rn "Afirmar(" tools/*/Program.cs | grep -i anul` → aparece `tools/ArnesVentaSinFacturaYParcial` con `7.2`, `7.4` y `7.8`, que son la red de `LP-039`. No figura en la evidencia del lote, que declara `ArnesReconciliacionTx` y `ArnesSeisSitiosRestantes`.
+- **Evidencia observada:** corrido, **82/82/0**, idempotente — **no hay regresión, el refactor está bien.** Que **es** la red: con `if (comprobantesVivos > 0)` neutralizado pasa a **77 OK / 5 FALLADAS** y `7.2` reporta *"SE ANULÓ una venta con un comprobante fiscal vivo (es el defecto LP-039)"*. El **mismo** mutante contra los dos arneses del lote **sobrevive con 63/63 en los dos**.
+- **Agravante de medición, parte del mismo parte:** `HabilitacionDeAccion` se mudó a `Domain`, así que un chequeo de "la mutación entró al binario" escrito contra `Infrastructure.dll` descarta **los nueve** mutantes de la regla en silencio.
+- **`archivos_fix` sugeridos** (hipótesis): `docs/la-platense/definiciones/5-implementador.md` — armar el set de regresión por `grep` sobre la condición movida, no por los archivos editados.
+- **`migracion_ef`:** ninguna.
+- **Criterio de re-verificación:** por cada condición que un diff **mueva** de un archivo a otro, el set de regresión declarado incluye todos los arneses que la afirman, enumerados por `grep`; y el chequeo de "el mutante entró al binario" usa el DLL del **proyecto del archivo mutado**.
 
-## Checklist de salida para merge
+## Lo que el lote declara como no limpio: mi juicio
 
-- [x] Build limpio (`dotnet build`, 0 errores; 8 warnings `NU1902` preexistentes de MailKit/MimeKit).
-- [x] Migración `20261006011819` aplicada y **backfill verificado sobre filas preexistentes fabricadas**.
-- [x] Los 5 números de plata reproducidos al centavo.
-- [x] Máquina de estados de compra y de pago recorrida completa.
-- [x] 11 entradas del catálogo cross-proyecto ejecutadas (no leídas).
-- [x] Repo del sistema sin modificar (`git status --porcelain` limpio).
-- [ ] **`LP-023` cerrado y re-verificado en contexto nuevo** ← bloqueante.
-- [ ] `LP-022` cerrado (no bloqueante, puede ir en la próxima ola).
-- [ ] Post-deploy en producción: `SELECT COUNT(*) FROM OrdenesCompra WHERE TotalEnPesos = 0 AND Total <> 0` tiene que dar **0**.
-
----
-# Entrega 2 (fundación) — LOTE 1: ledger de caja + anulación de venta confirmada (QA, 2026-10-06, rama `entrega-1-migracion`)
-
-## **NO-GO.** 8 criterios en PASS, 3 en FAIL. 1 defecto `critical` de dinero (`LP-018`) + 2 `major` (`LP-019`, `LP-020`) + 1 `minor` latente (`LP-021`).
-
-Gate del commit `59dd715` "Fundacion del ledger de caja + anulacion de venta confirmada". Es el fundamento
-de las otras 5 olas de la tanda, así que los 3 FAIL valen por el doble: `LP-018` toca el mecanismo —el
-neto vivo— que las olas posteriores copiaron al ledger de proveedores y al de empleados.
-
-## Entorno y metodología
-
-- **Base aislada propia: `laplatense_qa_l1`**, clon de `laplatense_dev` por `mysqldump` (35 MB) tomado al
-  arrancar el lote. **Nada se probó contra `laplatense_dev` ni contra producción.** El clon queda vivo: es
-  el fixture de la re-verificación.
-- App levantada desde `FerreteriaLaPlatense.Web` con `ASPNETCORE_ENVIRONMENT=Development` y
-  `ConnectionStrings__DefaultConnection` apuntando al clon, en `https://localhost:7211` (puerto propio del
-  lote, para no pisar a los otros 5 que corren en paralelo). Build limpio.
-- **El MCP `playwright` no está en la sesión.** Se usó harness HTTP en Node con cookies de Identity reales
-  y `__RequestVerificationToken` extraído del HTML de cada form. Alcanza para todo lo de este lote, que es
-  lógica server-side y cifras renderizadas; se declara que **no hubo navegador real**, así que nada de
-  interacción JS (el SweetAlert del botón Anular) está verificado por render.
-- **El working tree está en `d08f8c4` (Entrega 4), 5 commits por delante del commit bajo prueba.** Se probó
-  el sistema tal como se publicaría, no el commit aislado: los criterios son los de `59dd715` pero el
-  veredicto incluye lo que las olas posteriores le hicieron a esa superficie. Se declara porque cambia la
-  lectura de `LP-020`.
-- Semilla propia en el rango de ids **9101–9161** (ventas) para no cruzarse con los otros lotes, más un
-  segundo usuario `Vendedor` (`qa-vend2-l1`) clonando el `PasswordHash` del superusuario.
-- Contención de entorno detectada y sorteada: otro lote **sobrescribió un archivo del scratchpad
-  compartido** (`h.js`) a mitad de corrida. Todo lo de este lote pasó a vivir en `scratchpad/lote1/`.
-
-## Cobertura por criterio (PASS / FAIL / BLOCKED)
-
-| # | Criterio | Estado | Evidencia observada |
-|---|----------|--------|---------------------|
-| 1 | Devuelve el stock en la unidad correcta, con cantidades decimales | **PASS** | Producto 3597 (`UnidadVenta=Peso`, decimal(18,3)). Confirmar 6 ventas: `Stock` 100.000 → 92.625 (−7.375 exacto). Anular venta 9101 (2.750) y 9106 (0.125): 94.125 → 97.000. Sin redondeo en ningún paso. Detecta y avisa el cambio de unidad posterior (`ItemsVenta.UnidadVenta=3` vs `Productos.UnidadVenta=2`) sin bloquear |
-| 2 | Revierte caja por el **neto posteado**, no por el total de la venta | **PASS** | Venta 9101: `Total` $332,75, pagos Efectivo $82,75 + CuentaCorriente $250,00. La reversión de caja fue **$82,75**, no $332,75 (mov. id 64, `Egreso`, `EsReversion=1`, `PagoVentaId=12`). Mensaje: "se revirtieron $ 82,75 en caja" |
-| 3 | Revierte el débito en la CC del cliente | **PASS** | Venta 9101: `MovimientosCCCliente` id 12 (`Debito`, `Origen=VentaFiado`, $250,00) → id 13 (`Credito`, `Origen=AnulacionVenta`, $250,00, `VentaId=9101`). Ledger inmutable: contramovimiento nuevo, no edición |
-| 4 | Queda `Anulada` con motivo y fecha, y **deja de contarse** en Dashboard, ABC y arqueos | **FAIL** | Estado/motivo/fecha/usuario ✓ (`Estado=3`, `MotivoAnulacion`, `FechaAnulacion` proyectada a ART: UTC 06:25 → "06/10/2026 03:25"). Dashboard ✓: "Ventas de hoy 2 — $ 242,00" = oráculo SQL de `Estado IN (2,4)`; las 7 anuladas ($6.579,38) quedan afuera. ABC ✓: 3597 clase **C** con 9.375 unidades vendidas en ventas anuladas (oráculo: solo 2.000 confirmadas cuentan); "Top productos del mes" muestra 2, no 9. **Arqueos ✗:** ver `LP-020` |
-| 5 | No se puede anular dos veces | **FAIL** | Secuencial ✓: 2.º intento → "Esta venta ya está anulada". Con el estado forzado a `Confirmada` por SQL (venta 9102, ya revertida) el neto vivo protege la caja ✓ (0 movimientos nuevos) pero **el stock se devolvió otra vez** (94.125 → 95.625). Y en **paralelo** el neto no protege nada: ver `LP-018` |
-| 6 | No se puede anular una venta con Entrega asociada | **PASS** | Venta 9103 `Confirmada` + `Entregas` id 4: "Esta venta tiene una entrega a domicilio asociada: hay que resolver o dar de baja la entrega antes de anular la venta". `Estado` sigue en 4, 0 reversiones posteadas |
-| 7 | Un `Vendedor` anula la suya y **no la de otro** | **PASS** | `vendedor2.qa` POST sobre la venta 9104 (de `vendedor.qa`), id manipulado: "Solo un administrador o el vendedor que registró la venta pueden anularla". `vendedor.qa` sobre su propia 9106: OK. **Repartidor por POST directo con token antiforgery propio robado de `/Entregas`**: 302 → `/Account/AccessDenied?ReturnUrl=%2FVentas%2FAnular` (lo corta la policy `RequireVentas`, server-side) |
-| 8 | Día o mes de la venta cerrado ⇒ rechazo (`LP-009`) | **PASS** | 4 ramas, las 4 rechazadas y con `Estado` intacto: mes cerrado con cierre diario (21/08) y sin él (25/08) → "La caja del mes 08/2026 ya tiene cierre mensual…"; **día** cerrado con mes abierto (15/09, cierre sembrado) → "La caja del día 15/09/2026 ya está cerrada…"; **hoy** cerrado con el día de la venta abierto → "La caja del día 06/10/2026 ya está cerrada: no se puede registrar hoy la reversión de esa venta". Cierres sembrados borrados al cerrar |
-| 9 | Un gasto anulado ya no se confunde con un ingreso real | **PASS** | Backfill: gastos 1 y 2 con neto vivo $0,00 y **$0,00 de `Ingreso` no-reversión** sobre `OrigenTipo='Gasto'`. Camino vivo: gasto 4 (Transferencia $7.777,77) → reversión `EsReversion=1`, `MedioPago=4`, neto $0,00. Con `Anulado` forzado a 0, el 2.º intento **no postea nada**: "No había ningún egreso vivo en la caja para revertir" — el neto protege sin depender del flag |
-| 10 | El desglose del arqueo suma exactamente el total del arqueo | **FAIL** | Período **abierto** ✓ al centavo: KPI "Ingresos de hoy $ 9.230,15 / Egresos $ 25.027,69" = pie del desglose = oráculo SQL, día y mes. Período **cerrado ✗**: ver `LP-019` |
-| 11 | El backfill resolvió `MedioPago` y `PagoVentaId` a todas las filas de venta preexistentes | **PASS** | 23 filas `OrigenTipo='Venta'`: **0 sin `MedioPago`, 0 originales sin `PagoVentaId`, 0 sin `UsuarioId`**. Las 3 preexistentes (ids 6, 7, 8, del 03/09) resolvieron al pago exacto: 6→7 (venta 12, Efectivo, $200), 7→8 (venta 12, CreditoCuotas, $300), 8→**10** (venta 13, que tiene dos pagos Efectivo del **mismo importe** $5.163,80 — el `DeletedAt IS NULL` del subquery deja `n=1` y elige el vivo, no el borrado). 0 grupos `(venta, medio)` con `n>1` → nada quedó ambiguo |
-
-## Máquina de estados de Venta
-
-`Borrador → Confirmada → Anulada` ejercitada de punta a punta. Transiciones **rechazadas** y verificadas por
-ejecución, cada una con su mensaje propio y sin efecto colateral:
-
-| Desde | Intento | Resultado observado |
-|-------|---------|---------------------|
-| `Anulada` | → `Anulada` | "Esta venta ya está anulada." |
-| `Borrador` (vivo, 9110) | → `Anulada` | "Esta venta todavía está en borrador: no movió stock ni caja… Usá \"Cancelar\" para descartar el borrador." |
-| `Facturada` (venta 1) | → `Anulada` | "La venta #1 tiene comprobante AFIP emitido (número 1): anularla requiere emitir una nota de crédito electrónica, que todavía no está implementada." |
-| inexistente / soft-deleted | → `Anulada` | "Venta no encontrada." |
-| motivo `""` y `"    "` | → `Anulada` | "El motivo de la anulación es obligatorio." (server-side, no solo el `inputValidator` del SweetAlert) |
-
-`EstadoVenta.Anulada` propagado al combo `fEstado` del listado de Ventas, y `OrigenMovimientoCC.AnulacionVenta`
-al combo Origen de la CC del cliente ("Anulación de venta") — **LP-002 cumplido**.
-
-## Defectos nuevos de este lote
-
-### `LP-018` — `critical` — dos `Anular` en paralelo revierten el mismo dinero dos veces
-
-El parte completo está en `docs/qa/regresiones-manuales.yml`. Lo esencial: `AnularAsync` lee el neto vivo y
-`venta.Estado` **antes** de `BeginTransactionAsync` (decisión explícita y documentada en el propio método,
-para poder bloquear entero si algún pago no es identificable). Sin lock de fila, sin `RowVersion` en `Venta` y
-sin índice único sobre `(PagoVentaId, EsReversion)`, dos requests concurrentes ven los dos `Confirmada` y los
-dos el mismo neto, y cada uno postea su reversión.
-
-**Reproducción (venta 9130, 3 POST paralelos con sockets separados):** un solo `Ingreso` de $605,00 quedó con
-**dos** reversiones —`CajaMovimientos` ids 69 y 70, `Egreso` $605,00 cada una, `EsReversion=1`, el **mismo**
-`PagoVentaId=22`— y el neto vivo de ese pago en **−$605,00**. La caja egresó $1.210,00 por una venta que
-ingresó $605,00, y la venta quedó `Anulada`, así que nada avisa.
-
-**Es intermitente:** la segunda tanda (venta 9131, 4 POST) hizo rollback de las sobrantes (hueco de
-`AUTO_INCREMENT` 72–73) y quedó una sola reversión. Una corrida verde no prueba nada: la re-verificación
-necesita la tanda repetida ≥3 veces.
-
-Lo que cae con esto es la afirmación central del commit —"revertir dos veces es imposible por construcción"—
-que vale **solo en secuencia**: el neto vivo es una lectura, no un candado. Y el mecanismo se copió después al
-ledger de proveedores y al de empleados, así que el parte pide barrer los tres.
-
-Nota al margen del mismo defecto: con el estado forzado (criterio 5) el neto protege caja y CC, pero
-**el stock no tiene equivalente del neto** — su única defensa es el `if (Estado == Anulada)`, que es
-exactamente el tipo de guarda que el commit dice estar reemplazando.
-
-### `LP-019` — `major` — el desglose del arqueo es vivo y el total es el congelado
-
-En `/Caja/Mensual?anio=2026&mes=8` (mes con cierre firmado y desfasado), **en una sola pantalla**: KPI
-"Egresos del mes **$ 91.500,50**" (el valor congelado en `CierresCajaMensuales`) y pie del desglose
-"Total … **$ 94.001,25**" (recálculo vivo). **$ 2.500,75** de diferencia, sin ninguna leyenda que lo explique,
-en un cuadro que se titula "Para conciliar contra el extracto de cada cuenta".
-
-`ObtenerResumenMesAsync` devuelve `cierre?.TotalEgresos ?? egresos` pero llena `TotalesPorMedio` con
-`ObtenerTotalesPorMedioRangoUtcAsync`, que siempre consulta el ledger vivo. Las dos consultas están
-correctamente alineadas en lo que **excluyen** (apertura / `SaldoInicialCaja`, verificado: coinciden al centavo
-en período abierto) y el XML-doc razona sobre esa alineación — pero la alineación es del **filtro**, no de la
-**fuente**. En período abierto coinciden y el defecto es invisible; aparece justo cuando el operador va a
-conciliar un mes cerrado. Emparenta con `LP-013`, que ya pedía la detección del desfasaje; esto le da la
-superficie concreta donde ponerla.
-
-### `LP-020` — `major` — ningún lector de totales usa `EsReversion`, y la pantalla afirma lo contrario
-
-Medido en `/Caja` antes y después de anular una venta de $4.840,00: "Ingresos de hoy" **no baja** (queda en
-$14.071,15) y "Egresos de hoy" **sube** $4.840,00. Sobre el día completo: ingresos **brutos $14.082,26** contra
-ingresos **netos −$229,89**. Igual en la tarjeta "Caja de hoy" del `/Dashboard`.
-
-Y `/Ventas/Details` de la venta anulada dice, textual: *"Esta venta ya no se cuenta en el dashboard, en la
-clasificación ABC ni en los arqueos."* Las dos primeras son verdad y están verificadas arriba. **La tercera es
-falsa**, y es la afirmación más fuerte que el sistema le hace al operador sobre un comportamiento que no existe.
-
-**Clasificación pedida en el brief:** es un **defecto de este commit**, no una promesa para más adelante. Tres
-razones: el criterio 4 lo exige explícitamente; el XML-doc de `EsReversion` de este commit promete que con la
-columna el arqueo puede separar "plata que entró" de "plata que nunca salió"; y la vista de este commit lo
-afirma como hecho consumado. La Entrega 4 ya lo diagnosticó en el XML-doc del helper ("una promesa vencida de
-la ola 1") y expuso el neto solo en la pantalla consolidada del módulo 13, sin tocar el arqueo ni el texto. Lo
-barato y urgente es el texto de la vista; el neto en el arqueo puede ir después.
-
-### `LP-021` — `minor` (latente) — el neto vivo no está acotado cuando `OrigenId = 0`
-
-Segunda familia que el brief pidió buscar. `ObtenerNetoPosteadoAsync` acota por `OrigenTipo + OrigenId`, pero
-los orígenes manuales se persisten con `OrigenId = 0`: reproduciendo en SQL la agregación exacta para
-`('Ajuste', 0, Ingreso)` devuelve **$262,86, que es la mezcla de 3 ajustes independientes**. Hoy **no hay
-ningún caller** con `OrigenId=0` (verificado por grep), así que es latente — pero el contrato público del
-método habla de "un origen del ledger" sin ninguna salvedad, y el día que aparezca "revertir un movimiento
-manual" la reversión sale por el neto de todos los ajustes juntos.
-
-### Observaciones menores, sin id propio
-
-- `usuarioNombre` llega como `null` (no ausente) en el JSON de `/Caja/ConsolidadoListar` para las 5 filas de
-  `Gasto` y 2 de `Ajuste` sin `UsuarioId`, y la columna declara `defaultContent: '—'`, que en DataTables solo
-  aplica a `undefined`. Es el **lector a medio hacer que el brief sospechaba** por el `UsuarioId` de solo
-  escritura, pero es cosmético y pertenece al reader de la ola 4, no a este commit. **Render no confirmado**
-  (sin navegador): queda como observación, no como FAIL.
-- Un valor basura en el filtro `medioPago` (`?medioPago=NoExiste`) cae en silencio a "todos" (34 de 34 filas)
-  en vez de fallar ruidoso. Misma familia que `LP-007`, severidad despreciable.
-
-## La primera familia del neto vivo (filtrado por tipo de movimiento): **no está presente**
-
-El brief pedía buscar las dos familias que el neto vivo ya tuvo en el ledger de proveedores. La primera
-—filtrar por tipo de movimiento y no contar la reversión del tipo opuesto, que devolvía 160.000 donde el real
-era 60.000— **no aparece acá**: `NetoVivo` materializa las filas y resta en memoria
-`Σ(tipoOriginal, !EsReversion) − Σ(tipoOpuesto, EsReversion)`, con el tipo opuesto derivado del original en un
-solo lugar compartido por las dos sobrecargas públicas. Verificado por ejecución en los dos sentidos:
-`Egreso→Ingreso` (gasto 4, neto $0,00 tras revertir) e `Ingreso→Egreso` (ventas 9101/9102/9106, neto $0,00).
-
-## Verificación de `MH-001` por ejecución
-
-**34 llamadas** a `/Caja/Listar` y `/Caja/ConsolidadoListar`, todas **200 con JSON válido**, ninguna excepción
-del provider. Se ejercitó específicamente la superficie nueva del commit: filtro por los 7 medios, el
-centinela `SinDeclarar` (`MedioPago IS NULL`), el orden por la columna `Medio`, la búsqueda global por
-**etiqueta** ("tarjeta" → 1 fila `CreditoCuotas`; "sin declarar" → 1; "efectivo" → 28), el badge
-"Reversión" (12 filas, = mis reversiones), el término que no matchea nada (0 filas, el caso que hacía
-reventar el `IN` vacío) y combinaciones medio + tipo + búsqueda.
-
-La estrategia del commit evita el `IN` por construcción: recorre `Enum.GetValues<MedioPagoCaja>()` y hace una
-consulta por medio con el valor como **parámetro escalar**. Acento e insensibilidad de caso verificados con una
-fila `Depósito` sembrada: "deposito", "depósito", "DEPOSITO" y "Depos" → 1 fila cada uno.
-`ResolverNombresAsync` materializa `AspNetUsers` y filtra en memoria (la colección de strings nunca llega al
-`IN`), y `ventaIds.Contains(i.VentaId)` del Dashboard es `List<int>` materializada con guarda de lista vacía —
-los dos criterios que el proyecto ya tenía documentados, y los dos ejecutados de verdad.
-
-## Día de negocio / huso (el servidor de producción está en Pacífico)
-
-- **Ninguna línea agregada por el commit usa `DateTime.Today`, `DateTime.Now`, `DateTime.UtcNow.Date` ni
-  `ToLocalTime()`.** Barrido global: las 10 apariciones restantes en la solución son **comentarios** que
-  advierten contra su uso.
-- Frontera forzada con datos (no tocando el reloj): venta 9160 con `Fecha = 2026-09-11 01:44 UTC` = **22:44 ART
-  del 10/09**, y su par simétrico 9161 a las 00:00 ART del 10/09. Las dos se muestran como **10/09/2026** en la
-  grilla de Ventas y en el detalle, y sus dos movimientos de caja caen en el **mismo** arqueo del 10/09 ART
-  (oráculo SQL: 2 movimientos, $242,00). **`LP-010` no regresionó.**
-- `FechaAnulacion` se proyecta a ART en el detalle (UTC 06:25 → "06/10/2026 03:25"), igual que `Fecha`.
-- Camino de **escritura** verificado: `Venta.Fecha` no se corrió ni un segundo tras confirmar y anular
-  repetidamente (9101, 9150, 9160 comparados en la base antes y después).
-
-## Regresiones de lo que ya pasaba (`LP-009` a `LP-013`)
-
-| Item | Estado | Evidencia |
-|------|--------|-----------|
-| `LP-009` (guarda de período consulta día **y** mes) | **sin regresión** | Movimiento manual a `2026-08-24` (mes cerrado, día sin cierre) y a `2026-08-21` (día y mes cerrados): los dos **rechazados**, 0 filas en la base. El de control (hoy) se persistió. Las 4 ramas de la guarda en `AnularAsync` también rechazan (criterio 8) |
-| `LP-010` (`Venta.Fecha` alineada al día de negocio) | **sin regresión** | Ver la sección de huso: el par 22:44 / 00:00 ART del mismo día de negocio coincide entre Ventas y Caja |
-| `LP-011` (mes fuera de rango → 500) | **sin regresión** | `mes=13`, `mes=0`, `mes=-1`, `anio=0`, `anio=99999`: los 5 → **302** a `/Caja/Mensual`, ningún 500 ni página de error |
-| `LP-012` (los listados de cierres ignoran `search[value]`) | **sin regresión** | `/Caja/CierresListar` y `/Caja/MensualListar`: `"QA Super"` → 1 fila, `"zzz-no-existe"` → **0 filtradas**. El servidor respeta el término |
-| `LP-013` (no hay camino para corregir un cierre desfasado) | **sigue abierto, y ahora es visible** | El desfasaje de $2.500,75 de agosto sigue sin detección ni remedio. `LP-019` es su manifestación nueva: ahora la pantalla muestra los dos números juntos y sigue sin decir que difieren |
-
-## Cobertura del catálogo cross-proyecto
-
-Seleccionados por índice (`docs/qa/cat_resumen.txt`) los items cuyo módulo mapea a esta superficie; solo de
-esos se leyó el cuerpo completo en `regresiones-manuales.yml`.
-
-| Item | Severidad | Resultado |
-|------|-----------|-----------|
-| `MH-001` / `MH-050` (colección local al `IN` de SQL) | major | **PASS por ejecución** — 34 llamadas, 200 todas. Ver la sección propia |
-| `MH-020` (reversión por el total nominal en vez de lo cobrado) | critical | **PASS** — criterio 2: $82,75 revertidos sobre una venta de $332,75 |
-| `MH-027` (clave no única al documento hijo ⇒ contramovimiento por el importe equivocado) | critical | **PASS, el caso difícil** — venta 9102 con **dos pagos Efectivo de $90,75 idénticos**: dos reversiones, cada una contra su propio `PagoVentaId` (14 y 15), sin adivinar por monto. Y el backfill eligió el pago vivo (10) y no el borrado (9) en la venta 13, que también tiene dos pagos del mismo importe |
-| `MH-034` (ledger único inconciliable) | medium | **PASS con reserva** — el desglose por medio existe, filtra y cuadra al centavo en período abierto; falla en período cerrado (`LP-019`) |
-| `LP-002` (propagar un valor de enum nuevo a **todos** los lectores) | — | **PASS** — combo Origen de Caja con los 8 orígenes, combo Medio con los 7 valores + `SinDeclarar`, `fEstado` de Ventas con `Anulada`, combo Origen de la CC con "Anulación de venta" |
-| `LP-007` (valor desconocido debe fallar ruidoso) | minor | **PASS con observación** — `continuar` desconocido sigue avisando; el filtro `medioPago` basura cae en silencio a "todos" |
-| `LP-009`, `LP-010`, `LP-011`, `LP-012`, `LP-013` | major/minor | Ver la tabla de regresiones |
-
-**No aplicados en este lote** (módulo ajeno al alcance, para el lote que corresponda): los `CRM-0xx`, los
-`KOI-Bxx`, los `OLV-0xx` y los `MH-0xx` de Compras/Proveedores/Empleados.
-
-## Reglas nuevas o modificadas desde la última corrida
-
-`6-qa.md` declaraba "Ultima validacion de reglas cross-proyecto: 2026-10-05". Diferencial contra el estado
-vigente: `git log --since=2026-10-05` sobre
-`.github/instructions/32-estandares-qa-implementador.instructions.md` y `docs/qa/regresiones-manuales.yml`
-devuelve **solo** el commit de cierre del Sprint 0 del propio 2026-10-05 (`20e9734`) y un fix del parser de
-catálogos de `contexto.py` (`d0f62df`), que no cambia ninguna regla. **No hay regla agregada ni modificada
-después de esa fecha**, así que no hubo reglas nuevas que ejecutar contra el sistema fuera del catálogo ya
-validado. Dato para los lotes siguientes de esta tanda: no necesitan repetir este diferencial.
+- **`trazas.tsv`: estructuralmente SANO.** Medido sobre los bytes: 101 `CRLF` + 3 `LF` sueltos, que son las 3 filas que `traza.py` agregó en esta tanda (el script escribe `\n` y el archivo histórico es `\r\n`; `git` lo normaliza y avisa). **Cada fila tiene exactamente 9 campos**, incluida la degenerada. La fila vacía (`2026-10-07 la-platense implementacion - 0 - - - -`) **está y es válida estructuralmente**, solo vacía de contenido. **El implementador hizo bien en dejarla**: `traza.py` no tiene modo reemplazar y arreglarla a mano es lo que me costó una corrida. *(Mi primer conteo dio "una fila con 25 campos" — artefacto de partir solo por `CRLF` cuando hay `LF` sueltos. No era el archivo, era mi parser.)*
+- **`.ov-monto`: queda ANOTADO como deuda, sin parte.** La clase está definida (`olvidata-theme.css:1352`) y la usan **5 vistas**: las 2 nuevas de devoluciones, `Ventas/Details` y 2 de órdenes de compra. Hay ~23 vistas con columnas de importe que no la usan. **No emito parte**: la clase es aditiva y no rompe nada, el lote **no creó** la deuda (cerró parte de ella), y mandar a retocar 23 vistas no relacionadas en el lote de cierre de un alcance financiero tiene más riesgo de regresión que beneficio cosmético. Va al backlog del design system.
 
 ## Riesgos de liberación
 
-1. **`LP-018` bloquea la publicación.** Es dinero revertido dos veces, el síntoma es silencioso (la venta
-   queda `Anulada` y el mensaje es de éxito) y el único rastro es un neto negativo que nadie mira. Y el patrón
-   del neto vivo ya se copió al ledger de proveedores y al de empleados en las olas posteriores: **el barrido
-   tiene que cubrir los tres**, no solo caja.
-2. **El backfill de `PagoVentaId` contra producción sigue sin verificar, y es la decisión de publicar.** En
-   `laplatense_qa_l1` resolvió el 100% (0 filas sin `MedioPago`, 0 sin `PagoVentaId`, 0 ambiguas), pero la
-   forma de los datos de producción es otra. Producción está 6 migraciones atrás y **no se la tocó**. Las tres
-   queries de riesgo, de solo lectura, quedan en `deteccion_qa` de `LP-018`/`LP-021` y en el parte; la que
-   decide es la primera: los movimientos de venta cuya `Descripcion` **no** matchea
-   `'%(Efectivo)%' / '%(Debito)%' / '%(CreditoCuotas)%'` se quedan sin `MedioPago`, y el paso 4 del backfill
-   exige `MedioPago IS NOT NULL`, así que también sin `PagoVentaId` → **esas ventas quedan bloqueadas para
-   anular**. Si devuelve 0 filas y no hay grupos `(venta, medio)` con `n>1`, las 3 ventas confirmadas reales
-   quedan anulables.
-3. **`LP-020` es barato por la mitad.** Corregir el texto de `Details.cshtml` es una línea y saca la
-   afirmación falsa de la pantalla. El neto en el arqueo puede esperar, el texto no.
-4. El stock no tiene equivalente del neto vivo (ver `LP-018`): cualquier camino futuro que llegue a
-   `AnularAsync` sin pasar por el `if` de estado devuelve stock de nuevo.
-5. `LP-013` sigue abierto y el desfasaje de $2.500,75 de agosto está vivo en `laplatense_dev`.
+1. **AFIP real (el único gate que queda).** La NC nace en `Pendiente` sin CAE, y `AfipComprobanteRequestDto` **no tiene `CbtesAsoc`**, que la instruction 34 exige para emitir una NC. Hoy inalcanzable porque nadie llama a `IAfipService`. **Mitigación:** es el residual del módulo 6 y está declarado en `3-arquitecto-mvc.md` v14.
+2. **La asimetría del comprobante en `Error`, ya registrada y no re-reportada.** `ObtenerYaFacturadoPorItemAsync` **sí** cuenta los comprobantes en `Error` y el planificador de NC **no**: el día del certificado, un ítem facturado en un comprobante fallido aparecería como facturado en el pendiente y no generaría NC al devolverse. Hoy inalcanzable. **Es condición de entrada del residual del módulo 6.**
+3. **La ventana código-viejo / esquema-nuevo del deploy.** Esta migración es más benigna que la tanda anterior (la única columna sobre tabla preexistente es nullable y su FK también), pero la condición del GO del deploy anterior sigue valiendo: base y sitio en la misma ventana.
+4. **El `pendienteDeAcreditar` se calcula por 4 caminos** (ver el residuo de `LP-052`). No es un defecto hoy; es el próximo lugar donde esta familia puede reaparecer.
+5. **Dos ramas de defensa en profundidad sin red, por dominación** (`D3`, `H6`). No son defectos: conviene **declararlas en el código** para que la próxima corrida mutante no las vuelva a investigar desde cero.
 
-## Estado go/no-go
+## ¿Queda algo que no deba liberarse al usuario?
 
-**NO-GO.** No por la cantidad de hallazgos —8 de 11 criterios pasan con evidencia fuerte y las dos familias de
-bugs que el brief mandó cazar están una ausente y la otra latente— sino porque `LP-018` es pérdida de dinero
-silenciosa en el mecanismo que las otras 5 olas de la tanda dan por sólido, y porque la pantalla le afirma al
-operador algo que no es cierto (`LP-020`).
+**No. Nada de este lote queda fuera del alcance del usuario.** Las devoluciones (listado, registrar, preview), la emisión de notas de crédito y los tres criterios de habilitación están completos, probados por pantalla y por BD, y se pueden liberar. Los dos defectos que emito son de **red de medición** (arneses y proceso), no de producto: no cambian lo que el usuario puede hacer ni lo que el sistema escribe. **"Confirmar y facturar" del POS sigue OCULTO** y verificado así por HTTP sobre un borrador real (ausente del DOM, con "Confirmar venta" presente) — está gateado por `afipConfigurado`, que es el mismo guard server-side.
 
-Ciclo de cierre: **ningún defecto se cierra en esta corrida.** Los 4 criterios de re-verificación están en
-`criterio_aceptacion` de cada item; los 3 que vuelven a FAIL son el 4, el 5 y el 10.
+**Con esto el alcance comprometido de la Entrega 5 queda completo salvo AFIP real**, que espera el certificado del cliente y es un gate externo, no una deuda del código.
 
-## Checklist de merge
+## Checklist de salida para merge
 
-- [ ] `LP-018` corregido con lock de fila o `UPDATE` condicional por estado **dentro** de la transacción, y el
-      mismo barrido aplicado a `GastoService.AnularAsync`, al ledger de proveedores y al de empleados.
-- [ ] Re-verificación de `LP-018` con la tanda de ≥4 POST paralelos **repetida 3 veces** (es intermitente).
-- [ ] Query de neto negativo (`HAVING neto < 0`) en 0 filas sobre todo el ledger.
-- [ ] Texto de `Views/Ventas/Details.cshtml` corregido (`LP-020`, parte barata).
-- [ ] Las 3 queries de riesgo del backfill corridas **contra producción en solo lectura** y su resultado
-      pegado en el parte, antes de aplicar la migración.
-- [ ] `LP-019` resuelto o declarado con su leyenda en pantalla.
-- [ ] Criterios 4, 5 y 10 re-verificados en contexto nuevo, arrancando desde FAIL.
+- [x] `LP-052` CERRADO con evidencia ejecutada por las tres puntas, arrancando en FAIL
+- [x] `LP-053` CERRADO, con la cuarta afirmación verificada por los dos lados
+- [x] `LP-054` adoptado: las 7 bases por `dotnet ef database update`, 20 migraciones cada una
+- [x] Los 13 criterios del lote en PASS con evidencia observada; 2 BLOCKED por inalcanzables (AFIP)
+- [x] Los 2 defectos propios del implementador verificados en la BD (stock 1000→1004 en dos filas del ledger; egreso 2000 sobre 2200 posteado)
+- [x] Build `--no-incremental` de la solución: **0 errores / 9 advertencias**, línea base exacta
+- [x] 5 arneses verdes e idempotentes (63 + 63 + 153 + 32 + 82 = **393 afirmaciones**, 0 falladas), los 5 compilados explícitamente y con los md5 del DLL verificados
+- [x] 21 mutantes propios derivados del diff: 15 muertos, 4 sobrevivientes explicados, 2 controles negativos en 0
+- [x] Migración aditiva pura verificada operación por operación (`Up`: 9 ops, cero `Sql`/`AlterColumn`/`DropColumn`)
+- [x] Conteo independiente de lectores del "ya facturado": **6**, coincide con lo declarado
+- [x] `trazas.tsv` estructuralmente sano (9 campos por fila)
+- [x] `git status --porcelain` limpio en el repo del sistema
+- [x] Producción (8 migraciones) y `laplatense_dev` (18) **no se tocaron**
+- [ ] **Corregir `2-disenador-funcional.md` flujo 16 punto 1**: *"nunca escribiendo `Producto.Stock` directo"* es falso sobre este código y originó el desvío ← Diseñador funcional
+- [ ] `LP-055` y `LP-056` — red de medición, no bloqueantes del merge ← Implementador
+- [ ] `LP-051` `trivial` — pendiente de otro lote
+- [ ] **AFIP real + `CbtesAsoc`** ← gate externo, espera el certificado
 
-## Estado de la base tras el lote
-
-`laplatense_qa_l1` **queda viva y sucia a propósito**: es el fixture de la re-verificación. Contiene las
-ventas 9101–9161 (7 anuladas, 2 confirmadas, 1 borrador), los gastos 4–6, el usuario `qa-vend2-l1`, la entrega
-id 4, una fila `Depósito` de prueba y el movimiento de control de `LP-009` de hoy. Lo sembrado y luego
-**borrado**: los cierres diarios de `2026-09-15` y `2026-10-06`. `laplatense_dev` quedó **intacta**
-(nunca se le apuntó la app) y **producción no se tocó**.
-
-El repo del sistema (`C:/Sistemas/Ferreteria La Platense`) quedó **sin modificaciones**: `git status --porcelain`
-solo muestra `?? .claude/`, que es anterior al lote.
+**Veredicto del lote: GO PARA MERGE.** El mecanismo de `HabilitacionDeAccion` es la decisión correcta y está medido: es la primera vez en este proyecto que la familia `LP-039`/`LP-040`/`LP-052` se cierra con **una** definición en vez de con un parche más, y el mensaje idéntico en las tres puntas lo prueba por ejecución y no por lectura. Los dos defectos que emito son de la red que mide, no del sistema que se libera.
 
 ---
+
+
+
+---
+
+---
+
 
 ## Historial de ajustes
+
+**Archivado el 2026-10-08 por curaduria a mano** (los headings de nivel 1 de este archivo no los reconoce `archivar_memoria.py`, asi que la decision de que ya es historia la tomo el orquestador). Los tres bloques estan completos en `historial/`, sin resumir:
+- **2026-10-07** — Modulo 16 - notas de credito por comprobante (2026-10-07, GO para merge con `LP-052` abierto en su momento) → [`6-qa-modulo-16-notas-credito.md`](historial/6-qa-modulo-16-notas-credito.md)
+- **2026-10-07** — Barrido de `Activo` + cierre de `LP-044`/`LP-045`/`LP-049` + estado de `dev` migrada (2026-10-07) → [`6-qa-barrido-activo-lp044-lp045-lp049.md`](historial/6-qa-barrido-activo-lp044-lp045-lp049.md)
+- **2026-10-07** — Cierre de `LP-050` - ensayo del backfill contra los datos reales de produccion (2026-10-07) → [`6-qa-cierre-lp050-backfill-produccion.md`](historial/6-qa-cierre-lp050-backfill-produccion.md)
+
+### Bloques archivados (2026-10-07, tercera tanda)
+
+- **`CR-04` plan de echeqs + cierre de `LP-044`..`LP-048`** y **`CR-05` + `CR-03` + cierre de `LP-042` y
+  `LP-043`** -> [`6-qa-2026-10-07-cr04-cr05-cr03.md`](historial/6-qa-2026-10-07-cr04-cr05-cr03.md). Movidos a
+  mano al cerrar la Entrega 5 lote 2 (el archivo habia llegado a 158 KB y `archivar_memoria.py` no reconoce
+  los headings de este archivo). Las dos corridas estan CERRADAS; sus defectos siguen en el catalogo.
+
+
+### Bloques archivados (2026-10-07, segunda tanda)
+
+- **`LP-039` - re-verificacion de cierre (2026-10-06, commit `f05cc92`)** y **Entrega 5 - venta sin factura (CR-01) + facturacion parcial (CR-02) - QA lote unico (2026-10-06)** -> `historial/6-qa-2026-10-06-lp039-y-entrega5.md`. Movidos a mano al cerrar la corrida del barrido de `Activo` (`archivar_memoria.py` no reconoce los headings de este archivo). Las dos corridas estan CERRADAS; `LP-039` y `LP-040` siguen en el catalogo cross-proyecto.
+
+### Bloques archivados (2026-10-07)
+
+- **HOTFIX de transacciones de ventas - gate de publicacion (2026-10-06, rama `hotfix-transacciones-ventas`, GO)** y
+  **Entrega 6 LOTE 5 - presupuestos en PDF y aumento masivo de precios (2026-10-06, NO-GO)** ->
+  `historial/6-qa-2026-10-06-hotfix-y-entrega6-lote5.md`. Se movieron al cerrar la corrida de `CR-03`/`CR-05`,
+  cuando el archivo llego a 152 KB. Las dos corridas estan CERRADAS; sus defectos (`LP-029`, `LP-030`, `LP-031`,
+  `LP-032`, `LP-033`, `LP-034`) siguen en el catalogo cross-proyecto.
 
 ### Bloques archivados (2026-10-06)
 
 Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
 
-- **2026-10** — 6 bloques (2026-10-05 a 2026-10-06) → [`6-qa-2026-10.md`](historial/6-qa-2026-10.md)
-- **2026-08** — 2 bloques (2026-08-21 a 2026-08-24) → [`6-qa-2026-08-2.md`](historial/6-qa-2026-08-2.md)
+- **2026-10** — 1 bloques (2026-10-06 a 2026-10-06) → [`6-qa-2026-10-4.md`](historial/6-qa-2026-10-4.md)

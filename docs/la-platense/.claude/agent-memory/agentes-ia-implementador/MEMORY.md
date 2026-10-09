@@ -1,5 +1,6 @@
-- [Verificar la premisa del brief](feedback_verificar_premisa_brief.md) — dos veces el brief declaró "abierto" algo ya construido; grep antes de planificar
-- [Arnés: la afirmación vacía](feedback_arnes_afirmacion_vacia.md) — "si pasó X entonces Y" pasa gratis cuando X nunca pasa; ventana determinista + contraprueba
-- [Arnés: falla del instrumento](feedback_arnes_falla_del_instrumento.md) — antes de perseguir un defecto, descartar que la afirmación compare contra estado ya consumido
+- [Verificar la premisa del brief](feedback_verificar_premisa_brief.md) — 4 casos; el 4o es el peor: la premisa cita una regla REAL y le erra al sujeto
+- [Arnés: la afirmación vacía](feedback_arnes_afirmacion_vacia.md) — 5 formas; la 5a es la fila que la consulta no devuelve y el `?? false` que la tapa
+- [Arnés: falla del instrumento](feedback_arnes_falla_del_instrumento.md) — y la 4a: el MUTANTE mal escrito, que sobrevive sin significar nada
 - [Build: Razor e incremental](feedback_build_razor_incremental.md) — "0 errores" incremental no acredita que las vistas compilen; forzar --no-incremental
-- [Estado de La Platense (Entrega 5)](project_la_platense_estado_entrega5.md) — CR-01/CR-02 sin deploy, AFIP sin certificado, LP-037 abierto a propósito
+- [Criterio de habilitación en un lugar](feedback_criterio_habilitacion_un_lugar.md) — devolver la razón por la que NO se puede, y por qué "hay guarda" se ve igual que "hay LA guarda"
+- [Estado de La Platense (Entrega 5)](project_la_platense_estado_entrega5.md) — alcance cerrado salvo AFIP, nada deployado, línea base de los 4 arneses y las trampas de traza.py

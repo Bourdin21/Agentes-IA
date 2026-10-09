@@ -140,6 +140,20 @@ Las 4 preguntas abiertas del relevamiento quedaron respondidas el mismo día. Co
 
 **Decisión de diseño que se deriva (no es una pregunta nueva):** **LP-014 se cierra en la misma ronda que CR-01**, no después.  ·  **superada-por: D-CR01.3** (ya estaba cerrado desde el 2026-10-05; la exigencia se cumple, el trabajo no existia) El precedente existe y se trae completo (`marihogar` ya recalcula desde el producto cuando el usuario no es administrador, en `VentaService.ConfirmarAsync` y `EditarAsync`). Sin eso, CR-01 amplifica un defecto conocido en vez de agregar una capacidad.
 
+#### D-CR02.1 — Un comprobante no se da de baja, y una nota de credito NO reabre el pendiente (cierra los 2 BLOCKED de QA)
+
+QA dejo dos criterios en **BLOCKED — no testeable** y los devolvio al analista: *"comprobante dado de baja → el pendiente vuelve?"* y *"Facturada → vuelve a parcial si pierde un comprobante?"*. Los dos son el mismo tema, y **no son un hueco de alcance: son una pregunta que no corresponde hacerle al producto.** La respuesta hay que escribirla igual, porque de ella depende como se disenia el modulo 16.
+
+**R17 (nueva) — un comprobante emitido no se da de baja.** No existe ni va a existir un camino de usuario para borrar un `ComprobanteAfip`. Fiscalmente un comprobante emitido no se elimina: se **anula con una nota de credito**, que es otro comprobante. El soft delete de la entidad existe para un caso distinto y acotado: el **intento fallido de emision** — un comprobante que nunca llego a tener CAE porque AFIP rechazo o la comunicacion se corto. Ese caso no es "dar de baja una factura", es limpiar un documento que nunca existio.
+
+**R18 (nueva) — una nota de credito NO devuelve el pendiente a facturar.** Es la parte contraintuitiva y la razon de escribir esto ahora. Cuando se emita una NC sobre un comprobante (modulo 16, Entrega 5), los items de ese comprobante **no vuelven a estar disponibles para facturar**: ya se facturaron, y la NC es el acto de revertir esa facturacion, no de deshacerla. Permitir refacturarlos dejaria el mismo item vendido una vez y facturado dos, con dos comprobantes vivos que suman el doble de la venta. **El pendiente por item se calcula sobre comprobantes emitidos, sin restarle las notas de credito.**
+
+**R19 (nueva) — `Facturada` no vuelve a `Facturada en parte`.** El estado de facturacion solo avanza. Hoy la emision solo transiciona `Confirmada → Facturada`, asi que la vuelta no existe ni habiendo camino; con R18 vigente, tampoco va a existir despues del modulo 16.
+
+**Consecuencia para el modulo 16, que es donde esto se paga:** la nota de credito **no toca el pendiente ni el estado de facturacion de la venta**. Lo que hace es (a) emitir el comprobante de NC vinculado al original, (b) reingresar el stock si hubo devolucion de mercaderia (R8), y (c) revertir en caja y en cuenta corriente **lo que realmente se posteo**, acotado — incluido el **cargo por diferencia de IVA** de `D-CR01.1`, si ese comprobante lo habia generado. Ese ultimo punto es nuevo y no existia en el disenio del modulo 16: una NC sobre un comprobante que cobro IVA que no estaba cobrado tiene que devolver ese cargo, o el cliente queda debiendo el IVA de una factura anulada.
+
+**Los dos criterios de QA quedan CERRADOS como "no aplica por disenio"**, no como pendientes de construir. QA no tiene que volver a intentar medirlos.
+
 #### D-CR01.3 — LP-014 ya estaba cerrado: supera la premisa de D-CR01.2 (2026-10-06, verificado por el implementador)
 
 **D-CR01.2 afirmaba que LP-014 estaba abierto en produccion y que habia que cerrarlo en la misma ronda que CR-01.** La mitad del razonamiento sigue en pie; el hecho no.
@@ -389,6 +403,7 @@ Para los 3.612 grupos de nombre duplicado con más de un artículo `Activo=1` (l
 - R8 (nueva): devolución de mercadería reingresa stock y genera una nota de crédito vinculada a la venta original. No existe flujo de "cambio" (canje por otro producto) — es siempre devolución simple.
 - R9 (nueva): el repartidor ve el listado completo de entregas, no solo las propias asignadas.
 - Permisos: Admin (todo) · Vendedor (ventas, catálogo consulta, stock consulta, su propia CC) · Repartidor (entregas — todas, no solo asignadas —, su propia CC).
+- **R17 a R19 (2026-10-06): un comprobante emitido no se da de baja, una NC no reabre el pendiente, y `Facturada` no vuelve atrás** — ver la entrada D-CR02.1 al principio de este archivo. Cambian el diseño del módulo 16.
 - **R12 a R16 (2026-10-06): ver la entrada "Faltantes de alcance relevados el 2026-10-06 — CR-01 a CR-05"** al principio de este archivo. R15 supera la exclusión de cheques diferidos.
 
 - R10 (nueva): el stock inicial de los productos "A" (mayor rotación/valor) se carga con conteo físico real; los productos "B/C" arrancan en stock 0 o "sin verificar" y se permite venderlos con stock en negativo durante la transición (aviso, no bloqueo), hasta que se reconcilien por conteo cíclico o por uso real.

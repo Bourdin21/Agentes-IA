@@ -25,7 +25,7 @@
 # en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
 
 version: 1
-ultima_actualizacion: 2026-10-05
+ultima_actualizacion: 2026-10-07
 
 # IDs retirados / sin asignar (para que un hueco no parezca un error):
 #   PAT-011 - se retiro sin reemplazo y NO se recicla (ver docs/delicias-naturales/definiciones/5-implementador.md)
@@ -3438,6 +3438,26 @@ patrones:
       (no un N+1). Asi no hay que renumerar enteros ya persistidos ni mantener un estado
       sincronizado con las cantidades en cada emision.
 
+      4. EL CAMINO VIEJO DE "FACTURAR EL DOCUMENTO ENTERO" NO PUEDE SEGUIR EXISTIENDO COMO CAMINO
+      APARTE: pasa a ser un ATAJO que resuelve el pendiente de cada linea y llama a la MISMA emision
+      ("facturar todo lo pendiente"). Si se lo deja emitiendo por su cuenta quedan DOS CAMINOS
+      POBLANDO DOS MODELOS DISTINTOS DEL MISMO HECHO —`ComprobanteX` por un lado, las columnas
+      `Documento.CAE`/`Numero` ahora obsoletas por el otro— y todas las guardas que decidian por el
+      ESTADO del documento dejan de alcanzarse, porque con 1:N un documento facturado EN PARTE sigue
+      en el estado anterior. Medido en la-platense: dos defectos `major` seguidos de la misma clase
+      (`LP-039` en la anulacion y `LP-040` en la facturacion) en las dos rondas siguientes a la
+      migracion a 1:N, los dos con la forma `Estado == Facturada`. Parchear la guarda del segundo
+      garantizaba un tercero. Dos corolarios que se pagan solos: las columnas viejas se declaran
+      obsoletas y se deja de ESCRIBIRLAS (borrarlas puede esperar; que alguien las escriba, no), y
+      toda pantalla que mostraba el comprobante leyendolas empieza a dibujarse VACIA el dia que el
+      circuito nuevo entra — hay que condicionarla a que haya dato, o queda un "(numero )" en
+      pantalla que ningun test funcional marca como error.
+
+      Y el atajo hereda el lock de la emision en vez de tener uno propio: si el camino viejo
+      sostenia el lock de fila durante la llamada externa (para que un segundo request no pudiera
+      emitir), ese costo desaparece, porque lo que serializa ahora es el lock de la emision mas su
+      tope por linea releido adentro.
+
       LA MITAD QUE NO ES OBVIA, y es la que convierte esto en un patron financiero y no solo
       fiscal: SI EL DOCUMENTO SE COBRO SIN EL IMPUESTO Y DESPUES SE FACTURA, el comprobante lleva un
       impuesto que nadie cobro. El documento cerrado NO se recalcula (su total es dato historico y
@@ -3453,6 +3473,14 @@ patrones:
       Y el importe del cargo que el usuario VIO en pantalla viaja en el POST: el Service lo
       recalcula y RECHAZA si no coincide. Es la unica forma de convertir "la pantalla se lo mostro"
       en una garantia en vez de una esperanza.
+
+      Eso tiene una consecuencia sobre el atajo del punto 4: un boton de UN CLICK no tiene donde
+      mostrar el importe, asi que NO emite cuando corresponde cargo — rechaza y manda a la pantalla
+      de emision. La condicion para detectarlo se escribe CUALITATIVA ("¿corresponde un cargo?":
+      documento cobrado sin impuesto y alguna linea con alicuota > 0), nunca recalculando el importe,
+      porque un segundo calculo del mismo numero es un segundo criterio. El atajo manda el importe
+      confirmado en CERO: si pese a la guarda el Service calculara un cargo, la emision se rechaza
+      sola.
     cuando_usar: >
       Cualquier sistema que facture PARTE de un documento (el caso tipico: se entrega un remito y el
       cliente pide factura por algunos items), y en particular cuando el documento pudo cobrarse sin
@@ -3506,3 +3534,670 @@ patrones:
       Al aplicarlo, revisar si el modulo de NOTA DE CREDITO ya definido asume UN comprobante por
       documento: con 1:N la NC se emite contra un COMPROBANTE y no contra el documento, y ajustar
       ese contrato antes de construirlo es mucho mas barato que despues de la primera NC real.
+
+  - id: PAT-061
+    nombre: "Fila centinela de periodo: serializar la AUSENCIA de una fila (los gap locks de InnoDB conviven)"
+    categoria: infraestructura
+    proyecto_origen: la-platense (LP-037, cierre de caja)
+    descripcion: >
+      EL CASO, que parece el de PAT-059 y no lo es. En PAT-059 hay una FILA que representa lo que se
+      esta decidiendo (la venta, el pago, el movimiento) y alcanza con bloquearla. Aca el dato sobre el
+      que se decide es la AUSENCIA de una fila: "este periodo todavia no esta cerrado", "esta
+      liquidacion todavia no se genero", "este lote todavia no se consolido". No hay nada que
+      bloquear, y la tentacion es hacer `SELECT ... WHERE <clave que no existe> FOR UPDATE` sobre la
+      tabla de cierres y darlo por resuelto.
+
+      POR QUE ESO NO ALCANZA, Y ES LA PARTE QUE NO SE DEDUCE LEYENDO. Mientras la fila no existe, lo
+      que InnoDB toma es un GAP LOCK, y LOS GAP LOCKS CONVIVEN ENTRE SI: son puramente inhibitivos,
+      solo impiden `INSERT`. Dos transacciones toman el mismo gap sin esperarse. Entonces el que cierra
+      toma su gap, LEE LOS TOTALES, el escritor commitea despues, y el `INSERT` del cierre -que si
+      espera el gap del escritor- graba los totales que ya habia leido. La espera llega tarde: lo que
+      habia que serializar era la LECTURA, no el `INSERT`. El resultado es el peor modo de falla de un
+      modulo de dinero: el arqueo FIRMADO miente y sus numeros son internamente coherentes, asi que
+      nadie se entera. Medido en la-platense con 2 y con 7 escritores concurrentes: dia cerrado con
+      `TotalIngresos = 0` contra $ 201 y $ 721 de movimientos vivos de ese mismo dia.
+
+      EL ARREGLO: una TABLA DE CANDADOS con UNA FILA POR PERIODO (anio, mes, dia) e indice UNICO sobre
+      esa clave. Los dos lados de la carrera -el escritor y el que cierra- toman esa fila con
+      `FOR UPDATE` como PRIMER lock de la transaccion. Sobre una fila QUE EXISTE y con match exacto por
+      indice unico el `FOR UPDATE` es un RECORD LOCK: exclusion mutua de verdad, el segundo espera, y
+      no hay ciclo que arme un deadlock. La alternativa (leer los totales con una lectura DE BLOQUEO
+      sobre el rango del periodo en la tabla de movimientos) no cuesta migracion pero convierte el
+      descuadre en un DEADLOCK contra el escritor que ya tiene el gap, y obliga a logica de reintento
+      dentro del cierre de caja.
+
+      LAS CINCO DECISIONES QUE HAY QUE COPIAR CON EL PATRON, porque cada una se pago con una medicion:
+
+      1. LA FILA SE CREA SOLA, CON `INSERT IGNORE`, EN UNA CONEXION APARTE Y FUERA DE LA TRANSACCION, Y
+      ANTES DE TOMAR NINGUN LOCK SOBRE ESA TABLA. Si el `INSERT` va dentro de la transaccion que
+      despues bloquea, dos transacciones que encuentran la fila ausente toman las dos el gap (conviven)
+      y las dos intentan insertar: insert-intention lock contra el gap del otro, DEADLOCK. Crear la
+      fila adentro fabrica exactamente el deadlock que la fila existe para evitar.
+
+      2. ANTES DEL `INSERT IGNORE` VA UNA LECTURA COMUN, Y SOLO SE INSERTA SI FALTA. Un `INSERT IGNORE`
+      contra una fila que YA EXISTE y que otra transaccion tiene tomada con `FOR UPDATE` pide un lock
+      COMPARTIDO sobre la fila duplicada y SE QUEDA ESPERANDO. Eso aparecio por accidente en la
+      contraprueba de la-platense (con los `FOR UPDATE` del candado sacados, el escenario mensual
+      SEGUIA pasando: el que serializaba era el `INSERT IGNORE`), y es un riesgo real, no ruido de
+      medicion: la conexion auxiliar puede quedarse esperando mientras la transaccion principal tiene
+      locks de fila tomados, que es un abrazo entre dos conexiones del MISMO request -- InnoDB no lo
+      detecta como deadlock y termina en lock wait timeout. Una lectura comun en autocommit no espera a
+      nadie.
+
+      3. EL "SIN PERIODO" SE CODIFICA COMO 0, NUNCA COMO NULL. Un cierre MENSUAL no tiene dia y compite
+      contra los escritores de los 31 dias: su punto de encuentro es la fila (anio, mes, 0). Con
+      `Dia = NULL` el indice unico de MySQL NO deduplica (los NULL no colisionan) y dos cerradores
+      mensuales simultaneos pueden crear DOS filas del mismo mes -- el candado deja de excluir nada.
+
+      4. EL ORDEN ENTRE CANDADOS ES UN PREFIJO, NO UN CONJUNTO. Siempre el periodo MAS GRUESO primero
+      (mes y despues dia) en los DOS lados. Un cierre mensual toma solo el del mes; un escritor o un
+      cierre diario toman el del mes y despues el del dia. Prefijo del mismo orden = no hay ciclo. Dos
+      flujos que tomen los dos candados en orden distinto fabrican un deadlock intermitente.
+
+      5. NO ES `GET_LOCK()`. Es un lock de SESION, no de transaccion, y con un pool de conexiones
+      "sesion" es una conexion que reusa el request siguiente: un `RELEASE_LOCK` que no corra (una
+      excepcion, un timeout) deja el candado tomado para otro usuario. El record lock de la fila se
+      libera con el commit o el rollback, solo.
+
+      LA PROPIEDAD QUE SE GANA DE REGALO, y vale declararla: el record lock NO depende del isolation
+      level. La version con gap locks solo funciona en REPEATABLE READ y se cae EN SILENCIO si alguien
+      pasa la conexion a READ COMMITTED; esta no.
+
+      COMO SE PRUEBA, porque con una barrera no se prueba. Con el fix puesto, en una carrera por
+      barrera gana el CERRADOR y los escritores salen rechazados: el invariante "el arqueo firmado
+      cuadra" queda en 0 == 0 y se cumple VACIO (ver PAT-059 y la familia de afirmaciones vacias). Hay
+      que FABRICAR LA VENTANA: una conexion aparte toma el candado, escribe un movimiento del periodo y
+      NO commitea; recien ahi se larga el cierre; se espera, se commitea y se mira el total firmado.
+      Ahi el escritor gana SIEMPRE. Y hay que afirmar las PRECONDICIONES (el movimiento quedo vivo, el
+      periodo quedo cerrado) o el escenario puede volver a pasar vacio sin que se note.
+    archivos_referencia:
+      - ruta: "FerreteriaLaPlatense.Domain/Entities/CandadoPeriodoCaja.cs"
+        proyecto: la-platense
+        rol: "La entidad del candado. No es un dato de negocio: nadie la lee como dato."
+        pendiente_verificar: false
+      - ruta: "FerreteriaLaPlatense.Infrastructure/Data/BloqueoDeFila.cs"
+        proyecto: la-platense
+        rol: >
+          `BloquearPeriodoCajaAsync` / `BloquearPeriodoCajaMesAsync` (los dos puntos de entrada, con el
+          orden mes->dia), `AsegurarCandadoPeriodoAsync` (la creacion en conexion aparte, con la lectura
+          previa) y `TomarCandadoPeriodoAsync`. El XML-doc tiene el razonamiento completo, incluido el
+          equivocado, que es el que es facil de volver a hacer.
+        pendiente_verificar: false
+      - ruta: "FerreteriaLaPlatense.Infrastructure/Services/CajaMovimientoService.cs"
+        proyecto: la-platense
+        rol: >
+          Los dos lados de la carrera: `CerrarDiaAsync` / `CerrarMesAsync` (el que cierra) y
+          `ValidarPeriodoAbiertoAsync` (la guarda unica por la que pasan los once escritores). NO se
+          toco al aplicar el patron: el candado vive en el helper, que es el unico lugar invocable --
+          once copias de una garantia son once oportunidades de que una se olvide.
+        pendiente_verificar: false
+      - ruta: "tools/ArnesSeisSitiosRestantes/Program.cs"
+        proyecto: la-platense
+        rol: >
+          Escenarios 3 (barrera, el que abrio el parte), 3c (ventana forzada, diario) y 3d (ventana
+          forzada, mensual + no-regresion de las guardas de rango). El 3c y el 3d son la plantilla de
+          "como se prueba esto" de la descripcion.
+        pendiente_verificar: false
+    dependencias:
+      - PAT-058
+      - PAT-059
+    notas: >
+      Verificado EJECUTANDO en la-platense el 2026-10-07 (tools/ArnesSeisSitiosRestantes): de
+      20 OK / 2 FALLADAS a 32 OK / 0 FALLADAS, idempotente entre corridas. Contraprueba con los tres
+      `FOR UPDATE` del candado comentados: fallan las CUATRO afirmaciones del invariante con el periodo
+      firmado en $ 0 contra $ 201, $ 721, $ 500 y $ 333 de movimientos vivos, y las precondiciones de
+      los escenarios deterministas siguen en OK (la falla es medicion, no efecto colateral). Sin
+      deadlocks en ninguna corrida, incluido el escenario de orden de locks con el periodo YA CERRADO,
+      que es donde la reserva pasa a ser un lock exclusivo. No-regresion: el arnes de los once sitios
+      que reservan el periodo en cada escritura sigue en 153 OK / 0.
+
+      Costo de aplicarlo: una tabla, un indice unico y UNA migracion ADITIVA PURA, sin backfill (la
+      fila aparece la primera vez que alguien toca el periodo, y un periodo ya cerrado no recibe
+      escrituras nuevas). Si el proyecto destino cierra periodos de cualquier tipo -caja, liquidacion
+      de sueldos, consolidacion de stock, cierre contable- el patron aplica tal cual cambiando la clave
+      del periodo.
+
+  - id: PAT-062
+    nombre: "Coeficiente configurable con VIGENCIA POR FECHA, resuelto por clave compuesta y congelado en el documento"
+    categoria: financiero
+    proyecto_origen: marihogar (TasaCostoCobranza, CR-83) -> generalizado en la-platense (CR-03, interes de tarjeta)
+    descripcion: >
+      Un porcentaje o coeficiente que el negocio edita desde una pantalla (interes de tarjeta, tasa
+      de costo de cobranza, alicuota de impuesto, recargo por plazo de pago) y que CAMBIA EN EL
+      TIEMPO. La tabla guarda (clave compuesta, valor, VigenteDesde, VigenteHasta) y la resolucion
+      recibe la FECHA como parametro explicito.
+
+      CUATRO DECISIONES QUE SON EL PATRON:
+
+      1. LA FECHA ES UN PARAMETRO, NO UN DateTime.UtcNow ADENTRO DEL SERVICIO. Sin fecha, "el
+      porcentaje de Visa a 6 cuotas" no es una pregunta con una sola respuesta. Pasarla explicita
+      deja que el llamador decida contra que fecha resolver y -lo que de verdad importa- permite
+      MEDIR una vigencia futura o pasada sin tocar el reloj del sistema. Un servicio que lee el reloj
+      adentro no se puede probar sin mentirle al reloj.
+
+      2. LA FECHA ES EL DIA DE NEGOCIO, NO UtcNow.Date, Y ES LA MISMA EN TODOS LOS LUGARES QUE LA
+      USAN. En Argentina (UTC-3) una venta de las 22:00 del 14 es el 15 a la 01:00 UTC: resolver por
+      UTC le aplica una tasa que todavia no empezo a regir. Y si la pantalla que PREVISUALIZA el
+      valor usa una fecha y el servicio que lo GUARDA usa otra, la pantalla muestra un numero y el
+      documento guarda otro, un defecto que solo aparece en la franja horaria del final del dia.
+
+      3. EL VALOR SE CONGELA EN EL DOCUMENTO Y NO SE VUELVE A LEER DE LA TABLA. La tabla PROPONE; el
+      documento guarda el valor efectivo en una columna propia. Es lo que garantiza que editar la
+      configuracion no cambie retroactivamente ningun documento ya posteado. Sin esto, subir un
+      coeficiente reescribe el pasado: cambia totales ya cobrados y descuadra contra lo que el
+      cliente efectivamente pago.
+
+      4. LA ENTIDAD DE CONFIGURACION NO LLEVA SOFT DELETE. Se cierra con VigenteHasta, nunca se
+      borra: una fila borrada deja sin explicacion el valor ya aplicado en los documentos que la
+      usaron. Como no hereda de la base con soft delete, tampoco la alcanza el query filter global y
+      no hace falta IgnoreQueryFilters para leerla, con lo que se evita de paso toda la familia de
+      defectos de "la relectura parece hecha y no relee".
+
+      MECANICA DEL CIERRE DE VIGENCIA, que es donde estan los dos casos borde:
+
+      Al guardar un valor nuevo desde la fecha F, la fila vigente se CIERRA con VigenteHasta = F-1 y
+      se INSERTA una nueva con VigenteDesde = F. El rango se lee CERRADO en los dos extremos
+      (VigenteDesde menor o igual a fecha, y VigenteHasta nulo o mayor o igual a fecha): con un mayor
+      estricto en vez de mayor-o-igual, el ultimo dia de cada vigencia queda descubierto y se cae al
+      valor por defecto.
+
+      CASO BORDE QUE HAY QUE MANEJAR: si la fila vigente arranca EL MISMO DIA que se esta guardando
+      (el usuario se equivoco en un numero y lo corrige al rato), NO se la puede cerrar con el dia
+      previo, porque eso deja VigenteHasta menor que VigenteDesde: una fila que no rige nunca y un
+      dia sin cubrir. Se la corrige EN EL LUGAR. Es el caso normal, no el raro.
+
+      NO SE PUEDE PONER UN INDICE UNICO SOBRE LA CLAVE COMPUESTA, y conviene decirlo en el modelo
+      para que nadie lo "arregle": la tabla guarda el HISTORIAL, asi que varias filas por clave es lo
+      correcto. Lo que no puede haber es dos filas VIGENTES el mismo dia, y eso es una restriccion de
+      SOLAPAMIENTO DE RANGOS, no de igualdad: no se expresa como indice unico. Lo garantiza el metodo
+      de guardado (cierra antes de abrir) y la resolucion desempata por VigenteDesde descendente.
+
+      SIN VALOR PARA UNA CLAVE NO ES UN ERROR NI ES CERO: se cae a un valor general configurable, que
+      es una tabla distinta y mas simple (clave mas corta, sin vigencia). Una clave nueva tiene que
+      poder operar el dia uno con la grilla vacia en vez de bloquear la operacion. Y por eso el DTO
+      de la pantalla distingue NULL de 0: un 0 es "esta clave no cobra nada" (una decision cargada) y
+      NULL es "no hay valor, usa el general". Colapsar los dos en 0 hace invisible el fallback y el
+      usuario no tiene forma de saber si le falta cargar la grilla.
+
+      PRECISION: decimal(7,4) y no (5,2). Se midio en marihogar que truncar a dos decimales el
+      coeficiente que publica la procesadora desviaba unos 29 pesos sobre una liquidacion de 670.600.
+
+      LA PANTALLA ES UNA GRILLA DE LA CLAVE COMPUESTA (filas = un eje, columnas = el otro) con UN
+      FORM POR FILA, cada uno con su propia fecha de vigencia, porque la procesadora no actualiza
+      todas las filas el mismo dia. Y la grilla declara a QUE FECHA esta leida: un cuadro de
+      porcentajes con vigencia no significa nada sin eso.
+
+      TRAMPA DE IMPLEMENTACION EN EL FRONT, medida: si la pantalla previsualiza el valor, el JS tiene
+      que resolver con el MISMO ORDEN que el servidor (valor propio, despues general) y chequear
+      contra undefined, NO con un truthy. Un coeficiente de 0% es un valor cargado y 0 es falsy en
+      JS: un if (pct) lo pierde y la pantalla muestra el general cuando se configuro que no cobre
+      nada. Y el resolver tiene que ser UNO, compartido por el cartel de la fila y por el recalculo
+      de totales: dos copias son dos oportunidades de que la fila diga +20% y el total sume otra cosa.
+
+      OTRA TRAMPA, esta de HTML y no de negocio: en la grilla editable, el form NO puede ser hijo
+      directo de un tr. El unico contenido valido de un tr son td/th, asi que el parser SACA el form
+      de la tabla, los inputs quedan huerfanos y el submit postea UNA FILA VACIA. Es una pantalla que
+      parece andar y guarda nada, y no la ve ni el compilador ni el build de Razor. Se resuelve con
+      el atributo form="id" de HTML5, que asocia cada campo a su form sin anidarlo.
+    aplicaciones:
+      - ruta: "FerreteriaLaPlatense.Domain/Entities/InteresTarjetaCuota.cs"
+        proyecto: la-platense
+        rol: >
+          La entidad de configuracion con vigencia: clave (TarjetaId, Cuotas) + VigenteDesde /
+          VigenteHasta, sin soft delete, con las 4 alicuotas de v2 creadas en 0 y sin lectores (el
+          lugar dejado para que v2 sea aditivo y no un backfill sobre datos irreconstruibles).
+        pendiente_verificar: false
+      - ruta: "FerreteriaLaPlatense.Infrastructure/Services/RecargoCuotasService.cs"
+        proyecto: la-platense
+        rol: >
+          La RESOLUCION: ObtenerPorcentajeRecargoAsync(medio, tarjetaId, cuotas, fecha). Valor propio
+          de la clave primero, fallback al general de RecargoCuota despues. Es el camino caliente
+          (corre en cada guardado de pago) y esta separado a proposito del mantenimiento.
+        pendiente_verificar: false
+      - ruta: "FerreteriaLaPlatense.Infrastructure/Services/TarjetaService.cs"
+        proyecto: la-platense
+        rol: >
+          El MANTENIMIENTO: GuardarFilaAsync (cierra la vigencia anterior con el dia previo, abre la
+          nueva, y corrige en el lugar el caso borde de guardar dos veces el mismo dia, todo en UNA
+          transaccion) y ObtenerGrillaAsync (devuelve NULL y no 0 en las celdas sin valor).
+        pendiente_verificar: false
+      - ruta: "FerreteriaLaPlatense.Web/Views/Configuracion/InteresesTarjeta.cshtml"
+        proyecto: la-platense
+        rol: >
+          La grilla clave-por-clave con un form por fila FUERA de la tabla y los campos asociados con
+          form="id". Es la plantilla de la pantalla, incluido el aviso que explica que una celda
+          vacia no es 0 y que lo cargado no cambia las ventas ya cerradas.
+        pendiente_verificar: false
+      - ruta: "MariHogar.Domain/Entities/TasaCostoCobranza.cs"
+        proyecto: marihogar
+        rol: >
+          El ORIGEN de la forma: clave (Procesador, Metodo, Cuotas) + vigencia, sin soft delete, y el
+          desglose de alicuotas (comision, IVA, IIBB, Ley 25413). Alla mide lo que le CUESTA al
+          negocio cobrar; en la-platense se adapto para lo que se le RECARGA al cliente. Misma
+          estructura, proposito inverso.
+        pendiente_verificar: false
+      - ruta: "tools/ArnesTarjetaYTransferencia/Program.cs"
+        proyecto: la-platense
+        rol: >
+          Como se prueba: tres fechas (vigencia cerrada ayer, vigente hoy, futura cargada por
+          adelantado) resueltas contra la MISMA tabla dando tres valores distintos, el ultimo dia de
+          una vigencia cerrada todavia cubierto, y el documento ya posteado que NO cambia cuando se
+          edita la tabla. Escenarios 3, 4 y 6.
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      Verificado EJECUTANDO en la-platense el 2026-10-07 (tools/ArnesTarjetaYTransferencia): 41 OK /
+      0 FALLADAS. Medido POR MUTACION: arrancando el bloque de resolucion por clave compuesta (= el
+      comportamiento anterior al patron), fallan 14 afirmaciones, entre ellas las tres de vigencia
+      por fecha (ayer 40%, hoy 55%, en 30 dias 70% pasan a dar las tres el valor general) y la del
+      valor congelado en el documento.
+
+      LA MUTACION ENCONTRO UN FALSO VERDE EN EL PROPIO ARNES, y vale como aviso para quien reuse
+      esto: la afirmacion de "un 0% cargado le gana al general" estaba escrita sobre un plan cuyo
+      valor general TAMBIEN era 0%, asi que pasaba con y sin el patron. Al elegir el caso de prueba
+      de esa afirmacion hay que asegurarse de que el valor propio y el general sean DISTINTOS, o no
+      se puede distinguir "resolvio por clave" de "se cayo al fallback".
+
+      Costo de aplicarlo: 2 tablas (el catalogo de la clave abierta y la tabla de vigencias) + 1
+      columna nullable en el documento, UNA migracion ADITIVA PURA sin backfill. Los documentos
+      historicos quedan con la clave en NULL, que es la verdad: no se sabe con que se cobraron, y
+      rellenarlos con un default se lee despues como un hecho.
+
+  - id: PAT-063
+    nombre: "Generador de un PLAN de N documentos hijos que delega la escritura en el unico escritor que ya existe"
+    categoria: financiero
+    proyecto_origen: la-platense (CR-04, plan de echeqs a 0/30/60/90/120 sobre PagoOrdenCompra)
+    descripcion: >
+      El negocio pide partir un compromiso en N piezas escalonadas en el tiempo: un pago en N echeqs
+      a 0/30/60/90/120 dias, una compra en N cuotas con vencimiento, un cobro en N vencimientos. La
+      tentacion es construir un modulo nuevo con su entidad, su maquina de estados y su servicio que
+      escribe. EL PATRON ES LO CONTRARIO: el generador del plan NO ESCRIBE NADA.
+
+      El generador arma y valida las N lineas y DELEGA la escritura en el servicio que ya es el unico
+      escritor de ese documento. Todo lo que ese servicio ya sabe —el tope contra el saldo
+      disponible, la guarda de estado del documento padre, la transaccion unica, el posteo en los
+      ledgers cuando corresponda— no se vuelve a escribir ni se copia.
+
+      POR QUE ESTO ES EL PATRON Y NO UNA PREFERENCIA DE ESTILO: un segundo escritor del mismo
+      documento lleva su propia copia del tope de saldo y de la validacion de estado, y las dos
+      copias divergen en el primer cambio que toque una sola. Es exactamente como el precedente de
+      este patron (marihogar) termino con cinco caminos que movian la deuda sin mover la plata. El
+      generador no tiene permiso para inventar reglas del documento: tiene permiso para armar N
+      lineas y pedirle al que ya sabe que las escriba.
+
+      LO QUE EL GENERADOR SI DECIDE, y es poco:
+      1. El VENCIMIENTO de cada linea (fecha base + los dias del plazo). NUNCA lo manda el cliente:
+         un vencimiento recibido puede no corresponder al plazo elegido, y entonces la grilla dice
+         una cosa y el aviso dispara por otra.
+      2. Que la SUMA de las lineas CUADRE con el total. Es validacion de SERVICE, no solo del input:
+         la pantalla muestra el faltante/sobrante mientras se tipea, pero la autoridad esta en el
+         servicio. Un plan cuya suma no da el total deja el documento con un pedazo sin cubrir (o
+         comprometido de mas) sin que nada falle.
+      3. La unicidad del identificador externo de cada pieza (el numero de cheque) cuando existe.
+      4. Que la forma de pago de todas las lineas sea la que el plan supone.
+
+      EL PLAZO CERO ES LA TRAMPA, Y ES LA RAZON PRINCIPAL PARA CATALOGAR ESTO. Casi todos estos
+      planes admiten una pieza "al dia" (plazo 0), y casi todos los sistemas deciden si un documento
+      es PROGRAMADO o INMEDIATO preguntando si su fecha es ESTRICTAMENTE FUTURA. Una pieza a 0 dias
+      vence HOY, que NO es estrictamente futuro: con el criterio general nace PAGADA y postea sus
+      asientos EN EL ACTO, mientras sus hermanas del mismo plan quedan pendientes. O sea plata
+      saliendo de la caja al CREAR el plan, cuando el plan no deberia mover nada.
+
+      LA REGLA QUE LO CIERRA: una linea QUE PERTENECE A UN PLAN nace SIEMPRE programada, tenga el
+      plazo que tenga. Y se decide por la PRESENCIA DE LOS DATOS DEL PLAN (el sub-DTO del echeq no
+      es null) y NO por la forma de pago: asi el camino viejo —pagar con esa misma forma de pago sin
+      plan— sigue funcionando exactamente igual, que es lo que hace el cambio aditivo de verdad y no
+      un cambio de comportamiento disfrazado.
+
+      LA FECHA EN QUE LA PIEZA SE CONFIRMA SE PROPONE, NO SE IMPONE, Y HAY UN DATO MEDIDO DETRAS. En
+      marihogar (CR-86) se midio contra el extracto bancario real cual fecha acierta cuando un cheque
+      se acredita: el VENCIMIENTO del cheque acerto 1 de 13; la fecha que el usuario LEYO DEL
+      EXTRACTO, 8 de 13. O sea que el 61% de las veces el banco debita otro dia y cualquier fecha
+      automatica imputa la plata al dia equivocado. La resolucion que respeta el pedido sin tirar el
+      dato: el vencimiento SE CALCULA (ordena la grilla y dispara el aviso), y al confirmar la fecha
+      viene PROPUESTA con ese vencimiento —acotada a hoy, porque un movimiento de caja no puede ser
+      futuro— y QUEDA EDITABLE. El camino normal es un click sin tipear nada. NADA SE ACREDITA SOLO:
+      la plata sale cuando una persona confirma.
+
+      Y LO QUE ESA FECHA EDITABLE OBLIGA A NO ROMPER, que es facil de no ver: si el servicio reserva
+      un gap lock de periodo contable, el periodo que hay que reservar es el DEL DIA ELEGIDO y no el
+      de hoy. Reservar el de hoy deja la escritura real sin reservar y un cierre de aquel dia puede
+      commitear en la ventana — el defecto exacto de la familia "el movimiento cae dentro de un dia
+      cerrado y fuera del arqueo firmado".
+
+      EL ESTADO DE LA PIEZA ES EL ESTADO DE SU DOCUMENTO. La entidad hija NO lleva Estado propio: si
+      lo llevara habria dos fuentes de verdad de lo mismo y la unica pregunta interesante seria cual
+      de las dos esta mal. Lleva solo lo que el documento no sabe: numero, banco, plazo y vencimiento.
+
+      EL AVISO DE VENCIMIENTO ES EL QUE YA EXISTE. Si el proyecto ya avisa de documentos programados
+      vencidos, las piezas del plan SON documentos programados y su vencimiento ES su fecha
+      tentativa, asi que el aviso las levanta sin construirle uno propio. Lo unico que conviene
+      agregarle es que NOMBRE la pieza (el numero de cheque), que es el dato con el que el operador
+      la cruza contra el homebanking.
+    cuando_usar: >
+      Cuando el pedido es "partir X en N piezas escalonadas" Y YA EXISTE un documento programado con
+      su confirmacion (un pago con fecha tentativa que no mueve plata hasta confirmarse, una cuota
+      por vencer, un cobro agendado). Si eso ya existe, el plan es un GENERADOR y no un modulo: se
+      cuelga de lo que hay.
+
+      NO USARLO si lo que el negocio pide de verdad es una CARTERA: circuito de rechazo y reemplazo,
+      conciliacion contra extracto, piezas RECIBIDAS de terceros. Eso si es un modulo con maquina de
+      estados propia, y confundir los dos casos es la diferencia entre una semana y un mes. La
+      pregunta que los separa: ¿la pieza tiene transiciones propias que el documento padre no puede
+      expresar? Si la respuesta es "solo pendiente y pagado", es este patron.
+
+      TAMPOCO usarlo para generar el plan si el documento programado NO existe todavia: primero se
+      construye ese (con su confirmacion y su aviso), que es el 80% del valor, y el generador se
+      agrega despues en una fraccion del tiempo.
+    proyectos_que_lo_usan:
+      - la-platense
+    aplicaciones:
+      - ruta: "FerreteriaLaPlatense.Application/Interfaces/IPlanEcheqService.cs"
+        proyecto: la-platense
+        rol: >
+          EL CONTRATO, y es la pieza mas instructiva del patron: tres metodos (generar, listar, listar
+          los bancos usados para el autocompletado) y NINGUNO postea nada. El XML-doc declara
+          explicitamente que delega en IPagoProveedorService.RegistrarPagoAsync y por que.
+        pendiente_verificar: false
+      - ruta: "FerreteriaLaPlatense.Infrastructure/Services/PlanEcheqService.cs"
+        proyecto: la-platense
+        rol: >
+          El generador: valida (al menos una linea con monto, plazos sin repetir, numero y banco
+          obligatorios, numero unico por banco, la suma cuadra con tolerancia de un centavo, fecha
+          base no futura), calcula los vencimientos y arma el PagoProveedorInputDto. El tope de saldo
+          y la transaccion NO estan aca a proposito.
+        pendiente_verificar: false
+      - ruta: "FerreteriaLaPlatense.Infrastructure/Services/PagoProveedorService.cs"
+        proyecto: la-platense
+        rol: >
+          El UNICO escritor, donde vive la regla del plazo 0 ("una linea con datos de echeq nace
+          siempre programada") y donde la fila hija se crea DENTRO de la misma transaccion, despues
+          del SaveChanges que le dio Id al documento. Tambien el `DateTime? diaPagoReal` opcional de
+          ConfirmarPagoProgramadoAsync y el gap lock movido al dia elegido.
+        pendiente_verificar: false
+      - ruta: "FerreteriaLaPlatense.Domain/Entities/LineaEcheq.cs"
+        proyecto: la-platense
+        rol: >
+          La entidad hija 1 a 1, SIN Estado propio, con el XML-doc que declara por que no lo tiene y
+          por que la unicidad de (Banco, Numero) NO puede ser un indice unico (baja logica + MySQL sin
+          indices unicos filtrados). Incluye la alicuota reservada para v2, en cero y sin escritor.
+        pendiente_verificar: false
+      - ruta: "FerreteriaLaPlatense.Web/Views/OrdenesCompra/PlanEcheqs.cshtml"
+        proyecto: la-platense
+        rol: >
+          La pantalla: checkboxes de plazo que generan una fila por plazo con el monto repartido en
+          partes iguales (el RESTO en la ultima fila, si no $100.000 en 3 nunca cuadra), cada monto
+          editable, el vencimiento calculado a la vista, el faltante/sobrante en vivo y el boton
+          deshabilitado mientras no cuadre. Sincroniza filas sin rehacer la tabla, para no perder el
+          numero y el banco ya tipeados.
+        pendiente_verificar: false
+      - ruta: "MariHogar.Domain/Entities/Cheque.cs"
+        proyecto: marihogar
+        rol: >
+          El PRECEDENTE del modelo de datos (numero, banco, emision, vencimiento, plazo en dias como
+          valor del enum) y el CONTRAEJEMPLO del alcance: alla si es una cartera, con EstadoCheque
+          propio, circuito de rechazo y un ChequeAcreditacionHostedService. De ahi se tomo el modelo
+          y la grilla, NO la cartera ni el background service.
+        pendiente_verificar: false
+      - ruta: "tools/ArnesPlanEcheqs/Program.cs"
+        proyecto: la-platense
+        rol: >
+          Como se prueba, y la familia 2 es la que importa: el plan con plazo 0 tiene que nacer
+          PENDIENTE y no mover NI UN PESO, medido contra los DOS ledgers (caja y cuenta corriente) y
+          no contra uno. El mutante que quita la regla del echeq lo reproduce exacto. 49 afirmaciones,
+          8 mutantes, el relabel de las marcas medido en las dos direcciones.
+        pendiente_verificar: false
+    dependencias:
+      - PAT-056
+      - PAT-053
+    notas: >
+      Verificado EJECUTANDO en la-platense el 2026-10-07 (tools/ArnesPlanEcheqs): 49 EVALUADAS / 49 OK
+      / 0 FALLADAS / 0 NO MEDIDAS, en dos corridas, idempotente. MEDIDO POR MUTACION con ocho
+      mutantes, y cada uno tumba algo; el que prueba el corazon del patron es el que quita la regla
+      del plazo 0 (la linea de 0 dias nace Pagado y aparece un movimiento de caja de $20.000 al CREAR
+      el plan).
+
+      COSTO DE APLICARLO: UNA tabla nueva y UNA migracion ADITIVA PURA — 1 CreateTable + los indices,
+      cero AddColumn, cero AlterColumn, cero backfill. El documento padre NO se toca porque el FK vive
+      del lado nuevo, asi que ningun documento historico necesita una columna mas ni un valor
+      derivado. Es la propiedad que hace que este patron se pueda agregar a un modulo ya entregado y
+      en produccion sin tocarle el esquema.
+
+      DOS TRAMPAS MEDIDAS QUE CONVIENE NO VOLVER A PAGAR:
+
+      1. LA UNICIDAD DEL IDENTIFICADOR EXTERNO NO SE CONSULTA SOBRE LA TABLA HIJA. Si la baja del
+      plan es un SOFT DELETE del documento PADRE (lo normal), la fila hija queda VIVA y su filtro
+      global no la esconde: el numero de un plan dado de baja queda bloqueado PARA SIEMPRE, que es
+      justo el caso que la validacion existe para no bloquear (el cheque rechazado que se reemplaza).
+      La consulta tiene que arrancar en el PADRE. Es la misma familia que "la relectura parece hecha y
+      no relee": la baja logica NO SE PROPAGA a las hijas, y un filtro global aplica a la entidad que
+      se consulta, no a la que importa. Lo encontro el arnes, no una lectura del codigo.
+
+      2. EL BANCO (o el equivalente: el emisor, la entidad) ES TEXTO LIBRE CON AUTOCOMPLETADO DE LO YA
+      USADO, NO UN CATALOGO. Sin un caso real que lo exija (un reporte por banco, una conciliacion),
+      un catalogo de bancos es modelar una hipotesis: una tabla vacia con su pantalla de ABM que hay
+      que mantener. El dia que haya ese caso, el catalogo se construye CON DATOS ADENTRO, que es
+      cuando se sabe que columnas necesita.
+
+      VARIANTE DE PANTALLA: en la-platense el generador quedo en una pantalla PROPIA a la que se entra
+      desde el formulario de pago (la puerta aparece al elegir la forma de pago del plan), y no como un
+      bloque dentro de ese formulario como decia el diseño. El motivo es concreto: son dos shapes de
+      datos y dos acciones distintas, y un solo form con los dos obliga al servidor a adivinar cual se
+      mando. Si se prefiere una sola pantalla, son DOS form HERMANOS a nivel raiz (nunca anidados) con
+      el ViewModel del plan colgado del ViewModel del pago.
+
+  - id: PAT-064
+    nombre: "Nota de credito sobre un comprobante PARCIAL: no reabre el pendiente y devuelve el cargo de impuesto con regla de REMANENTE"
+    categoria: financiero
+    descripcion: >
+      La nota de credito de un sistema con comprobantes 1:N (PAT-060) se emite CONTRA UN COMPROBANTE
+      y no contra el documento, es una fila mas de la MISMA tabla de comprobantes con una auto-FK
+      `ComprobanteAsociadoId`, y resuelve tres cosas que son el patron:
+
+      1. EL "YA FACTURADO" TIENE QUE EXCLUIR LAS NOTAS DE CREDITO, Y EL FILTRO MANTIENE EL CRITERIO
+      EN VEZ DE CAMBIARLO. Las lineas de una NC viven en la misma tabla hija y tienen cantidad
+      POSITIVA (no es un ledger de signos), asi que una suma ingenua las cuenta como facturado: el
+      pendiente se va a NEGATIVO, el tope rechaza refacturaciones legitimas de OTRAS lineas y el badge
+      "facturado en parte" se apaga sobre un documento que si tiene lineas sin facturar. Y RESTARLAS
+      ES PEOR: devuelve los items al pendiente y el mismo item queda vendido una vez y facturado dos,
+      con dos comprobantes vivos sumando el doble. Una NC acredita una facturacion, no la deshace. El
+      filtro va en TODOS los lectores del hecho a la vez (en la-platense eran tres: la pantalla de
+      emision, el detalle del documento y el listado paginado).
+
+      2. SI EL COMPROBANTE HABIA CARGADO UN IMPUESTO AL LEDGER DEL CLIENTE (el cargo de PAT-060), LA
+      NC TIENE QUE DEVOLVERLO. Si no, el cliente queda debiendo el impuesto de un comprobante que
+      fiscalmente ya no existe: un cargo vivo contra un documento acreditado, imposible de explicar
+      leyendo su estado de cuenta. Origen de ledger PROPIO (nunca el mismo del cargo con el signo
+      invertido, ni un "ajuste"), en la MISMA transaccion que el comprobante.
+
+      3. LA REGLA DEL REMANENTE, que es la parte que no se ve hasta que se mide. Cuando la NC CIERRA
+      el comprobante (no queda cantidad por acreditar en ninguna linea), se devuelve el REMANENTE
+      EXACTO del cargo y NO la proporcion redondeada. Varias NC parciales redondeando cada una su
+      proporcion pueden sumar un centavo mas o menos que el cargo original, y dejan al cliente con
+      $ 0,01 de deuda ETERNA por el impuesto de un comprobante acreditado POR COMPLETO — un saldo que
+      nadie puede explicar y que ninguna pantalla deja cerrar.
+    cuando_usar: >
+      Cualquier sistema que ya tenga comprobantes fiscales parciales 1:N (PAT-060) y necesite
+      anularlos o acreditarlos. Si ademas el comprobante puede haber generado un cargo de impuesto en
+      el ledger del cliente (venta cobrada sin impuesto que despues se factura), el punto 2 y el 3 no
+      son opcionales. Tambien aplica, sin el punto 2, a cualquier documento hijo que acredite
+      parcialmente a su padre y donde el tope sea "lo que ESE padre cubrio" y no "lo que el documento
+      raiz vendio".
+    proyecto_origen: la-platense (modulo 16 / Entrega 5, 2026-10-07 — sobre el circuito fiscal de marihogar CR-55)
+    proyectos_que_lo_usan:
+      - "la-platense (NotaCreditoService, primera aplicacion)"
+    archivos_referencia:
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/NotaCreditoService.cs"
+        motivo: "El servicio completo: tope por linea del comprobante, precio efectivo congelado copiado del comprobante, CalcularDevolucionDeIva con las tres reglas (nada vivo / remanente / proporcion acotada), y el lock del DOCUMENTO PADRE que serializa las dos carreras con una sola fila"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Infrastructure/Services/FacturacionParcialService.cs (ObtenerYaFacturadoPorItemAsync)"
+        motivo: "El punto 1 del patron con su XML-doc: por que el filtro de las NC MANTIENE el criterio y por que restarlas seria peor"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "FerreteriaLaPlatense.Application/DTOs/ComprobanteAfipDtos.cs (PendienteDeAcreditar, TipoLegible)"
+        motivo: "El numero con el que decide el BOTON, calculado en la base y en la misma consulta que ya trae el comprobante: el gate de la UI y el tope del Service deciden con el mismo dato"
+        pendiente_verificar: false
+      - proyecto: marihogar
+        path: "MariHogar.Application/Interfaces/IComprobanteAfipService.cs (GenerarNotaCreditoAsync, linea 49) + ComprobanteAfipService"
+        motivo: "El circuito fiscal de origen: la NC como fila de la misma tabla con auto-FK y el tipo derivado del comprobante original (A -> NC A, B -> NC B). NO tiene los puntos 1 a 3, que son de la-platense"
+        pendiente_verificar: false
+      - proyecto: la-platense
+        path: "tools/ArnesNotaCredito/Program.cs"
+        motivo: "El fixture que hace que las afirmaciones DISCRIMINEN, y es la parte mas facil de errarle: lineas con descuento Y recargo (lista 1000 / efectivo 900) y un producto a 100,01 facturado por 3, que fabrica la deriva de redondeo de UN CENTAVO con la que se mide la regla del remanente. 45 afirmaciones, 19 mutantes"
+        pendiente_verificar: false
+    dependencias:
+      - PAT-060
+      - PAT-020
+      - PAT-059
+      - PAT-001
+    notas: >
+      NO HAY FLAG BOOLEANO "ES NOTA DE CREDITO": se infiere de `ComprobanteAsociadoId != null`. Un
+      booleano ademas de la FK es un segundo lugar donde vive el mismo hecho, y es como nacen los
+      defectos de la familia "un criterio que vive en una sola punta".
+
+      EL ENUM DEL TIPO DE COMPROBANTE NO SE AMPLIA CON VALORES CORRELATIVOS si sus valores son codigos
+      de un organismo externo. En AFIP/ARCA: Factura A=1, Nota de Debito A=2, Nota de Credito A=3,
+      Factura B=6, ND B=7, NC B=8, Factura C=11, NC C=13. Un valor correlativo compila, graba y pasa
+      code review; el rechazo del web service aparece recien el dia que haya certificado, o sea lo mas
+      lejos posible de donde se cometio. Y al pasar de 2 a 4 valores, TODA comparacion que asumia "o
+      es A o es B" queda incompleta: el barrido de los lectores es parte del cambio (en la-platense
+      una NC B se habria rotulado "Factura B" en la pantalla que mas se consulta).
+
+      DONDE VA EL "YA DEVUELTO" DEL CARGO DE IMPUESTO, y es la decision que ahorra una columna: en la
+      MISMA columna con la que el comprobante registra el cargo. En una factura significa "cuanto le
+      cargue al cliente" y en una NC "cuanto le devolvi", con la direccion dada por el tipo de fila.
+      NO se puede leer del ledger: el movimiento guarda el id del DOCUMENTO RAIZ (la venta) y no el
+      del comprobante, asi que desde el ledger es imposible saber cual de los N comprobantes genero
+      cada movimiento. Y leerlo de la tabla de comprobantes tiene la ventaja de que lo serializa el
+      MISMO lock que serializa el tope de cantidades, sin agregar una tabla al orden canonico.
+
+      EL LOCK ES EL DEL DOCUMENTO RAIZ (la venta), no el del comprobante: con una sola fila serializa
+      dos NC simultaneas sobre el mismo comprobante Y una NC simultanea con una emision de factura
+      (que bloquea esa misma fila). Un lock propio sobre la tabla de comprobantes no agregaria
+      exclusion y si agregaria una tabla mas al orden canonico, que es como se fabrica un deadlock
+      intermitente. Medido: sin el lock, 3 NC simultaneas acreditan 9 sobre un comprobante de 3.
+
+      GUARDAS QUE TIENEN QUE SER ALCANZABLES. Rechazar una NC de una NC (eso seria una nota de debito)
+      y rechazar un comprobante en estado de ERROR (nunca se emitio: el camino es darlo de baja). Lo
+      que NO hay que exigir es que el comprobante este EMITIDO: mientras la integracion fiscal este
+      apagada TODOS estan en Pendiente, asi que esa guarda no se alcanzaria nunca y cambiaria de
+      comportamiento el dia del certificado sin que nadie lo note.
+
+      EL PRECIO DE LAS LINEAS DE LA NC SE COPIA DEL COMPROBANTE, no se recalcula desde el documento ni
+      desde el catalogo. Si en el proyecto el descuento y el recargo de la linea son PORCENTAJES que
+      viven en el subtotal y no en el precio, recalcular devuelve MAS plata de la que el comprobante
+      cobro. Copiarlo es a la vez lo correcto y lo mas simple, y es lo que hace que una NC por el total
+      de un comprobante de EXACTAMENTE su importe. El impuesto se redondea POR LINEA y despues se suma,
+      en el mismo orden que la emision: si se suma primero y se redondea al final, los dos documentos
+      difieren en centavos y nadie sabe cual es el bueno.
+
+      VERIFICADO EJECUTANDO en la-platense el 2026-10-07 (tools/ArnesNotaCredito): 45 afirmaciones
+      EVALUADAS / 45 OK / 0 FALLADAS / 0 NO MEDIDAS, idempotente. MEDIDO POR MUTACION con 19 mutantes.
+      Dos defectos del INSTRUMENTO que la medicion destapo y que conviene no volver a pagar: (a) una
+      afirmacion marcada [DISCRIMINA] que miraba la linea SIN descuento, donde el precio de lista y el
+      efectivo coinciden — pasaba con y sin el fix; (b) el eco de "el usuario vio este importe" hace
+      que un mutante del IMPORTE rechace TODAS las emisiones, asi que lo que se mide es una cascada y
+      las afirmaciones del importe quedan NO MEDIDAS. Un mutante del importe tiene que apagar tambien
+      el eco, o apunta al lugar equivocado.
+
+  - id: PAT-065
+    nombre: "Token de submit de un solo uso: idempotencia que identifica al REQUEST y no al dato de negocio (lo que ninguna clave natural puede)"
+    categoria: infraestructura
+    descripcion: >
+      EL PROBLEMA, y por que la solucion obvia tiene un piso que no baja. Un POST repetido -doble clic,
+      F5, retry de red- duplica plata. La solucion que se escribe sola es una CLAVE NATURAL: derivar del
+      payload una identidad ("esta venta, este dia, estos items") y rechazar la segunda. Funciona, y en
+      La Platense cerro seis sitios. Pero tiene un limite estructural que se descubre recien cuando
+      alguien lo mide: **un doble clic y una segunda operacion legitima identica son bit a bit el MISMO
+      POST**. Mismos bytes, misma ventana de tiempo, mismo documento. Lo unico que los separa es CUANTAS
+      VECES EL USUARIO PIDIO EL FORMULARIO, y ese dato no esta en el payload ni se puede derivar de el.
+
+      Medido en La Platense (2026-10-08/09): la clave natural de facturacion parcial colapsaba "facturo
+      2 ahora y 2 a la tarde", que es rutina facturando por remito, y dejaba una unidad de cuatro sin
+      poder facturarse por ningun camino. Acotar la ventana de un dia a 10 segundos cerro el caso humano
+      y NO el del arnes, cuyas dos tandas legitimas corren en menos de un segundo. Se verifico bajando a
+      1 segundo: sigue colapsando. **Los dos criterios son mutuamente excluyentes con cualquier clave
+      derivada del payload, para todo valor de todo parametro.**
+
+      EL MECANISMO. Un token de un solo uso, emitido por cada render del formulario y consumido por el
+      POST. La tabla tiene el TOKEN COMO PK, asi que el consumo ES el INSERT: atomico en el motor, cubre
+      la repeticion en serie Y la concurrente sin ventana de lectura -que es el agujero estructural de
+      PAT-059. Un filtro de accion reserva antes de ejecutar y, si el token ya estaba, corta y re-muestra
+      el resultado original guardado, sin llegar al Service. Un tag helper lo inyecta en todo form que no
+      sea GET. La retencion se purga de forma oportunista (PAT-056), sin job.
+
+      SEIS DECISIONES QUE VALE RETENER, cada una atada a un defecto real:
+
+      1. EL TOKEN IDENTIFICA AL REQUEST, NO AL DATO. Por eso desaparece el costo de negocio: dos
+      operaciones legitimas identicas son dos submits y entran las dos. Es lo unico que ninguna clave
+      natural puede hacer, y el par discriminante que lo prueba es "mismos bytes de negocio, solo cambia
+      el token -> emiten los dos".
+
+      2. EL INDICE UNICO VA SOBRE EL TOKEN, no sobre datos de negocio. Asi se respeta la decision 1 de
+      PAT-059 (un unique sobre datos prohibe reversiones parciales legitimas): el motor garantiza la
+      unicidad de algo que es unico por construccion.
+
+      3. NO REEMPLAZA AL LOCK DE PAT-059: SE SUMA. Son dos invariantes ortogonales -"este request ya
+      corrio?" y "la accion sigue siendo valida?"- y confundirlos es lo que produjo la familia entera.
+      Quitar un lock al poner el token es la peor lectura posible de este patron.
+
+      4. LA FORMA DE BAJA POR FAMILIA DEJA DE IMPORTAR. Una clave natural tiene que preguntar si la
+      operacion anterior "sigue viva", y la respuesta cambia por familia: en un ledger la baja es una
+      fila NUEVA (contramovimiento) y en otra tabla es un estado en la fila vieja. Equivocarse ahi
+      bloqueo el pago de un adelanto con cartel de exito (LP-114). El token no pregunta eso.
+
+      5. UN SOLO CONTRATO DE RESULTADO. El replay no llega al Service: la respuesta la arma el filtro.
+      Sin eso, cada caller interpreta una bandera y aparecen huecos (LP-117, LP-121).
+
+      6. LA RESERVA VA EN CONEXION APARTE. Tiene que ser visible en el acto, y un SaveChanges desde el
+      mecanismo de idempotencia arrastraria lo que el Service de negocio tenga trackeado.
+
+      EL GATE, que es la mitad del patron y la que se olvida. Un filtro opt-in es otra lista mantenida a
+      mano, y las listas a mano envejecen: en La Platense el comentario que enumeraba los sitios
+      pendientes nombraba 2 de al menos 7. Hace falta un VERIFICADOR que enumere el perimetro por una
+      PROPIEDAD DEL DATO y no por nombres: "entidad de dinero = la que declara un decimal", derivada del
+      arbol en cada corrida. Con lista a mano el verificador no vio un `new CierreCajaDiario` ni una
+      escritura por SQL crudo y salio exit 0; con la propiedad derivada el perimetro paso de 23 a 35 y
+      aparecieron solos los cinco sitios que QA habia encontrado a mano. Reglas del verificador: si la
+      derivacion da cero, ABORTA (no sale 0); lo que no puede clasificar lo declara ruidoso; y se produce
+      su propia evidencia -si no puede medir el cableado, no imprime la afirmacion y sale distinto de 0.
+    cuando_usar: >
+      Cuando un POST escribe plata o emite un documento no repetible (comprobante fiscal, pago,
+      movimiento de caja, nota de credito) Y existe al menos un caso de negocio en que la MISMA
+      operacion se repite legitimamente. Si ese caso no existe, una clave natural con lock alcanza y es
+      mas barata. La senial de que hace falta el token es exactamente esta: la clave natural colapsa una
+      operacion legitima y no hay campo que los distinga.
+    cuando_no_usar: >
+      No sirve para un cliente que reenvia sin pedir el formulario de nuevo (un script, una integracion,
+      un reintento de API): ahi no hay render que identificar y hace falta una clave de idempotencia
+      provista por el cliente. Y no reemplaza la autorizacion ni es una credencial: el token no esta
+      firmado, fabricarlo no compra nada -verificado- porque los topes, el UsuarioId y los locks siguen
+      corriendo detras.
+    proyecto_origen: la-platense (ronda de QA 2026-10-08/09, sobre la familia LP-064/LP-082/LP-093/LP-095/LP-119/LP-122; decision de arquitectura v15 secciones 0-bis a 0-quater)
+    proyectos_que_lo_usan:
+      - la-platense (fase 1: el mecanismo + facturacion parcial; fase 2 pendiente para los 6 sitios restantes)
+    archivos_referencia:
+      - "FerreteriaLaPlatense.Web/Filters/TokenDeSubmitAttribute.cs — el filtro que reserva antes de ejecutar y corta el replay"
+      - "FerreteriaLaPlatense.Web/TagHelpers/TokenDeSubmitTagHelper.cs — inyeccion en todo form que no sea GET, por exclusion y no por lista"
+      - "FerreteriaLaPlatense.Infrastructure/Services/RegistroDeSubmitService.cs — INSERT IGNORE en conexion aparte, decidido por filas afectadas"
+      - "tools/VerificadorCoberturaTokenDeSubmit/Program.cs — el gate: perimetro por propiedad del dato (entidad que declara un decimal), derivado en cada corrida"
+      - "tools/ArnesTokenDeSubmit/Program.cs — arnes del mecanismo"
+    dependencias:
+      - "PAT-059 (lock de fila + relectura): NO lo reemplaza, se suma. El token contesta 'este request ya corrio?'; el lock contesta 'la accion sigue siendo valida?'"
+      - "PAT-056 (chequeo oportunista al primer request del dia): la purga de la retencion, sin job programado"
+      - "Migracion EF aditiva: una tabla con PK sobre el token y un indice por fecha para la purga"
+    notas: >
+      DOS COSAS QUE SOLO APARECEN MIDIENDO, y las dos son modos de falla TOTAL que se parecen a una
+      guarda estricta. (a) El filtro FALLA CERRADO: si el token no llega al formulario, la pantalla
+      rechaza TODA emision -peor que el defecto original, y ningun arnes de servicio lo ve. Hay que
+      probarlo por NAVEGADOR REAL, con el control positivo y el negativo EN LA MISMA SESION: si rechaza
+      los dos, la huella del filtro no coincide con la del helper y el sistema esta muerto, no protegido.
+      Una afirmacion que solo mire el rechazo del token cruzado da verde en ese caso. (b) LA HUELLA SE
+      CALCULA DE DOS FUENTES DISTINTAS -el `action` del form y el `Request.Path`- y cualquier cosa que
+      las haga diferir rompe todo en silencio. Medido en La Platense: con `UsePathBase` (la forma de
+      sub-aplicacion de IIS) el `action` lleva el prefijo y `Request.Path` no, y el formulario posteado
+      con SU PROPIO token se rechaza. Ni los arneses ni el verificador lo ven porque corren sin PathBase.
+      Condicion de deploy: confirmar que el sitio queda en la raiz de su dominio, o derivar las dos
+      huellas de la misma fuente.

@@ -55,6 +55,31 @@ El catálogo de reglas cross-proyecto (`32-estandares-qa-implementador.instructi
 4. Reportar el resultado en la salida mínima (punto 4b de `qa-mvc.agent.md`) y en `6-qa.md`.
 5. Al cerrar, actualizar el campo "Última validación de reglas cross-proyecto" a la fecha de esta corrida — sin este paso, la próxima corrida no tiene desde dónde diferenciar y tendría que re-revisar todo el catálogo entero cada vez.
 
+## Integridad de la medicion por mutacion (agregado 2026-10-09)
+
+La medicion por mutacion —romper el codigo a proposito y verificar que una afirmacion lo detecta— es hoy la herramienta mas fuerte del estudio para distinguir un arnes que mide de uno que acompania. **El control que los agentes venian usando para no enganiarse con ella estaba solo en su memoria, no en ninguna instruccion**, asi que se perdia al archivar. Queda aca, con la trampa que lo derrota.
+
+**El control, y por que hace falta.** Un mutante que no llega al binario produce el peor resultado posible: el arnes queda en verde y se interpreta como *"la afirmacion no detecta el bug"* o como *"el codigo esta bien"*, cuando en realidad **no se midio nada**. Por eso, antes de creerle a una corrida con mutante:
+
+1. **Verificar que el mutante entro al binario**, no que entro al archivo. El chequeo es sobre el **DLL del proyecto del archivo mutado**: si la condicion vive en `Domain` y se chequea `Infrastructure.dll`, los mutantes **se descartan solos y en silencio** (medido en La Platense: `LP-056`, donde mover una guarda a `Domain` dejo nueve mutantes sin medir y el informe sin la unica medicion que importaba).
+2. **Un mutante por arbol de build.** Un proceso vivo bloquea el DLL y el build del siguiente mutante falla sin que el resultado lo diga.
+3. **No usar `--no-build` sobre un arnes que acaba de cambiar:** si no compilo, corre el EXE anterior. Medido en La Platense el 2026-10-09: una corrida dio **111 OK / 0 sobre codigo viejo** y se leyo como exito.
+4. **Mirar la salida, no el total.** Un conteo agregado esconde exactamente el elemento que no corresponde (instruccion 39 seccion 4a).
+
+**LA TRAMPA QUE EL CONTROL DE `md5` NO ATRAPA, y es la razon de esta seccion.** Medida en La Platense el 2026-10-09, en la fase 1 del token de submit:
+
+> **Restaurar el archivo mutado con una copia que PRESERVA EL MTIME** (por ejemplo `shutil.copy2`, o `cp -p`) **hace que MSBuild no recompile. El mutante sigue vivo en la DLL, y el chequeo de `md5` del archivo fuente contra su backup pasa en VERDE**, porque el fuente si quedo restaurado. El control dice "todo en orden" y la siguiente medicion corre contra el binario mutado.
+
+Es la unica forma de falla de la ronda que el control recomendado **no detecta**, y es especialmente peligrosa porque aparece al **final** del ciclo —al limpiar— y contamina las mediciones **siguientes**, no la propia.
+
+**Reglas que salen de esto:**
+
+- **Restaurar sin preservar el mtime** (`shutil.copy` en vez de `copy2`, `cp` sin `-p`), o tocar el archivo despues de restaurar.
+- **El `md5` del FUENTE no es evidencia de que el BINARIO este sano.** Cuando el resultado importa, el control es sobre el artefacto que se ejecuta: hash del DLL, o un rebuild forzado antes de la medicion siguiente.
+- **Una medicion por mutacion que sale en verde es sospechosa hasta que se demuestre que el mutante llego a ejecutarse.** La forma mas barata de demostrarlo es un **control negativo**: un mutante que *tiene* que tumbar una afirmacion conocida. Si ese tampoco tumba nada, el problema es el instrumento y no el codigo.
+
+**Por que esta aca y no en la memoria de un agente:** porque la usan el QA y el Implementador por igual, porque se pierde al archivar, y porque un control de integridad en el que se confia sin conocer su punto ciego es peor que no tener control — da licencia para creerle a un verde que no midio nada.
+
 ## Por que el evaluador no puede ser el que arregla (2026-09-25)
 
 La version original de esta instruccion (2026-08-14) cerraba el punto ciego de "nadie ejecuta la app antes de la entrega", pero dejaba abierto otro: el mismo agente que aplicaba el auto-fix era el que despues firmaba el PASS. Un generador que se autocalifica aprueba su propio trabajo aunque este mediocre — es un resultado medido, no una hipotesis.

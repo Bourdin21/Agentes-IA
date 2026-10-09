@@ -1,9 +1,90 @@
 # Memoria - Disenador funcional
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-10-06 (v7 — Diseno de CR-01 a CR-05: flujos 11 a 15. Venta con/sin factura, facturacion parcial por items con cargo de IVA a la CC del cliente, interes por tarjeta x cuotas con vigencia, plan de echeqs 0/30/60/90/120 sobre el pago programado existente, y transferencia en la venta. LP-014 entra en la misma ronda que CR-01. AnulacionVentaViewModel e IAnulacionVentaService quedan a ajustar: con comprobantes 1:N la NC es por comprobante, no por venta)
+## Ultima actualizacion: 2026-10-07 (v8 — Diseno de la Entrega 5: flujos 16 a 18. La devolucion es el hecho de negocio y la NC su consecuencia fiscal SOLO cuando lo devuelto estaba facturado (hoy la mayoria de las ventas nunca se facturan). La NC devuelve la parte proporcional de DiferenciaIvaCobrada, que el disenio original no contemplaba. La anulacion de venta SIN comprobante YA EXISTE y no se toca. AnulacionVentaViewModel e IAnulacionVentaService se REEMPLAZAN, no se adaptan)
 
 ## Definiciones vigentes
+
+## Diseño funcional de la Entrega 5 — Devoluciones y notas de crédito por comprobante (2026-10-07)
+
+Último bloque del alcance comprometido (módulo 16 del WBS + los ~3h residuales del módulo 6). Entrada: `1-analista-funcional.md` §6.5, R8, PF9/PF10, y las reglas que CR-02 dejó escritas: **R17, R18, R19** y **D-CR01.1**.
+
+**Estado relevado contra el árbol, no contra los documentos (2026-10-07):**
+- **La anulación de una venta SIN comprobante ya existe y funciona** (`VentaWorkflowService:1484`, con la guarda de `LP-039` que la bloquea si hay comprobante vivo). **No hay que construirla.** El plan de cierre la daba por faltante: ya no lo está.
+- `ComprobanteAfip` **no tiene** `ComprobanteAsociadoId` ni `Motivo` — su propio XML-doc los declara fuera del alcance de CR-02 y los manda acá.
+- `ComprobanteAfip.DiferenciaIvaCobrada` **sí existe** y registra, por comprobante, cuánto cargo de IVA le generó al cliente. **Ese campo es la pieza que hace posible devolver el cargo** sin reconstruirlo cruzando tablas.
+- `TipoComprobanteAfip` tiene **solo** `FacturaA = 1` y `FacturaB = 6`. Faltan las notas de crédito (y `FacturaC`, si el negocio la usa).
+- `EstadoComprobanteAfip`: `Pendiente / Emitido / Error`.
+- **No existe** `AnulacionVentaService` ni `DevolucionService`.
+
+**Escaneo de reutilización (instrucción 39 §3), verificado archivo por archivo:**
+- **`marihogar`**: `IComprobanteAfipService.GenerarNotaCreditoAsync` (línea 49) + `ComprobanteAfipService`, que ya resuelve *"NotaCreditoA/B según la original"*. Es el circuito fiscal completo. **Reuse alto.**
+- **`ShowroomGriffin`**: `IDevolucionService`, `DevolucionService`, `DevolucionCambio` + `DevolucionCambioDetalle`, `TipoDevolucion`. Es el circuito de la mercadería. **Reuse alto**, con una poda: allá contempla **cambio/canje** y acá **no aplica** (R8: solo devolución simple).
+
+### Flujo 16 — Devolución de mercadería
+
+**La devolución es el hecho de negocio; la nota de crédito es su consecuencia fiscal, y solo cuando lo devuelto estaba facturado.** Separarlos así es lo que resuelve el caso que el diseño anterior no tenía: hoy la mayoría de las ventas nunca se facturan, así que una devolución sin comprobante **no puede depender de emitir una NC**.
+
+**Punto de entrada:** desde el detalle de la venta, acción *"Registrar devolución"*, disponible en `Confirmada`, `Facturada en parte` y `Facturada`.
+
+**Pantalla:** grilla de los ítems de la venta con, por fila: cantidad vendida, **cantidad ya devuelta**, **cantidad facturada**, y un campo *"cantidad a devolver"*. Más el motivo (obligatorio) y la fecha de negocio.
+
+**Qué hace al confirmar, en una sola transacción:**
+1. **Reingresa stock** de lo devuelto, posteando en el ledger `MovimientoStock` **y** actualizando `Producto.Stock`, en la misma transaccion.
+
+   **CORRECCION 2026-10-07 (la version anterior de esta linea decia "nunca escribiendo `Producto.Stock` directo" y es FALSA; la refuto el implementador y la confirmo QA):** el "unico escritor" que este proyecto defiende es **el de la TABLA del ledger**, no el de la columna. `IMovimientoStockService` **declara explicitamente que no toca `Producto.Stock`**, y la columna tiene **5 escritores, todos callers del ledger**. Obedecer la frase anterior al pie de la letra **dejaba el stock sin mover**: el ledger registraba el movimiento y la mercaderia no volvia al catalogo. Lo que hay que respetar es que **no se escriba la columna sin postear el movimiento**, no que la columna sea intocable.
+
+   **Y el caso borde que esto esconde, encontrado por el implementador antes de medir:** si **el mismo producto aparece en dos lineas de la misma venta**, un reingreso ingenuo **pisa la primera linea** y devuelve **menos mercaderia de la que volvio**, con los importes cerrando igual. Es el peor tipo de defecto de este proyecto: numeros internamente coherentes y falsos. Verificado en BD: stock 1000 → 1004 con **dos filas** en el ledger, columna y ledger coincidiendo.
+2. **Revierte la plata, acotada a lo realmente posteado** — es el criterio de `PAT-020` y el mismo que ya usa la anulación: si la venta se cobró en efectivo, egreso de caja; si fue fiado, crédito en la CC del cliente; si se cobró con tarjeta, **se revierte el monto sin el recargo de cuotas** (el recargo no vuelve: la financiera ya lo cobró).
+3. **Si lo devuelto estaba facturado, emite una nota de crédito** (flujo 17). Si no estaba facturado, **no emite nada** y la devolución queda completa.
+4. **Si la devolución deja la venta en cero** (todo devuelto), la venta pasa a `Anulada`. Si es parcial, **la venta NO cambia de estado**: sigue `Confirmada`/`Facturada en parte`/`Facturada`, y la devolución se ve en su detalle. No se inventa un estado "con devoluciones": el dato vive en las devoluciones, no en un flag de la venta.
+
+**Lo que NO existe:** cambio o canje por otro producto (R8, exclusión confirmada). Una devolución seguida de una venta nueva es la forma de hacer un cambio, y es correcta.
+
+### Flujo 17 — Nota de crédito contra un comprobante
+
+**La NC se emite contra un comprobante, nunca contra la venta** (lo dejó resuelto CR-02). Puede ser **parcial**: devolver 2 de los 5 ítems que ese comprobante facturó.
+
+**Qué lleva la NC:**
+- `TipoComprobante` = la nota de crédito que corresponde al tipo de la factura original (A → NC A, B → NC B).
+- `ComprobanteAsociadoId` apuntando al comprobante original, y `Motivo` (trazabilidad interna: **no se manda a AFIP**, el WSFEv1 no tiene campo para eso).
+- Sus propios `ComprobanteAfipItem` con las cantidades devueltas y el **precio efectivo** que el comprobante original había guardado — no el de lista. Es el mismo criterio que CR-02 tuvo que descubrir: acá descuento y recargo viven en el `Subtotal`.
+- Neto, IVA y total de lo devuelto.
+
+**La pieza que el diseño original del módulo 16 no tenía, y es la razón de escribir esto antes de construir:** si el comprobante original tiene `DiferenciaIvaCobrada > 0` (una venta cobrada sin IVA que después se facturó, D-CR01.1), **la NC tiene que devolver la parte proporcional de ese cargo**, con un crédito en la CC del cliente. Si no, **el cliente queda debiendo el IVA de una factura anulada** — un cargo vivo contra un comprobante que ya no existe fiscalmente. El importe se calcula sobre la proporción devuelta del comprobante, y se postea con el mismo origen de ledger que lo generó, en signo contrario.
+
+**Lo que la NC NO hace (R18, y es contraintuitivo a propósito):** **no reabre el pendiente a facturar.** Los ítems de un comprobante con NC **no vuelven a estar disponibles**. Si volvieran, el mismo ítem quedaría vendido una vez y facturado dos, con dos comprobantes vivos sumando el doble. El pendiente por ítem se calcula **sobre comprobantes emitidos, sin restar notas de crédito**.
+
+**Y R19:** `Facturada` no vuelve a `Facturada en parte`. El estado de facturación solo avanza.
+
+**AFIP:** la NC se emite **sin CAE real** mientras no haya certificado, igual que las facturas hoy (`Estado = Pendiente`). El circuito se prueba completo; lo único que falta es la comunicación. **Esto no bloquea la Entrega 5** — es el residual del módulo 6 y entra cuando llegue el certificado del cliente.
+
+### Flujo 18 — Lo que se ajusta de lo que ya estaba definido
+
+`AnulacionVentaViewModel` e `IAnulacionVentaService` quedaron **superados** por CR-02 y se reemplazan, no se adaptan:
+- `IAnulacionVentaService` se parte en dos contratos que ya tienen dueño distinto: la anulación de una venta sin comprobante **ya vive en `VentaWorkflowService`** y no se toca; lo nuevo es `IDevolucionService` (mercadería + plata) e `INotaCreditoService` (el comprobante).
+- `AnulacionVentaViewModel` se reemplaza por `DevolucionViewModel`, que opera sobre ítems y no sobre la venta entera.
+
+### ViewModels nuevos
+
+- `DevolucionViewModel`: venta, grilla de `ItemDevolucionViewModel` (ítem, vendido, ya devuelto, facturado, a devolver), motivo, fecha, y **el preview de lo que se va a revertir**: stock, plata por medio de pago, y el crédito de IVA si corresponde.
+- `NotaCreditoViewModel`: comprobante original, sus ítems con lo devuelto, totales de la NC, y el importe del cargo de IVA que se devuelve.
+- `DevolucionListItemViewModel`: para el listado de devoluciones por fecha, cliente y venta.
+
+### Validaciones de UI acordadas
+
+- No se puede devolver más cantidad que la vendida menos la ya devuelta, **por ítem**. Validado en el Service.
+- Motivo obligatorio.
+- No se puede registrar una devolución imputada a un **período de caja cerrado** (la centinela de `LP-037` ya lo garantiza para los movimientos; la devolución entra por el mismo camino).
+- El preview de lo que se va a revertir **se muestra antes de confirmar**, con los importes exactos — mismo criterio que la facturación parcial tuvo que adoptar para el cargo de IVA.
+- Una venta con devoluciones **no** puede anularse por el camino de `VentaWorkflowService` sin revisar lo ya devuelto: la reversión sería doble. **Es el mismo tipo de agujero que `LP-039` y `LP-040`** (un criterio que vive en una sola punta), así que la guarda va en el Service y en el botón.
+
+### Contratos funcionales para Services
+
+- `IDevolucionService` (nuevo): registra la devolución, reingresa stock por el ledger, revierte la plata **acotada a lo posteado**, y dispara la NC cuando lo devuelto estaba facturado. Todo en una transacción, con lock de fila y relectura real.
+- `INotaCreditoService` (nuevo): emite la NC contra un comprobante, con sus ítems, y devuelve la parte proporcional de `DiferenciaIvaCobrada`.
+- `IVentaWorkflowService` (afectado): su `AnularAsync` suma la guarda de "esta venta tiene devoluciones".
+- `IFacturacionParcialService` (afectado, **y es el punto fino**): el cálculo del pendiente **no cambia** — sigue sin restar notas de crédito (R18). Lo que hay que agregar es que **no se pueda facturar un ítem ya devuelto**: lo devuelto no se factura.
 
 ## Diseño funcional de CR-01 a CR-05 (2026-10-06)
 

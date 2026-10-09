@@ -408,7 +408,197 @@ Sin componente equivalente en otros proyectos (ver Diseño §0).
 ## 5. Pruebas funcionales
 Cubre las 3 HU de Diseño: agrupado correcto (incluido "Sin categoria"), filtro por categoria aisla el grupo, combinacion buscador+categoria. Regresion: el conteo del boton/alert y el comportamiento existente (colores, boton editar Admin, buscador solo) no cambian.
 
+---
+
+## Sesion: Frente A recortado — higiene del circuito de Pagos (A1 + A3 + A5)
+
+## Estado: EN ARQUITECTURA — pendiente aprobacion para pasar a Presupuesto
+
+Entrada: Diseño cerrado el 2026-10-07 (`2-disenador-funcional.md`, seccion "Frente A recortado", lineas 415-604), 7 HU, sin migracion EF. Analisis: seccion 9 de `1-analista-funcional.md`.
+
+## 0. Resultado del escaneo de reutilizacion cross-proyecto
+
+Escaneo dirigido (`grep -ril` sobre `docs/*/definiciones/{3-arquitecto-mvc,5-implementador}.md`) con los terminos del alcance: `PagoService`, validacion de fecha, totalizador.
+
+| Match | Que se evaluo | Decision |
+|---|---|---|
+| **delicias-naturales, iteracion 3** (`3-arquitecto-mvc.md:319-396`) — `PagoService` + PAT-023 | El punto unico por donde pasan alta y edicion de pago ya existe en este repo y es de esta misma iteracion anterior. | **Base de esta arquitectura.** No se crea ningun servicio nuevo: las 4 reglas de fecha entran en `PagoService`, que es el unico lugar desde donde se puede cubrir `RegistrarPago` y `EditarPago` a la vez. Ver AD-1. |
+| **koi** (`3-arquitecto-mvc.md:40`) — `EstadoResultadosService` con totalizadores y snapshot de % por movimiento | Totalizadores agregados en un service dedicado. | **No se reutiliza.** Koi necesita un service porque sus totales son calculados con parametros versionados; los 3 grupos de A5 son una reagrupacion de un `GROUP BY` que ya se ejecuta. Montar un service para eso seria sobreingenieria. Ver AD-4. |
+| **la-platense**, leccion LP-009 (ya tomada en Diseño) | `ArgentinaTime.Hoy` en vez de `DateTime.UtcNow` para rechazar fecha futura. | **Se reutiliza el criterio.** En este repo el equivalente ya existe: `Helper/DateTimeExtended.ToArgentinaTimeZone()`. Ver AD-6. |
+| `estudio-contable-maribel-garcia`, `ganaderia` | Aparecieron por el termino `PagoService` pero son servicios de pago de otro dominio (honorarios, egresos ganaderos) sin validacion de fecha ni totalizadores por medio. | Sin reuso aplicable. |
+
+Sin componentes nuevos que catalogar. El patron candidato de esta iteracion (**"el importe por defecto de un pago depende del medio"**) es de Diseño/UI y va como variante de PAT-019, no como entrada propia — se agrega al cerrar.
+
+## 1. Mapa de componentes
+
+```
+Views/Ventas/Details.cshtml  ─┐
+Views/Ventas/Edit.cshtml     ─┴─> Views/Ventas/_ModalRegistrarPago.cshtml   (NUEVO, AD-7)
+                                        │  markup del modal + su JS unificado
+                                        ▼
+                             PagosController.RegistrarPago(.., bool confirmaFecha = false)
+Views/Ventas/_ModalEditarPago (existente) ─> PagosController.EditarPago(.., bool confirmaFecha = false)
+                                        │
+                                        ▼
+                             PagoService.ValidarFechaPago(fecha, venta, confirmaFecha)   (NUEVO, AD-1)
+                                        │   lanza PagoNegocioException (R1a, R2)
+                                        │   lanza PagoConfirmacionRequeridaException (R1b, R3)  (NUEVO, AD-2)
+                                        ▼
+                             PagoService.RegistrarPagoInterno / EditarPago   (existentes, se les agrega la llamada)
+
+Views/Pagos/Index.cshtml ──> PagosController.ListarPagos ──> totalesPorGrupo + totalSaldoFavor   (AD-4, AD-5)
+```
+
+Componentes **nuevos**: 1 partial (`_ModalRegistrarPago.cshtml`), 1 metodo de servicio (`ValidarFechaPago`), 1 excepcion (`PagoConfirmacionRequeridaException`).
+Componentes **modificados**: `PagoService` (2 metodos), `PagosController` (3 acciones), 3 vistas.
+Componentes **nuevos de datos**: **ninguno.**
+
+## 2. Decisiones de arquitectura
+
+### AD-1 — `ValidarFechaPago` se llama DOS veces, y temprano
+
+Las 4 reglas van en un metodo publico `PagoService.ValidarFechaPago(DateTime fecha, Venta venta, bool confirmaFecha)`, invocado:
+- al inicio de `RegistrarPagoInterno` (cubre el alta normal), y
+- al inicio de `EditarPago`, **antes de la reversion**.
+
+**Por que las dos y no solo la primera.** `EditarPago` (`PagoService.cs:274-290`) hace `ReversarPago` + `_db.Entry(pagoViejo).State = Deleted` + **`_db.SaveChanges()`** y solo despues llama a `RegistrarPagoInterno`. Si la validacion viviera unicamente ahi, cada confirmacion de R1b/R3 ejecutaria la reversion completa, la persistiria, lanzaria la excepcion y dependeria del `tx.Rollback()` del Controller para deshacerla. Es correcto —la transaccion esta verificada en `PagosController.cs:474-504`, con `Rollback()` en los dos `catch`— pero **innecesario**: R1b y R3 alcanzan ~1 de cada 50 pagos, no es un camino raro. Validar al entrar hace que la ida y vuelta de confirmacion no toque la base.
+
+El metodo es **idempotente** (solo lee y compara), asi que llamarlo dos veces en el flujo de edicion no tiene efecto secundario.
+
+Firma y orden de evaluacion (el orden importa: el primer rechazo gana):
+1. R1a `fecha.Date > hoy.AddDays(90)` → `PagoNegocioException`
+2. R2 `fecha.Date < venta.Fecha.Date` → `PagoNegocioException`
+3. R1b `fecha.Date > hoy` → `PagoConfirmacionRequeridaException` si `!confirmaFecha`
+4. R3 `fecha.Date < hoy.AddDays(-30)` → `PagoConfirmacionRequeridaException` si `!confirmaFecha`
+
+R1a antes de R1b y R2 antes de R3: un rechazo nunca debe presentarse como un aviso que se puede confirmar.
+
+Constantes del Service, no configurables (criterio P6): `DiasFuturoMaximo = 90`, `DiasAtrasAviso = 30`.
+
+### AD-2 — `PagoConfirmacionRequeridaException : PagoNegocioException`, y el `catch` va PRIMERO
+
+```csharp
+public class PagoConfirmacionRequeridaException : PagoNegocioException
+{
+    public PagoConfirmacionRequeridaException(string mensaje) : base(mensaje) { }
+}
+```
+
+Hereda de `PagoNegocioException` a proposito: cualquier `catch` existente que no se actualice sigue degradando a "error" en vez de tirar un 500.
+
+**Trampa, y es la mas probable de toda la iteracion:** `PagosController` ya tiene `catch (PagoNegocioException ex)` en `RegistrarPago` (`:391`) y en `EditarPago` (`:493`). C# resuelve los `catch` **de arriba hacia abajo**, asi que el bloque de la excepcion **derivada tiene que ir ANTES** del de la base. Con el orden inverso compila, no falla ningun test obvio, y el aviso de confirmacion le llega al usuario como un error rojo que no lo deja guardar nunca — exactamente el sintoma que haria pensar que la regla esta mal calibrada.
+
+Los dos `catch` nuevos hacen `tx.Rollback()` igual que los existentes, y devuelven:
+```json
+{ "mensaje": "<texto de R1b o R3>", "tipoMensaje": "confirmar" }
+```
+
+### AD-3 — `confirmaFecha` entra como parametro opcional
+
+`bool confirmaFecha = false` en `RegistrarPago`, `EditarPago` (acciones) y en `RegistrarPagoInterno`, `EditarPago`, `ValidarFechaPago` (servicio). **Ninguna llamada existente se rompe** — relevante porque `RegistrarPagoInterno` se invoca desde `RegistrarPago`, desde `EditarPago` y (a verificar en implementacion) desde cualquier otro punto que lo consuma.
+
+### AD-4 — Los 3 grupos se calculan en memoria: cero consultas nuevas
+
+`ListarPagos` ya ejecuta un unico `GROUP BY` (`PagosController.cs:202-205`) que trae `{ MetodoPago, Total }`. Los 3 grupos de A5 se arman **sobre esa lista ya materializada**, en memoria:
+
+- Efectivo = `MetodoPago.Efectivo`
+- Transferencia = `MetodoPago.Transferencia` (+ `Cheque` cuando exista)
+- Tarjetas y billeteras = `Debito` + `Credito` + `MercadoPago`
+- `totalSaldoFavor` = `SaldoFavor`, aparte y fuera de los 3
+
+**Impacto en performance: ninguno.** No se agrega ni una query. Importa decirlo porque `ListarPagos` ya es la accion mas cara del controller cuando hay `searchValue` (materializa una proyeccion completa para la busqueda por substring numerico, `:117-124`) y esta iteracion no debe empeorarla.
+
+### AD-5 — `montoTotal` y `totalesPorMetodo` se REEMPLAZAN, no se mantienen
+
+Diseño proponia conservarlos por compatibilidad (riesgo R-A5b). **Verificado: no hace falta.** El unico consumidor de los dos campos es `Views/Pagos/Index.cshtml` (`:111`, `:125-126`); los otros hits del grep estan en `obj/Release/...`, que son artefactos de build, no codigo fuente.
+
+Decision: `montoTotal` se elimina (los 3 grupos lo reemplazan y ademas lo mejoran: hoy suma todo menos `SaldoFavor` en un numero que no se compara contra nada) y `totalesPorMetodo` se mantiene **solo** como detalle de la fila inferior, filtrando los metodos en $0 (HU7). Sin codigo muerto.
+
+### AD-6 — Una sola fuente de "hoy"
+
+`DeliciasNaturales.Helper.DateTimeExtended.ToArgentinaTimeZone().Date`, resuelto **una vez** al entrar a `ValidarFechaPago` y guardado en una variable local, para que las 4 reglas comparen contra el mismo instante (si se resolviera por regla, una validacion ejecutada a las 23:59:59.9 podria usar dos dias distintos).
+
+**No se toca el helper.** Esta usado en mas de 20 lugares del repo, incluido el valor por defecto de los tres `<input type="date">` que esta iteracion modifica; agregarle metodos es un refactor que no pide nadie.
+
+### AD-7 — Se extrae `_ModalRegistrarPago.cshtml` (markup + JS)
+
+Diseño lo dejo como propuesta; **se aprueba y entra en esta iteracion.**
+
+Verificado que la extraccion es limpia: las dos vistas declaran `@model DeliciasNaturales.Models.Venta` y calculan las mismas dos variables de la misma forma (`Details.cshtml:7,10` y `Edit.cshtml:12,15`), asi que la partial puede recibir el `Venta` y calcularlas internamente.
+
+**Y las dos copias ya divergieron en dos lugares, no en uno.** Es la prueba de campo de por que hay que unificarlas:
+
+1. **El reset del autocompletado:** `Details.cshtml:443` expone `window.resetMontoAutocompletado`, mientras `Edit.cshtml:462+` lo hace inline dentro del handler de `#agregar-pago-btn`.
+2. **El disparador del modal:** `Details.cshtml:297` lo abre con un `onclick` inline (`if(window.resetMontoAutocompletado)window.resetMontoAutocompletado();$('#modalRegistrarPago').modal('show');return false;`) sobre un `<a>`; `Edit.cshtml` lo abre con un handler jQuery sobre `#agregar-pago-btn`. **Las dos pantallas no abren el modal de la misma forma.**
+
+Consecuencia concreta para implementacion: **la partial tiene que soportar los dos disparadores**, o unificarlos a uno. Lo limpio es que la partial exponga `window.resetMontoAutocompletado()` (como ya hace Details) y que `Edit.cshtml` pase a llamarlo en vez de tener su copia; el `onclick` inline de Details se puede dejar como esta.
+
+A1 y A3 tocan 4 puntos de cada modal: mantenerlos duplicados obliga al implementador a 8 ediciones espejadas y a QA a verificar las dos pantallas por separado. La partial lleva su markup **y** su `<script>`.
+
+Es el item de mayor riesgo de la iteracion (T1). Si en implementacion aparece cualquier divergencia de markup no detectada aca, **la salida es dejar los dos modales duplicados y hacer las 8 ediciones** — se pierde la limpieza, no la funcionalidad.
+
+## 3. Cambios de datos y migraciones
+
+**NINGUNA MIGRACION EF.** No se agregan entidades, columnas, indices ni valores de enum. `MetodoPago.Cheque` y `Pago.FechaAcreditacion` son de A4, fuera de este alcance.
+
+Dato relevante para pruebas: la base de produccion tiene **14.131 pagos activos** y las reglas nuevas solo cambian el comportamiento de altas/ediciones futuras — **no se corre ningun backfill ni se valida nada retroactivamente.** Los 3 pagos con fecha futura que ya existen ($852.206,16, incluidos los 2 typos de año por $163.780,83) **siguen igual**: corregirlos es un script de datos aparte, no parte de esta iteracion.
+
+## 4. Riesgos tecnicos
+
+| # | Riesgo | Severidad | Mitigacion |
+|---|---|---|---|
+| **T1** | La extraccion de `_ModalRegistrarPago.cshtml` (AD-7) toca dos pantallas en produccion de alto uso. Una diferencia de markup no detectada rompe el alta de pagos en una de las dos. | **Alta** | Diffear los dos bloques de modal **antes** de extraer y dejar el resultado en `5-implementador.md`. Salida declarada: duplicar en vez de extraer. QA regresiona el alta de pago **desde las dos pantallas** por separado. |
+| **T2** | Orden de los `catch` (AD-2). Compila igual y el sintoma es un error rojo en vez de un dialogo de confirmacion. | **Alta** | Escrito en AD-2 con el numero de linea de los dos `catch` existentes. Criterio de QA explicito en 5.3. |
+| **T3** | El flujo de confirmacion re-envia el formulario. Si el re-envio no arrastra **todos** los campos (o los arrastra dos veces), se puede crear un pago duplicado o con datos distintos a los confirmados. | **Alta** | El re-envio agrega `confirmaFecha=true` al **mismo** `$(this).serialize()` que ya usa el submit (`Details.cshtml:464-470`), sin re-leer el DOM. QA prueba confirmar y verifica que se cree **un solo** pago con los valores tipeados. |
+| **T4** | `EditarPago` ya tiene una secuencia delicada (reversion → `SaveChanges` → alta) con 2 fixes de QA encima (QA-DN-003, QA-DN-004). Agregarle una validacion al inicio puede alterar el orden de guards y volver inalcanzable alguno. | Media | `ValidarFechaPago` va **antes** de todos los guards existentes de `EditarPago` y no modifica ninguno. Los guards de monto y motivo (`:239-245`) se mantienen donde estan. QA re-corre las HU de la iteracion 3. |
+| **T5** | Dejar el Monto vacio para metodos de terceros (HU4) se implementa sobre el handler existente con el flag `montoEditadoManualmente`. Tocar ese flag mal rompe el autocompletado de Efectivo, que es el 59,2 % de los pagos. | Media | El handler solo cambia la **rama else**: hoy siempre escribe `montoRestante`, pasa a escribir `''` para los 4 metodos de terceros. El flag y la rama de `SaldoFavor` no se tocan. |
+| **T6** | `ExportarExcel` **no** extiende `fechaHasta` a fin de dia, a diferencia de `ListarPagos` (`:78` lo hace, `:275` no). El Excel puede informar menos que la pantalla para el ultimo dia del rango. | Baja **hoy** | **Medido: 2.565 de 14.132 pagos tienen hora distinta de 00:00:00, pero ninguno desde junio 2026** — los modales ya cargan fecha sin hora, asi que los meses que el cliente concilia no estan afectados. Se registra como deuda con esa salvedad; corregirlo es una linea, pero **fuera de alcance** para no inflar la iteracion. Decision de Joaquin si entra. |
+| **T7** | Los 3 rotulos de A5 afirman contra que se compara cada numero. Si P12 se responde distinto de lo supuesto, los rotulos pasan a mentir — y el punto entero de A5 era dejar de mentir. | Media | La estructura de 3 cards no cambia con la respuesta: cambia **que metodo entra en cual**, que es un mapeo de 1 linea en AD-4. **No implementar A5 sin la respuesta a P12**, o implementarlo con los metodos cableados en una constante facil de mover. |
+
+## 5. Estrategia de pruebas funcionales
+
+### 5.1 Validacion de fecha (HU1-HU3), en las 3 entradas: Details, Edit y Editar pago
+1. Fecha de hoy → guarda sin aviso.
+2. Fecha de hoy, ejecutado despues de las 21:00 ART → guarda sin aviso (regresion de LP-009; es el caso que se rompe si alguien usa `DateTime.UtcNow`).
+3. Fecha de mañana → dialogo de confirmacion R1b. Confirmar guarda; cancelar no guarda y conserva lo tipeado.
+4. Fecha de hoy + 91 dias → **error**, no dialogo. No se crea el pago.
+5. Fecha anterior a la fecha de la venta → **error** con la fecha de la venta en el mensaje.
+6. Fecha igual al dia de la venta → guarda sin error (limite inclusivo).
+7. Fecha de hoy - 31 dias → dialogo R3. Fecha de hoy - 30 → sin dialogo (limite).
+8. Fecha futura **y** anterior a la venta a la vez → gana el rechazo, nunca el aviso (orden de AD-1).
+
+### 5.2 Importe por medio (HU4-HU5)
+9. Elegir `Efectivo` → Monto se precarga con el saldo restante (regresion).
+10. Elegir `SaldoFavor` → Monto se precarga con `min(saldoFavor, restante)` (regresion).
+11. Elegir `Transferencia`/`Debito`/`Credito`/`MercadoPago` → Monto queda **vacio** con el placeholder.
+12. Tipear un importe y despues cambiar el metodo → **no se borra** lo tipeado (regresion del flag `montoEditadoManualmente`).
+13. Boton "usar el saldo" → copia el restante al input.
+14. Las 4 variantes de la linea de consecuencia (menor / igual / mayor con cliente / mayor sin cliente).
+15. Cobrar de mas una venta ya cubierta sigue permitido y sigue generando el credito en cuenta corriente (regresion de la iteracion de cuenta corriente).
+
+### 5.3 Confirmacion y transaccion (T2, T3)
+16. Disparar R1b en `EditarPago`: verificar que **no quedo nada escrito** antes de la confirmacion — el pago viejo sigue vigente y sus movimientos de caja y cuenta corriente intactos (es el punto de AD-1).
+17. Confirmar un R1b en `EditarPago`: se crea **un solo** pago nuevo, el viejo queda soft-deleted y enlazado, y los movimientos cuadran.
+18. Verificar que el dialogo aparece como **confirmacion** y no como error rojo (es el sintoma de T2 invertido).
+
+### 5.4 Totalizadores (HU6-HU7)
+19. Sin filtro de metodo: los 3 grupos suman el total de pagos del rango menos `SaldoFavor`.
+20. **Contra septiembre 2026, con el dato ya conciliado:** la card "Cobrado por transferencia" debe dar **$36.019.758,88** y "Tarjetas y billeteras" **$4.768.320,49** (Debito 3.922.955,34 + Credito 845.365,15 + MercadoPago 0). Es la prueba de aceptacion mas fuerte de A5 porque los numeros estan verificados contra la base en el relevamiento.
+21. Filtro de metodo en uno solo → su grupo muestra el importe, los otros dos $0.
+22. `MercadoPago` (siempre $0) **no** aparece como card en la fila inferior.
+23. Filtro sin resultados → las 3 cards en $0 y la fila inferior vacia, sin romper el layout.
+24. Los 3 totales respetan rango de fechas, metodo y busqueda igual que el total actual.
+
+### 5.5 Regresion de la partial (T1)
+25. Alta de pago completa **desde `Ventas/Details`** y **desde `Ventas/Edit`**, por separado: abrir el modal, los 3 campos, guardar, y el reset al reabrir.
+26. Build con `MvcBuildViews=true` (regla del proyecto: el build normal no compila `.cshtml`).
+
+## 6. Gate de aprobacion para pasar a presupuesto
+
+Habilitado, con una condicion: **T7 pide la respuesta de P12 antes de implementar A5.** A1 y A3 no dependen de nada. Si P12 demora, A5 se puede presupuestar igual y implementar con el mapeo de metodos en una constante.
+
 ## Historial de ajustes
+- 2026-10-07: **Arquitectura abierta del "Frente A recortado — higiene del circuito de Pagos (A1 + A3 + A5)"**. **Sin migracion EF.** Componentes nuevos: 1 partial (`Views/Ventas/_ModalRegistrarPago.cshtml`), 1 metodo (`PagoService.ValidarFechaPago`) y 1 excepcion (`PagoConfirmacionRequeridaException : PagoNegocioException`). 7 decisiones de arquitectura (AD-1 a AD-7), 7 riesgos tecnicos (T1-T7), estrategia de pruebas de 26 puntos. **AD-1**: `ValidarFechaPago` se llama DOS veces —en `RegistrarPagoInterno` y al inicio de `EditarPago`, antes de la reversion— porque `EditarPago` reversa y hace `SaveChanges()` antes de llamar al alta, y R1b/R3 alcanzan ~1 de cada 50 pagos: validar tarde obligaria a un rollback en un camino que no es raro. El metodo es idempotente. **AD-2**: el `catch` de la excepcion derivada **va antes** del de `PagoNegocioException` ya existente (`PagosController.cs:391` y `:493`) — C# resuelve top-down y con el orden inverso compila igual, pero el aviso de confirmacion le llega al usuario como error rojo. Es T2, la trampa mas probable de la iteracion. **AD-4/AD-5**: los 3 grupos de A5 se calculan en memoria sobre el `GROUP BY` que `ListarPagos` ya ejecuta — **cero consultas nuevas**, relevante porque esa accion ya es la mas cara del controller con busqueda activa; y `montoTotal`/`totalesPorMetodo` se **reemplazan** en vez de mantenerse (verificado que el unico consumidor es `Views/Pagos/Index.cshtml:111,125-126`; los hits en `obj/Release/` son artefactos de build), lo que corrige el riesgo R-A5b que Diseño habia dejado abierto. **AD-7**: se aprueba extraer la partial del modal. Verificado que las dos vistas declaran el mismo `@model Venta` y calculan las mismas variables igual (`Details.cshtml:7,10`, `Edit.cshtml:12,15`), y que **las dos copias ya divergieron en dos lugares**: el reset del autocompletado y el disparador del modal (Details usa un `onclick` inline en `:297`, Edit un handler sobre `#agregar-pago-btn`). Salida declarada si aparece una divergencia no detectada: duplicar en vez de extraer. Se corrigio un error de suma propio arrastrado desde Diseño: el total de "Tarjetas y billeteras" de septiembre es **$4.768.320,49**, no $4.787.536,49 (verificado contra la base); corregido tambien en `2-disenador-funcional.md` y en la entrada de Diseño de este archivo. Deuda registrada sin entrar al alcance (T6): `ExportarExcel` no extiende `fechaHasta` a fin de dia como si hace `ListarPagos` (`:78` vs `:275`) — medido que afecta a 2.565 de 14.132 pagos pero **ninguno desde junio 2026**, asi que los meses que el cliente concilia estan limpios. **Gate de presupuesto habilitado**, con la condicion de T7: A5 no se implementa sin la respuesta a P12 (donde se acreditan Debito/Credito/MercadoPago), o se implementa con el mapeo de metodos en una constante.
 - 2026-06-XX: Creacion. Arquitectura iteracion 2 modulo Solicitudes de Ingreso de Stock. Diseno aprobado, gate de presupuesto OK.
 - 2026-09-23: Arquitectura iteracion 4 "Agrupar por categoria en modal Stock bajo" — 100% Presentacion, sin migracion. Presupuesto salteado (mejora de UI menor, deuda tecnica). Gate de Implementacion habilitado.
 - 2026-09-07: Arquitectura iteracion 3 "Editar Pago" — se decide extraer `Services/PagoService.cs` (alineado con el patron cross-proyecto VentaService/EgresoPagoService de marihogar/ganaderia, refactor acotado: solo la logica de reversion+alta de Pago, no todo el Controller). Se decide ademas agregar `MovimientoCaja.PagoId` (cierra el riesgo #1 marcado en Diseño, ahora mas relevante porque toda edicion de pago pasa por reversion). 2 migraciones EF (o 1 combinada), 5 riesgos tecnicos identificados (T1 regresion por refactor es el de mayor cuidado), estrategia de pruebas de 9 puntos. Gate de presupuesto habilitado.

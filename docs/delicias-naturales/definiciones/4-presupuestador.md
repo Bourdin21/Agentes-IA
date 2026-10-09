@@ -248,5 +248,119 @@ Sin linea en el documento cliente: DN ya declino el plan anual como decision com
 - Moneda USD. Sin clausula de validez de oferta.
 - Si el alcance del lote USR crece sobre lo declarado (los 3 puntos del gate), se recotiza ese item.
 
+---
+
+## Iteracion 2026-10-07 — Frente A recortado: higiene del circuito de Pagos (A1 + A3 + A5)
+
+Origen: relevamiento de la diferencia de caja mensual (seccion 9 de `1-analista-funcional.md`). Diseño cerrado y Arquitectura cerrada el mismo dia, **sin migracion EF**, 7 HU, 7 decisiones de arquitectura, 7 riesgos tecnicos.
+
+Linea de negocio: **Merge / post-entrega sobre sistema propio ya entregado** → factor 2.5, `M x $16.80`, tasa USD 35/h.
+**No aplica** descuento de expansion agresiva ni descuento por volumen (los dos excluyen Merge por definicion). Precio de lista siempre.
+**Paso 0.5:** no corresponde consulta a `olvidata-ceo` por tier — no es Build inicial de cliente nuevo, no hay tier que decidir. Mismo criterio que la iteracion 2026-10-06.
+
+### PASO 0 — Anclaje historico
+
+| Referencia | Horas base | Motivo de la eleccion |
+|---|---|---|
+| **DN CC-03** "Integracion con Pagos: 3 reglas nuevas" (mismo proyecto, 2026-10-06) | M = 3.0 h, PERT 3.17 | **Ancla primaria de F-01.** Mismo repo, mismo flujo (`PagoService` + `PagosController`), mismo tipo de trabajo: reglas de negocio nuevas sobre el circuito de cobro. Es el comparable mas cercano que existe. Se prefiere a la fila generica del dataset ("Agregar regla de negocio", M 1-2 h) porque esa fila supone **una** regla, no cuatro mas un tipo de excepcion nuevo. |
+| **DN F3** "Totalizador Pagos" (mismo proyecto, 2026-06-28) | M = 2.0 h, PERT 2.16 | **Ancla primaria de F-03.** Es literalmente el totalizador de **esta misma pantalla**, construido por nosotros. Ancla ideal, y el ratio tiene que quedar claramente **por debajo**: esa iteracion construyo las cards, el pipe de `dataSrc` y el contrato JSON; esta solo reagrupa lo que ya existe. |
+| **DN CC-04** "Indicadores de saldo: ajuste puntual x3 vistas" (mismo proyecto, 2026-10-06) | M = 1.0 h, PERT 1.03 | **Ancla de F-02.** Mismo proyecto, mismo tipo: cambios de UI en varias vistas que consumen logica ya construida. |
+| `dataset.yml` → "Ajuste puntual (campo, validacion, logica menor)" | M 0.5–1 h | Ancla secundaria de F-04, con la incertidumbre declarada abajo. |
+
+**Paso 0.5 — Incertidumbre declarada (F-04).** No existe en el dataset ninguna fila para **"extraer una partial de vista duplicada en dos pantallas"**. Es un refactor de Presentacion sin entidad, sin migracion y sin logica nueva, y el riesgo no esta en el esfuerzo sino en la regresion (T1, severidad Alta). Se ancla por abajo en "Ajuste puntual" x2 vistas y se declara explicitamente que es el item con menos respaldo historico del lote. Si el cierre real se desvia, **es el primero a recalibrar**.
+
+**Chequeo de la regla 2026-10-06 ("verificar que la base de reutilizacion EXISTE antes de cotizarla"):** ejecutado y **pasa en los cuatro items**, verificado contra el codigo en Arquitectura, no asumido:
+- F-01 reutiliza `PagoService` (`:98` `RegistrarPagoInterno`, `:235` `EditarPago`) y `PagoNegocioException` (`:18`) — existen, son de la iteracion 3 de este mismo repo.
+- F-02 reutiliza el handler `$('#MetodoPago').on('change')` con el flag `montoEditadoManualmente` (`Details.cshtml:441-461`) — existe.
+- F-03 reutiliza el `GROUP BY` de `ListarPagos` (`PagosController.cs:202-205`) y el loop de render de cards (`Index.cshtml:125-139`) — existen. **Cero consultas nuevas** (AD-4).
+- F-04 reutiliza que las dos vistas ya declaran el mismo `@model Venta` y las mismas variables (`Details.cshtml:7,10` / `Edit.cshtml:12,15`) — verificado.
+
+**Rondas previas del mismo proyecto: SI**, 5+ cerradas (evolutiva Junio, batch F1-F4, Dashboard Ampliado, Editar Pago, lote CC/USR). Aplica la regla de **"segunda/tercera ronda sobre el mismo modulo"** → usar el **piso** de las bandas de reutilizacion, no la mediana. Se aplico en F-02, F-03 y F-04.
+
+### Items
+
+| ID | Modulo | Naturaleza | O | M | P | PERT | Riesgo | H.Finales | Facturables | USD lista |
+|---|---|---|---:|---:|---:|---:|---|---:|---:|---:|
+| F-01 | **Validacion de la fecha del pago (A1).** 4 reglas en `PagoService.ValidarFechaPago` (rechazo > +90 d, rechazo si es anterior a la venta, aviso de fecha futura, aviso > 30 d hacia atras) + `PagoConfirmacionRequeridaException` + orden de `catch` en 2 acciones + ida y vuelta de confirmacion y `min`/`max` en los 3 formularios que cargan fecha | Reglas de negocio sobre modulo financiero existente + UI en 3 entradas | 1.7 | 2.5 | 4.5 | 2.70 | **Alto +25%** | 3.38 | 1.20 | **42.00** |
+| F-02 | **El importe por defecto depende del medio (A3).** Extension del handler existente: prefill solo para Efectivo/SaldoFavor, campo vacio con placeholder para los 4 metodos de terceros, boton "usar el saldo", y linea de consecuencia en vivo con 4 variantes | Ajuste de UI + regla de presentacion sobre modulo existente | 0.8 | 1.2 | 2.0 | 1.27 | Medio +15% | 1.46 | 0.58 | **20.16** |
+| F-03 | **Totalizadores agrupados en Pagos (A5).** 3 grupos (efectivo / transferencia / tarjetas y billeteras) calculados en memoria sobre el `GROUP BY` existente, `SaldoFavor` aparte rotulado "no es ingreso", subtitulos que declaran contra que se compara cada numero, y ocultado de las cards en $0 | Reagrupacion de totalizador ya construido | 0.7 | 1.0 | 1.8 | 1.08 | Bajo +8% | 1.17 | 0.48 | **16.80** |
+| F-04 | **Unificacion del modal Registrar Pago (AD-7).** Extraccion de `Views/Ventas/_ModalRegistrarPago.cshtml` (markup + JS) desde `Ventas/Details` y `Ventas/Edit`, resolviendo las 2 divergencias que ya tienen (el reset del autocompletado y el disparador del modal) | Refactor de Presentacion, habilitante de F-01 y F-02 | 0.7 | 1.0 | 1.8 | 1.08 | **Alto +25%** | 1.35 | 0.48 | **16.80** |
+| **Total** | | | | **5.7** | | **6.13** | | **7.36** | **2.74** | **95.76** |
+
+**Migracion EF: NINGUNA.** Es la primera iteracion de este proyecto sin migracion desde el batch de UI de septiembre.
+
+**Nota sobre F-04 y el doble conteo.** El M de F-01 y F-02 **ya supone que la partial existe** (un modal que editar, no dos). Sin F-04, F-01 subiria a ~3.2 y F-02 a ~1.6 — total 4.8 h contra las 5.7 h con la extraccion. O sea: **extraer cuesta ~0.9 h mas ahora y las ahorra en cada iteracion futura** que toque ese modal. Se cotiza como item propio y no se esconde dentro de los otros dos, para que el cierre de calibracion pueda medir si la inversion se pago.
+
+Distribucion interna del esfuerzo (trazabilidad, NO adicionales): implementacion ~60%, pruebas ~25% (26 puntos de verificacion, 2 pantallas de produccion), documentacion ~5%, riesgo ~10% — todo absorbido dentro del PERT + contingencia por riesgo ya aplicada.
+
+### PASO 7 — Autocorreccion por item
+
+| ID | PERT | Referencia | Base ref | Ratio | Decision |
+|---|---:|---|---:|---:|---|
+| F-01 | 2.70 | DN CC-03 (mismo proyecto, mismo flujo) | 3.17 | **0.85** | En el limite inferior del rango aceptable, sin ajuste. Coherente: CC-03 movia dinero (creditos, debitos, reversiones) y F-01 solo **valida y pregunta**, sin tocar importes ni movimientos. A cambio, F-01 toca **3 formularios** en vez de 1 y agrega plomeria nueva (el tipo de excepcion y la ida y vuelta de confirmacion). Las dos cosas se compensan. |
+| F-02 | 1.27 | DN CC-04 (mismo proyecto) | 1.03 | **1.23** | **Justificado al alza.** CC-04 eran 3 lecturas del mismo getter ya construido; F-02 agrega 4 variantes de mensaje recalculadas en vivo, un boton nuevo y un cambio de comportamiento por medio de pago. Acotado por el piso de la regla de rondas repetidas y porque el handler y el flag `montoEditadoManualmente` **ya existen** (verificado, T5). |
+| F-03 | 1.08 | DN F3 Totalizador Pagos (misma pantalla) | 2.16 | **0.50** | **Justificado a la baja, fuerte.** Es el caso exacto que la regla de "segunda/tercera ronda sobre el mismo modulo" manda anclar en el piso: la iteracion F3 construyo las cards, el pipe de `dataSrc` y el contrato JSON; esta cambia **el agrupamiento** (un mapeo de enum a 3 grupos, en memoria, sin una query nueva — AD-4), los rotulos y un filtro de $0. No se construye nada. Cotizarlo cerca de 2.16 seria cobrar dos veces la misma pantalla. |
+| F-04 | 1.08 | `dataset` "Ajuste puntual" x2 vistas | 1.50 | **0.72** | **Justificado a la baja**, con la incertidumbre del Paso 0.5 declarada. El trabajo es mover markup y JS que ya existen a un archivo, no escribir logica. Lo que sube no es el esfuerzo sino el riesgo, y eso ya esta en la contingencia por riesgo Alto (+25%), que no toca el precio. |
+
+### PASO 8 — Sanity check del total
+
+| Lote | M/item | Comparable (mismo proyecto) | M/item ref | Ratio | Decision |
+|---|---:|---|---:|---:|---|
+| Frente A (4 items) | **1.43** | Lote USR 2026-10-06 (2 items) | 1.50 | **0.95** | Dentro de 0.80–1.20. **OK.** Comparable primario: como el lote USR, es una ronda sin pantalla nueva. |
+| Frente A (4 items) | 1.43 | Lote CC 2026-10-06 (5 items) | 1.80 | 0.79 | Apenas fuera por abajo. **Justificado, no se recalibra al alza:** el lote CC traia entidad nueva, enum nuevo y migracion EF; este no trae **ninguna de las tres**. Es por construccion la ronda mas liviana del proyecto. |
+| Frente A (4 items) | 1.43 | Dashboard Ampliado (5 items) | 2.10 | 0.68 | Fuera por abajo. Mismo motivo, amplificado: Dashboard Ampliado era un batch de reportes nuevos. No comparable en naturaleza. |
+
+Cross-check contra el acumulado del proyecto: DN lleva 95 h base historicas + ~22 h de iteraciones evolutivas + 12 h del lote CC/USR. Este suma **5.7 h M** — la ronda mas chica del proyecto, coherente con que no hay migracion, entidad ni pantalla nueva.
+
+### PASO 9 — Cierre numerico por dos pasos
+
+- **Paso A (preliminar):** USD 95.76.
+- **Paso B (final):** sin cambios por sanity check. Sin descuentos (Merge va siempre a precio de lista). Contingencia aplicada **una sola vez** (el 20% dentro de la formula; el riesgo por item se aplica sobre el PERT interno, que no toca el precio porque el precio sale de M). Redondeo comercial a la baja: **USD 95**.
+
+### Tokens IA — NO corresponde (no califica por volumen)
+
+Facturables del lote = **2.74 h < 4 h**, asi que **no aplica** por la regla general ("no aplica a iteraciones evolutivas menores a 4 h facturables"). No hace falta invocar el precedente del cliente: esta vez el numero decide solo. Si se cobrara, serian USD 23.94 (factor x1.25 distribuido) y el total pasaria a USD 119.70.
+
+### Etapa 2 — rango preliminar, NO comprometido
+
+Los tres items que **cierran de verdad** el problema de la diferencia de caja quedan fuera de esta cotizacion porque no tienen Diseño ni Arquitectura escritos y dependen de respuestas del cliente (P1b, P3, P5b-d, P8-P12). Se entregan como **rango por fase**, segun la regla "si el discovery es incompleto, devolver rango y por fase":
+
+| Item | Alcance grueso | M estimado | USD lista (rango) | Depende de |
+|---|---|---:|---:|---|
+| A2 | Cerrar el camino del borrar-y-recrear: motivo obligatorio en `EliminarPago` y derivacion a "Editar Pago" | 1.0 – 1.5 h | 17 – 25 | **P11** (por que "Editar Pago" tiene 0 usos) |
+| A4 | `MetodoPago.Cheque` + `Pago.FechaAcreditacion` + migracion EF + UI de registro + efecto en reportes; habilita endurecer R1b a rechazo | 3.0 – 4.0 h | 50 – 67 | **P5b, P5c, P5d** |
+| Frente B | Modulo de Cierre y Conciliacion (CU1–CU5): carga de extracto con preview/staging (PAT-012), clasificacion de creditos que no son cobranzas, matcheo N:1 con tolerancia escalonada, 3 categorias de resultado, marcado manual de resueltos, historial y cierre diario. Entidades nuevas + migracion + maquina de estados | 10.0 – 14.0 h | 168 – 235 | **P1b, P3, P8, P9, P10, P12** |
+| **Total Etapa 2** | | **14 – 19.5 h** | **235 – 327** | |
+
+El rango de Frente B se sostiene contra el lote CC (5 items, 9 h M, USD 150) como comparable de escala: Frente B es mas grande (entidades nuevas, importacion de archivo, algoritmo de matcheo y maquina de estados), por eso la banda arranca arriba de esa referencia.
+
+**Importante para el documento cliente:** la Etapa 1 **no resuelve por si sola** la diferencia mensual — evita que se siga ensuciando el dato. Hay que decirlo asi, sin sobrevender.
+
+### Mantenimiento anual — fuera de alcance de esta iteracion
+
+Sin linea en el documento cliente: DN ya declino el plan anual como decision comercial registrada, y esta no es una Build inicial. Dato a mano si se reabre: **28 tablas de negocio** → plan **PREMIUM, USD 600/año + IVA**.
+
+### PASO 10 — Costo interno de IA (NUNCA visible al cliente)
+
+| Concepto | Valor |
+|---|---:|
+| Facturables | 2.74 h |
+| `Costo_IA` (x USD 4/h, Opus en Implementador y QA) | USD 10.96 |
+| 15% del precio de lista (umbral) | USD 14.36 |
+| Ajuste | **No aplica** (10.96 < 14.36) |
+
+`Costo_IA_overhead_proyecto` = **3 h Ask-mode x USD 1/h = USD 3.00**. Es el doble del placeholder de la iteracion anterior (1.5 h) y esta bien que lo sea: esta sesion incluyo un relevamiento forense sobre la base de produccion (conciliacion linea a linea de 242 creditos contra 245 pagos, mas seis mediciones sobre los 14.131 pagos activos) antes de abrir Discovery. **Nota de calibracion:** cuando una iteracion arranca con analisis de datos reales, el overhead de Ask-mode no es el de una iteracion evolutiva comun — vale separarlo en el proximo presupuesto en vez de usar un placeholder unico.
+
+Sigue vigente la observacion estructural de la iteracion anterior: en la linea Merge el umbral del 15% no se dispara nunca por construccion (`Costo_IA = M x 1.92` contra umbral `M x 2.52`). Confirmado otra vez. Pendiente con `olvidata-ceo`: si el placeholder de USD 4/h sigue siendo representativo con Opus.
+
+### Condiciones comerciales de esta iteracion
+
+- 50/50 (50% para arrancar, 50% contra entrega).
+- Moneda USD. Sin clausula de validez de oferta.
+- **Condicion tecnica de arranque (T7):** F-03 (A5) no se implementa sin la respuesta a **P12** (donde se acreditan los cobros con tarjeta y MercadoPago). Si la respuesta demora, se implementa igual con el mapeo de metodos en una constante y se ajusta despues sin cargo — es un cambio de una linea.
+- Si el alcance crece sobre lo cotizado, se recotiza el item.
+- La Etapa 2 es un **rango orientativo**, no una oferta: se cotiza en firme cuando esten las respuestas y su Diseño/Arquitectura escritos.
+
 ## Historial de ajustes (continuacion)
+- 2026-10-07: **Presupuesto de la iteracion "Frente A recortado — higiene del circuito de Pagos (A1 + A3 + A5)"**. 4 items, M total **5.7 h**, facturables 2.74 h, **USD 95** al cliente (lista USD 95.76, redondeo comercial a la baja). Linea Merge/post-entrega: factor 2.5, `M x $16.80`, sin descuentos. Paso 0.5: no corresponde consulta a `olvidata-ceo` (no es Build inicial de cliente nuevo). **Sin migracion EF** — primera iteracion del proyecto sin migracion desde el batch de UI de septiembre, y es lo que explica que sea la ronda mas chica (M/item 1.43 contra 1.80 del lote CC y 2.10 de Dashboard Ampliado). Anclajes primarios, todos del mismo proyecto: **CC-03** para F-01 (3 reglas nuevas sobre el flujo de cobro, ratio 0.85), **F3 Totalizador Pagos** para F-03 (la misma pantalla, ratio 0.50 justificado a la baja: esa iteracion construyo las cards y el contrato JSON, esta solo reagrupa) y **CC-04** para F-02 (ratio 1.23 al alza por las 4 variantes de mensaje en vivo). **Paso 0.5 — incertidumbre declarada en F-04**: no existe fila de dataset para "extraer una partial de vista duplicada"; se ancla por abajo en "Ajuste puntual" x2 y queda marcado como **el primero a recalibrar** en el cierre. Se documento explicitamente el **no-doble-conteo de F-04**: el M de F-01 y F-02 ya supone que la partial existe, asi que extraerla cuesta ~0.9 h mas ahora (5.7 h contra 4.8 h sin extraer) y las ahorra en cada iteracion futura — se cotiza como item propio para que el cierre pueda medir si la inversion se pago. **Tokens IA: no corresponde** y esta vez no hay que invocar el precedente del cliente — 2.74 h facturables < 4 h, la regla general ya lo excluye (si se cobrara: USD 23.94, total USD 119.70). Chequeo de la regla 2026-10-06 ("verificar que la base de reutilizacion EXISTE") **ejecutado y pasa en los 4 items**, con numero de linea del codigo verificado en Arquitectura. **Etapa 2 entregada como rango por fase, NO comprometida** (regla de discovery incompleto): A2 USD 17-25, A4 USD 50-67, Frente B (modulo de conciliacion) USD 168-235 — total **USD 235-327**, pendiente de P1b/P3/P5b-d/P8-P12. Costo interno de IA USD 10.96 contra umbral USD 14.36, no se dispara; **overhead Ask-mode 3 h (el doble del placeholder habitual)** porque la iteracion arranco con un relevamiento forense sobre produccion — queda la nota de calibracion de separar ese caso en vez de usar un placeholder unico. Condicion tecnica de arranque: F-03 no se implementa sin la respuesta a P12. Documento cliente: `presupuesto-cliente-2026-10-caja.md`.
 - 2026-10-06: **Lote CC** (cuenta corriente + pagos a cuenta corriente, ya en produccion desde 2026-07-31) presupuestado retroactivamente para cobro: M 9 h, USD 151.20 lista → **USD 150** al cliente. Hotfix 21/08 declarado garantia sin cargo. **Lote USR** (desactivar usuarios inactivos) estimado preliminar: M 3 h, **USD 50**, con gate de 3 puntos a confirmar. Total **USD 200**. Tokens IA no cobrado por precedente del cliente (seria +USD 38). Sin descuentos: linea Merge/post-entrega a precio de lista.

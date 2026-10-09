@@ -1,9 +1,46 @@
 # Memoria - Presupuestador
 
 ## Proyecto: La Platense (ferretería — sistema de gestión integral)
-## Ultima actualizacion: 2026-10-06 (v11 — PRESUPUESTO NUEVO de CR-01 a CR-05: USD 392, el primer precio nuevo del proyecto desde la aprobacion del 2026-07-30. Es alcance NUEVO fuera del WBS cobrado, asi que va por el fork de post-entrega (factor 2.5, M x $16.80, SIN descuento de expansion). 18,68h PERT, riesgo medio, 3 correcciones a la baja en la autocorreccion. LP-014 entra SIN CARGO por garantia. Dependencia de calendario: CR-02 antes de habilitar AFIP)
+## Ultima actualizacion: 2026-10-07 (v12 — cierre de calibracion PARCIAL de los 5 CR: falta el dato de horas reales, que solo aporta Joaquin. Hallazgo principal: el item "QA + fixes 2h" esta groseramente subestimado para un cambio de CARDINALIDAD (1:1 -> 1:N), que reabre criterios en todo el sistema; regla nueva de estimacion propuesta. Y el riesgo se declaro medio cuando correspondia alto)
 
 ## Definiciones vigentes
+
+### Cierre de calibracion de los 5 CR + Entrega 5 (2026-10-07) — PARCIAL: falta el dato de horas reales
+
+**Lo que falta y solo lo puede aportar Joaquin:** las **horas reales** de la ronda. El estudio no registra tiempo de reloj y ningun agente puede inferirlo — inventar un numero aca contaminaria el dataset que despues se usa para cotizar, que es exactamente el error que la instruccion 28 busca evitar. **Sin ese dato el cierre queda abierto**, y lo que sigue es lo que si se midio.
+
+**Estimado:** 18,68 h PERT / **USD 392** para los 5 CR (fork de post-entrega, factor 2.5, sin descuento). La Entrega 5 no entra en esta cuenta: es el modulo 16 del WBS de Etapa 2 (9 h) + ~3 h residuales del modulo 6, ya cobradas desde el 2026-07-30.
+
+#### El hallazgo de calibracion, y es el mas util de todo el cierre
+
+**El item "ronda de QA + fixes: M = 2,0 h" esta groseramente subestimado para un cambio que altera la cardinalidad de un modelo**, y la autocorreccion lo **bajo** (de 2,5 a 2,0) anclandolo en el historico del proyecto. Eso fue un error de anclaje: los historicos de 2 h eran rondas sobre modulos **aditivos**, no sobre un cambio de 1:1 a 1:N.
+
+**Lo que paso de verdad:** CR-01 y CR-02 cambiaron "una venta, un comprobante" por "una venta, N comprobantes", y eso **reabrio criterios en todo el sistema**. Se necesitaron **7 lotes de implementacion y 7 pasadas de QA**, y aparecieron **20 defectos** (`LP-037` a `LP-056`), de los cuales **cuatro fueron `major` y los cuatro eran el MISMO defecto**: un criterio de habilitacion replicado que divergio (anular, facturar por el camino legado, el combo de Editar, y el GET de la nota de credito). El contador de "lectores del dato" subio **tres veces** durante la ronda: 3 → 4 → 6.
+
+**Regla de estimacion que sale de esto, para el proximo presupuesto:** cuando un item **cambia la cardinalidad de una relacion existente** (1:1 → 1:N, o un estado unico → varios), el costo no esta en construir la entidad nueva: esta en **barrer todos los lectores del criterio viejo**, y ese barrido **no se puede enumerar al cotizar** porque los lectores aparecen a medida que se tocan. Dos formas de cotizarlo, las dos honestas: (a) un item propio de "barrido de criterios" dimensionado por la **cantidad de lectores contados con un grep ANTES de cotizar** (el grep cuesta minutos y es el unico numero duro disponible), o (b) declarar el item como **rango abierto** con un gatillo de reestimacion explicito. Lo que no sirve es meterlo dentro de "QA + fixes" con el M de una ronda normal.
+
+**Dato comparable para el dataset:** el presupuesto de la Entrega 3 ya habia sufrido una version de esto (18 h → 32,5 h, absorbidas por Joaquin), y la causa raiz que se registro entonces fue *"verificar que la base de reutilizacion EXISTE antes de cotizarla"*. **Esta ronda agrega la segunda causa raiz de desvio del proyecto, distinta de la primera:** no es que falte la base de reuse, es que **el alcance real de un cambio de cardinalidad es mas grande que la pieza que se nombra en el WBS**.
+
+#### Lo que la ronda confirmo del metodo de cotizacion
+
+- **El fork de post-entrega fue la clasificacion correcta** (factor 2.5, sin descuento de expansion): la instruccion 27 lo excluye explicitamente para sistema propio ya entregado, y cotizarlo como Build habria dado ~37% menos por un trabajo que resulto mas caro, no mas barato.
+- **La regla anti-doble contingencia se aplico bien:** el 1.20 vive dentro de la formula y no se sumo el +15% de riesgo medio aparte.
+- **La regla nueva de verificar que la base de reuse existe funciono en modo preventivo por primera vez:** las 10 piezas citadas de `marihogar` se confirmaron por `find`/`grep` antes de cotizar, y las 10 existian. Esa parte de la estimacion no desvio.
+- **El riesgo se declaro "medio" y deberia haber sido "alto".** El criterio de la instruccion 28 para alto incluye "estados criticos": una venta que pasa a tener N comprobantes fiscales **es** eso. Con riesgo alto la contingencia habria sido +25% en vez de +15%.
+
+#### Metricas de proceso de la ronda (insumo para las trazas, no para el precio)
+
+| Dato | Valor |
+|---|---:|
+| Lotes de implementacion | 7 |
+| Pasadas de QA | 7 (una se cayo por un stall y se reanudo) |
+| Defectos encontrados | 20 (`LP-037` a `LP-056`) |
+| De ellos, `major` | 4 — **los cuatro, el mismo patron** |
+| De ellos, del instrumento de medicion y no del producto | 9 |
+| Formas distintas de "falso verde" catalogadas en la ronda | 6 |
+| Premisas falsas en briefs del orquestador | 6, que produjeron 3 reglas nuevas en la instruccion 39 |
+
+**Lo que estas metricas dicen y conviene no perder:** **9 de los 20 defectos fueron del arnes de medicion, no del sistema.** Eso no es ruido: es el costo de construir el instrumento, y es trabajo real que ningun item del WBS contempla. Si la proxima ronda se cotiza igual, ese costo vuelve a caer fuera del presupuesto.
 
 ### Presupuesto de CR-01 a CR-05 (2026-10-06) — alcance NUEVO, fuera del WBS ya cobrado
 

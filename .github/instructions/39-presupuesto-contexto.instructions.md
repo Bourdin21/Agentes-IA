@@ -86,6 +86,40 @@ El orquestador (y cualquier agente que delegue) **no** dice "lee las definicione
 
 El subagente **puede** ampliar leyendo esos punteros, pero arranca del brief. Si el brief no alcanza, el problema es el brief: se corrige y se vuelve a delegar, no se compensa cargando todo.
 
+### 4a. El estado de lo que vas a delegar se releva contra el arbol, no se arrastra del documento (agregado 2026-10-07)
+
+**Medido en la-platense: tres briefs consecutivos arrancaron de una premisa falsa**, y las tres veces el subagente gasto trabajo en descubrirlo antes de poder empezar:
+
+1. Un brief declaro **no construidos 6 sitios que ya estaban escritos** (el commit anterior decia lo contrario porque lo redacto el orquestador a ciegas, sin releer el arbol).
+2. Un brief dio **`LP-014` por abierto en produccion, con numeros de linea** — estaba cerrado desde diez dias antes, con PASS de QA. Los numeros de linea salian del documento de arquitectura que habia relevado el defecto semanas atras, no del archivo actual.
+3. Un brief pidio **corregir un XML-doc que ya estaba corregido**.
+
+**La causa es siempre la misma:** el brief se escribe citando el documento que *descubrio* el problema, y ese documento es una foto del codigo del dia en que se escribio. **Un numero de linea, un "esta abierto" o un "falta hacer X" en un brief son afirmaciones sobre el codigo de HOY**, y el documento no las puede sostener.
+
+**Reglas:**
+
+- Antes de afirmar en un brief que algo esta roto, abierto o sin construir, **verificalo contra el arbol de trabajo en ese momento** — un `grep` del sintoma, un `git log` del archivo, o el estado del parte en `6-qa.md`. Cuesta segundos; el subagente lo paga en minutos y en contexto.
+- Si no lo verificaste, **decilo con su fuente y su fecha** en vez de afirmarlo: *"QA midio esto en el commit `X` el dia `Y` — verificalo contra el arbol antes de tocar"*. Un brief honesto sobre lo que no sabe es util; uno que afirma de mas hace que el subagente arranque resolviendo una contradiccion.
+- **Nunca cites numeros de linea de un documento de etapa previa.** Si hacen falta, sacalos del archivo en el momento de escribir el brief.
+- Lo mismo vale para la **evidencia** que el brief declara como linea base. En la-platense se cito un *"153 OK / 0"* como no-regresion durante varias rondas y **no se reproducia**: el arnes necesitaba que el reloj acompaniara y que su limpieza no muriera. Una linea base se cita **con la fecha en que se midio**, y si no se midio en el arbol actual, se mide o se declara como no verificada.
+
+**Dos formas que sobreviven a la regla de arriba, medidas en la-platense el 2026-10-07** (un brief que SI verifico contra el arbol y aun asi llevo dos premisas falsas):
+
+- **La medicion propia mide de mas.** El brief afirmo "hay 19 migraciones" porque conto `ls Migrations/*.cs | grep -v Designer | wc -l` — y eso **incluye `AppDbContextModelSnapshot.cs`, que no es una migracion**. Son 18. Verificar contra el arbol no alcanza si el comando no mide lo que uno cree: **cuando el numero importa, mira la salida, no solo el total.** Un `wc -l` esconde exactamente el elemento que no corresponde.
+- **El dato heredado de otro agente se cita como hecho propio.** El mismo brief afirmo que en dev habia "4 filas `ZZ%`, catalogo legado real, no residuo". Salia de la traza de QA del lote anterior, **marcada alli como verificacion independiente**. Al chequearlo, **no hay ninguna fila con prefijo `ZZ`**: eran coincidencias internas de `%ZZ%` en nombres de catalogo real. El reporte de un subagente es **evidencia de segunda mano**: se cita **con su fuente** ("QA reporto X en el lote N") o se vuelve a medir. Nunca se lo asciende a hecho del brief, porque el proximo agente lo va a tratar como dato duro y nadie va a saber de donde salio.
+
+**La tercera forma, y la mas peligrosa porque no se siente como una afirmacion sobre el codigo: la premisa falsa por INFERENCIA.** Medida en la-platense el 2026-10-07. El brief decia: *"R18 dice que una nota de credito no resta del pendiente a facturar, por lo tanto `FacturacionParcialService` no cambia en este lote"*. La regla era correcta y la conclusion **exactamente al reves**: una NC es una fila mas de la misma tabla de comprobantes, con cantidades **positivas**, y los tres lectores del "ya facturado" sumaban todo comprobante vivo — asi que **dejar el codigo sin tocar no respetaba la regla, la rompia** (acreditar 2 de 5 unidades facturadas dejaba el facturado en 7 sobre una venta de 5: pendiente negativo y el tope rechazando refacturaciones legitimas). Para que una regla de negocio "no cambie nada" **hay que verificar que el codigo ya la cumpla**, no deducirlo del enunciado.
+
+Reglas:
+
+- **Un "por lo tanto X no cambia" es una afirmacion sobre el codigo**, con el mismo peso que "X esta roto", y se verifica igual: se abre el archivo y se mira si el invariante ya se cumple. La inferencia desde la regla de negocio **no es evidencia**.
+- Cuando un brief declara que algo **queda fuera de alcance porque no hace falta tocarlo**, ese es justamente el lugar donde conviene un grep: el subagente va a confiar en esa frase y **no va a mirar**. Un alcance recortado por inferencia es la forma mas barata de dejar un defecto adentro del entregable.
+- Sintoma a vigilar: el brief encadena *regla de negocio → conclusion tecnica* sin ningun archivo citado en el medio.
+- **Variante medida el 2026-10-07: la regla del PROYECTO citada de memoria, con el alcance corrido.** El brief dijo *"nunca escribas `Producto.Stock` directo: el proyecto tiene un unico escritor y se respeta"*. El principio existe, pero **el unico escritor que el proyecto defiende es el de la TABLA del ledger, no el de la columna** — `IMovimientoStockService` declara explicitamente que no toca `Producto.Stock`. Obedecer el brief al pie de la letra **dejaba el stock sin mover**. Una regla propia tambien se cita abriendo el archivo: el riesgo no es inventarla, es **correrle el alcance** — y en esa forma suena igual de autorizada.
+
+**Por que esto esta en la instruccion del presupuesto de contexto y no en otro lado:** es el mismo problema que el resto de este documento. Un brief con premisas falsas no es un error de prolijidad, es **contexto equivocado**, y cuesta mas caro que el contexto de mas — el subagente no solo lee algo que no servia, sino que razona sobre un mundo que no existe.
+
+
 ## 4b. Reset de contexto entre etapas (regla dura, no sugerencia)
 
 Hasta el 2026-09-25 esto era una recomendacion ("si se siente saturado, conviene cerrar"). Pasa a ser mecanismo, por dos motivos medidos en sistemas de agentes largos:

@@ -410,7 +410,200 @@ No hay un patron de "agrupar tabla por categoria dentro de un modal" ya construi
 **HU3** — Como usuario, quiero poder combinar el buscador de texto con el filtro de categoria, para acotar aun mas la busqueda.
 - Escribir en el buscador con una categoria seleccionada filtra dentro de esa categoria unicamente.
 
+---
+
+## Sesion: Frente A recortado — higiene del circuito de Pagos (A1 + A3 + A5)
+
+## Estado: EN DISEÑO — pendiente aprobacion para pasar a Arquitectura
+
+Origen: seccion 9 de `1-analista-funcional.md` (relevamiento del 2026-10-07). El Frente A completo tiene 5 items; **esta iteracion disena solo A1, A3 y A5**, que son los que no dependen de ninguna respuesta pendiente del cliente. A2 (cerrar el camino del borrar-y-recrear) queda fuera hasta resolver P11, y A4 (habilitar MercadoPago/Cheque) hasta P5b-d.
+
+Objetivo medible de la iteracion: reducir las causas C1, C3 y la causa raiz #0 de la diferencia mensual. **No** construye conciliacion: eso es el Frente B.
+
+## 0. Resultado del escaneo de reutilizacion cross-proyecto
+
+| Fuente | Que aporta | Decision |
+|---|---|---|
+| **PAT-019** — autocompletar el monto con el saldo pendiente (marihogar → la-platense) | **Ya esta aplicado en este proyecto**: `Views/Ventas/Details.cshtml:382` y `Views/Ventas/Edit.cshtml:357` precargan el input con `montoRestanteVenta`. | **Reuso invertido.** El escaneo encontro que el patron ya esta — y que para los metodos bancarios **es la causa directa de C3**: el operador confirma el importe facturado que viene precargado en vez de tipear lo que el banco acredito. A3 **acota** PAT-019 a los metodos de caja en vez de volver a aplicarlo. Ver 2.2. Corresponde anotar la variante en la nota del patron al cerrar Diseño. |
+| **la-platense**, leccion LP-009 (`5-implementador.md:368-374`) | Rechazar fecha futura contra la hora **de Argentina**, no contra `DateTime.UtcNow`: entre las 21:00 y la medianoche ART `UtcNow.Date` ya es el dia siguiente, y la validacion rechaza pagos legitimos del mismo dia. Les costo 6 fallas de test que parecian del codigo y eran del reloj. | **Se reusa tal cual.** A1 ancla en `DeliciasNaturales.Helper.DateTimeExtended.ToArgentinaTimeZone()`, que ya existe en este repo y ya es lo que usan `RegistrarPago` y los dos modales para el valor por defecto. |
+| **vinosefue** (`2-disenador-funcional.md:72`) | "Fecha de Pago/NCR: no puede ser futura (igual criterio que otras fechas de movimiento del sistema)". | Confirma que "fecha de movimiento no futura" ya es **convencion del estudio**, no una regla nueva de este proyecto. A1 la trae a delicias-naturales. |
+| **PAT-023** — editar un pago: reversion + alta enlazada (origen: este mismo proyecto) | El punto unico por donde pasan alta y edicion es `PagoService`. | Las validaciones de A1 van en `PagoService.RegistrarPagoInterno`, **no** en el Controller: asi cubren de una sola vez `RegistrarPago` y `EditarPago`, que son las dos entradas. |
+| **PAT-057** — saldo inicial declarado (la-platense) | Su mitad no-codigo: *"la pantalla no llama 'saldo' al numero; el rotulo dice lo que el numero ES"*. | **Se reusa el principio, no el codigo.** Es exactamente el problema de A5: la pantalla rotula "Transferencia" un numero que el cliente lee como "lo que entro al banco". Ver 2.3. |
+| Instruccion 38 (diseño de pantallas del portal) | Regla 0: lo que la persona vino a hacer entra en la primera pantalla. | Aplica **solo como principio** a la fila de totalizadores de A5. El design system Olvidata no aplica: esta pantalla es Bootstrap + FontAwesome del admin legacy, no el portal. |
+
+Patron nuevo candidato a catalogar al cerrar Diseño: **"el importe por defecto de un pago depende del medio"** (prellenar con el saldo cuando el importe lo determina quien cobra; dejarlo vacio cuando lo determina un tercero — banco, tarjeta, billetera). Es una restriccion de PAT-019, no un patron independiente: va como nota/variante en PAT-019.
+
+## 1. Alcance funcional resumido
+
+**Incluido:**
+- A1 — validacion de `Pago.Fecha` en servidor (3 reglas) y sus topes en los 3 formularios que la cargan.
+- A3 — el importe por defecto del pago pasa a depender del metodo, y la consecuencia del importe tipeado se muestra en vivo.
+- A5 — los totalizadores de la pantalla de Pagos se reagrupan en 3 grupos con rotulos que dicen que es cada numero.
+
+**No incluido:** A2, A4, el modulo de conciliacion (Frente B), y la correccion de los datos sucios ya en produccion (3 pagos con fecha futura por $852.206,16 — es un script de datos, no codigo; se trata aparte).
+
+**Sin migracion EF.** Las 3 historias tocan Negocio y Presentacion unicamente.
+
+## 2. Flujos de pantalla acordados
+
+### 2.1 A1 — Fecha del pago
+
+Puntos de carga de `Pago.Fecha` hoy: el modal "Registrar Pago" de `Views/Ventas/Details.cshtml` (~l.377), el mismo modal duplicado en `Views/Ventas/Edit.cshtml` (~l.352), y el modal de "Editar pago" (`EditarPago`, iteracion 3). Los tres resuelven el valor por defecto con `DateTimeExtended.ToArgentinaTimeZone()`; ninguno acota el rango.
+
+**La fecha futura NO es un error: es como se cargan los cheques.** El diseño original de esta seccion rechazaba toda fecha posterior a hoy. La medicion sobre los 14.131 pagos activos lo desmintio y obligo a partir la regla en dos:
+
+- **242 pagos activos (1,71 %) estan fechados hacia adelante** respecto del dia en que se cargaron, por $72,4 M. **145 son `Transferencia`** ($62,7 M) — es exactamente la practica documentada en el hallazgo 2 del analisis de agosto: los cheques se anotan como Transferencia con `Fecha` = el dia en que se espera depositarlos. Es practica **vigente** (5 casos en septiembre, 21 en agosto), no un residuo historico.
+- La cola legitima llega hasta **41 dias** hacia adelante y ahi se corta. Despues hay un hueco y **2 outliers a 350 y 358 dias**: son los dos pagos de diciembre 2026 cargados en enero 2026 ($163.780,83) — typos de año, los unicos de toda la base.
+
+Esa separacion limpia (41 → hueco → 350) es la que permite fijar el tope duro sin falsos positivos.
+
+**Servidor (fuente de verdad, en `PagoService`):**
+
+| Regla | Condicion | Comportamiento | Casos historicos que alcanza (de 14.131 activos) | Mensaje |
+|---|---|---|---|---|
+| **R1a** | `fecha.Date > hoyART.AddDays(90)` | **Rechazo** (`PagoNegocioException`) | **2** (los typos de año), **0 falsos positivos** — el maximo legitimo medido es 41 dias | "La fecha del pago es de mas de 90 dias en el futuro. Revisa el año." |
+| **R1b** | `fecha.Date > hoyART` (y hasta +90) | **Aviso con confirmacion** | 240 — la practica de cheques | "La fecha es posterior a hoy. Si es un cheque a depositar, confirma; si te equivocaste, corregila." |
+| **R2** | `fecha.Date < venta.Fecha.Date` | **Rechazo** | **38 (0,27 %)** — margen suficiente para rechazar | "La fecha del pago no puede ser anterior a la fecha de la venta (dd/MM/yyyy)." |
+| **R3** | `fecha.Date < hoyART.AddDays(-30)` | **Aviso con confirmacion** | 24 | "La fecha que pusiste es de hace mas de 30 dias. Confirmas que el pago es de esa fecha?" |
+
+Por que cada una es rechazo o aviso, con el numero detras:
+- **R1a y R2 rechazan** porque el dato muestra que ningun pago legitimo las viola (2 y 38 casos sobre 14.131, todos identificables como error).
+- **R1b avisa y no rechaza** porque rechazar romperia el circuito de cheques, que es el workaround mas usado del sistema. Es la correccion mas importante de esta seccion: el diseño que rechazaba fecha futura habria bloqueado 145 pagos de Transferencia por $62,7 M de practica vigente.
+- **R3 avisa** porque la carga tardia es un caso real (254 pagos a 4-7 dias, 187 a 8-15). El umbral de 30 dias deja pasar la cola normal y alcanza los 24 casos donde ya hay algo raro. Se descarto el umbral de 60 dias que proponia el borrador: alcanzaba **4 casos sobre 14.131** — una regla que no mide nada.
+
+Los tres umbrales (90, 30, y el comparador de R2) son constantes del Service, sin campo de configuracion en pantalla — mismo criterio que P6.
+
+**Cliente (friccion temprana, no sustituye al servidor):** `max` = hoy ART **+ 90 dias** y `min` = fecha de la venta en los tres `<input type="date">`. Los avisos de R1b y R3 viajan en la respuesta JSON con `tipoMensaje = "confirmar"` y se muestran re-enviando el formulario con `confirmaFecha = true`.
+
+**Libreria de dialogos — verificado, no asumido:** el proyecto carga **SweetAlert 1** (`Scripts/sweetalert.min.js`, referenciada en `Views/Shared/_Layout.cshtml:56`) y las vistas la usan con la forma `swal("", mensaje, "warning")` (ej. `Views/Ventas/Details.cshtml:468`). **No hay SweetAlert2 ni `Swal.fire` en el repo.** La confirmacion va con la API de la v1 (`swal({ title, text, type, showCancelButton: true }, function (isConfirm) { ... })`); no introducir una libreria nueva para esto.
+
+**Dependencia declarada con A4 (ahora en los dos sentidos):**
+- `R1a`/`R1b` aplican a `Fecha` y **nunca** a `FechaAcreditacion`: un cheque diferido tiene acreditacion futura por definicion.
+- Cuando entre `MetodoPago.Cheque`, **R1b se endurece a rechazo para todos los metodos menos `Cheque`** — la unica razon por la que hoy es un aviso es que no existe el lugar correcto donde poner esa fecha. Queda escrito aca para que la iteracion de A4 lo cierre y no quede un aviso que nadie se anima a tocar.
+
+### 2.2 A3 — El importe por defecto depende del metodo
+
+Hoy el modal ordena **Fecha → Monto → Metodo**, y Monto arranca precargado con el saldo restante de la venta. Para Efectivo eso es correcto (el importe lo determina quien cobra, y es el **59,2 %** de los pagos de septiembre: 439 de 741). Para Transferencia es la causa de C3: el importe lo determina **el cliente que transfirio**, el sistema propone el de la factura, y el operador confirma.
+
+**Lo que ya existe (verificado en el codigo, condiciona el diseño):** `Views/Ventas/Details.cshtml:441-461` (y su gemelo en `Edit.cshtml:464-...`) ya tiene un handler `$('#MetodoPago').on('change')` que reescribe el Monto segun el metodo elegido, con un flag `montoEditadoManualmente` que **protege lo que el usuario ya tipeo** y un `window.resetMontoAutocompletado()` para el reset del modal. Hoy ese handler solo distingue `SaldoFavor` del resto.
+
+Consecuencias:
+- **HU4 es una extension de ese handler, no un mecanismo nuevo.** Baja el costo y el riesgo de la historia.
+- El criterio "cambiar el metodo no borra el importe tipeado" **ya se cumple** por el flag existente; la historia solo debe no romperlo.
+- **El reorden del modal NO es un requisito tecnico.** El handler reacciona al `change` del select con independencia del orden en el DOM. Se **recomienda** igual el orden Fecha → Metodo → Monto (evita que el operador tenga que volver hacia arriba cuando el campo se le vacia), pero si el cliente prefiere no tocar el layout de una pantalla que se usa ~700 veces por mes, **se puede omitir sin perder nada funcional**. Decision del cliente, no bloqueante.
+
+**Cambios de flujo:**
+
+1. Orden recomendado del modal: Fecha → Metodo → Monto (opcional, ver arriba).
+2. **Metodos de caja** (`Efectivo`, `SaldoFavor`): Monto se precarga con `max(Total - pagos, 0)` — PAT-019, comportamiento actual sin cambio (`SaldoFavor` mantiene su clamp contra el saldo a favor disponible).
+3. **Metodos de terceros** (`Transferencia`, `Debito`, `Credito`, `MercadoPago`): Monto arranca **vacio**, con `placeholder="Importe acreditado"` y el texto de ayuda *"Pone el importe que entro al banco, no el total de la venta."*. El saldo restante sigue visible, como dato, en una linea aparte ("Saldo restante de la venta: $ X") con un boton chico "usar el saldo" para el caso en que coincidan — asi no se pierde la comodidad, pero deja de ser el default silencioso.
+4. **Consecuencia en vivo**, debajo del input, recalculada en cada tecla (reemplaza al texto estatico actual sobre cobrar de mas):
+   - `monto == saldo` → "Con esto la venta queda totalmente pagada."
+   - `monto < saldo` → "Quedan $ X por cobrar de esta venta."
+   - `monto > saldo` y la venta tiene cliente → "Se cobra $ X de mas: el excedente queda como credito en la cuenta corriente de <cliente>."
+   - `monto > saldo` y la venta no tiene cliente → "Se cobra $ X de mas: el excedente queda a favor en la caja, identificado en el movimiento."
+
+**No se bloquea ningun importe.** Cobrar de mas una venta ya cubierta es un pedido funcional explicito de la iteracion anterior (`PagoService.RegistrarPagoInterno`, comentario en l.125-129) y se mantiene intacto. A3 informa; no decide.
+
+### 2.3 A5 — Totalizadores de la pantalla de Pagos
+
+Hoy `Views/Pagos/Index.cshtml` muestra una card "Total Filtrado" (que excluye `SaldoFavor`) y abajo una card por cada uno de los 6 valores del enum, incluso las que dan $0 — `MercadoPago` da $0 todos los meses y ocupa una card. El cliente lee la card "Transferencia" y la compara contra el total del extracto; de ahi sale la causa raiz #0.
+
+**Nueva fila de totalizadores (3 cards, reemplaza a "Total Filtrado"):**
+
+| Card | Incluye | Rotulo y subtitulo |
+|---|---|---|
+| 1 | `Efectivo` | **"Cobrado en efectivo"** — *"no se compara contra el banco"* |
+| 2 | `Transferencia` (mas `Cheque` acreditado cuando exista) | **"Cobrado por transferencia"** — *"comparable con los creditos del extracto, descontando tus propios depositos de efectivo"* |
+| 3 | `Debito`, `Credito`, `MercadoPago` | **"Tarjetas y billeteras"** — *"se liquidan con plazo y retencion: no coinciden linea a linea con el extracto"* |
+
+`SaldoFavor` queda fuera de las 3 (no es plata que entro) y se muestra aparte, abajo, con el rotulo **"Aplicado de saldo a favor (no es ingreso)"** — hoy ya esta excluido del total pero sin decirlo.
+
+Aplicacion de PAT-057: el subtitulo de cada card **dice contra que se compara ese numero**. Es la mitad no-codigo del patron y es lo que evita que el cliente vuelva a restar dos magnitudes distintas.
+
+Las cards por metodo de abajo se mantienen para el detalle, con un unico cambio: **se ocultan las que dan $0** en el filtro vigente.
+
+## 3. ViewModels y contratos
+
+Sin ViewModels nuevos. Cambios de contrato:
+
+- **`PagoService.RegistrarPagoInterno(venta, monto, metodoPago, fecha, usuarioId, observacion, pagoAnteriorId)`** — se agrega un parametro `bool confirmaFechaAntigua = false` (opcional, para no tocar las llamadas existentes) y las 3 validaciones de 2.1 al inicio del metodo, antes de la rama de `SaldoFavor`. R3 lanza una excepcion distinguible (`PagoConfirmacionRequeridaException : PagoNegocioException`) para que el Controller la pueda traducir a un JSON de confirmacion en vez de a un error.
+- **`PagosController.RegistrarPago` y `EditarPago`** — aceptan `confirmaFechaAntigua` y devuelven `tipoMensaje = "confirmar"` con el texto de R3 cuando corresponde. El resto del contrato JSON no cambia.
+- **`PagosController.ListarPagos`** — el objeto de respuesta agrega `totalesPorGrupo` (array de `{ grupo, monto, subtitulo }`, los 3 de 2.3) y `totalSaldoFavor`. `montoTotal` y `totalesPorMetodo` se mantienen para no romper nada que los consuma; `totalesPorMetodo` pasa a omitir los metodos en $0.
+
+## 4. Impacto funcional por capa
+
+**Presentacion:** `Views/Pagos/Index.cshtml` (fila de totalizadores + JS de `dataSrc`), `Views/Ventas/Details.cshtml` y `Views/Ventas/Edit.cshtml` (reorden del modal, topes de fecha, comportamiento del input Monto, linea de consecuencia), y el modal de Editar pago (topes de fecha + flujo de confirmacion de R3).
+**Negocio:** `Services/PagoService.cs` (3 validaciones + nueva excepcion), `Controllers/PagosController.cs` (parametro y traduccion del JSON de confirmacion, y los 3 grupos en `ListarPagos`).
+**Datos:** **sin migracion.**
+
+Deuda declarada: el modal "Registrar Pago" esta **duplicado** entre `Ventas/Details.cshtml` y `Ventas/Edit.cshtml`. Esta iteracion lo toca en los dos lugares; extraerlo a una partial `_ModalRegistrarPago.cshtml` es la forma correcta y queda como propuesta al arquitecto (bajo riesgo, evita que la proxima iteracion los desincronice).
+
+## 5. Riesgos de implementacion
+
+| # | Riesgo | Mitigacion |
+|---|---|---|
+| R-A1 | ~~R2 puede rechazar cargas legitimas~~ | **Cerrado en Diseño, con medicion.** R2 alcanza **38 de 14.131** pagos activos (0,27 %) y R1a **2**. Margen suficiente para que las dos sean rechazo. Arquitectura no necesita volver a medirlo. |
+| R-A1c | R1b queda como **aviso** y un aviso que se puede saltar no corrige nada: si el operador confirma por reflejo, los 240 pagos fechados a futuro siguen igual. | Asumido a proposito: hoy no existe el lugar correcto para esa fecha (es A4). El valor de R1b en esta iteracion es que **R1a atrape los typos de año** y que el aviso haga visible la practica. El cierre real es A4, y queda escrito en 2.1 que al entrar endurece R1b. **No vender R1b como la solucion del problema de fechas.** |
+| R-A1b | `TimeZoneInfo.FindSystemTimeZoneById("Argentina Standard Time")` ya se usa en produccion, pero si el helper falla la validacion queda sin referencia de hoy. | No agregar manejo nuevo: si el helper falla, hoy ya falla el valor por defecto de los 3 modales. Mismo riesgo preexistente, no se amplia. |
+| R-A3 | El cambio toca un flujo que los operadores usan ~740 veces por mes. Mal recibido, genera la misma resistencia que "Editar Pago" (0 usos en un mes). | Mantener los mismos campos y etiquetas; el reorden es opcional (ver 2.2). Y el aprendizaje de P11 aplica aca antes que en ningun lado: **avisar al cliente antes del deploy, no despues.** Una herramienta que nadie anuncio es una herramienta que nadie usa. |
+| R-A3b | Dejar Monto vacio para metodos bancarios agrega tipeo en ~245 pagos por mes, justo sobre los operadores que ya rechazaron una herramienta nueva. | El boton "usar el saldo" cubre con un click el caso en que coinciden. Plan B explicito si el cliente lo rechaza: mantener el prefill y quedarse solo con la linea de consecuencia en vivo (2.2.4) — ataca C3 mas debil, pero no agrega friccion. Degrada, no rompe. |
+| R-A5 | La agrupacion de la card 3 asume que Debito/Credito/MercadoPago **no** se acreditan en la misma cuenta y mes que las transferencias. En septiembre suman $4.768.320,49; si se acreditaran ahi, el numero comparable con el extracto no es el de la card 2. | El subtitulo de la card 3 ya declara el supuesto en pantalla. **Queda como pregunta P12** (abajo). El diseño es robusto en ambos casos: si la respuesta cambia, cambia que metodos entran en cada card, no la estructura. |
+| R-A5b | `montoTotal` y `totalesPorMetodo` se mantienen por compatibilidad: si nadie los consume, queda codigo muerto. | Verificar en Arquitectura si algo fuera de `Views/Pagos/Index.cshtml` los lee; si no, eliminarlos en la misma iteracion. |
+
+## 6. Historias de usuario
+
+**HU1** — Como Administrador, quiero que el sistema rechace una fecha de pago disparatada hacia adelante, para que un error de año no deje el cobro fuera de todos los cierres.
+- Guardar un pago con fecha de mas de 90 dias en el futuro devuelve error "La fecha del pago es de mas de 90 dias en el futuro. Revisa el año." y **no** crea el pago.
+- Guardar un pago con fecha futura **dentro** de los 90 dias pide confirmacion con el texto de R1b; confirmar lo guarda con esa fecha (es el caso del cheque a depositar).
+- La validacion resuelve "hoy" con `DateTimeExtended.ToArgentinaTimeZone()`, **no** con `DateTime.UtcNow`: un pago con fecha de hoy registrado a las 22:30 ART se guarda sin error (leccion LP-009 de la-platense).
+- Aplica por igual en "Registrar Pago" (desde Details y desde Edit) y en "Editar pago".
+- El `<input type="date">` de los tres formularios tiene `max` = hoy ART + 90 dias.
+- Regresion: los 2 pagos historicos de diciembre 2026 ($163.780,83) son los unicos de la base que esta regla habria rechazado; ningun pago de los otros 14.129 cambia de comportamiento al guardarse de nuevo.
+
+**HU2** — Como Administrador, quiero que el sistema no me deje fechar un pago antes de la venta que paga, para que no haya cobros que existan antes de lo que cobran.
+- Guardar un pago con fecha anterior a `venta.Fecha` devuelve error con la fecha de la venta en el mensaje y no crea el pago.
+- Un pago con fecha **igual** al dia de la venta se guarda sin error (comparacion por dia, no por hora).
+- El `<input type="date">` tiene `min` = fecha de la venta.
+
+**HU3** — Como Administrador, quiero que el sistema me pida confirmar cuando fecho un pago muy viejo o en el futuro, para poder cargar un cobro atrasado o un cheque sin que un error de tipeo pase inadvertido.
+- Una fecha de mas de 30 dias hacia atras muestra el aviso de R3 y **no** guarda todavia.
+- Una fecha posterior a hoy y hasta +90 dias muestra el aviso de R1b y **no** guarda todavia.
+- Confirmar guarda el pago con esa fecha. Cancelar no guarda nada y deja el formulario abierto con los datos tipeados (no se pierde lo tipeado).
+- Una fecha entre hoy y 30 dias hacia atras se guarda directo, sin aviso — es el 98,1 % de los pagos (13.865 de 14.131).
+- El dialogo usa `swal` de SweetAlert 1, la libreria que ya carga el layout; no se agrega ninguna libreria.
+
+**HU4** — Como vendedor, quiero que al elegir un metodo bancario el importe arranque vacio, para que no se me escape el total de la factura cuando el cliente transfirio otra cosa.
+- Con `Efectivo` o `SaldoFavor` elegido, Monto se precarga con el saldo restante de la venta (comportamiento actual).
+- Con `Transferencia`, `Debito`, `Credito` o `MercadoPago` elegido, Monto queda vacio con placeholder "Importe acreditado" y el texto de ayuda sobre no usar el total de la venta.
+- El saldo restante sigue visible en el modal, y el boton "usar el saldo" lo copia al input en un click.
+- Cambiar el metodo despues de haber tipeado un importe **no borra** lo tipeado.
+
+**HU5** — Como vendedor, quiero ver en el momento que consecuencia tiene el importe que estoy poniendo, para no dejar una venta mal cobrada sin darme cuenta.
+- Tipear un importe menor al saldo muestra "Quedan $ X por cobrar de esta venta." con X recalculado en cada tecla.
+- Tipear un importe mayor al saldo muestra el excedente y donde queda, distinguiendo venta con cliente de venta sin cliente.
+- Tipear exactamente el saldo muestra "Con esto la venta queda totalmente pagada."
+- Ningun importe mayor a cero queda bloqueado por esta historia.
+
+**HU6** — Como Administrador, quiero que la pantalla de Pagos me muestre separado lo que entro por banco de lo que entro por caja, para poder comparar contra el extracto sin restar cosas distintas.
+- La fila de totalizadores muestra 3 cards —"Cobrado en efectivo", "Cobrado por transferencia", "Tarjetas y billeteras"— cada una con su subtitulo de 2.3.
+- Los 3 totales respetan los filtros vigentes (rango de fechas, metodo, busqueda) igual que el total actual.
+- `SaldoFavor` no entra en ninguna de las 3 y se muestra aparte rotulado "no es ingreso".
+- Con el filtro de metodo puesto en un metodo unico, la card de su grupo muestra ese importe y las otras dos muestran $0.
+
+**HU7** — Como Administrador, quiero que no me ocupen lugar las cards de metodos que no use, para leer de un vistazo los que si uso.
+- Las cards por metodo de la fila inferior solo aparecen si su importe es distinto de $0 en el filtro vigente.
+- Si ningun metodo tiene importe (filtro sin resultados), la fila inferior queda vacia sin romper el layout.
+
+## 7. Pregunta nueva para el cliente
+
+**P12 — Los cobros con tarjeta de debito/credito y los de MercadoPago se acreditan en la misma cuenta bancaria que las transferencias?** En septiembre suman $4.768.320,49 (Debito $3.922.955,34 + Credito $845.365,15 + MercadoPago $0).
+- Hipotesis A: se acreditan en la misma cuenta, con plazo y retencion — entonces el extracto de esa cuenta tiene creditos de liquidacion que no son transferencias de clientes, y el Frente B tiene que clasificarlos como una tercera categoria (ademas de los depositos propios de 9.1).
+- Hipotesis B: se acreditan en otra cuenta o en la billetera, y nunca aparecen en el extracto que el cliente usa — entonces la card 2 es efectivamente el unico numero comparable, como asume el diseño.
+- Impacto: no bloquea A5 (la estructura de 3 cards sirve para las dos hipotesis; cambia que metodo entra en cual). **Si** condiciona el Frente B.
+
 ## Historial de ajustes
+- 2026-10-07: **Diseño abierto del "Frente A recortado — higiene del circuito de Pagos (A1 + A3 + A5)"**, a partir de la seccion 9 de `1-analista-funcional.md`. Sin migracion EF; Negocio + Presentacion. 7 historias de usuario (HU1-HU7). El escaneo de reutilizacion dio un resultado inusual: **PAT-019 ya estaba aplicado en este proyecto y resulto ser la causa de C3** (el prefill del saldo restante hace que el operador confirme el importe facturado en vez de tipear el acreditado), asi que A3 lo *acota* a los metodos de caja en vez de reaplicarlo. Se reusa la leccion LP-009 de la-platense (validar fecha futura contra la hora de Argentina, no UTC), el criterio de fecha de vinosefue y el principio no-codigo de PAT-057 (el rotulo dice lo que el numero ES) para los totalizadores de A5. **Correccion importante contra el borrador:** la medicion sobre los 14.131 pagos activos mostro que fechar un pago a futuro **no es un error sino la practica de carga de los cheques** (242 pagos, 145 de ellos Transferencia por $62,7 M, vigente: 5 casos en septiembre), con cola legitima hasta 41 dias y 2 outliers a 350/358 dias que son los typos de año. La regla se partio en R1a (rechazo > +90 dias, alcanza 2 casos, 0 falsos positivos) y R1b (aviso, 240 casos, se endurece cuando entre A4). El umbral de R3 bajo de 60 a 30 dias porque a 60 alcanzaba 4 casos sobre 14.131. Tambien se verifico contra el codigo que el handler de `$('#MetodoPago').on('change')` ya existe con proteccion de lo tipeado (HU4 es una extension, no un mecanismo nuevo), que el reorden del modal **no** es requisito tecnico, y que la libreria de dialogos es **SweetAlert 1** (`swal`), no SweetAlert2. 1 pregunta nueva (P12: donde se acreditan Debito/Credito/MercadoPago) que no bloquea A5 pero si condiciona el Frente B. **Pendiente aprobacion para pasar a Arquitectura.**
 - 2026-06-XX: Creacion. Diseno iteracion 2 del modulo Solicitudes de Ingreso de Stock a partir de devolucion del cliente.
 - 2026-09-23: Diseno cerrado iteracion 4 "Agrupar por categoria en modal Stock bajo" — solo Presentacion, 3 historias de usuario, sin migracion.
 - 2026-09-07: Diseno cerrado de "Ajuste directo de un Pago" (iteracion 3) — modal de ajuste sobre el listado de pagos de Venta, migracion EF (UsuarioId/Observacion/PagoAnteriorId en Pago), reversion+alta atomica reusando EliminarPago/RegistrarPago bajo el mismo lock. Mismo dia, alcance ampliado a pedido de Joaquin: el boton "Editar fecha" existente (`ActualizarFechaPago`) se unifica con el ajuste de monto en un unico boton/endpoint "Editar pago" (Fecha+Monto+Metodo), con la decision explicita de que TODA edicion (incluida solo-fecha) pasa siempre por reversion+alta con motivo obligatorio — sin camino liviano alternativo. `ActualizarFechaPago` queda reemplazado/eliminado. 7 historias de usuario (HU1-HU7). Patron nuevo candidato a catalogar (variante de PAT-020). Pendiente aprobacion para pasar a Arquitectura.

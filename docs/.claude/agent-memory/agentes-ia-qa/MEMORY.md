@@ -1,0 +1,2 @@
+- [Medicion Default-FAIL en La Platense](feedback_medicion_default_fail.md) — ningun numero se hereda; un diff vacio y `TABLE_ROWS` ya dieron falso PASS
+- [Deploy de La Platense, Entrega 1](project_la_platense_deploy_entrega_1.md) — LP-050 cerrado; base y sitio en la MISMA ventana; FTP trabado por credencial rotada
