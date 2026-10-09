@@ -46,7 +46,7 @@ PAT-045   | agentes-ia       | olvidata-agentes-multirubr | Tarea repetitiva rea
 PAT-046   | integracion      | ninguno todavia (incorpora | Automatizacion con n8n (orquestador externo de workflows por webhooks/API)
 PAT-047   | agentes-ia       | olvidata-agentes-multirubr | Ficha de agente en dos vistas: funcional para el cliente y literal para el staff, con DTOs distintos por tipo
 PAT-048   | agentes-ia       | olvidata-agentes-multirubr | Autocomplete de menciones servido por la MISMA consulta que despues autoriza
-PAT-049   | frontend         | olvidata-agentes-multirubr | Pieza 3D decorativa de carga diferida que se DESMONTA cuando aparece el contenido
+PAT-049   | frontend         | olvidata-agentes-multirubr | Pieza 3D decorativa de carga diferida que se DESMONTA cuando aparece el contenido -- RETIRADO 2026-10-09, ver PAT-066
 PAT-050   | seguridad        | marihogar (CR-22, en produ | Gate de precio por rol: el override del precio es la UNICA puerta, el resto se recalcula server-side
 PAT-052   | dominio          | la-platense (Ferreteria La | Linea de documento que declara su unidad y CONGELA el factor de conversion
 PAT-051   | financiero       | la-platense (Ferreteria La | Medio/cuenta como dimension de un ledger de caja UNICO (conciliable sin partir el saldo)
@@ -63,3 +63,4 @@ PAT-062   | financiero       | marihogar (TasaCostoCobran | Coeficiente configur
 PAT-063   | financiero       | la-platense (CR-04, plan d | Generador de un PLAN de N documentos hijos que delega la escritura en el unico escritor que ya existe
 PAT-064   | financiero       | la-platense (modulo 16 / E | Nota de credito sobre un comprobante PARCIAL: no reabre el pendiente y devuelve el cargo de impuesto con regla de REMANENTE
 PAT-065   | infraestructura  | la-platense (ronda de QA 2 | Token de submit de un solo uso: idempotencia que identifica al REQUEST y no al dato de negocio (lo que ninguna clave natural puede)
+PAT-066   | frontend         | olvidata-agentes-multirubr | Adorno de estado vacio en SVG animado con CSS: el ritmo se DERIVA (ciclo/brazos), no se escribe -- reemplaza a PAT-049

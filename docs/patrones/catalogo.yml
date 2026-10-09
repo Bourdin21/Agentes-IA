@@ -2488,12 +2488,13 @@ patrones:
     cuando_usar: >
       Portales server-rendered sin bundler (MVC, Razor, PHP, Astro) donde se pide "motion 3D" y hay una memoria de
       diseño que prioriza el contenido. Tambien para cualquier adorno pesado en un estado vacio.
-    proyecto_origen: olvidata-agentes-multirubro (M28, implementado 2026-10-02)
-    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    proyecto_origen: olvidata-agentes-multirubro (M28, implementado 2026-10-02; RETIRADO el 2026-10-09)
+    proyectos_que_lo_usan: []
+    estado: "RETIRADO EN SU PROYECTO DE ORIGEN (2026-10-09). El archivo de referencia del 3D ya no existe. Lo que sobrevivio del patron es PAT-066."
     archivos_referencia:
       - proyecto: olvidata-agentes-multirubro
-        path: "src/OlvidataAgentes.Web/wwwroot/js/chat-libre-3d.js"
-        motivo: "three@0.160.0 por cdn.jsdelivr.net con import() dinamico, tres compuertas en orden, desmontaje real y degradacion silenciosa"
+        path: "src/OlvidataAgentes.Web/Views/ChatLibre/Index.cshtml"
+        motivo: "El archivo del 3D (wwwroot/js/chat-libre-3d.js) fue BORRADO el 2026-10-09; queda la vista, donde el mismo adorno se resolvio en SVG + CSS (PAT-066)"
         pendiente_verificar: false
       - proyecto: olvidata-agentes-multirubro
         path: "src/OlvidataAgentes.Web/Views/ChatLibre/Index.cshtml"
@@ -2512,6 +2513,17 @@ patrones:
       nadie hizo. (3) El catch silencioso es correcto Y es una trampa: si la URL no existe la pieza nunca aparece y
       nadie se entera -- abrir la URL una vez antes del primer despliegue es parte del trabajo, no una formalidad.
       (4) La pieza no recibe datos, y eso es lo que impide que un dato de la organizacion llegue a un script de CDN.
+      POR QUE SE RETIRO EN EL ORIGEN (2026-10-09), que es el dato mas util de esta ficha: el mismo adorno se rehizo
+      en SVG + CSS, sin libreria y sin CDN, y las tres razones NO fueron de rendimiento. (a) El ritmo: el escalonado
+      de los pulsos era una constante suelta (0,75 s) dentro de un ciclo de 4,4 s, y 4 x 0,75 no divide 4,4 -- los
+      cuatro pulsos entraban en 2,25 s y quedaban ~2 s muertos. En CSS el reparto se escribe como el ciclo dividido
+      por los brazos y no se puede desfasar. (b) El isotipo fantasma: la version plana que el patron usa para
+      degradar queda DEBAJO del canvas y nadie la apaga, asi que asomaba quieta mientras el 3D giraba -- dos
+      isotipos corridos, en una pantalla donde el logo real esta a diez centimetros. Si se usa este patron hay que
+      apagar la version plana al montar el canvas, y eso es una compuerta mas. (c) Una dependencia de CDN en una
+      pantalla que usa cualquier miembro, para un adorno. Conclusion: el 3D se justifica cuando la figura necesita
+      volumen; para un diagrama plano con movimiento, SVG + CSS cuesta menos y no tiene ninguno de los tres
+      problemas. Lo unico que hay que conservar del patron es el desmontaje.
 
   - id: PAT-050
     nombre: "Gate de precio por rol: el override del precio es la UNICA puerta, el resto se recalcula server-side"
@@ -4201,3 +4213,48 @@ patrones:
       con SU PROPIO token se rechaza. Ni los arneses ni el verificador lo ven porque corren sin PathBase.
       Condicion de deploy: confirmar que el sitio queda en la raiz de su dominio, o derivar las dos
       huellas de la misma fuente.
+
+  - id: PAT-066
+    nombre: "Adorno de estado vacio en SVG animado con CSS: el ritmo se deriva, no se escribe"
+    categoria: frontend
+    descripcion: >
+      Una pieza decorativa que vive en el estado vacio de una pantalla y se resuelve con el SVG que ya esta en la
+      vista mas keyframes en la hoja de estilos: sin librerias, sin canvas, sin WebGL y sin salir a ningun CDN. El
+      RITMO vive en una sola variable derivada -- `--reparto: calc(var(--ciclo) / var(--brazos))` -- y el retardo de
+      cada elemento es `calc(var(--reparto) * var(--i))`, con `--i` puesto en el markup. La GEOMETRIA (de donde sale
+      y cuanto viaja cada parte) va en el markup, al lado de las coordenadas de las que se calcula. Con
+      `prefers-reduced-motion: reduce` no queda ninguna animacion y lo que se ve es el dibujo COMPLETO: las partes
+      que solo existen para moverse (pulsos, ondas) se sacan con `display: none`, el resto se queda.
+    cuando_usar: >
+      Portales server-rendered sin bundler (MVC, Razor, PHP, Astro) donde se pide movimiento en un estado vacio o en
+      un logo, y la figura es plana. Reemplaza a PAT-049 (3D por CDN) salvo que haga falta volumen de verdad.
+    proyecto_origen: olvidata-agentes-multirubro (2026-10-09, chat libre; reemplaza a PAT-049 en ese proyecto)
+    proyectos_que_lo_usan: [olvidata-agentes-multirubro]
+    archivos_referencia:
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Web/Views/ChatLibre/Index.cshtml"
+        motivo: "El isotipo con 4 pulsos y 4 ondas; cada pulso lleva su --i y su --dx/--dy calculados sobre las coordenadas del dibujo"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "src/OlvidataAgentes.Web/wwwroot/css/site.css"
+        motivo: "El reloj (--ciclo, --brazos, --reparto derivado), los tres @keyframes y la regla de movimiento reducido"
+        pendiente_verificar: false
+      - proyecto: olvidata-agentes-multirubro
+        path: "tests/OlvidataAgentes.Tests/M31BarraYIsotipoTests.cs"
+        motivo: "Los tests leen el fuente de la vista y del CSS: uno pide que el reparto sea la CUENTA y no el resultado, otro rehace la geometria de cada pulso"
+        pendiente_verificar: false
+    dependencias:
+      - "PAT-049: este lo reemplaza. De aquel sobrevive una sola cosa, el desmontaje del adorno cuando aparece contenido."
+    notas: >
+      LA IDEA: un ritmo escrito como numero suelto se desincroniza la primera vez que alguien cambia el ciclo o
+      agrega un elemento, y nadie lo nota porque sigue animando. Escrito como ciclo / cantidad, no puede.
+      Gotchas medidos: (1) en SVG hay que poner `transform-box: view-box` y un `transform-origin` explicito, o la
+      escala toma el centro de la caja y no el del dibujo; (2) el elemento que solo se ve moviendose queda VISIBLE y
+      quieto con movimiento reducido -- un pulso parado es un punto suelto encima de un brazo--, asi que la regla de
+      reduced-motion necesita `display: none` ademas de `animation: none`; (3) no se puede meter un calc() en el
+      selector de un @keyframes, asi que los porcentajes van a mano y lo unico honesto es escribir la cuenta al lado
+      (22,7 % = viaje / ciclo); (4) el adorno se saca del DOM cuando llega el contenido, igual que en PAT-049: un
+      `display: none` deja las animaciones declaradas.
+      COMO SE VERIFICA SIN OJO: con el navegador, `document.getAnimations()` devuelve una animacion por elemento con
+      su delay resuelto (0 / 1100 / 2200 / 3300 ms), y pausando todas en un instante -- `a.pause(); a.currentTime =
+      t` -- se lee el transform exacto en la llegada. Eso prueba el ritmo y el viaje sin mirar una captura.

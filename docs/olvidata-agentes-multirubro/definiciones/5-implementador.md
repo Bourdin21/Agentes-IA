@@ -1,9 +1,155 @@
 ﻿# Memoria - Implementador
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-10-09 (M33 el falso verde del emoji: la cadena declara utf8mb4 y el health check mira la sesion -- sin migracion) | 2026-10-05 (M32 tanda 1b: una continuacion que falla nunca mata la tarea -- sin migracion) | 2026-10-05 (M32 tanda 1: una respuesta cortada por max_tokens se continua y la tarea ya no muere -- sin migracion) | 2026-10-03 (M31 la barra de opciones del chat y la pieza que es el isotipo -- sin migracion) | 2026-10-03 (M30 el menu en seis secciones -- solo de seccion y solo nombres de seccion; sin migracion) | 2026-10-03 (M29d la quinta pantalla: subir sin cliente desde el arranque de una tarea de trabajo -- sin migracion; CIERRA el codigo de M29) | 2026-10-02 (M29c la tarjeta que se conto y no se dejo -- corrida #19, varianza no regresion; solo prompt) | 2026-10-02 (M29b prompt del chat libre vs. corrida #18 -- 4 fallos y 1 error diagnosticados; prompt + 4 casos, sin tocar src) | 2026-10-02 (M29 re-verificacion: OLV-041 y la rama muerta -- CIERRA M29) | 2026-10-02 (M29 ronda de arreglos de QA: OLV-038, OLV-039, OLV-040 -- CIERRA M29) | 2026-10-02 (M29 frente B tanda B2: el dueno del transitorio, la UI del destino y la purga -- CIERRA M29) | 2026-10-02 (M29 frente B tanda B1: documento sin cliente, primera migracion, frontera del portal del cliente) | 2026-10-02 (M29 frente A: la casilla de internet en el chat libre -- sin migracion) | 2026-10-02 (M28 re-verificacion: OLV-035 y OLV-037 aplicados, OLV-036 parado por migracion) | 2026-10-02 (M28 ronda de arreglos de los tres lotes: OLV-030 a OLV-034) | 2026-10-02 (M28 lote 1 de QA: OLV-028 y OLV-029) | 2026-10-02 (M28 tanda 2: la pantalla — autocomplete de menciones, pastillas que ensenan, pieza 3D que se desmonta) | 2026-10-02 (M28 tanda 1b) | 2026-10-02 (M28 tanda 1) | 2026-10-01 (M27)
+## Ultima actualizacion: 2026-10-09 (M31b la pieza del arranque del chat libre deja de ser 3D: SVG + CSS, se borra chat-libre-3d.js -- sin migracion) | 2026-10-09 (M33 el falso verde del emoji: la cadena declara utf8mb4 y el health check mira la sesion -- sin migracion) | 2026-10-05 (M32 tanda 1b: una continuacion que falla nunca mata la tarea -- sin migracion) | 2026-10-05 (M32 tanda 1: una respuesta cortada por max_tokens se continua y la tarea ya no muere -- sin migracion) | 2026-10-03 (M31 la barra de opciones del chat y la pieza que es el isotipo -- sin migracion) | 2026-10-03 (M30 el menu en seis secciones -- solo de seccion y solo nombres de seccion; sin migracion) | 2026-10-03 (M29d la quinta pantalla: subir sin cliente desde el arranque de una tarea de trabajo -- sin migracion; CIERRA el codigo de M29) | 2026-10-02 (M29c la tarjeta que se conto y no se dejo -- corrida #19, varianza no regresion; solo prompt) | 2026-10-02 (M29b prompt del chat libre vs. corrida #18 -- 4 fallos y 1 error diagnosticados; prompt + 4 casos, sin tocar src) | 2026-10-02 (M29 re-verificacion: OLV-041 y la rama muerta -- CIERRA M29) | 2026-10-02 (M29 ronda de arreglos de QA: OLV-038, OLV-039, OLV-040 -- CIERRA M29) | 2026-10-02 (M29 frente B tanda B2: el dueno del transitorio, la UI del destino y la purga -- CIERRA M29) | 2026-10-02 (M29 frente B tanda B1: documento sin cliente, primera migracion, frontera del portal del cliente) | 2026-10-02 (M29 frente A: la casilla de internet en el chat libre -- sin migracion) | 2026-10-02 (M28 re-verificacion: OLV-035 y OLV-037 aplicados, OLV-036 parado por migracion) | 2026-10-02 (M28 ronda de arreglos de los tres lotes: OLV-030 a OLV-034) | 2026-10-02 (M28 lote 1 de QA: OLV-028 y OLV-029) | 2026-10-02 (M28 tanda 2: la pantalla — autocomplete de menciones, pastillas que ensenan, pieza 3D que se desmonta) | 2026-10-02 (M28 tanda 1b) | 2026-10-02 (M28 tanda 1) | 2026-10-01 (M27)
 
 ## Definiciones vigentes
+
+# M31b - La pieza del arranque deja de ser 3D (SVG + CSS)
+
+Estado: **implementado 2026-10-09; 1 commit local, sin push, sin deploy, SIN MIGRACION.** Repo
+`C:\Sistemas\Olvidata Agentes Multi-rubro`, commit base `a51b4f3`. Entrada: **brief del orquestador del 2026-10-09**
+sobre un prototipo que Joaquin ya miro y aprobo. Toca solo el frente B de M31 (la pieza, D-07 a D-11): la barra de
+opciones, el plegado de movil y el compositor no se tocaron.
+
+## Que cambia, y por que no es cosmetico
+
+Mismo isotipo y misma idea de movimiento -lo mencionado entra por los brazos y el nucleo lo acusa-, pero dibujado en
+el SVG que ya estaba en la vista y animado con CSS. Se suman las **ondas**: cada llegada al nucleo abre un anillo que
+se expande y se apaga. Arregla tres cosas:
+
+1. **El ritmo estaba desfasado.** El escalonado era `DESFASE = 0.75` dentro de `CICLO = 4.4`, y 4 x 0,75 no divide
+   4,4: los cuatro pulsos entraban en 2,25 s y quedaban ~2 s muertos. Ahora el reparto es `calc(ciclo / brazos)`.
+2. **El isotipo fantasma.** El SVG plano quedaba debajo del canvas y nadie lo apagaba: asomaba quieto mientras el 3D
+   giraba, dos isotipos corridos. Sin lienzo el problema desaparece por construccion.
+3. **Se va una dependencia de CDN** (three@0.160.0 por jsdelivr) de una pantalla que usa cualquier miembro.
+
+## Escaneo de reutilizacion
+| Fuente | Que se tomo | Grado |
+|---|---|---|
+| `docs/patrones/cat_resumen.txt` | **PAT-049** (pieza 3D decorativa de carga diferida que se desmonta): es exactamente esta pieza, de este mismo proyecto | Match -- y lo que este cambio RETIRA |
+| PAT-049, lo unico que sobrevive | El **desmontaje**: el adorno se saca del DOM cuando llega el contenido, nunca `display:none` | Literal |
+| `grep -ril "prefers-reduced-motion" docs/*/definiciones/` | Solo kite-punta-lara, y ahi es una transicion de scroll: nada que copiar para un adorno con ritmo | Sin match |
+| Catalogo | **PAT-066 nuevo** ("Adorno de estado vacio en SVG animado con CSS: el ritmo se DERIVA"). PAT-049 queda marcado `estado: RETIRADO EN SU PROYECTO DE ORIGEN`, con las tres razones escritas, porque su `archivos_referencia` apuntaba a un archivo que este commit borra | Patron nuevo + ficha vieja corregida |
+
+## Cambios por capa
+**Ninguno fuera de la capa de presentacion. Sin Domain, sin Application, sin Infrastructure, sin controllers, sin
+DTOs, SIN MIGRACION EF y sin tocar la base.**
+
+- `Views/ChatLibre/Index.cshtml` -- el SVG pasa de 5 circulos a 13: 5 del isotipo (nucleo + 4 nodos, coordenadas
+  intactas), 4 ondas y 4 pulsos. **El orden del markup es parte del diseno**: las ondas van DEBAJO del nucleo (nacen
+  de su borde y el nucleo las tapa al salir) y los pulsos arriba de todo. Cada pulso lleva inline su `--i` (el numero
+  de brazo) y su `--dx`/`--dy`. Se fue la etiqueta `<script src="~/js/chat-libre-3d.js">` y la llamada a
+  `window.ovChatLibre3D.desmontar()`; el `removeChild(pieza)` del submit se queda igual que estaba.
+- `wwwroot/css/site.css` -- el reloj (`--ov-pieza-ciclo: 4.4s`, `--ov-pieza-brazos: 4`, `--ov-pieza-reparto:
+  calc(ciclo / brazos)`, `--ov-pieza-viaje: 1s`), tres `@keyframes` y la regla de movimiento reducido. Desaparece
+  `.ov-chat-pieza__lienzo`. La regla de movil (390 px) no se toco.
+- `wwwroot/js/chat-libre-3d.js` -- **BORRADO** (240 lineas).
+- `tests/OlvidataAgentes.Tests/M31BarraYIsotipoTests.cs` -- ver abajo.
+
+## Los numeros, y por que no son a ojo
+Ciclo 4,4 s / 4 brazos = **un pulso cada 1,1 s** (delays 0 / 1,1 / 2,2 / 3,3 s). El viaje dura 1 s = **22,7 %** del
+ciclo, asi que un pulso termina de entrar justo antes de que salga el siguiente (25 %). La onda va de 22,7 % a 47,7 %
+(un reparto) y se apaga antes de la llegada siguiente: **nunca hay dos ondas abiertas**. El nucleo late con una
+animacion de 1,1 s y `animation-delay: 1s`, que la hace caer clavada en cada llegada (1,0 / 2,1 / 3,2 / 4,3 ...).
+
+Cada pulso sale del **borde de su nodo** y termina **al tocar el nucleo**: `nodo + unitario x radio del nodo` hasta
+`nucleo - unitario x 164`. Los cuatro pares se **recalcularon** antes de escribirlos (el brief traia una tabla y
+pedia verificarla): coinciden salvo redondeos de <= 0,13 unidades de viewBox en los pulsos 3 y 4, donde se escribio
+el valor calculado y no el de la tabla.
+
+| Pulso | cx | cy | --dx | --dy |
+|---|---|---|---|---|
+| 1 | 481.9 | 481.9 | 151.2px | 151.2px |
+| 2 | 1041.2 | 542.8 | -158.2px | 111.6px |
+| 3 | 1094.8 | 1018.0 | -216.3px | -168.3px |
+| 4 | 472.9 | 1060.5 | 167.3px | -188.7px |
+
+## Decisiones de implementacion
+1. **`--i` en el markup y el delay en el CSS**, en lugar de cuatro reglas `nth-of-type`: el retardo se lee como
+   `calc(var(--ov-pieza-reparto) * var(--i))`, que es **la cuenta y no el resultado**. Con cinco brazos se cambia
+   `--ov-pieza-brazos` y sigue cerrando.
+2. **La geometria va en la vista y el ritmo en el CSS.** `--dx`/`--dy` se calculan de las coordenadas del isotipo,
+   que estan tres lineas mas arriba; el reloj no tiene nada que ver con el dibujo y vive una sola vez.
+3. **El circulo del nucleo ahora lleva clase `ov-chat-pieza__nucleo`** (la necesita el latido). El test de M31
+   afirmaba que esa clase NO existia -- era la guarda contra la version vieja de "dos anillos y un punto", que eran
+   `<div>`. Se conserva la guarda real (`ov-chat-pieza__anillo` no vuelve) y se reescribio la otra.
+4. **`transform-box: view-box` + `transform-origin: 749px 749px`** explicitos: sin eso la escala del latido y de las
+   ondas toma el centro de la caja, no el del nucleo.
+5. **Lo que NO se hizo, porque no estaba decidido:** no hay rotacion ni deriva del conjunto (era del 3D), el color
+   del isotipo sigue en `--ov-primary` y el SVG conserva sus medidas. **Observacion anotada y no resuelta** (queda en
+   un comentario del CSS): en tema claro `--ov-primary` sobre `#f0f4f8` queda al limite de contraste. Cambiarlo es
+   otra decision, y Joaquin no la tomo.
+6. **La lista blanca de CSP no se toco**: jsdelivr la siguen usando el tablero y los dos layouts.
+
+## Los tests: dos reescritos y dos nuevos
+Los dos tests del frente B afirmaban el comportamiento viejo y **se reescribieron, no se borraron**: cada uno cuidaba
+algo que sigue importando.
+
+- `LaGeometria3DEsElIsotipo` leia el JS borrado. Lo que cuidaba -que la figura sea el isotipo y no un solido
+  generico- pasa a `LaPiezaEsElIsotipoYCadaGrupoDeCirculosTieneLoSuyo`, sobre el SVG de la vista. **Los circulos se
+  cuentan por grupo**, no con un total pelado: nucleo (1, con sus coordenadas), los 4 nodos uno por uno, 4 pulsos,
+  4 ondas, y recien despues el total 13. Un total solo se "arregla" cambiando el numero.
+- `LasTresCompuertasYElDesmontajeSiguenIntactos` afirmaba el import de three, su version fija y el `dispose`. Nada de
+  eso existe. Lo que sigue valiendo quedo en
+  `SinJavaScriptDeAnimacion_ConMovimientoReducidoNoQuedaNadaYLaPiezaSeSacaDelDom`: que el archivo **no exista** y
+  nada lo referencie, que los tres `@keyframes` esten en el CSS, que la regla de movimiento reducido **este dentro de
+  su `@media`** (se verifica mirando los 120 caracteres anteriores: un `display:none` suelto apagaria la pieza para
+  todo el mundo) y que la pieza se saque del DOM al enviar.
+- **`ElRitmoEsElCicloDivididoPorLosBrazos`** (nuevo): es el defecto que esta tanda arregla y el que mas facil vuelve.
+  Pide la **cuenta**: un `animation-delay: 1.1s` escrito a mano lo falla aunque el resultado sea identico.
+- **`CadaPulsoSaleDelBordeDeSuNodoYLlegaAlBordeDelNucleo`** (nuevo): rehace la trigonometria y la compara con lo que
+  dice la vista, con 0,5 de tolerancia. Si alguien mueve un nodo y no recalcula, el pulso queda flotando.
+
+## Evidencia
+- `dotnet build OlvidataAgentes.slnx`: **0 errores** (15 advertencias, todas preexistentes).
+- `dotnet test tests/OlvidataAgentes.Tests`: **1293/1293 verde**, `EXIT=0`. **Medido sin pipe**, por redireccion a
+  archivo y codigo de salida (memoria propia: `dotnet test | tail` devuelve 0 aunque haya rojos).
+- **Mutacion corrida, no supuesta:** (a) `--ov-pieza-reparto: 1.1s` escrito a mano -> falla
+  `ElRitmoEsElCicloDivididoPorLosBrazos`; (b) el pulso 1 movido al centro de su nodo -> falla
+  `CadaPulsoSaleDelBordeDeSuNodoYLlegaAlBordeDelNucleo`. 2 rojos de 9, revertido y re-verificado.
+- **La animacion se vio correr de verdad**, con el SVG y el CSS reales servidos en un harness estatico y Playwright:
+  `document.getAnimations()` devuelve **9** animaciones (4 pulsos, 4 ondas, 1 latido) con delays resueltos
+  0 / 1100 / 2200 / 3300 ms y el latido en 1000 ms sobre 1100 ms de duracion. Pausadas en `currentTime = 1010 ms`:
+  el pulso 1 esta en `translate(151.2, 151.2)` -el borde del nucleo- y apagado, la onda 1 recien abrio
+  (`opacity .41`, `scale 1.027`) y el nucleo arranca el latido. Con `prefers-reduced-motion: reduce`:
+  **0 animaciones**, pulsos y ondas en `display: none`, y el isotipo completo (nucleo + 4 nodos + 4 brazos).
+
+## Riesgos y supuestos
+- **No se vio en el portal real.** El harness prueba el SVG y el CSS reales, pero no el layout de la pantalla: el
+  alto de la caja, el tema oscuro y los 390 px son de QA.
+- La onda se dibuja con `stroke-width: 15` sobre un `r=164` que escala hasta 2,55: el trazo se **engrosa** al
+  expandirse, porque `transform` escala el stroke. Es intencional (la onda se ve mas gruesa al final y se apaga),
+  pero si se quisiera trazo constante habria que usar `vector-effect: non-scaling-stroke`.
+- Supuesto del comentario de PAT-049 que ahora es dato: ningun otro lugar del portal referenciaba `chat-libre-3d.js`
+  (verificado por grep en `src/`, `tests/` y `docs/`).
+
+## Pruebas minimas para QA
+1. Chat libre, tema claro y oscuro, 1440 px: **mirar la pieza 30 segundos**. Tiene que llegar un pulso cada ~1,1 s,
+   parejo, sin baches de 2 segundos, y cada llegada abre un anillo que se expande y se apaga. **Nunca dos anillos a
+   la vez.** El conjunto **no rota ni se mueve de lugar**.
+2. **No hay dos isotipos.** Comparar con el logo de la pestana: uno solo, derecho, con los cuatro brazos.
+3. Sistema con **movimiento reducido** activado: la pieza queda quieta y **completa** (nucleo, 4 nodos, 4 brazos). No
+   tiene que verse ningun punto suelto sobre un brazo ni ningun anillo.
+4. **390 px**: la pieza se achica y el compositor sigue entrando sin scroll (regla de movil sin cambios).
+5. **Red**: abrir la pantalla con el inspector en Network y confirmar que **no se descarga nada de jsdelivr** ni
+   ningun `chat-libre-3d.js` (404 incluido).
+6. Enviar el primer mensaje: la pieza **desaparece del DOM** (inspeccionar: `#piezaChatLibre` no existe), no queda
+   oculta.
+7. Regresion del frente A de M31: la barra de opciones a la derecha, las cuatro acciones que escriben una mencion, la
+   casilla de internet y el plegado de movil siguen igual.
+
+## Checklist de merge
+- [x] Build 0 errores (15 advertencias preexistentes) - tests 1293/1293 verde, medido sin pipe
+- [x] Sin migracion EF; la base no se toco ni se leyo
+- [x] Sin logica de negocio: el cambio es 100 % presentacion (vista + CSS + un JS borrado)
+- [x] Multi-tenant sin cambios; ningun `IgnoreQueryFilters()`
+- [x] `Mcp` y `Cli` sin tocar
+- [x] Costo cero: ninguna llamada a la API real; el unico servidor que se levanto fue un `http.server` local con un
+      harness estatico, y se apago
+- [x] La pieza sigue sin recibir ni mostrar ningun dato (D-11)
+- [x] `wwwroot/js/chat-libre-3d.js` borrado y sin referencias en `src/`, `tests/` ni `docs/`
+- [x] Catalogo de patrones actualizado: PAT-066 nuevo, PAT-049 marcado como retirado
 
 # M33 - El falso verde que dejo morir tres tareas por un emoji
 
