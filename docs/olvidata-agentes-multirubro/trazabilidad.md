@@ -1,8 +1,15 @@
-# Trazabilidad del proyecto
+﻿# Trazabilidad del proyecto
 
 Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
+
+### 2026-10-09 - implementador (M33: el falso verde del emoji)
+- Etapa: Implementacion
+- Cambio: **un emoji en la respuesta de un agente ya no puede matar la tarea en produccion, y el health check ya no puede decir que todo esta bien mientras pasa.** Sin migracion. (1) `ValidacionArranque` gana `CharSetDeLaCadena(string?)` y `DeclaraCharSetUtf8mb4(string?)`: fuera de Development, si `ConnectionStrings:DefaultConnection` no declara `utf8mb4`, el arranque **se corta** con `NivelProblema.Error`; se aceptan las tres formas que el connector entiende (`CharSet=`, `CharacterSet=`, `Character Set=`, sin distinguir mayusculas y con espacios alrededor del `=`) y se rechazan ausente, `utf8`, `utf8mb3` y `latin1`. Es **sobre el texto de la cadena**: el metodo sigue sin efectos y no abre ninguna conexion. El mensaje nombra la clave y **nunca** su valor, ni el host, ni el usuario, ni un fragmento. (2) `DatabaseHealthCheck` ahora lee **los dos** juegos de caracteres en una sola apertura -- el de la base (`information_schema.SCHEMATA`, como antes) y el de la sesion (`SELECT @@character_set_connection`) -- y la decision se extrajo a `public static HealthCheckResult Evaluar(string?, string?)`, pura, para poder probarla: la **sesion** mal deja el check en `Degraded` **aunque la base este bien**, con un mensaje que dice que agregar y por que, sin volcar la cadena. (3) `appsettings.Production.example.json` pasa a mostrar la forma exacta terminada en `CharSet=utf8mb4;` con el porque, y `appsettings.Production.json` (no versionado, es el que copia `deploy-prod.ps1`) quedo corregido: es lo unico que arregla produccion de verdad.
+- Motivo: defecto de produccion con causa raiz ya reproducida por el orquestador contra `db_a7251f_agentes`. La base y las tablas **ya estaban** en `utf8mb4` desde el 2026-09-28, pero el servidor tiene `character_set_server = utf8mb3` y la cadena no declaraba `CharSet`, asi que el connector negociaba la **sesion** en 3 bytes y MySQL rechazaba los 4 bytes. Mato tres tareas: la 14 (2026-09-28, 3 intentos pagos), la corrida de pruebas 22 (2026-10-05) y la tarea 24 (2026-10-08, USD 0,15 de trabajo real de un cliente perdido). **Volvio a pasar dos veces despues de estar diagnosticado por el falso verde:** el health check miraba el `DEFAULT_CHARACTER_SET_NAME` de la base (correcto) y nunca el de la conexion, asi que `/health` informaba *"accesible, en utf8mb4"* mientras las tareas morian. Ese falso verde era la mitad del defecto.
+- Impacto en capas: Infrastructure (`Services/ValidacionArranque.cs`, `Services/DatabaseHealthCheck.cs`), Web config (`appsettings.Production.example.json` versionado + `appsettings.Production.json` **fuera del commit**, verificado con `git check-ignore`), tests (`DespliegueTests.cs` y `DatoQueLaBaseNoAceptaTests.cs`, los dos moldes que pidio el brief; ningun archivo de test nuevo). **Sin migracion EF, sin `ALTER DATABASE`, sin `CONVERT TO`** por decision del brief: la base ya esta convertida, el problema era la sesion. `ProcesadorTareas` intacto (`EsDatoQueLaBaseNoAcepta` y `MensajeDatoNoGuardable` quedaron bien el 2026-09-28 y funcionaron en la tarea 24: 1 intento, no 3). Sin codigo de un solo uso para recuperar la respuesta perdida -- eso lo hace el orquestador por SQL. Sin tocar `Mcp` ni `Cli`.
+- Riesgos/supuestos: build **0 errores** (15 advertencias, todas preexistentes) y **1292/1292 verde** (base 1255, +37), **medido sin pipe** por redireccion a archivo y codigo de salida. **Mutacion corrida y declarada:** sacada la rama de la sesion de `Evaluar` -- el estado previo al arreglo -- las 3 filas de `Con_la_base_en_utf8mb4_pero_la_sesion_no_el_health_check_no_puede_estar_en_verde` fallan volviendo a `Healthy`; restaurado y re-verificado en verde. Riesgo asumido: el arranque fuera de Development ahora corta por una clave mas, asi que un deploy con una cadena vieja no levanta -- es el criterio 1, el mensaje dice exactamente que agregar y queda en `Logs/arranque-*.log`. La lista de formas aceptadas es **por inclusion (fail-closed)**: si el connector agregara un cuarto sinonimo, una cadena valida seria rechazada, y para que se vea al actualizar el paquete hay un test que pasa las cuatro formas por `MySqlConnectionStringBuilder` y afirma su `CharacterSet`. Se chequea `@@character_set_connection` y no `character_set_client`: con `CharSet=utf8mb4` el connector manda `SET NAMES utf8mb4`, que mueve los tres. La app no se levanto: el `/health` real y la prueba del emoji de punta a punta son de QA y recien valen **despues** del deploy, que lo corre el orquestador. Commit local, sin push y sin deploy.
 
 ### 2026-10-05 - implementador (M32 tanda 1: la respuesta cortada se continua)
 - Etapa: Implementacion
@@ -356,102 +363,6 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
   que no existía, y lo único que impidió implementarlos igual fue que «reproducir primero» era el requisito número uno y
   no una verificación al final.
 
-## 2026-10-02 - M29 CERRADO + despliegue a produccion + publicacion BLOQUEADA por saldo
-
-- **M29 (dos features pedidas por Joaquin) cerrado.** (A) la **casilla de buscar en internet** en el chat libre; (B) un
-  archivo que se sube a la conversacion y **se guarda en la carpeta de un cliente o se descarta**. **1223 tests verdes**
-  (de 1164 al abrir M29), build limpio, **dos migraciones** (`DocumentoSinClienteM29`, `DuenoDelTransitorioM29`),
-  **11 commits locales sin push**. QA: **4 corridas (2 lotes + re-verificacion + la de M28)**, **apto, liberable**.
-- **(B) es la respuesta a OLV-036, y es mejor que la que tenia la arquitectura.** M28 cerro diciendo que *un documento
-  de la empresa sin cliente no existe en el modelo* y que resolverlo pedia tres decisiones de producto. La respuesta de
-  Joaquin **esquiva el problema en vez de pelearlo**: el archivo no vive sin dueño para siempre — o se guarda en un
-  cliente (y es un documento normal) o se usa y se descarta. Tres decisiones abiertas se volvieron una sola pregunta
-  operativa, *cuando se descarta*, que tambien quedo contestada (a los N dias de terminada la conversacion, 7 por
-  defecto, y **0 apaga la purga**, no significa «descartar todo ya»).
-- **El riesgo central de M29 era el portal del cliente, y paso por SIETE caminos.** Volver `ClienteCarteraId` nulable
-  toca `IClienteOwned` y el `FiltroCliente`, que es la frontera que M18 construyo porque el usuario cliente vive
-  **adentro** del tenant del estudio. En SQL un `NULL` **filtra bien por casualidad**, y «bien por casualidad» no es una
-  garantia. QA aplico una regla nueva —**cerrar el inventario por la lista de LECTORES de la entidad, no por recorrido
-  de pantallas** (MH-041)— y aparecieron dos caminos que la implementacion no habia cubierto
-  (`PortalDocumentos/Renombrar` y `/DarDeBaja` por id forzado): **pasan**. Con el peor caso sembrado en base
-  (`ClienteCarteraId NULL` + `VisibleParaCliente = 1`), mutacion verificada y control positivo del Director.
-- **Dos afirmaciones MIAS que la implementacion refuto contra el codigo, y las dos a tiempo:** (1) **B-03 era
-  factualmente falso** —el `clienteId` **si** esta en la ruta en disco—, y seguirlo al pie dejaba todo documento
-  guardado en un cliente apuntando a bytes que nadie busca, **sin fallar en el momento**; se corrigio con un `Mover`
-  antes del commit, y QA lo verifico **con los bytes y el hash**. (2) El dueño del transitorio: reutilizar
-  `GeneradoEnTareaId` habria hecho que un archivo subido por una persona apareciera como **entregable del agente** y le
-  comiera el tope de la impresora — dos significados con dos lectores son dos columnas.
-- **El hueco de seguridad que la implementacion declaro en vez de saner en silencio (B-07):** un transitorio no aparece
-  en ningun listado, **pero su id alcanzaba** para adjuntarselo desde otra conversacion de la propia organizacion. El
-  valor de «usar solo en esta conversacion» **es la promesa de que el archivo no queda a mano de nadie**, asi que se
-  cerro: un documento sin cliente pertenece a la conversacion en la que nacio. Y era **el mismo dato que la purga
-  necesitaba**.
-- **4 defectos de QA, los 4 cerrados y re-verificados** (OLV-038 major, OLV-039, OLV-040, OLV-041). Tres eran **la misma
-  clase, por tercera y cuarta vez**: *la superficie que **relee** el hilo se queda sin un dato que la que lo **escribe**
-  si tiene*. Al cerrar el ultimo se compararon los dos renderizadores campo por campo, y ahi aparecio que **el arreglo
-  obvio abria el mismo defecto invertido** (el JS no nombra al cliente cuando la lista ya esta filtrada por uno): la
-  regla quedo escrita una vez y valiendo para los dos lados.
-
-### El despliegue a produccion: HECHO
-
-Autorizado por Joaquin («publicar y desplegar a produccion»). `scripts/deploy-prod.ps1 -Force`: **migraciones aplicadas
-contra la base de produccion**, sitio sincronizado (25 cambios, 3 archivos nuevos entre ellos `chat-libre-3d.js`), y
-**`/health/vivo` respondio 200**. Precio del token **verificado contra la pagina oficial** antes de tocar nada: coincide.
-
-### La publicacion: BLOQUEADA, y no por el codigo
-
-**El chat libre NO esta disponible todavia**, y el motivo es el gate que funciona: *ningun prompt se publica sin
-evaluacion aprobada*. Tres corridas reales contra produccion sobre el prompt del cuarto agente de plataforma:
-
-| Corrida | Version | Resultado | Costo |
-|---|---|---|---|
-| #18 | v1 | 12/17 · 4 fallos · 1 error → **no aprobada** | USD 1,43 |
-| #19 | v2 | **16/17** · 1 fallo (de seguridad) → **Rechazada** | USD 1,66 |
-| #20 | v3 | 7/17 · **0 fallos** · 10 con error → **cortada** | USD 0,75 |
-
-- **La #18 encontro trabajo real:** el agente no usaba `proponer_programacion` ni `proponer_agente_empresa`, que es
-  exactamente *crear automatizaciones mencionando*. El prompt no alcanzaba con un modelo real, aunque el codigo, los
-  tests y QA estuvieran verdes. **Eso es para lo que existe la evaluacion.**
-- **Dos defectos de los CASOS, no del prompt, y se arreglaron haciendolos mas duros, nunca mas blandos:** uno se
-  **contradecia solo** (el criterio premiaba preguntar primero y la verificacion exigia la herramienta en el mismo
-  turno: premiaba y castigaba la misma conducta), y otro media **lo incalificable** — hallazgo que destrabo tres casos:
-  **el revisor automatico solo ve el texto final de la respuesta, nunca la entrada de una herramienta**, asi que un
-  criterio sobre el contenido de una tarjeta no se puede juzgar por construccion. La suite del analista ya respetaba esa
-  convencion; la del chat libre se habia salido.
-- **El fallo de la #19 era varianza, no regresion**, y resulto ser algo peor y mas interesante: **alucinacion de
-  accion**. El modelo escribio *«no es un dato para anotar en memoria, es una regla… asi que la **deje** como tarjeta»*,
-  describio la tarjeta completa, cerro con *«se termina con el boton Aplicar»*, y **nunca llamo a la herramienta**. Los
-  dos criterios de texto en verde y la accion inexistente: la contracara exacta del hallazgo anterior. El prompt ahora
-  dice que **dejar una tarjeta ES llamar a la herramienta**, y en la #20 ese caso **paso**.
-- **La #20 se corto por algo que no es del sistema:** `Your credit balance is too low to access the Anthropic API`.
-  Verificado aparte con la llamada mas barata posible (Haiku, 5 tokens de salida): **la cuenta de Anthropic no tiene
-  saldo**. 7 pasaron, **0 fallaron**, 10 quedaron con error de credito.
-
-### Lo urgente, que es mas grande que la publicacion
-
-**Sin saldo en la cuenta de Anthropic, ninguna tarea de agente funciona en produccion** — no es solo que no se pueda
-publicar el chat libre: es que el producto en vivo esta sin motor. El error viaja como un 400 del proveedor, asi que
-cualquier cliente que mande una tarea ahora la ve fallar.
-
-**Lo que sigue, en orden, cuando haya saldo:**
-1. Cargar credito en la cuenta de Anthropic (Plans & Billing).
-2. `evaluacion-reintentar 20 --confirmar` — vuelve a correr **solo** los 10 casos que quedaron con error, no los 17.
-3. Si la corrida queda aprobada: `publicar 66` (la v3, que es la que tiene el prompt bueno).
-4. Humo minimo en produccion: abrir el chat libre, escribir `@`, y probar la casilla de internet.
-
-**Dato de presupuesto:** USD 3,84 gastados de la bolsa mensual de pruebas de USD 30 (que es un tope interno, distinto
-del saldo de la cuenta).
-
-### Lo que quedo en Borrador en produccion a proposito, y es decision de Joaquin
-
-- **`chat-libre` v1 (#63) y v2 (#65)**: versiones viejas del prompt. La buena es la **v3 (#66)**.
-- **`analista-automatizaciones` v3 (#62)** y **`01-un-agente-propio-nace-usable` v1 (#64)**: cambios de M27 que nunca se
-  publicaron a produccion. **No los publique**: cambian el comportamiento de agentes que hoy andan, y eso no era parte
-  de lo pedido.
-- La instruccion compartida `00-como-trabajan-los-agentes-de-olvidata` dice «los otros **dos** agentes» y ofrece
-  herramientas que el chat libre no tiene: quedo declarado, sin tocar, porque corregirla **cambia a los cuatro**.
-- **Opus 5.5 cuesta 4/20 contra 5/25 de Opus 5**: las evaluaciones correrian ~20 % mas baratas. Sin aplicar.
-
 ## 2026-10-03 - M30 (el menu en seis secciones) y M31 (la barra de opciones y el isotipo) CERRADOS
 
 **QA: los dos APTO, 23/23 criterios PASS, 0 FAIL, 0 BLOCKED, cero defectos.** 1243 tests verdes, build limpio, sin
@@ -596,6 +507,13 @@ de ancestros**. Las dos casi producen un FAIL falso; las dos quedaron en la memo
   delante.
 
 ## Historial de ajustes
+
+### Bloques archivados (2026-10-09)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **M29** — 1 bloques (2026-10-02 a 2026-10-02) → [`trazabilidad-M29.md`](historial/trazabilidad-M29.md)
+
 
 ### Bloques archivados (2026-10-05)
 
@@ -895,4 +813,11 @@ Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-p
 - Reglas releidas: ninguna instruccion nueva: se trabajo sobre el bucle de ProcesadorTareas ya leido en la tanda 1, memorias propias: 'Medir sin pipe', 'Un filtro que protege se escribe nombrando el caso', 'Dos textos por error de herramienta'
 - Arranque real: 18 KB (~4k tokens)
 - Nota: M32 TANDA 1b, UNA SOLA GUARDA, SIN MIGRACION. EL PEDIDO: una continuacion que falla NUNCA mata la tarea, porque es una llamada de mas que nadie pidio y su fallo no puede costar mas que no haberla intentado. EL RIESGO QUE LA MOTIVA NO SE PUDO COMPROBAR Y ESO ES PARTE DEL DISENO: la documentacion oficial (verificada 2026-10-05) dice que los assistant-turn prefills devuelven 400 en claude-sonnet-5 y claude-opus-5, y la continuacion de la tanda 1 deja la conversacion terminando en un mensaje del asistente; la cuenta esta sin saldo y el modelo simulado no valida nada de esto, asi que la guarda NO APUESTA a que el prefill ande: HACE QUE NO IMPORTE. COMO QUEDO: try alrededor de la llamada con 'catch (Exception ex) when (continuandoCorte && ex is not OperationCanceledException)' -> TerminarCortadaAsync, que es el cierre del tope agotado EXTRAIDO Y COMPARTIDO (nota + MarcarFinAsync(Completada) con el texto pegado + GuardarYAvisar): lo unico distinto entre las dos ramas es el texto. La tarea no queda Fallida NI VUELVE A LA COLA a repetir el mismo 400 hasta MaxIntentos. LA GUARDA ES ESTRECHA A PROPOSITO Y HAY TEST QUE LO AFIRMA: el error de una llamada normal sigue subiendo a RegistrarErrorAsync, que reintenta, porque ahi no hay trabajo entregable esperando y tragarselo esconderia una tarea que fallo. LO QUE QUEDA REGISTRADO EN LA BASE, que era el segundo pedido: MensajeContinuacionFallida es un texto DISTINTO al del tope agotado a proposito -- asi se sabe cual de las dos cosas paso CONTANDO NOTAS, sin logs -- mas un segundo bloque de texto en la misma nota con el tipo de la excepcion (lo que distingue un 400 de la API de un timeout de red) y el mensaje recortado a 500. AnotarNotaDelMotorAsync acepta ahora un 'detalle' opcional, aparte del aviso para la persona y sin reemplazarlo. UN BUG QUE ENCONTRE AL ESCRIBIR LA GUARDA Y NO HABRIA APARECIDO EN LOS TESTS: el numero del paso de la nota no puede ser siguienteNumero, porque el escalonamiento de A-M27-8 pudo dejar SUS PROPIAS notas antes de que la llamada se caiga, y repetir un numero rompe el guardado entero por el indice unico (tarea, numero); se lee de la base con ProximoNumeroAsync. CONSECUENCIA CONOCIDA QUE DEJO ESCRITA Y NO ARREGLE: si el pedido de la continuacion no entra POR TAMANO, lo atrapa antes el escalonamiento de M27 dentro de EnviarConEscalonamientoAsync y la tarea queda Fallida -- terminada y seguible, con todos los tramos guardados, no se pierde trabajo. Convertirlo exigiria re-marcar el fin despues de que ese metodo ya guardo y aviso, duplicando notificacion, aviso de programacion y destilado de M25: peor que la consecuencia. Y el brief prohibia tocar ese metodo. Sigue en pie la de la tanda 1: una tarea PROGRAMADA dice 'termino correctamente' sobre una respuesta cortada porque EjecutorProgramaciones elige por == Completada; el arreglo es del lado del aviso (AvisarFinDeTareaAsync), no del estado, y asi quedo escrito en 5-implementador. NO SE INTENTO ESQUIVAR EL PREFILL con un mensaje de usuario tipo 'segui': contamina el hilo y queda en la instantanea. Build 0 errores, 1255/1255 verde (base 1253 + 2), MEDIDO SIN PIPE, dos mutaciones corridas y restauradas (la guarda neutralizada con 'false &&' tumba el test: la tarea muere; el detalle de la nota en null tumba el mismo test por el asserto del registro). La app no se levanto. Commit local, sin push, sin deploy.
+
+### Traza de corrida -- 2026-10-09 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: ninguno (defecto de produccion con causa raiz ya reproducida por el orquestador, no vino de partes de QA)
+- Reglas releidas: 39-presupuesto-contexto#3-reutilizacion y #8-traza, memorias propias: Medir sin pipe, Un filtro que protege se escribe nombrando el caso, Criterio vs. codigo, Verificar contra datos reales. NO se reabrio el rol completo del agente ni las etapas anteriores: el brief traia la causa raiz y los dos moldes de test.
+- Arranque real: 45 KB (~11k tokens)
+- Nota: M33, DEFECTO DE PRODUCCION, SIN MIGRACION Y SIN TOCAR LA BASE. LA CAUSA RAIZ VINO REPRODUCIDA EN EL BRIEF Y NO SE RE-INVESTIGO: la base y las tablas ya estaban en utf8mb4 desde el ALTER del 2026-09-28; lo que fallaba era la SESION, porque character_set_server es utf8mb3 y la cadena no declaraba CharSet, asi que el connector negociaba 3 bytes y MySQL rechazaba los emojis. LO QUE DE VERDAD IMPORTABA ERA LA SEGUNDA MITAD: el health check leia el charset de la BASE y nunca el de la CONEXION, asi que desde el 2026-09-28 /health decia 'accesible, en utf8mb4' mientras las tareas morian -- y por ese falso verde el mismo defecto volvio a pegar dos veces (corrida 22 el 2026-10-05 y tarea 24 el 2026-10-08, con USD 0,15 de trabajo pago de un cliente perdido). Un arreglo que solo hubiera corregido la cadena habria dejado el instrumento roto. DECISION DE DISENO PROPIA, NO PEDIDA POR EL BRIEF: la decision del health check se extrajo a un metodo PURO Y ESTATICO, Evaluar(charSetBase, charSetConexion). Sin eso el criterio 4 era incalificable por test (el check pide AppDbContext y SQL crudo contra MySQL, y los tests corren InMemory): el falso verde seguiria sin red. Con eso, el caso exacto de produccion -- base utf8mb4 + sesion utf8mb3 -- es un Theory de tres filas. MUTACION CORRIDA Y DECLARADA, QUE ERA LA CONDICION DEL BRIEF: sacada la rama de la sesion de Evaluar y recompilado, las 3 filas de Con_la_base_en_utf8mb4_pero_la_sesion_no_el_health_check_no_puede_estar_en_verde fallaron volviendo a Healthy (11/14 pasando). Restaurado y re-verificado. LA REGLA DE ARRANQUE SE HIZO SOBRE EL TEXTO, COMO PEDIA EL BRIEF: RevisarConfiguracion sigue sin efectos y no abre ninguna conexion; el estado real de la sesion lo mira el health check, que es runtime. El literal 'utf8mb4' lo escribe UN SOLO lugar: ValidacionArranque compara contra DatabaseHealthCheck.CharSetEsperado. LA LISTA DE FORMAS ES FAIL-CLOSED Y ESO TIENE UN COSTO ESCRITO: se aceptan charset/characterset/character set y nada mas, asi que un sinonimo nuevo del connector seria rechazado -- por eso hay un test que pasa las cuatro formas por MySqlConnectionStringBuilder y afirma su CharacterSet, para que el dia que se actualice el paquete se vea; si la revision aceptara una forma que el connector ignora, el arranque pasaria y la sesion seguiria en 3 bytes. DOS COSAS QUE EL BRIEF NO MENCIONABA: (1) la cadena de ConfigCompleta en DespliegueTests no declaraba charset, asi que el test 'una configuracion de produccion completa no deja errores ni avisos' se rompia con la regla nueva -- se le agrego CharSet y, de paso, su host y usuario se renombraron a db-secreto/usuario-secreto para poder AFIRMAR que el mensaje no los filtra (el criterio 1 pide 'ni el host, ni el usuario, ni un fragmento', y el test de secretos no disparaba este error: ahora si); (2) appsettings.Production.example.json tenia la cadena VACIA 'para que se vea que clave hace falta', lo cual no podia declarar nada -- pasa a mostrar la forma exacta con los valores entre <...>. NO SE TOCO NADA DE LO QUE EL BRIEF CERRO: ni migraciones ni ALTER/CONVERT, ni ProcesadorTareas (el no-reintento y el mensaje para la persona del 2026-09-28 funcionaron en la tarea 24: 1 intento, no 3), ni el 400 de credit balance, ni codigo de un solo uso para recuperar la respuesta perdida. appsettings.Production.json SI se corrigio -- es lo unico que arregla produccion -- y se verifico con git check-ignore que no entra al commit. ARRANQUE HONESTO: se trabajo desde el brief del orquestador sin reabrir las etapas anteriores ni el rol completo del agente; lo que se leyo fueron los 4 archivos a tocar, los 2 moldes de test que el brief nombro y el escaneo de reutilizacion (cat_resumen.txt + grep por utf8mb4 en definiciones, 10 hits, ninguno aplicable: declarado que para esto no habia patron). Build 0 errores (15 advertencias preexistentes), 1292/1292 verde (base 1255, +37), MEDIDO SIN PIPE por redireccion y codigo de salida. La app no se levanto: el /health real y la prueba del emoji de punta a punta son de QA y recien valen DESPUES del deploy, que lo corre el orquestador. Commit local, sin push, sin deploy.
 
