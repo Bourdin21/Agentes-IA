@@ -1,9 +1,274 @@
 # Memoria - QA
 
 ## Proyecto: olvidata-agentes-multirubro
-## Ultima actualizacion: 2026-10-03 (QA M30+M31: menu en seis secciones y pantalla del chat libre -- APTO los dos, 23 criterios PASS, 0 defectos) | 2026-10-02 (QA M29 RONDA DE RE-VERIFICACION y CIERRE: OLV-038, OLV-039 y OLV-040 cerrados; 1 defecto nuevo OLV-041 minor -- M29 APTO CON REPAROS, liberable) | 2026-10-02 (QA M29 lote 1 de 2: la casilla de internet, la frontera del portal del cliente y el dueno del transitorio -- APTO, 1 defecto menor OLV-040) | 2026-10-02 (QA M29 lote 2 de 2: subir sin cliente, guardar/descartar y la purga -- apto con reparos, OLV-036 cerrado, 2 defectos nuevos) | 2026-10-02 (QA M28 RONDA DE RE-VERIFICACION: los seis defectos cerrados, los cuatro BLOCKED calificados, tres defectos nuevos) | 2026-10-02 (QA M28 lote 3 de 3: propuestas, adjuntos y la pantalla) | 2026-10-02 (QA M28 lote 2 de 3: menciones, resolucion y delegacion) | 2026-10-02 (QA M28 lote 1 de 3: arranque, permisos e historial del chat libre) | 2026-10-01 (plan de QA de M27 escrito, sin ejecutar)
+## Ultima actualizacion: 2026-10-09 (QA de la pieza del arranque sin 3D, commit b16f6ff: APTO CON REPAROS, 6/7 criterios PASS, 1 defecto nuevo OLV-043 minor) | 2026-10-09 (QA del falso verde del charset, commit a51b4f3: APTO, 6/6 criterios PASS, 0 defectos del sistema, 1 hueco de guarda en los tests OLV-042) | 2026-10-03 (QA M30+M31: menu en seis secciones y pantalla del chat libre -- APTO los dos, 23 criterios PASS, 0 defectos) | 2026-10-02 (QA M29 RONDA DE RE-VERIFICACION y CIERRE: OLV-038, OLV-039 y OLV-040 cerrados; 1 defecto nuevo OLV-041 minor -- M29 APTO CON REPAROS, liberable) | 2026-10-02 (QA M29 lote 1 de 2: la casilla de internet, la frontera del portal del cliente y el dueno del transitorio -- APTO, 1 defecto menor OLV-040) | 2026-10-02 (QA M29 lote 2 de 2: subir sin cliente, guardar/descartar y la purga -- apto con reparos, OLV-036 cerrado, 2 defectos nuevos) | 2026-10-02 (QA M28 RONDA DE RE-VERIFICACION: los seis defectos cerrados, los cuatro BLOCKED calificados, tres defectos nuevos) | 2026-10-02 (QA M28 lote 3 de 3: propuestas, adjuntos y la pantalla) | 2026-10-02 (QA M28 lote 2 de 3: menciones, resolucion y delegacion) | 2026-10-02 (QA M28 lote 1 de 3: arranque, permisos e historial del chat libre) | 2026-10-01 (plan de QA de M27 escrito, sin ejecutar)
 
 ## Definiciones vigentes
+
+
+# QA de la pieza del arranque sin 3D - El mismo isotipo, en SVG y CSS (2026-10-09)
+
+**VEREDICTO DE LIBERACION: APTO CON REPAROS - liberable.** 6 de 7 criterios en PASS con evidencia observada,
+**1 FAIL** (CA-4, solo durante los primeros 3,3 s de cada carga), 0 BLOCKED, **1 defecto nuevo: OLV-043 (minor)**.
+El cambio cumple lo que se propuso -se fue three.js, se fue el isotipo fantasma y el ritmo cierra en 1,1 s exactos-,
+pero introdujo un artefacto propio del mismo tipo que venia a matar: puntos quietos dibujados sobre el isotipo.
+
+- Repo bajo prueba: `C:\Sistemas\Olvidata Agentes Multi-rubro`, commit **`b16f6ff`** (local, sin push).
+  **Read-only**: `git status --porcelain` identico al del arranque (solo `.claude/agent-memory/`, ajeno a esta
+  corrida y ya presente). Lote unico, 1 modulo.
+- Entrada leida por artefactos, sin la transcripcion del implementador: el diff completo de `b16f6ff`
+  (vista, `site.css`, `M31BarraYIsotipoTests.cs`, borrado de `chat-libre-3d.js`).
+- Portal levantado local en `https://localhost:7200` con `Anthropic__Simulado=true`
+  (log: "Motor de agentes con MODELO SIMULADO ... el costo es cero"). Navegador: **MCP de Playwright, SI funciono**
+  (Chromium). Firefox y WebKit **no estan instalados** y la descarga fallo: la verificacion cross-browser de
+  `transform-box`/`transform-origin` **queda sin cubrir** (riesgo declarado abajo).
+
+## Cobertura por criterio
+
+| # | Criterio | Resultado | Evidencia observada |
+|---|---|---|---|
+| CA-1 | Se anima sin una linea de JS de animacion: solo SVG + CSS | **PASS** | Red de `/ChatLibre`: 33 pedidos, **0** a `three`/`chat-libre-3d`. `.ov-chat-pieza canvas` = 0, `svg` = 1. Sin `requestAnimationFrame` en la vista. Las 9 animaciones de la pieza que devuelve `getAnimations()` son CSS (`ov-pieza-pulso` x4, `ov-pieza-onda` x4, `ov-pieza-latido` x1). |
+| CA-2 | Con `prefers-reduced-motion: reduce`: 0 animaciones, isotipo quieto y **completo** | **PASS** | Emulado en el navegador (`emulateMedia reducedMotion:reduce`): `document.getAnimations().length` = **0**; pulsos y ondas con `display: none` (los 8); `transform` del nucleo = `none`; siguen visibles **4 lineas + 5 circulos** del isotipo. Captura `qa-1440-reducido.png`. |
+| CA-3 | Un pulso cada **1,1 s exactos**, y el reparto se lee como ciclo/brazos | **PASS** | `getAnimations()` con delays **0 / 1100 / 2200 / 3300 ms** y `duration` 4400. Muestreo cada 20 ms sobre dos ciclos: llegadas en 1000, 2100, 3200, 4300, 5400, 6500, 7600, 8700 ms -> **1100 ms clavados**, el ciclo cierra. `getComputedStyle` de `--ov-pieza-reparto` devuelve **`calc(4.4s / 4)`**, no `1.1s`: el valor que viaja es la cuenta. |
+| CA-4 | El isotipo sigue siendo el de siempre (4 brazos, 5 circulos, `currentColor` sobre `--ov-primary`) | **FAIL** (parcial) | La geometria y el color **si**: 4 `<line>`, 5 circulos macizos con las coordenadas de siempre, `color` computado `rgb(43,157,228)` = `--ov-primary` `#2b9de4`, `opacity .92`. **Pero** durante los primeros 3,3 s de cada carga hay hasta **3 puntos macizos quietos** sobre los brazos: a los 156 ms y a los 472 ms los pulsos 1, 2 y 3 dan `opacity: 1` y `transform: none`; a los 2005 ms siguen asi los pulsos 2 y 3. Ver **OLV-043**. Capturas `qa-1440-claro-t350.png` (con los puntos) vs `qa-1440-claro-estable.png` (limpio). |
+| CA-5 | `chat-libre-3d.js` no existe y nada lo referencia | **PASS** | El archivo no esta (`wwwroot/js/` = `documentos.js`, `notifications.js`, `site.js`, `tablero.js`). `grep` sobre `src/ nucleo/ tests/ docs/` (excluyendo `bin/obj`): **0** apariciones de `chat-libre-3d`, `ovChatLibre3D`, `three@`, `IcosahedronGeometry` y `ov-chat-pieza__lienzo` fuera de los `Assert.DoesNotContain` del test. En red, **0** pedidos a `three`. |
+| CA-6 | Al enviar el primer mensaje la pieza se saca del DOM, nunca `display:none` | **PASS** | Con el POST a `/ChatLibre/Iniciar` interceptado (204, sin navegar ni crear tarea): antes `getElementById('piezaChatLibre')` existe y hay 9 animaciones; despues del click el boton dice "Enviando...", el elemento es **`null`**, `.ov-chat-pieza` = **0** y las animaciones de la pieza = **0**. Ningun `display` seteado. |
+| CA-7 | Build 0 errores y suite entera verde, medida sin pipe | **PASS** | `dotnet build OlvidataAgentes.slnx`: **0 Errores**, 15 advertencias (todas preexistentes: NU1902/NU1510/xUnit analyzers). `dotnet test` redirigido a archivo (**sin pipe**): `Con error: 0, Superado: 1293, Omitido: 0, Total: 1293`. |
+
+## Lo que solo se vio levantando la app
+
+| Que | Resultado | Evidencia |
+|---|---|---|
+| Nada sale a jsdelivr **por la pieza** | **PASS con matiz** | **0** pedidos a `three`/`chat-libre-3d`: la dependencia que este cambio vino a sacar, se fue. **Pero la pantalla sigue pidiendo 8 recursos a `cdn.jsdelivr.net` y 3 a `cdn.datatables.net`** (sweetalert2, moment, daterangepicker, select2), que vienen de `_Layout.cshtml` y son **preexistentes, fuera del alcance de este commit**. El criterio escrito como "ni un solo pedido a jsdelivr" **no se cumple literalmente**; el que este cambio podia cumplir, si. |
+| Un solo isotipo, sin fantasma | **PASS** | `.ov-chat-pieza svg` = 1, `canvas` = 0. Capturas a 1440 y 390 px, claro y oscuro: una sola figura, nitida, sin segundo dibujo corrido. |
+| El ritmo se lee como goteo parejo | **PASS** | Ver CA-3: 1100 ms entre llegadas, sin hueco muerto. El ciclo de 4,4 s cierra con 4 llegadas. |
+| Las ondas: nunca dos abiertas, ninguna sobrevive a la llegada siguiente | **PASS** | 441 muestras cada 20 ms sobre dos ciclos: **maximo de ondas con `opacity > 0.02` simultaneas = 1**, cero momentos con dos. La onda abre al 22,7 % y cierra al 47,7 %, que es exactamente un reparto. Escala maxima observada 2,47. |
+| Movimiento reducido emulado (no leido del CSS) | **PASS** | Ver CA-2. |
+| 390 px: la pieza se achica y el compositor entra sin scroll | **PASS** | `scrollWidth` = `clientWidth` = 385 (sin scroll horizontal). La pieza pasa de 853x198 px a **353x135**. Textarea en y 484-564 y boton **Enviar** en y 776-813, con viewport de 844: entra entero. Captura `qa-390-claro.png`. |
+| `transform-box: view-box` / `transform-origin` | **NO CUBIERTO** | En Chromium resuelve bien: `transformBox` = `view-box`, `transformOrigin` = `749px 749px`, el latido va de `scale(1)` a `scale(1.085)` centrado en el nucleo y las ondas nacen de su borde. **Firefox y WebKit no estan instalados** y `playwright install firefox` fallo al descargar. Riesgo declarado. |
+| Los tres tests de M31 reescritos siguen cuidando algo | **PASS** | El "13" **no** reemplazo al "5": arriba de el hay `Assert.Equal(1, ...)` por el nucleo y por **cada uno de los 4 nodos con sus coordenadas**, mas `Assert.Equal(4, ...)` de pulsos y de ondas. El total de 13 es un corolario de 9 assertions que nombran el grupo. El test del reparto exige `calc(var(--ov-pieza-ciclo) / var(--ov-pieza-brazos))` y prohibe `animation-delay: 0.75s`; el de geometria **rehace la cuenta** del unitario con tolerancia 0,5. Verificado aparte a mano: los 8 valores `--dx`/`--dy` de la vista coinciden con el calculo con error <= 0,05 unidades. |
+
+## Maquina de estados
+
+No aplica: el lote es una pieza decorativa sin entidad ni estados. La unica transicion observable -**pieza montada ->
+pieza fuera del DOM** al enviar el primer mensaje- esta cubierta en CA-6, y la inversa (volver a /ChatLibre) se
+verifico por recarga: la pieza vuelve a montarse con sus 9 animaciones.
+
+## Cobertura del catalogo cross-proyecto
+
+| id | aplica | resultado | accion |
+|---|---|---|---|
+| OLV-018 (clase utilitaria inerte en el CSS servido) | si - misma familia: estilo declarado que no llega a la pantalla | **PASS** | Verificado por `getComputedStyle`, no por el fuente: `--ov-pieza-ciclo`, `--ov-pieza-reparto`, `transform-box` y `color` resuelven en el navegador. |
+| KOI-B02 (script que toca elementos condicionales) | si - la pieza se renderiza solo con `@if (puedeEscribir)` | **PASS** | El script hace `if (pieza && pieza.parentNode)`: con `puedeEscribir` falso no revienta. |
+| **OLV-043** (nuevo, creado en esta corrida) | si | **FAIL** | Parte emitido. |
+| Resto del catalogo (253 items) | **N/A** | - | El lote es una vista decorativa y una hoja de estilo: sin controller, sin EF, sin migracion, sin permisos, sin dinero, sin multi-tenant, sin integracion. |
+
+## Cobertura de reglas nuevas/modificadas desde la ultima corrida (2026-10-02)
+
+| regla | origen | resultado | accion |
+|---|---|---|---|
+| LP-004 (categoria de plantilla de WhatsApp la decide Meta) | instruccion 32, `63a8caa` | **N/A** | El proyecto no tiene WhatsApp. |
+| LP-057 (indice unico vs query filter con baja logica) | instruccion 32 | **N/A** | Sin EF en el lote. |
+| CRM-025 (guard de unicidad mas restrictivo que la cardinalidad) | instruccion 32 | **N/A** | Sin EF en el lote. |
+| KOI-017 (dos numeros juntos: la ventana de cada uno es un dato) | instruccion 32 | **N/A** | La pieza no muestra numeros. |
+| Items nuevos del catalogo (LP-006..LP-014, MH-049..054, KOI-017, OLV-028..042) | `docs/qa/regresiones-manuales.yml` | **N/A** | Ninguno toca animacion CSS, vista decorativa ni carga de assets. Se revisaron por `cat_resumen.txt`. |
+
+**Ninguna regla nueva aplicable a un cambio de vista+CSS desde 2026-10-02.** Para que la clase quede cubierta de
+ahora en mas se creo **OLV-043**, que es la primera regresion del catalogo sobre animacion CSS escalonada.
+
+## Defectos
+
+| id | sev | que | estado |
+|---|---|---|---|
+| **OLV-043** | minor | Durante los primeros 3,3 s de cada carga de `/ChatLibre` hay hasta **3 puntos macizos quietos** pegados a los nodos del isotipo: los pulsos con `animation-delay > 0` se dibujan con su **estilo base** (`opacity: 1`, `transform: none`) mientras el delay no vence, porque `animation-fill-mode` es `none` por defecto. El `0%` del keyframe dice `opacity: 0` y **no se aplica**. La hermana `.ov-chat-pieza__onda` **si** lleva `opacity: 0` de base y por eso no falla: la asimetria entre las dos reglas vecinas es la firma. | **parte emitido** |
+
+**Partes de defecto emitidos: 1 (OLV-043).** Item nuevo creado en `docs/qa/regresiones-manuales.yml` (causa raiz,
+`archivos_fix` como **hipotesis**, criterio de re-verificacion y leccion cross-proyecto).
+**Auto-fixes aplicados: 0.** **Ningun defecto se cierra en esta corrida.**
+**Partes de la corrida anterior:** OLV-042 (hueco de guarda en los tests del charset) **sigue abierto**, fuera del
+alcance de este lote.
+
+### Parte de defecto OLV-043
+
+- **Pasos:** abrir `https://localhost:7200/ChatLibre` como miembro con permiso de escribir, en cualquier tema y ancho.
+  A los ~150 ms del `load`, leer `getComputedStyle` de los cuatro `.ov-chat-pieza__pulso` **sin tocar**
+  `document.getAnimations()`.
+- **Evidencia observada:** `animation-fill-mode: none`. t=156 ms -> pulsos 1/2/3 con `opacity: "1"` y
+  `transform: "none"`; t=472 ms -> igual; t=2005 ms -> pulsos 2 y 3 todavia asi; t=4003 ms -> recien ahi los cuatro
+  en regimen. Confirmado visualmente comparando `qa-1440-claro-t350.png` con `qa-1440-claro-estable.png`.
+- **`archivos_fix` sugeridos (hipotesis, no instruccion):** `src/OlvidataAgentes.Web/wwwroot/css/site.css` -
+  darle a `.ov-chat-pieza__pulso` el mismo estado de reposo que ya tiene `.ov-chat-pieza__onda` (`opacity: 0` de
+  base), o declarar `animation-fill-mode: backwards` en la shorthand. La primera es la que el archivo ya usa.
+- **`migracion_ef`:** ninguna.
+- **Criterio de re-verificacion (vuelve a FAIL hasta probarlo):** cargada `/ChatLibre` y medido entre 100 y 300 ms
+  despues del `load`, **los cuatro** `.ov-chat-pieza__pulso` tienen que dar el estado que declara el `0%` de su
+  keyframe -`opacity` <= 0,05 para los que todavia no arrancaron- y ninguno `transform: none` con `opacity: 1`.
+  Ademas, el estado estable y el movimiento reducido tienen que seguir como estan hoy (9 animaciones / 0).
+
+## Riesgos de liberacion
+
+- **Bloqueante para el merge: ninguno.** OLV-043 es cosmetico, dura 3,3 s por carga, no toca datos, plata ni
+  aislamiento, y la pantalla sigue siendo la marca. Pero es visible en **toda** carga de la pantalla de entrada que
+  usa cualquier miembro, y es exactamente la clase de artefacto (un dibujo quieto encima del isotipo) que este
+  cambio vino a eliminar: conviene arreglarlo antes de mostrarselo a un cliente.
+- **Sin cobertura cross-browser.** `transform-box: view-box` sobre SVG es la divergencia clasica entre motores y
+  solo se pudo mirar en Chromium. Si el portal se usa en Firefox, mirar el latido y las ondas a ojo antes de
+  liberar: un `transform-origin` mal resuelto manda el nucleo fuera de lugar y **pasa todos los tests de fuente**.
+- **El titular "se fue una dependencia de CDN" vale para three.js, no para la pantalla.** `/ChatLibre` sigue
+  bajando 11 recursos de CDN desde `_Layout.cshtml`. Si el objetivo era que esa pantalla no salga a internet,
+  **falta trabajo y no es este commit**.
+- Contraste de `--ov-primary` sobre `#f0f4f8` en tema claro: **fuera de alcance por pedido**, anotado y sin tocar.
+
+## Pruebas minimas ejecutadas
+
+Build (0 errores) · suite 1293/1293 sin pipe · red de `/ChatLibre` (33 pedidos, 0 a three) · `getAnimations()` en
+regimen y con movimiento reducido · muestreo de 441 puntos cada 20 ms sobre dos ciclos (llegadas, solape de ondas,
+escala del latido) · recalculo a mano de los 8 `--dx`/`--dy` contra las coordenadas del isotipo · desmontaje de la
+pieza al enviar, con el POST interceptado · 1440 y 390 px, claro y oscuro · `grep` de residuos del 3D.
+
+## Checklist de merge
+
+- [x] Build limpio (0 errores) y suite **1293/1293**, medida sin pipe.
+- [x] Sin migracion EF (el cambio es vista + CSS + tests).
+- [x] Sin JavaScript de animacion ni dependencia de three.js/CDN nueva.
+- [x] Movimiento reducido verificado **emulado en el navegador**, no leido del CSS.
+- [x] 1440 y 390 px, claro y oscuro, sin scroll horizontal y con el compositor entero.
+- [x] Base devuelta a su estado (ver abajo) y `git status --porcelain` del repo del sistema **identico al del arranque**.
+- [ ] **OLV-043 sin arreglar** - vuelve al Implementador.
+- [ ] Cross-browser (Firefox/WebKit) **no cubierto**.
+
+## Base devuelta a su estado
+
+La prueba de CA-6 creo la tarea **9296** (org 1, `TipoTarea` 6, simulada, costo 0). Borradas sus filas colgadas en el
+orden de las FK y despues la tarea; `EventosUso` 1066 y 1067 borrados. Checksum de cierre: `TareasAgente` = **175**
+(era 176 con la mia), `EventosUso` = **777**, max Id **1065**. Sin blobs nuevos en `App_Data/documentos`.
+`.playwright-mcp/` vaciada (capturas movidas al scratchpad).
+
+## Reglas cross-proyecto validadas
+
+- Ultima validacion de reglas cross-proyecto: 2026-10-09
+
+
+# QA del falso verde del charset - La sesion de MySQL tambien tiene que ser utf8mb4 (2026-10-09)
+
+**VEREDICTO DE LIBERACION: APTO - liberable.** 6 de 6 criterios en PASS con evidencia observada, 0 FAIL, 0 BLOCKED,
+**0 defectos del sistema**. Un hallazgo de cobertura (OLV-042, minor) que **no bloquea**: el codigo embarcado es
+correcto y lo que falta es la guarda que lo pine.
+
+- Repo bajo prueba: `C:\Sistemas\Olvidata Agentes Multi-rubro`, commit **`a51b4f3`** (local, sin push).
+  **Read-only**: `git status --porcelain` limpio al cerrar (solo `.claude/agent-memory/agentes-ia-implementador/`,
+  ajeno a esta corrida y ya presente al arrancar). Toda mutacion y toda sonda se corrio sobre **dos copias limpias
+  del arbol** sacadas con `git archive a51b4f3` al scratchpad; el repo nunca se edito.
+- Entrada leida por artefactos, sin la transcripcion del implementador: el diff de `a51b4f3` completo,
+  `ValidacionArranque.cs`, `DatabaseHealthCheck.cs`, `Program.cs` (cableado), `scripts/deploy-prod.ps1` y los dos
+  archivos de tests tocados.
+
+## Cobertura por criterio
+
+| # | Criterio | Resultado | Evidencia observada |
+|---|---|---|---|
+| 1 | Fuera de Development corta y el motivo no filtra nada de la cadena | **PASS** | App levantada con `ASPNETCORE_ENVIRONMENT=Production` y `ConnectionStrings__DefaultConnection=Server=mysql-secreto.ficticio.test;Port=3306;Database=base_secreta;Uid=usuario-secreto;Pwd=PasswordSuperSecreta123;SslMode=Required;`: `[FTL] La aplicacion fallo al iniciar` + `InvalidOperationException`, **unico** error listado = `ConnectionStrings:DefaultConnection`. `grep -ic` de `mysql-secreto`, `usuario-secreto`, `PasswordSuperSecreta123`, `base_secreta`, `SslMode` y `Port=3306` sobre `Logs/arranque-20261009.log` = **0**. Sonda propia con los valores reales de prod (`mysql8001.site4now.net`, `db_a7251f_agentes`, `a7251f_agentes`, `_01Vid4t4_`) sobre el texto COMPLETO de los 13 problemas: 0 coincidencias de los 10 fragmentos buscados |
+| 2 | En Development no corta | **PASS** | Misma app, `ASPNETCORE_ENVIRONMENT=Development` con la cadena de dev **sin** CharSet: `Now listening on: http://localhost:5099` + `Application started`, y cero lineas con `ConnectionStrings` en el log |
+| 3 | Acepta las tres formas; rechaza ausente, utf8, utf8mb3, latin1 | **PASS** | Control positivo: con `CharSet=utf8mb4;` agregado a la MISMA cadena ficticia, `Revision de arranque OK en el entorno Production`. Sonda propia de 13 formas + 5 sinonimos contra el `MySqlConnectionStringBuilder` real: 23/23. **Sin falso positivo**: `Database=mi_base_utf8mb4`, `Server=utf8mb4.host.net`, `Pwd=utf8mb4`, `MiCharSet=utf8mb4`, `CharSet=xutf8mb4`, `CharSet=utf8mb4_unicode_ci` quedan rechazadas (la regex esta anclada a inicio-o-punto-y-coma y compara el valor por igualdad, no por `Contains`). **Sin falso negativo**: las unicas tres claves que el connector entiende de verdad son `charset`, `characterset` y `character set` -- `char set` y `charactersetname` las rechaza el propio builder con `ArgumentException` -- y la regex cubre exactamente esas tres |
+| 4 | `Degraded` cuando la conexion no es utf8mb4 aunque la base si | **PASS** | **Reproducido contra MySQL real**, no solo con la funcion pura: `AppDbContext` sobre `olvidata_agentes_dev` (base en utf8mb4) con `CharSet=utf8mb3;` da `@@character_set_connection = utf8mb3`, `/health -> Degraded`, y el `INSERT` del emoji falla con **`Incorrect string value: '\xF0\x9F\x94\xB4 r...'`**, el mismo error de produccion. Con `CharSet=utf8mb4;` da `Healthy (base en utf8mb4, sesion en utf8mb4)` y el emoji entra. Con `latin1` da `Degraded` (y ahi el emoji "entra" transcodificado: corrupcion silenciosa, tambien marcada). **Mutacion propia**, no la declarada: sacada la rama de la sesion de `Evaluar`, 3 filas rojas de 57 -- exactamente las 3 de `Con_la_base_en_utf8mb4_pero_la_sesion_no_el_health_check_no_puede_estar_en_verde` |
+| 5 | El `.example` y la cadena de prod local declaran utf8mb4 | **PASS** | `appsettings.Production.example.json` termina en `CharSet=utf8mb4;`; `appsettings.Production.json` local idem (`...SslMode=Required;CharSet=utf8mb4;`), y sigue sin versionar (`git check-ignore` lo liga a `.gitignore:57`, `git ls-files` no lo conoce). **El fix llega a produccion**: `scripts/deploy-prod.ps1` linea 124 copia ese archivo al publish, y el app pool del sitio **no** define `ConnectionStrings__DefaultConnection` (solo los tres `Olvidata_Email__Smtp__*`), asi que nada le gana por variable de entorno |
+| 6 | Build 0 errores y suite entera verde, sin pipe | **PASS** | `dotnet build OlvidataAgentes.slnx`: **0 Errores**, 15 advertencias (todas preexistentes: NU1902 de ImageSharp, NU1510, 3 analizadores de xUnit). `dotnet test` redirigido a archivo, **exit code 0**: `Con error: 0, Superado: 1292, Omitido: 0, Total: 1292` en 1 m 9 s. Coincide con lo declarado |
+
+## Maquina de estados
+
+No hay maquina de estados en este alcance. Las dos compuertas son booleanas y se probaron por sus dos lados:
+arranque `corta` / `no corta` (entorno por declara-o-no), y health check `Healthy` / `Degraded` / `Unhealthy` en las
+cuatro combinaciones de (base, sesion) incluyendo los dos `null` de "no se pudo leer".
+
+## Hallazgo: el hueco de guarda (OLV-042, minor, NO bloqueante)
+
+La **segunda** mutacion -- `DeclaraCharSetUtf8mb4(c) => c?.Contains("utf8mb4", OrdinalIgnoreCase) == true` -- deja
+**43/43 de `DespliegueTests` en VERDE**. Los cinco negativos declarados (ausente, `utf8`, `utf8mb3`, `latin1`, vacio)
+no contienen la cadena `utf8mb4` en ningun lado, asi que el `Contains` los rechaza igual. Con el mutante puesto, mi
+sonda confirma que `Database=mi_base_utf8mb4` **pasa como declarada**. El codigo embarcado esta bien; lo que no existe
+es la guarda que impida simplificarlo. Item completo y las 6 filas sugeridas en `docs/qa/regresiones-manuales.yml`
+(OLV-042). Severidad minor porque no hay defecto en lo que se libera.
+
+## Cobertura del catalogo cross-proyecto
+
+Alcance sin UI, sin formularios, sin plata y sin concurrencia: no aplica ninguna de las familias de
+pantalla/binder/estado. Si aplica la familia **Instrumento** (LP-042, LP-124, LP-126: "una afirmacion que no puede
+fallar", "sobrevive al mutante que quita el lock", "el chequeo esta inerte y el verificador igual dice que esta
+bien"), que es literalmente la mitad de este defecto -- el health check informaba verde sin medir la sesion. Se
+ejecuto por mutacion propia en los dos lados: la del criterio 4 **mata** 3 tests (guarda viva), la del criterio 3
+**sobrevive** (guarda ausente, de ahi OLV-042).
+
+## Cobertura de reglas nuevas desde la ultima corrida
+
+- Ultima validacion de reglas cross-proyecto: **2026-10-09** (la anterior era 2026-10-03).
+  `git log --since=2026-10-03` sobre `32-estandares-qa-implementador.instructions.md` y
+  `docs/qa/regresiones-manuales.yml`: **3 reglas nuevas en la instruccion 32** (+35 lineas) y ~45 items nuevos en el
+  catalogo, casi todos de La Platense y de dominio (ventas, caja, stock, AFIP).
+- **LP-004** (la categoria de una plantilla de WhatsApp la decide Meta): **N/A**, el sistema no usa WhatsApp.
+- **LP-057** (indice unico sobre entidad con baja logica contra el query filter): **EJECUTADA** contra
+  `olvidata_agentes_dev` con la query de la regla. 29 indices unicos sobre tablas con `DeletedAt`; **7 ya aplican la
+  remediacion** (`NombreVigente`, `IdentificacionVigente`, `CodigoVigente`, `TituloVigente`) y **22 no**. De esos 22,
+  la gran mayoria son excepciones legitimas por el criterio de la propia regla (si tiene sentido reusar el valor:
+  `ToolUseId` por tarea, `Numero` por version, `ArchivoId`, `UserId` de preferencias, los dos hashes). Quedan **7 con
+  forma de valor reusable** que hay que triar: `IX_Rubros_Slug`, `IX_Tenants_Slug`, `IX_Artefactos_RubroId_Slug`,
+  `IX_ConjuntosCasos_RubroId_Slug`, `IX_EtapasRubro_RubroId_Slug`, `IX_PlanosDeControl_TenantId_Numero`,
+  `IX_CasosEvaluacion_VersionConjuntoCasosId_Clave`. **Fuera de este lote** (no los toca `a51b4f3` y ninguno tiene
+  alta de cliente): va al analista como item propio, no como defecto de esta liberacion.
+- **CRM-025** (un guard de unicidad no puede ser mas restrictivo que la cardinalidad documentada): **no ejecutada**,
+  declarado. Pide recorrer las entidades con FK sin indice unico y su pantalla de alta; no hay ninguna superficie de
+  alta ni ninguna guarda de unicidad en este alcance. Queda para el proximo lote que toque un ABM.
+
+## Verificacion pendiente de post-deploy (no es fallo)
+
+Las dos solo valen contra el servidor real y las corre el orquestador despues de publicar:
+
+1. `/health` pasa de `Degraded` a `Healthy` (hoy, con la cadena vieja arriba, tiene que estar en `Degraded`; es la
+   confirmacion de que el instrumento ahora mide la sesion en el server de verdad).
+2. Una tarea con un emoji en la respuesta se completa y queda guardada.
+
+El mecanismo de las dos ya quedo **probado localmente** forzando `CharSet=utf8mb3` contra la base de dev: ese fue el
+agujero que dejo escapar el defecto tres veces (local nace en utf8mb4, asi que nadie lo forzaba) y de ahora en mas
+esta cubierto por la sonda de QA, aunque no por la suite.
+
+## Riesgos de liberacion
+
+1. **(medio) El unico camino por el que esto puede volver** es una simplificacion del reconocedor de texto: OLV-042.
+   Mientras el item no se cierre, un `Contains` pasa code review y suite.
+2. **(bajo) Si cualquiera de las dos lecturas de charset falla, `/health` vuelve a verde.** `CharSetsAsync` devuelve
+   `(null, null)` ante cualquier excepcion y `Evaluar` trata `null` como "no se pudo leer", o sea `Healthy`. Es la
+   misma **forma** del falso verde que se acaba de arreglar, un escalon mas abajo: medido, `Evaluar("utf8mb4", null)`
+   da `Healthy (base en utf8mb4, sesion en ?)`. Aceptable (un `SELECT @@character_set_connection` no falla en la
+   practica) pero conviene que el caso "no se pudo leer la sesion" sea `Degraded` y no `Healthy`, justamente porque
+   el instrumento ya mintio una vez.
+3. **(bajo) El deploy descubre el problema despues de haber reemplazado el sitio.** `deploy-prod.ps1` valida en la
+   linea 75 que la cadena exista, pero no que declare el charset: si alguien publica con una cadena sin
+   `CharSet=utf8mb4`, el gate nuevo corta el arranque **despues** del upload y el portal queda caido hasta corregirlo.
+   Un `DeclaraCharSetUtf8mb4` equivalente en el script lo convertiria en un `exit 1` antes de tocar produccion.
+4. **(informativo) La cadena de Development no declara CharSet.** Es correcto por el criterio 2, pero significa que el
+   entorno de desarrollo nunca ejercita la forma que si va a prod. Es el mismo sesgo que origino el defecto.
+
+## Checklist de merge
+
+- [x] Build 0 errores; suite 1292/1292 verde, exit code 0, medida sin pipe
+- [x] 6/6 criterios PASS con evidencia observada (no por lectura de codigo)
+- [x] Mutacion propia del criterio 4: mata 3 tests
+- [x] Mutacion propia del criterio 3: **sobrevive**, de ahi OLV-042 catalogado
+- [x] Criterio de secretos verificado sobre el texto del error **y** sobre `Logs/arranque-*.log`: 0 fugas
+- [x] Control positivo corrido (con `CharSet` la revision pasa): el corte del caso negativo no viene de otra clave
+- [x] El fix llega a prod por `deploy-prod.ps1` y ninguna variable de entorno del app pool le gana
+- [x] `appsettings.Production.json` sigue sin versionar
+- [x] `git status --porcelain` del repo bajo prueba limpio de cambios de QA
+- [ ] Post-deploy: `/health` en `Healthy` y una tarea con emoji completada (orquestador)
+- [ ] OLV-042: 6 filas negativas al Theory de `DespliegueTests` (implementador, no bloquea el merge)
+- [ ] LP-057: triar los 7 indices unicos con forma de valor reusable (analista, fuera de este lote)
+
+## Observacion menor, preexistente y ajena al commit
+
+`dotnet test` imprime `Skipping test case with duplicate ID` sobre
+`ResumenPasosTests.Un_paso_fallido_no_muestra_el_mensaje_escrito_para_el_modelo`: dos filas del `Theory` tienen el
+mismo `paraElModelo`, asi que una se colapsa en silencio. No altera el 1292 verde ni toca este alcance, pero es una
+fila de cobertura que no mide nada (familia LP-042).
+
 
 # QA M30 + M31 - El menu en seis secciones y la pantalla del chat libre (2026-10-03)
 

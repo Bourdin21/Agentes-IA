@@ -238,6 +238,62 @@ leads mencionan el perfil, y su tasa de cierre contra los fríos—, nunca alcan
 
 Detalle completo en `BotPublicitario/MARCA.md` § 0 y en `claims.md` § Trazabilidad de los casos.
 
+## El encuadre no arranca por el dolor — el cliente compra experiencias (Joaquín, 2026-10-11)
+
+Corolario de la regla de arriba, y la parte que se escapa al encuadrar una pieza o una campaña.
+Palabras de Joaquín: *"no me gusta que hagas hooks explicando el dolor de las cosas. tenés que ir
+directo al grano. nosotros estamos mostrando un producto sin querer venderlo. el cliente compra
+experiencias"*.
+
+**Un encuadre que arranca por el problema ya es una venta**, aunque la pieza no tenga precio ni CTA.
+Enunciar el dolor del prospecto, el riesgo de no tener el producto o el error de cómo lo hace el
+mercado es el molde de la publicidad clásica: plantear la carencia para después ofrecer el alivio.
+Delata que hay algo para vender y tira abajo la autoridad que la pieza venía a construir.
+
+Qué significa al encuadrar:
+
+- **No se define el posicionamiento contra una alternativa.** Ni un competidor con nombre, ni "la
+  práctica genérica del mercado". Compararse es vender. El producto se para en lo que es.
+- **El argumento no es el riesgo que evita: es la experiencia que da.** Un criterio de ingeniería se
+  comunica por lo que se siente al usarlo y por la decisión que hubo detrás, no por el desastre que
+  previene.
+- **Directo al grano.** Si el encuadre necesita un párrafo de contexto antes de llegar al producto, está
+  mal encuadrado.
+
+**Al revisar un encuadre propio o al bajarlo a `olvidata-cm`:** si la primera idea de la pieza es un
+problema, se devuelve. El dolor del prospecto sigue siendo el insumo para **elegir** de qué hablar —
+nunca el texto con el que se abre.
+
+## El producto se posiciona por el concepto rector (Joaquín, 2026-10-11)
+
+**El activo diferencial de Agentes Multirubro no es su funcionalidad: es que está construido sobre un
+concepto rector escrito y aprobado**, con una regla de diseño y un límite por pieza. Cualquiera promete
+lo que hace; muy pocos pueden mostrar **dónde va cada cosa y qué no se cruza**.
+
+Las dos lecturas, que son la misma arquitectura:
+
+- **La computadora** (`docs\el-sistema-como-computadora.md`, aprobado 2026-09-24): RAM, CPU, disco, ojos,
+  oídos, impresora, buses de E/S, reloj y energía. Para quien evalúa con criterio técnico.
+- **El organismo** (`docs\el-agente-como-organismo.md`, 2026-10-11): conciencia, inconsciente, memoria de
+  corto y largo plazo, sentidos, nervios, manos. Para quien no es técnico, y la que se puede dibujar.
+
+Consecuencias de posicionamiento:
+
+- **Nunca se posiciona por lista de funciones ni por volumen** (módulos, tests, integraciones). Eso es
+  terreno de comparación, y comparar es vender.
+- **El concepto es lo que sostiene el ticket.** Una organización que decide meter IA en su operación no
+  está comprando tareas automatizadas: está comprando saber qué hace y qué no hace el sistema que le
+  toca los datos. El concepto rector **es** ese argumento, y vale igual en la propuesta formal.
+- **Es category design, no feature marketing** (ver la sección de teorías de abajo): el concepto define
+  la categoría en la que somos los únicos, en vez de pelear una casilla en la categoría de otro.
+- **Lo que no existe se declara.** El documento dice que el agente no tiene oído ni voz. Esa honestidad
+  escrita es parte del activo: es lo que hace creíble el resto, y es lo que no se puede improvisar en una
+  demo.
+
+**Al encuadrar cualquier pieza, propuesta o conversación de producto:** empezá por la pieza del concepto
+donde entra lo que se está contando. Si no entra en ninguna, falta entenderlo — ese es el mismo criterio
+que usa el equipo para decidir si una funcionalidad nueva está bien pensada.
+
 ## Plan financiero
 **Revisado 2026-07-29** — corrige la inconsistencia entre "43 clientes" (sección hito 2028) y "35 clientes" (esta tabla, versión anterior). Decisión del usuario: 43 es el número de referencia para 2028, no 35. Progresión ajustada aplicando el mismo patrón de aceleración del plan original (deltas +9/+10/+11/+12 entre años) más un bono conservador de **+3 clientes netos/año** (piso del rango +3 a +5 estimado por la política de expansión agresiva vigente desde 2026-07-29, ver `27-presupuesto-parametros.instructions.md`).
 

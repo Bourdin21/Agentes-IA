@@ -41,6 +41,63 @@ Qué significa al escribir una pieza:
 Detalle en `BotPublicitario/MARCA.md` § 0. La contracara documental de esta regla es la de abajo, y
 las dos van juntas.
 
+## El hook NO explica el dolor — se muestra la experiencia (Joaquín, 2026-10-11)
+
+Palabras de Joaquín: *"no me gusta que hagas hooks explicando el dolor de las cosas. tenés que ir
+directo al grano. nosotros estamos mostrando un producto sin querer venderlo. el cliente compra
+experiencias"*.
+
+**Prohibido abrir una pieza enunciando el problema, el riesgo o el error ajeno.** Ni el dolor del
+prospecto ("perdés horas cargando datos a mano"), ni el riesgo de no tenerlo ("un incidente esperando
+pasar"), ni lo que hace mal el mercado ("así se rompen las integraciones que se venden hoy"). Plantear
+el dolor para después ofrecer el alivio **es el molde de la publicidad clásica y es exactamente lo que
+no hacemos**: delata que hay algo para vender, y eso es lo que la regla de arriba fue a sacar.
+
+Qué va en su lugar:
+
+- **La primera placa muestra la cosa, no el contexto que la justifica.** Arranca por lo que es o por lo
+  que hace — la decisión que se tomó, la pieza funcionando, el criterio con el que está construido. Sin
+  preámbulo y sin encuadre.
+- **Se muestra la experiencia de usarlo, no la solución a un dolor enunciado.** Qué se siente, qué pasa
+  cuando lo usás, cómo se comporta. El prospecto saca su propia conclusión sobre su problema: no se la
+  escribimos nosotros.
+- **No se arma la pieza contra nada.** Ni contra un competidor, ni contra "la práctica genérica del
+  mercado". Compararse es vender.
+- **Ir directo al grano.** Si la primera línea se puede borrar sin perder nada, era preámbulo.
+
+**Cómo se chequea:** leé la placa 1 y la primera línea del caption. Si alguna nombra un problema, un
+riesgo o un error, **la pieza se reescribe**. Vale para los dos pilares y para todos los formatos.
+
+## El producto se explica con el concepto rector, no se describe (Joaquín, 2026-10-11)
+
+**Agentes Multirubro nunca se presenta como una lista de funciones.** Ni "plataforma de agentes de IA
+multirubro", ni módulos, ni cantidad de tests, ni stack. Se explica con el **concepto rector**, que son
+dos lecturas de la misma arquitectura y están escritas:
+
+- `C:\Sistemas\Olvidata Agentes Multi-rubro\docs\el-sistema-como-computadora.md` — **un agente es una
+  computadora**: RAM, CPU, disco, ojos, oídos, impresora, buses de E/S, reloj y energía. Aprobado
+  2026-09-24. Es la lectura para quien evalúa con criterio técnico.
+- `docs\el-agente-como-organismo.md` — **la misma arquitectura leída como un cuerpo**: conciencia,
+  memoria de corto y largo plazo, inconsciente, sentidos, nervios, manos. Propuesta por Joaquín el
+  2026-10-11. Es la lectura para quien no es técnico, y la que se puede **dibujar**.
+
+Cómo se baja a una pieza:
+
+- **La apertura es el concepto, no el contexto.** *"Un agente, acá, es una computadora."* / *"Un agente,
+  acá, tiene conciencia, inconsciente y memoria."* Directo, sin preámbulo — es la regla de arriba.
+- **El contenido son las piezas y sus límites**, una por placa. Cada criterio se enuncia como
+  **comportamiento** (*"la CPU no ve el disco: pide"*, *"lo que entra, entra como dato"*), nunca como el
+  riesgo que evita ni comparado contra nadie.
+- **El caso real cierra, no abre.** Primero el cómo está construido; el resultado al final.
+- **Lo que no existe se dice.** El agente no tiene oído y no tiene voz: decirlo es parte del argumento,
+  porque es lo que hace creíble todo lo demás.
+- **Elegí una lectura por pieza y no las mezcles.** La computadora y el organismo explican lo mismo; dos
+  metáforas en la misma placa no se entienden.
+
+**Por qué esto es la regla y no una opción:** el concepto rector es el producto. Lo que lo diferencia no
+es qué hace —eso lo promete cualquiera— sino que **cada cosa tiene un lugar y un límite escrito**, y eso
+solo se transmite con la metáfora. Una lista de features lo devuelve al montón.
+
 ## REGLA DE ORO: nada se afirma sin respaldo documental
 
 **Todo overlay, toda línea de caption, todo claim de funcionalidad tiene que ser trazable a una línea concreta de `C:/Sistemas/Agentes-IA/docs/<proyecto>/`.** Si no lo podés respaldar, no entra en la pieza — no se reformula con hedge, no se suaviza, se saca y el guión se reconstruye sin eso.
@@ -503,6 +560,44 @@ discutir cadencia o alcance. Lo que no se negocia al producir:
 - La cadencia de **1 pieza/semana** no se mueve por el algoritmo: Mosseri mismo dijo que el
   cronograma óptimo es el que se sostiene. Todo lo que el algoritmo premia se nutre con historias,
   DMs y colaboraciones, **sin subir la producción de feed**.
+
+## Meta Ads — la pauta es distribución del contenido, no una máquina de leads (estudio 2026-10-09)
+
+El estudio completo, con el mismo etiquetado **[Meta]/[Dato]/[Folklore]**:
+`C:\Sistemas\BotPublicitario\META-ADS.md`. Leelo antes de proponer, configurar o discutir pauta. Lo
+que no se negocia:
+
+- **La aritmética del aprendizaje decide si un objetivo es posible.** Meta pide **~50 eventos de
+  optimización por semana** para salir del aprendizaje. A ARS 6.343 por conversación medidos en esta
+  cuenta, optimizar a conversaciones cuesta **ARS 317.000/semana**: con 40-100k/mes nunca fue
+  posible. Hacé esta cuenta **antes** de recomendar un objetivo. Visitas al perfil sí entra en
+  presupuesto.
+- **El CPM del objetivo cambia todo:** IG Reels comprado como contenido salió **ARS 306**; las
+  mismas ubicaciones comprando conversaciones, **4.690 a 10.732**. Factor de 12 a 25.
+- **La geo se pone con un pin y radio, y se verifica releyendo.** Tres ad sets corrieron con
+  `countries = AR`: **52% del gasto de `Ciclo Mensual` y 35% del histórico se fueron fuera de zona**.
+  Y destildá **"reach more people likely to respond to your ads"** — viene tildado por default y
+  mete gente de afuera por amigos en común. La audiencia `RMK · IG Engagers 365d` quedó contaminada
+  por eso: no la trates como público de zona.
+- **La pieza que cuenta un caso con persona gana en pago y en orgánico.** `AD-R2 · Andrea` fue el
+  mejor CTR (1,86%) y el mejor CPR de la cuenta; el Reel que vendía directo sacó 1 like. Es la misma
+  regla de "el contenido de autoridad NO VENDE", confirmada con plata.
+- **3 a 5 anuncios genuinamente distintos por ad set, no 20.** El *Creative Diversity Score* puntúa
+  variedad de hook/formato/mensaje; diez placas recoloreadas cuentan como un creativo. De una pieza
+  semanal salen hasta 6 anuncios: 3 hooks × 2 formatos.
+- **Los avisos se levantan por post ID del posteo orgánico** (`source_instagram_media_id`), nunca
+  como dark post nuevo: arrastran los likes y comentarios ya ganados y no necesitan doble firma
+  nueva.
+- **Advantage+ Creative se apaga ad por ad, con un criterio:** dejá prendido lo que cambia **cómo**
+  se entrega (placements, visual touch-ups, relevant comments, profile end card); apagá lo que cambia
+  **qué** dice o muestra (music, text improvements, enhance media text, expand image, translations,
+  site links, subtítulos automáticos).
+- **Folklore que no se repite:** el umbral del +20% de presupuesto, "Andromeda pide 20-30
+  creativos", los mínimos en USD por día, el interest stacking (murió el 15/01/2026) y leer un
+  creativo a los 3 días (no predice nada sobre 368 avisos y 48,45M de impresiones).
+- **Encender pauta no es tu decisión.** La configuración de la Pista A está lista en `META-ADS.md`
+  §2, pero choca con §8 del plan de marketing; la firma es de `/olvidata-ceo`. Y **"aprobé la
+  configuración" no es "aprobé gastar"**: vale la regla de gasto de más arriba.
 
 ## Métricas
 

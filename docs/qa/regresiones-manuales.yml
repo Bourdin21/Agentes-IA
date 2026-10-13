@@ -4888,6 +4888,35 @@ regresiones:
       - "En el hilo, el chip del transitorio tiene leyenda propia y borde distinto del chip con cliente."
     leccion_adicional: "El unico renderer compartido cubrio las cinco pantallas que ESCRIBEN un mensaje; la que lo LEE quedo afuera y es la que mas veces se mira."
 
+  - id: OLV-042
+    modulo: "Instrumento - tests de una regla de reconocimiento de texto (ValidacionArranque.DeclaraCharSetUtf8mb4)"
+    titulo: "Los cinco casos negativos de una regla que busca una palabra NO CONTIENEN esa palabra, asi que un `Contains` ingenuo los rechaza igual y la suite entera queda verde: la guarda contra el falso positivo nunca se escribio"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - QA del commit a51b4f3, 2026-10-09. La implementacion es CORRECTA (regex anclada a `(?:^|;)` + igualdad exacta del valor): `Server=db;Database=mi_base_utf8mb4;` se rechaza. Pero la mutacion `DeclaraCharSetUtf8mb4(c) => c?.Contains(\"utf8mb4\", OrdinalIgnoreCase) == true` deja 43/43 de DespliegueTests en VERDE, porque los 5 negativos declarados (ausente, `CharSet=utf8`, `CharSet=utf8mb3`, `CharacterSet=latin1`, `CharSet=`) no contienen la cadena `utf8mb4` en ningun lado. Sonda propia: con el mutante, `Database=mi_base_utf8mb4`, `Server=utf8mb4.host.net`, `Pwd=utf8mb4`, `MiCharSet=utf8mb4`, `CharSet=xutf8mb4` y `CharSet=utf8mb4_unicode_ci` pasan TODOS como declarados."
+    pasos:
+      - "Leer los casos negativos del Theory que prueba la regla y preguntarse si alguno contiene la palabra que la regla busca."
+      - "Mutar la implementacion al `Contains` mas ingenuo posible y correr la suite."
+      - "Si queda verde, la guarda contra el falso positivo no existe: agregar un negativo que SI contenga la palabra, fuera del lugar donde debe estar."
+    sintoma: "La suite afirma que la regla distingue bien, y lo unico que midio es que distingue los valores EQUIVOCADOS de la palabra. Nada impide que una simplificacion futura (`Contains`, `IndexOf`, un `EndsWith`) pase el code review y la suite entera, y entonces una cadena con la palabra en el nombre de la base, en el host o en el password alcanza para dar la regla por cumplida."
+    expectativa: "Una regla con la forma 'la cadena X tiene que declarar el valor V' se prueba con al menos un negativo que CONTIENE V en un lugar que no cuenta (dentro de otro valor, dentro de la clave, como sufijo o como prefijo de otro token) y un negativo que contiene V como SUBCADENA del valor malo."
+    causa_raiz: "Los casos negativos se eligieron por el dominio (que juegos de caracteres estan mal: utf8, utf8mb3, latin1, vacio) y no por el mecanismo (que formas de texto podrian enganar al reconocedor). Son dos listas distintas y solo se escribio la primera; la segunda es la que mata al mutante. El caso `utf8mb3` parece cubrirlo porque contiene `utf8mb`, pero no contiene `utf8mb4`, que es lo que la regla busca."
+    capa: Tests
+    archivos_fix:
+      - path: tests/<Proyecto>.Tests/DespliegueTests.cs
+        motivo: "Hipotesis: sumar al Theory de rechazo las filas que contienen la palabra fuera de su lugar - `Server=db;Database=mi_base_utf8mb4;`, `Server=utf8mb4.host.net;Database=d;`, `Server=db;Database=d;Pwd=utf8mb4;`, `Server=db;Database=d;MiCharSet=utf8mb4;`, `CharSet=xutf8mb4;` y `CharSet=utf8mb4_unicode_ci;`. Las seis fallan con el `Contains` y pasan con la implementacion actual."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: mutacion
+      selector_o_endpoint: "mutante: reemplazar el reconocedor por `Contains(<palabra>, OrdinalIgnoreCase)`"
+      condicion_falla: "La suite queda verde con el mutante puesto."
+    criterio_aceptacion:
+      - "Con el mutante `Contains` puesto, al menos una fila del Theory de rechazo falla."
+      - "Con la implementacion real, las seis filas nuevas siguen en verde."
+    pruebas_minimas:
+      - "Correr la suite con el mutante y confirmar que se pone roja; revertir y confirmar que se pone verde."
+    leccion_adicional: "Regla para TODO proyecto del estudio: cuando una regla decide por la PRESENCIA de un texto, los casos negativos tienen que incluir la palabra buscada en un lugar que no cuenta. Si ningun negativo la contiene, la suite no distingue la implementacion anclada del `Contains` de una linea, y el dia que alguien la simplifique nada se pone rojo. El contrapeso del otro lado ya estaba bien hecho en este mismo commit y vale copiarlo: el test que cruza las formas aceptadas contra el `MySqlConnectionStringBuilder` REAL impide aceptar una forma que el connector ignora - un reconocedor de texto se prueba contra el parser de verdad, no contra la lista que uno se acuerda."
+
   - id: OLV-041
     modulo: "Chip de adjunto en el hilo reabierto: el destino se dice a medias (Tareas/_Conversacion)"
     titulo: "El arreglo de OLV-039 le dio al chip del hilo la leyenda del transitorio pero no el nombre del cliente: en el hilo un archivo guardado no dice DONDE quedo, y es justo lo que la persona acaba de decidir"
@@ -4951,6 +4980,30 @@ regresiones:
     pruebas_minimas:
       - "Los cuatro valores de clienteId en una sola tanda: '' (entra), valido (entra), '0' ('El cliente no existe'), no parseable (mensaje que nombre el parametro)."
     leccion_adicional: "El impacto real es bajo (un formulario del navegador nunca manda un clienteId no numerico y nada queda guardado), pero el criterio de aceptacion del defecto original decia 'NINGUN camino de error devuelve Elegi un archivo con el archivo presente' y ese criterio no se cumple. Un fix que cambia el tipo de un parametro cierra el caso que se reporto, no la clase de casos que el criterio nombraba: al re-verificar hay que releer el criterio, no el ticket."
+
+  - id: OLV-043
+    modulo: "Animacion CSS escalonada: varios elementos con el mismo @keyframes y un animation-delay distinto por elemento"
+    titulo: "Durante su delay el elemento se dibuja con su estilo BASE, no con el keyframe 0%: en una animacion escalonada los que todavia no arrancaron quedan visibles y quietos sobre el dibujo"
+    severidad: minor
+    reproducido_en: "olvidata-agentes-multirubro - commit b16f6ff, /ChatLibre, pieza decorativa del arranque (.ov-chat-pieza__pulso). Reproducido por navegador (Playwright MCP) midiendo getComputedStyle sin manipular el reloj."
+    pasos:
+      - "Abrir la pantalla que tiene la animacion escalonada, con el tema y el ancho que sea."
+      - "Medir opacity y transform de CADA elemento escalonado a los ~150 ms y a los ~2000 ms del load, sin tocar document.getAnimations()."
+      - "Comparar contra el estado que declara el 0% del keyframe."
+    sintoma: "Los elementos cuyo animation-delay todavia no vencio dan opacity: 1 y transform: none (su estilo base), no el 0% del keyframe. En la pieza del chat libre eso son hasta 3 puntos macizos quietos pegados a los nodos del isotipo durante los primeros 3,3 s de cada carga."
+    expectativa: "Antes de arrancar, el elemento se ve como lo dice el 0% de su keyframe (en este caso, invisible)."
+    causa_raiz: "animation-fill-mode por defecto es `none`: durante la fase de delay el elemento NO toma el estilo computado del primer keyframe, toma el suyo propio. El elemento con delay 0 no lo expone, asi que el defecto es invisible en el primer elemento y aparece solo en los escalonados. En el mismo cambio la hermana (.ov-chat-pieza__onda) SI lleva `opacity: 0` de base y por eso no falla: la asimetria entre dos reglas vecinas es la firma del bug."
+    capa: Web
+    archivos_fix:
+      - path: src/OlvidataAgentes.Web/wwwroot/css/site.css
+        motivo: "Darle a .ov-chat-pieza__pulso el mismo estado de reposo que ya tiene .ov-chat-pieza__onda (`opacity: 0` de base), o declarar `animation-fill-mode: backwards` en la shorthand. La primera opcion es la que ya usa el archivo."
+    migracion_ef: null
+    fix_aplicado: null
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "getComputedStyle(el).opacity / .transform de cada elemento escalonado, medido entre 100 y 300 ms despues del load"
+      condicion_falla: "Un elemento con animation-delay > 0 da un estilo distinto del que declara el 0% de su keyframe mientras el delay no vencio"
+    leccion_adicional: "Un @keyframes que arranca en `opacity: 0` NO garantiza que el elemento nazca invisible. Un test que lee el fuente del CSS no puede ver esto, y una captura tomada en el estado estable tampoco: hay que medir en los primeros cientos de milisegundos del load, que es justo la ventana que una verificacion apurada se saltea esperando a que 'se estabilice'."
 
   - id: LP-009
     modulo: "Caja / cierre mensual (CajaMovimientoService.RegistrarMovimientoManualAsync, GastoService.CrearAsync, VentaWorkflowService.ConfirmarAsync - guarda de periodo cerrado)"
