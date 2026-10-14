@@ -898,6 +898,201 @@ implementación ya contaba bien). CA-86.8 → **3 cheques / $1.452.133,30** (pag
 CA-86.11 → el invariante es "a lo sumo un gasto **vigente** por cheque". CA-86.14 → **$41.522,56**
 (redondeo por cheque, como el banco).
 
+## Corrección MH-055 a MH-059 (2026-10-14) — estructura impositiva real del costo de cobranza
+
+No es un CR presupuestado: es una corrección reactiva disparada por un reporte del cliente. Vendió
+$444.000 en 12 cuotas por el Point Smart y el precio que calculó el sistema quedó por debajo del
+que correspondía. Resultaron ser tres defectos encadenados, todos medidos contra comprobantes
+reales del 13/10/2026 y ninguno detectable sin esos comprobantes.
+
+### El punto de partida, con números
+
+| Caso | Calculaba | Real | Falta |
+|---|---:|---:|---:|
+| Venta 751 — $444.000, 12 cuotas, Point Smart de Mercado Pago | $104.695,20 | $133.355,00 | $28.659,80 |
+| Venta 752 — $338.000, 3 cuotas, Payway | $21.307,52 | $57.904,03 + bancarios | $43.318,83 |
+
+Y en el precio al cliente: el % de interés de **12 cuotas estaba en 0,00** en Configuración >
+Cuotas de tarjeta (9 cuotas también), así que esas ventas salían al precio de contado mientras la
+tarjeta se quedaba con el 30%.
+
+### MH-055 — el costo de cobranza estaba mal estructurado
+
+`TasaCostoCobranza` guardaba un único "costo total" por combinación, con el IVA supuestamente
+adentro y sin ninguna retención de la procesadora. Las liquidaciones reales muestran **tres bases
+distintas**, y confundirlas es exactamente el defecto:
+
+| Componente | Base | Payway | Mercado Pago |
+|---|---|---:|---:|
+| Comisión (arancel + plan de cuotas + anticipo) | Monto bruto | según plan | según plan |
+| IVA | **los servicios** | 21% | 21% |
+| Percepción IIBB Buenos Aires | **los servicios** | 4% | 0% |
+| Retención IIBB SIRTAC | **el bruto** | 1,50% | 1,50% |
+| IIBB bancario (ARBA) + Ley 25413 | **el neto acreditado** | 1,80% + 0,60% | 0% |
+
+Dos hallazgos que no estaban en ninguna fuente previa:
+
+- **Los porcentajes del panel de Mercado Pago son NETOS de IVA.** El "23,58% total" de 12 cuotas
+  que traía la memoria del proyecto es en realidad lo que la liquidación parte en "Intereses por
+  cuotas" (19,50% × 1,21 = 23,595%, $104.761,80 sobre $444.000, **exacto**) y "Cargo de Mercado
+  Pago" (4,08% × 1,21, $21.933,12). Costo real de 12 cuotas: **30,03%**, no 23,58%.
+- **El SIRTAC se retiene en la propia acreditación y sobre el bruto.** Las filas de MP lo tenían en
+  0 porque se asumió que el IIBB se devengaba recién al transferir el saldo al banco. Con el Point
+  Smart no: $6.660,00 sobre los $444.000, **exacto**. Y calcularlo sobre el neto, como se hace con
+  los bancarios, daría $4.760 — por eso necesitó base propia y no se pudo reusar la columna que ya
+  existía.
+
+Además, `NetoAcreditado` pasa a restar **todas** las retenciones de la plataforma y no sólo la
+comisión. Mientras el IVA y las retenciones estaban en 0 daba lo mismo; con la estructura real, no
+restarlas inflaría la base de los impuestos bancarios.
+
+**La parte que casi se pasa por alto: el recálculo retroactivo no corregía nada.** Era "todo o
+nada" — si el pago ya tenía egreso posteado, lo salteaba entero. Corregir una tasa no tenía por
+dónde entrar a los pagos ya posteados, y el único camino era cambiarle la plataforma al pago, que
+exige cambiarla a *otra*. Se agregó `AjustarEgresoAsync`, que postea **sólo la diferencia** contra
+lo que hay en el ledger, en el sentido que haga falta. Es más idempotente que el chequeo anterior:
+el neto se relee justo antes de escribir, así que una segunda corrida da 0. El egreso original
+nunca se edita ni se borra (PAT-020).
+
+### MH-056 y MH-059 — el cobro anticipado, ida y vuelta
+
+Las liquidaciones de 6 cuotas de septiembre **no** traían el servicio de cobro anticipado y la de 3
+cuotas de octubre **sí**. Ante la pregunta "¿es una fecha de corte o se elige por venta?", el
+cliente respondió *por venta*, y MH-056 lo modeló como dato de la línea de pago:
+`PagoVenta.CobroAnticipado` más un porcentaje propio en la tasa, con checkbox en Ventas, columna en
+el listado de pagos con tarjeta y el tilde dentro del diálogo de "Asignar plataforma". MH-058 lo
+dejó encendido por defecto.
+
+**Con eso ya publicado, el cliente precisó que el negocio está adherido al plan y que todas sus
+cobranzas con tarjeta se adelantan**: el caso "sin adelanto" no existe en su operación. MH-059 lo
+revirtió. Un checkbox que siempre viene tildado no es una funcionalidad: es una casilla más que el
+vendedor ve en cada venta y puede destildar por error, con 3,5957% de los servicios atrás. El
+adelanto volvió adentro de la comisión, resuelto con vigencia como cualquier otro cambio de
+arancel.
+
+Queda escrito acá porque el ida y vuelta no fue gratis y el próximo que lea las dos vigencias de
+Payway va a querer saber por qué no es un flag.
+
+### MH-057 — el precio al cliente
+
+Los recargos salen del costo real por plan y resuelven la ecuación correcta: **el costo se cobra
+sobre el precio ya recargado**, así que el recargo que deja el neto intacto es `1 / (1 − costo) − 1`,
+no el costo a secas. Redondeados hacia arriba al entero:
+
+| Plan | Costo real | Mínimo | Antes | Ahora |
+|---|---:|---:|---:|---:|
+| 3 cuotas (Payway) | 19,12% | 23,6% | 25% | 25% (alcanza) |
+| 6 cuotas (Payway) | 26,58% | 36,2% | 25% | **37%** |
+| 9 cuotas (Mercado Pago) | 24,95% | 33,3% | 0% | **34%** |
+| 12 cuotas (Mercado Pago) | 30,03% | 42,9% | 0% | **43%** |
+
+1 pago queda en 0 a propósito: el arancel base ya está contemplado en el precio "tarjeta" del
+producto (`VentaItem.TipoPrecio`), no en esta tabla.
+
+### Las tasas de Payway, confirmadas por dos lados independientes
+
+El cliente aportó la tabla oficial del programa **Cuotas MiPyME** (3 cuotas 6,91% + IVA,
+coeficiente 1,0912; 6 cuotas 13,02% + IVA, coeficiente 1,1870). Cierra la aritmética dos veces:
+
+- El coeficiente publicado es exactamente `1 / (1 − tasaDirecta × 1,21)`: 1,0912 y 1,1870, los dos
+  al cuarto decimal.
+- Las tasas directas reproducen lo que se había despejado a ciegas de las liquidaciones:
+  `2,00 arancel + 6,91 plan + 3,5957 anticipo = 12,5057` (despejado 12,5051) y
+  `2,00 + 13,02 = 15,02` (despejado 15,0171).
+
+Se conservan los valores **despejados**, no los de la tabla: son los que reproducen los
+comprobantes al centavo (la diferencia es de ~$19 sobre $670.600).
+
+Eso explicó también por qué 3 cuotas necesita dos vigencias y no es el mismo motivo que 6 cuotas:
+el **2,0000% de septiembre es sólo el arancel, sin plan** — son las 3 cuotas *con* interés al
+cliente, donde el titular de la tarjeta paga el financiamiento y el comercio no entra al programa.
+
+### Verificación — las cinco mediciones disponibles
+
+| Caso | Esperado | Calculado | Desvío |
+|---|---:|---:|---|
+| Payway 3 cuotas con anticipo, $338.000 | retiene 57.904,03 | 57.904,05 | $0,02 |
+| Payway 3 cuotas sept, $614.000 (extracto) | acredita 589.440,00 | 589.440,00 | exacto |
+| Payway 6 cuotas sept, $670.600 (extracto) | acredita 534.659,95 | 534.660,16 | $0,21 |
+| Payway 1 pago, $33.000 (extracto) | acredita 31.706,40 | 31.706,40 | exacto |
+| Mercado Pago 12 cuotas, $444.000 | retiene 133.355,00 | 133.341,19 | $13,81 |
+
+Los dos desvíos están declarados en el código: el de $0,21 es truncado a 4 decimales, y el de
+$13,81 (0,01%) es el redondeo del coeficiente de Mercado Pago, que despeja 23,5825% contra el
+23,58% configurado. Mismo criterio que el desvío conocido del coeficiente de Payway (MH-031).
+
+**Septiembre quedó intacto.** Es el único mes contrastado línea por línea contra el extracto del
+Banco Provincia: los coeficientes de 1, 3 y 6 cuotas que ya estaban se conservan en su total y sólo
+se descomponen.
+
+### Migraciones EF
+
+Tres, las tres con UPDATE **guardados por el valor viejo exacto**: si alguien ya corrigió un
+porcentaje a mano en pantalla, la fila no matchea y se respeta. Eso las hace además re-ejecutables
+sin efecto.
+
+| Migración | Qué hace |
+|---|---|
+| `MH055EstructuraImpositivaCostoCobranza` | 4 columnas nuevas + corrige las 19 tasas cargadas + fila de Payway 3 cuotas desde 01/10 |
+| `MH057RecargosPorCuotas` | Recargos de 6, 9 y 12 cuotas en `ConfiguracionesCuotaTarjeta` |
+| `MH059AnticipoEnLaTasa` | El anticipo entra en la comisión de Payway, cierra 6 cuotas el 30/09 y crea la de octubre; borra las 2 columnas de MH-056 |
+
+**Ninguna toca un movimiento del ledger.** Los costos ya posteados con la tasa vieja se corrigen
+desde Recalcular, que ahora postea el ajuste neto. Separar las dos cosas es deliberado: una
+migración que además reescribiera la caja de dos meses no sería revisable.
+
+### Impacto por capa
+
+- **Domain:** `TasaCostoCobranza` (+2 columnas finales), `PagoVenta` (doc-comments; la columna
+  `CobroAnticipado` nació y murió dentro de la misma corrida).
+- **Application:** `CostoCobranzaDtos` (desglose por tributo), `ICostoCobranzaService`
+  (`AjustarEgresoAsync`).
+- **Infrastructure:** `CostoCobranzaService` (fórmula, ajuste por diferencia, recálculo),
+  `TasaCostoCobranzaService`, `SeedData`, `AppDbContext`.
+- **Web:** `_Form` y `Index` de Costos de cobranza, `Ventas/Create`, `Ventas/Details`,
+  `PagosTarjeta/Index`, `Recalcular`.
+
+Rótulo que cambia en pantalla: lo que decía **"Imp. bancarios"** pasa a **"Impuestos y
+retenciones"**. `PagoVenta.CostoImpuestosBancarios` ahora junta cuatro tributos con tres bases
+distintas; no se abren en columnas propias porque el desglose se reconstruye desde
+`TasaCostoCobranzaId`, que ya se persiste para eso, y abrir dos columnas más obligaría a tocar los
+cinco puntos de alta de pago (LP-002) para ganar un dato derivable.
+
+### Evidencia
+
+Build de la solución completa: **0 errores**. Las tres migraciones aplicadas y verificadas **desde
+cero** contra `marihogar_dev` (rollback + re-apply completo, no sólo el incremental). Fórmula
+contrastada contra las cinco mediciones de la tabla de arriba. Sin smoke test (regla vigente del
+proyecto). Tres deploys a producción con verificación posterior por SQL de solo lectura.
+
+### Pendiente, y es decisión del cliente
+
+- **Recálculo de octubre: +$43.340,87.** Los dos pagos de 6 cuotas por Payway del mes (ventas 737 y
+  746) quedaron posteados con el coeficiente viejo.
+- **Recálculo de septiembre: +$214.048,79.** Todo Mercado Pago — el IVA y el SIRTAC que faltaban.
+  Las filas de Payway dan ±$0, que es la confirmación de que la descomposición no movió lo ya
+  verificado. Mueve la caja de un mes cerrado, así que no se corrió.
+
+### Observaciones declaradas, NO actuadas
+
+- **El 18,6128% de Payway 6 cuotas desde octubre es el único porcentaje de toda la tabla que no
+  sale de una liquidación propia.** Se arma sumando el anticipo medido en la de 3 cuotas. Queda
+  marcado como tal, en el seed y en la migración, para corregirlo de una sola vez cuando llegue la
+  primera liquidación de 6 cuotas de octubre.
+- **El IVA de la comisión de cobranza no se computa como crédito fiscal** en la Posición de IVA
+  estimada, que lo toma sólo de las facturas de compra. Antes era inocuo porque todas las filas
+  estaban en 0; desde MH-055 el crédito existe y la pantalla lo subestima. El aviso quedó en la
+  pantalla donde se produce el cambio, no en la de Posición de IVA.
+- **`MercadoPagoOscar` (MH-054) sigue sin ninguna fila de tasa.** Hay un cobro de $134.000 en
+  octubre costeando $0. Sembrar 0 afirmaría que cobrar por ahí es gratis; queda en "sin tasa
+  configurada" (CRM-020) y la pantalla lo cuenta aparte.
+- **`ConfiguracionCuotaTarjeta` NO está absorbida por `TasaCostoCobranza`**, aunque el doc-comment
+  de esta última se presenta como "la generalización" de aquella y eso indujo a confusión durante
+  la corrida. Son dos cosas distintas: la primera es el **recargo que se le cobra al cliente**
+  (`PagoVenta.PorcentajeInteres`, precarga el "% Interés" en Ventas), la segunda es **lo que cobra
+  la plataforma**. Lo que comparten es la forma, no lo que miden.
+
+
 ## Historial de ajustes
 
 ### Bloques archivados (2026-10-02)
