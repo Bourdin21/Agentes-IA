@@ -28,8 +28,9 @@ Qué significa al escribir una pieza:
 - **Ningún CTA pide la venta.** Va la **pregunta de oficio** (*"¿cómo lo hacés vos?"*, *"¿a quién le
   preguntás cuando falta ese dato?"*) o el **pedido de volver** (*"la semana que viene muestro cómo
   quedó"*). "Escribime por WhatsApp" deja de ser el cierre universal.
-- **El caso cuenta cómo se armó, no el resultado.** El problema como estaba, la decisión que se tomó,
-  lo que no funcionó en el camino. El resultado va al final, no al titular.
+- ~~**El caso cuenta cómo se armó, no el resultado.**~~ **DEROGADO el 2026-10-13** (regla dura más
+  abajo): la pieza muestra el **producto terminado operando**, y el método —el paso a paso, la
+  decisión técnica, lo que no funcionó— **no se publica**.
 - **Ningún precio en pantalla ni en caption.** Se dice en la demo o en la propuesta.
 - **Ningún nombre de cliente.** Hay permiso de todos, pero los casos se cuentan **por rubro** — "una
   ferretería", "una dietética". Cara y pantalla sí; nombre no. El logo tampoco: publicar el logo es
@@ -88,7 +89,8 @@ Cómo se baja a una pieza:
 - **El contenido son las piezas y sus límites**, una por placa. Cada criterio se enuncia como
   **comportamiento** (*"la CPU no ve el disco: pide"*, *"lo que entra, entra como dato"*), nunca como el
   riesgo que evita ni comparado contra nadie.
-- **El caso real cierra, no abre.** Primero el cómo está construido; el resultado al final.
+- **El caso real cierra, no abre.** Primero el concepto —qué hay y dónde va cada cosa—; el producto
+  operando al final. El "cómo está construido" como procedimiento quedó derogado el 2026-10-13.
 - **Lo que no existe se dice.** El agente no tiene oído y no tiene voz: decirlo es parte del argumento,
   porque es lo que hace creíble todo lo demás.
 - **Elegí una lectura por pieza y no las mezcles.** La computadora y el organismo explican lo mismo; dos
@@ -97,6 +99,86 @@ Cómo se baja a una pieza:
 **Por qué esto es la regla y no una opción:** el concepto rector es el producto. Lo que lo diferencia no
 es qué hace —eso lo promete cualquiera— sino que **cada cosa tiene un lugar y un límite escrito**, y eso
 solo se transmite con la metáfora. Una lista de features lo devuelve al montón.
+
+## Se muestra el producto terminado operando — el método no se publica (Joaquín, 2026-10-13)
+
+**Cambio de paradigma, y regla dura. Deroga "el caso cuenta cómo se armó, no el resultado".**
+Palabras de Joaquín: *"mostrar cómo se hacen las cosas es correr el peligro de que aprendan a
+hacerlo por su cuenta y no necesiten mis servicios. Quiero mostrar el producto final terminado
+operando, como en el caso de la ferretería. La fórmula es secreta de Olvidata."*
+
+**Lo que va en la pieza:** el producto andando. La pantalla real resolviendo, el bot contestando, el
+sistema haciendo lo que hace, filmado o capturado del proyecto real. El molde por defecto es el Reel
+de la ferretería (`/olvidata-video`).
+
+**Lo que NO va, en ninguna pieza pública:**
+
+- El paso a paso de cómo se construyó, el "primero esto, después esto", el "lo que no funcionó".
+- La decisión técnica explicada como enseñanza, el tip, el tutorial, el carrusel de "cómo hacer X".
+- Stack, arquitectura interna, prompts, pipeline de producción, repos, nombres de archivos.
+- Las herramientas con las que se produce — ni las del sistema ni las del contenido.
+- Cuánto tardó en hacerse.
+
+**La línea fina:** el **concepto rector** (computadora / organismo) sí se publica — es el **mapa**:
+qué hay, dónde va cada cosa, qué no se cruza. Lo que no sale nunca son las **instrucciones**. Si la
+pieza le deja a alguien algo para reproducir, se cae.
+
+**Comunicación instantánea — un símbolo, un mensaje, una sensación.** Una pieza = una idea. Si hay
+que leer para entender, la pieza falló. El prospecto no tiene que *comprender* el producto: tiene que
+**sentir** qué pasa cuando existe. La sensación de marca es siempre la misma: **jubilar a la gente de
+su trabajo cotidiano — que trabajen más las máquinas, entendiendo la lógica del usuario.**
+
+**Los CTA no cambian** (regla 2026-10-01): pregunta de oficio o pedido de volver. Sigue sin precio,
+sin venta y sin nombre de cliente. Y sigue en pie la de 2026-10-11: no se abre por el dolor.
+
+### ⏸ El mapa está pausado — as bajo la manga (Joaquín, 2026-10-13)
+
+Decisión del mismo día, encima de la regla: **las piezas que explican el producto con el concepto
+rector salen del feed y se guardan.** No se cayeron —el mapa está autorizado— se **reservan**, porque
+explicar el producto en público es gastar el argumento más caro con gente que todavía no pidió nada.
+
+- **Pausadas:** el carrusel del organismo, su compañera de LinkedIn (la computadora), memoria de
+  corto plazo, de instrucción a regla, y el carrusel del producto (`LINEA-SECOND-BRAIN.md` § *PAUSADA*).
+- **Dónde se usan desde hoy:** demo, propuesta y 1 a 1 — el nivel de la escalera donde ese detalle
+  corresponde. El carrusel del organismo es **material de venta**, no de feed.
+- **Qué sale en público mientras tanto:** sólo producto operando — casos por rubro y el estudio
+  contable andando.
+- **Cómo vuelve:** lo decide Joaquín. Criterio: cuando ya haya casos operando publicados que lo
+  respalden. Primero se ve la máquina andando; después se explica cómo está ordenada.
+
+**Para producir:** no se arman piezas nuevas de concepto rector para el feed hasta que Joaquín lo
+reactive. Si un pedido pide explicar el producto, se produce para **demo o propuesta**, y se dice.
+
+### Second Brain corporativo se comercializa desde noviembre — por la tarea, no por la idea (Joaquín, 2026-10-13)
+
+Plan completo en `BotPublicitario/plan_comercializacion_second_brain_nov2026.md`. Lo que hay que
+tener a mano siempre:
+
+- **Se comercializa una tarea de oficina que deja de hacer una persona.** El molde son cuatro beats:
+  **el pedido** en castellano → **el agente trabajando** → **el entregable hecho** → **el límite
+  dicho** (*"nada se presenta, se paga ni se manda solo"*). Cierra con pregunta de oficio, sin precio.
+- **No se dice qué idea es.** Ni el concepto rector, ni por qué un segundo cerebro, ni cómo se hizo.
+  **El nombre no lidera:** es etiqueta al pie, nunca titular. El titular es la tarea resuelta.
+- **Noviembre es el estudio contable**, que es el único caso real: conciliación (10/11), sueldos
+  (24/11), impuestos (08/12). Por rubro, sin nombre, sin logo, sin montos, sin resultados.
+- **Diciembre en adelante, rubro por rubro, como ejemplo declarado** sobre organización de prueba:
+  la pieza y la caption dicen *"ejemplo armado sobre una organización de prueba"*. **Nunca** "un
+  cliente de X lo usa": sigue habiendo **un** caso real.
+- **La compuerta de los ejemplos — los tres moldes.** Un ejemplo sólo puede pedirle al agente lo que
+  ya corre en producción: **A** cruce con entregable, **B** tarea programada, **C** control contra
+  otra fuente. Si necesita entrar a un sistema, escribir en una base, mandar algo solo o decidir sin
+  que nadie revise, **no se publica**.
+- **El mapa sigue guardado** y se muestra en la demo y en la propuesta, que es donde sostiene el
+  ticket. Público: la tarea. Privado: la arquitectura.
+
+**Cómo se chequea, antes de mandar a diseño:**
+
+1. ¿Alguien podría **reproducir** algo con esta pieza? Si sí, **se reescribe**.
+2. ¿Se ve el producto **terminado y operando**, o se ve cómo se construye? Lo segundo **se cae**.
+3. ¿Se entiende **en un segundo, sin leer**? Si no, **se simplifica hasta que sí**.
+
+**El que quiere aprender a hacerlo no es un lead.** No se optimiza para esa audiencia: ni guardados
+de tutorial, ni comentarios de colegas.
 
 ## REGLA DE ORO: nada se afirma sin respaldo documental
 
@@ -295,12 +377,12 @@ sistema lo hace todos los días"*.
 Estructura de referencia (~26s, 9 shots + placa de síntesis + end card). Probada y depurada; usala como base y adaptá.
 
 1. **Hook (3 shots x 2s)** — el mismo concepto repetido en 3 rubros distintos, con **encuadre y cadencia de cámara idénticos**. La repetición visual es lo que frena el scroll: el espectador se pregunta por qué le muestran lo mismo tres veces. Un overlay de 2-3 palabras por shot ("Por kilo." / "Por metro." / "Por unidad.").
-2. **3 pares dolor → reveal (~5s cada par)** — un dolor específico y real por rubro (3s, generado por IA), seguido del reveal en pantalla real del sistema resolviéndolo (2s, **grabación real, nunca IA**).
+2. **3 pares capacidad → reveal (~5s cada par)** — *corregido 2026-10-13: eran pares dolor → reveal, y el dolor quedó vetado el 2026-10-11.* Ahora el primer tramo (3s, generado por IA) muestra **la escena de trabajo cotidiano que la máquina se lleva** —sin enunciar el problema ni el error—, y el segundo el reveal en pantalla real del sistema haciéndolo (2s, **grabación real, nunca IA**). Nunca se muestra cómo se construyó.
 3. **Placa de síntesis (2s)** — callback literal al hook, texto apareciendo palabra por palabra.
 4. **End card (3s)** — isotipo + wordmark Olvidata, **los nombres/logos de los clientes reales en fila**, línea de categoría, CTA suave "Seguinos".
 
 **Reglas de la estructura:**
-- La prueba social va en el end card con nombres reales de clientes, no solo el isotipo. Es la diferencia entre "existe un sistema" y "tres comercios reales de tres rubros distintos ya lo usan".
+- ~~La prueba social va en el end card con nombres reales de clientes.~~ **DEROGADO**: los nombres y logos de cliente no salen (`MARCA.md` § 5c, y la regla 2026-10-01). La prueba social es **el sistema operando** y el rubro: "tres comercios reales de tres rubros distintos", sin nombrarlos.
 - El orden de los rubros lo decide la prioridad de pipeline: primero el rubro con deals abiertos (más chance de que el clip sirva también de asset de venta), último el de remate más amplio.
 - Variable de ajuste si queda largo: sacar un par dolor/reveal completo (~5s), nunca recortar el hook.
 - Cada par tiene que demostrar **la misma capacidad aplicada distinto** — eso es lo que ningún ERP genérico puede copiar en 26 segundos.
@@ -374,7 +456,7 @@ Distinto de todo lo de arriba (Pilar 1: casos reales de cliente, "Olvidata resue
 
 **Temas rotativos** (mix/cadencia exacta a definir con `olvidata-marketing`/`olvidata-ceo` antes de comprometer un calendario fijo — ver más abajo):
 1. Novedades tecnológicas generales.
-2. Conceptos de programación explicados simple — ej. "qué es programación orientada a objetos".
+2. ~~Conceptos de programación explicados simple.~~ **BLOQUEADO el 2026-10-13**: explicar el método es justo lo que la regla dura prohíbe. Si vuelve, es como curiosidad de la industria, nunca como la base técnica de lo que hace Olvidata — y la decisión de si el pilar sigue es de `olvidata-ceo`.
 3. Novedades de IA.
 4. Rol FDE (Forward Deployed Engineering) — cómo aplicarlo a tu propio negocio. Encuadre obligatorio: siempre como validación de cómo Joaquín ya trabaja hace años, nunca como pivot ("ahora me meto en IA enterprise") — eso contradice el foco en catálogo y puede confundir a clientes referidos. Mismo criterio que ya está anotado en `olvidata-ceo`.
 5. Novedades de agentes de IA.

@@ -31,18 +31,95 @@ Toda estrategia comercial, mensaje de prospección o automatización de ventas s
   - "¿Y si me quedo sin soporte?" → "Sin permanencia — cancelás cuando quieras. Y yo soy el mismo que lo hizo." (continuidad y control)
   - "Tengo miedo de que sea complicado" → ofrecer demo sin datos propios: "Lo operás vos en vivo en 15 minutos".
 
+## Producto terminado operando, y el método es secreto (regla dura, Joaquín 2026-10-13)
+
+**Cambio de paradigma. Deroga el principio pain-first y "los casos cuentan cómo se armó" de las
+secciones de arriba** (quedaron marcados en su lugar). Palabras de Joaquín: *"mostrar cómo se hacen
+las cosas es correr el peligro de que aprendan a hacerlo por su cuenta y no necesiten mis servicios.
+Quiero mostrar el producto final terminado operando. La información es energía. La fórmula es secreta
+de Olvidata: se va a monopolizar la información."*
+
+Qué cambia en el diseño de cualquier mensaje, template o estrategia de canal:
+
+- **Lo público es el resultado operando.** El sistema andando, el bot contestando, la pantalla
+  resolviendo. Nunca el procedimiento, el paso a paso, el tip ni el tutorial.
+- **La información se entrega por nivel, no en público** (escalera completa en `olvidata-ceo` y
+  ejecución en `olvidata-sales`): público → demo → propuesta → cliente firmado. Stack, arquitectura
+  interna, prompts, pipeline, herramientas y tiempos de construcción **no salen en ningún nivel**.
+- **Se publica el mapa, nunca las instrucciones.** El concepto rector (computadora / organismo) sí
+  va: dice qué hay y dónde va cada cosa, y no es reproducible. El instructivo no.
+- **Un símbolo, un mensaje, una sensación.** Se vende por emoción, no por entendimiento. Un mensaje =
+  una idea; si hay que leer para entenderlo, está mal escrito. Respaldo: Binet & Field sobre 996
+  campañas del IPA Databank (1980–2010) — las campañas emocionales ganan en todas las métricas de
+  marca y negocio, y casi duplican la probabilidad de crecimiento fuerte de ganancias; Kahneman da el
+  mecanismo (decide el System 1, la explicación le habla al System 2).
+- **La promesa transversal: jubilar a la gente de su trabajo cotidiano** — que trabajen más las
+  máquinas, entendiendo la lógica del usuario. Es el eje emocional de todo el frente de agentes.
+- **El how-to ya lo produce cualquier IA en segundos.** Publicarlo no construye autoridad: la
+  comoditiza. Lo que el comprador no puede sacar de una IA es ver el resultado funcionando en un
+  negocio como el suyo.
+
+### ⏸ El mapa está pausado — as bajo la manga (Joaquín, 2026-10-13)
+
+Decisión del mismo día, encima de la regla: **las piezas que explican el producto con el concepto
+rector salen del feed y se guardan.** No se cayeron —el mapa está autorizado— se **reservan**, porque
+explicar el producto en público es gastar el argumento más caro con gente que todavía no pidió nada.
+
+- **Pausadas:** el carrusel del organismo, su compañera de LinkedIn (la computadora), memoria de
+  corto plazo, de instrucción a regla, y el carrusel del producto (`LINEA-SECOND-BRAIN.md` § *PAUSADA*).
+- **Dónde se usan desde hoy:** demo, propuesta y 1 a 1 — el nivel de la escalera donde ese detalle
+  corresponde. El carrusel del organismo es **material de venta**, no de feed.
+- **Qué sale en público mientras tanto:** sólo producto operando — casos por rubro y el estudio
+  contable andando.
+- **Cómo vuelve:** lo decide Joaquín. Criterio: cuando ya haya casos operando publicados que lo
+  respalden. Primero se ve la máquina andando; después se explica cómo está ordenada.
+
+### Second Brain corporativo se comercializa desde noviembre — por la tarea, no por la idea (Joaquín, 2026-10-13)
+
+Plan completo en `BotPublicitario/plan_comercializacion_second_brain_nov2026.md`. Lo que hay que
+tener a mano siempre:
+
+- **Se comercializa una tarea de oficina que deja de hacer una persona.** El molde son cuatro beats:
+  **el pedido** en castellano → **el agente trabajando** → **el entregable hecho** → **el límite
+  dicho** (*"nada se presenta, se paga ni se manda solo"*). Cierra con pregunta de oficio, sin precio.
+- **No se dice qué idea es.** Ni el concepto rector, ni por qué un segundo cerebro, ni cómo se hizo.
+  **El nombre no lidera:** es etiqueta al pie, nunca titular. El titular es la tarea resuelta.
+- **Noviembre es el estudio contable**, que es el único caso real: conciliación (10/11), sueldos
+  (24/11), impuestos (08/12). Por rubro, sin nombre, sin logo, sin montos, sin resultados.
+- **Diciembre en adelante, rubro por rubro, como ejemplo declarado** sobre organización de prueba:
+  la pieza y la caption dicen *"ejemplo armado sobre una organización de prueba"*. **Nunca** "un
+  cliente de X lo usa": sigue habiendo **un** caso real.
+- **La compuerta de los ejemplos — los tres moldes.** Un ejemplo sólo puede pedirle al agente lo que
+  ya corre en producción: **A** cruce con entregable, **B** tarea programada, **C** control contra
+  otra fuente. Si necesita entrar a un sistema, escribir en una base, mandar algo solo o decidir sin
+  que nadie revise, **no se publica**.
+- **El mapa sigue guardado** y se muestra en la demo y en la propuesta, que es donde sostiene el
+  ticket. Público: la tarea. Privado: la arquitectura.
+
+**Nota sobre el consenso de mercado:** la literatura de contenido 2026 recomienda abrir por el
+problema, y el research de referidos y educación de audiencia recomienda enseñar. **Ambas cosas están
+vetadas acá** por decisión de Joaquín (2026-10-11 y esta) y no se reabren.
+
+**Chequeo de cualquier pieza o template:** ¿se puede reproducir algo con esto? ¿se ve el producto
+terminado o se ve cómo se construye? ¿se entiende en un segundo sin leer? Primera sí → se cae;
+segunda "cómo se construye" → se cae; tercera no → se reescribe.
+
 ## Frameworks de comunicación y persuasión
 
-**AIDA aplicado a Olvidata**
-- Atención: abrir con el dolor específico del rubro, no con "somos una software factory"
-- Interés: mostrar que existe el sistema para ESE rubro ya funcionando
+**AIDA aplicado a Olvidata** — *ajustado 2026-10-13: la A de Atención ya no abre por el dolor.*
+- Atención: abrir mostrando el **producto terminado operando** para ESE rubro. Nunca con el dolor, y nunca con "somos una software factory"
+- Interés: que se vea funcionando en un negocio como el suyo
 - Deseo: demo en vivo — ver el propio problema resuelto en tiempo real
 - Acción: propuesta con vencimiento 7 días + 50% anticipo para empezar
 
-**Principio pain-first (Jobs-to-be-Done)**
-- En toda comunicación, la primera línea debe nombrar el problema del destinatario, no la solución que vendemos.
-- "Trabajamos con [rubro] ayudándolos a [dolor específico]" supera a "somos especialistas en sistemas para [rubro]".
-- Aplica a: mensajes de outbound, saludo del bot, propuestas, publicaciones de Instagram, mensajes de seguimiento.
+**Principio pain-first (Jobs-to-be-Done) — DEROGADO el 2026-10-11, reafirmado el 2026-10-13.**
+Queda anotado porque es el molde que se dejó de usar a propósito: *"la primera línea debe nombrar el
+problema del destinatario"*. **Ya no.** Ninguna pieza, mensaje de outbound ni saludo del bot abre por
+el dolor, el riesgo o el error ajeno: se abre por el producto operando y la experiencia de usarlo. El
+dolor del rubro sigue siendo el insumo para **elegir** de qué hablar, nunca el texto con el que se
+abre. El reencuadre al costo del problema sobrevive **solo dentro de la zona de venta directa** —
+objeciones en la demo o después de la propuesta, ver `olvidata-sales`— jamás en contenido ni en la
+apertura del outbound.
 
 **Micro-compromisos (ladder of commitment)**
 - Cada "sí" pequeño predispone al siguiente. En el bot: responder 1 → responder 2 → responder 3 → esperar la demo.
@@ -104,8 +181,8 @@ Un programa de referidos efectivo tiene 3 partes: el que recomienda (cliente act
   vos?"*), que abre conversación sin pedir nada y califica solo al que contesta; y el **pedido de
   volver** (*"la semana que viene muestro cómo quedó"*). "Escribime por WhatsApp" sale del cierre
   universal.
-- **Los casos cuentan cómo se armó, no el resultado**: el problema como estaba, la decisión que se
-  tomó, lo que no funcionó en el camino. El resultado deja de ser el titular y pasa a ser el final.
+- ~~**Los casos cuentan cómo se armó, no el resultado.**~~ **DEROGADO el 2026-10-13**: la pieza
+  muestra el **producto terminado operando** y el método no se publica (regla dura más arriba).
 - **El precio no va al feed.** Se dice en la demo o en la propuesta.
 - **El dato que lo sostiene:** persona o cliente real en cámara mide **65,9** de engagement contra
   **17,5** de las placas de producto. Casi 4×.
@@ -115,7 +192,7 @@ Un programa de referidos efectivo tiene 3 partes: el que recomienda (cliente act
 - Contenido: pantallas reales del sistema funcionando. Si hay un número, tiene que estar verificado
   contra el proyecto real.
 - No publicar sobre tecnología — publicar sobre la vida del dueño de negocio sin el problema.
-- Stories de proceso: "así armamos el sistema de [rubro]" → genera familiaridad antes del primer contacto.
+- ~~Stories de proceso: "así armamos el sistema de [rubro]".~~ **DEROGADO el 2026-10-13**: la story muestra el sistema **funcionando**, no el armado.
 - Voz: primera persona de Joaquín contando lo que construyó ("armé", "con [cliente] hicimos..."), no "Olvidata lanza" ni tercera persona — mismo criterio de marca personal que en el resto de los canales.
 
 **LinkedIn**

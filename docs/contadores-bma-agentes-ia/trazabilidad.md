@@ -4,6 +4,31 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-13 - olvidata-ceo (via Joaquin, conversacion directa)
+- Etapa: **Pricing retroactivo / modelo de negocio** (no toca Analisis/Diseno/Arquitectura, ya cerrados)
+- Cambio: Joaquin corrige el calculo de BMA: el proyecto fue **caso de prueba de capacidad del sistema**, no demanda
+  real completa. Los **4 ejes reales del requerimiento original** (`metadata.md` / `guion-discovery.md` Bloque 3:
+  conciliacion bancaria, balances, impuestos, sueldos) son los que se cotizan; `cont-control-arca`, `cont-arba` y
+  `cont-soporte-sistemas` (nacidos del research tecnico de ARCA/ARBA/SOS del 2026-09-23, junto con el conector de SOS
+  Contador que los sostiene) quedan fuera del calculo de BMA porque se construyeron para probar que el sistema podia
+  hacerlo, no porque el estudio los haya pedido.
+- Recalculo sobre los 4 ejes (modelo de pricing nuevo, ver `.claude/agents/olvidata-ceo.md`): **setup USD 4.000
+  (+USD 700 si corresponde relevamiento externo tipo Bernarda) / mensual USD 290**, sin conector (los 4 ejes trabajan
+  sobre archivo exportado). Coincide exacto con el total de `presupuesto-cliente.md` (plan base + los 3 agentes a
+  medida: Conciliacion, Impuestos BMA, Balances), que a la fecha de esta entrada sigue **pendiente de aprobacion** del
+  estudio (`guion-reunion-configuracion.md`).
+- La brecha contra lo informalmente pactado (USD 2.500 base+conector / USD 170/mes, trazabilidad 2026-09-23) **se
+  registra como descuento piloto**, no como error de calculo: BMA es el cliente 1 que aporto los criterios que se
+  estandarizan para los proximos estudios contables del rubro, y se reconoce con precio piloto en vez de regalia.
+- Motivo: evitar que quede en memoria un numero de BMA que mezcla alcance real con alcance de experimentacion interna
+  — decision que ya habia distorsionado una comparacion de precios en una conversacion anterior.
+- Riesgo si no se corrige en la propuesta formal: si `presupuesto-cliente.md` se aprueba tal cual sin dejar explicito
+  que es precio piloto, un futuro estudio contable que pida lo mismo (los 4 ejes, sin los agentes de research)
+  esperaria el mismo numero sin saber que fue un descuento deliberado, no la lista.
+- Notas: Precio general del frente AI Agents multirubro queda "vigente pero bajo revision" (Joaquin: "me parece
+  caro") tras research de mercado — ver `.claude/agents/olvidata-ceo.md`, bloque "REDISEÑO de pricing AI Agents
+  multirubro — 2026-10-13".
+
 ### 2026-10-07 - alcance real en produccion (via Joaquin, conversacion directa)
 - Etapa: **PRODUCCION**
 - Cambio: **Tres agentes productivos**, confirmados por Joaquin: **conciliacion bancaria**,

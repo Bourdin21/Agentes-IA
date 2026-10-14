@@ -135,7 +135,31 @@ Discovery de `contadores-bma-agentes-ia` todavía abierto (Presupuestador sin in
 
 \* Conciliación e Impuestos se cotizan Intermedio por sus varios pasos internos (parseo + matching/cálculo + resolución de excepciones), aunque en Fase 0-1 no tengan conector M11 activo (la definición de tier liga Intermedio a "1 integración externa" — acá no la hay todavía). **Marcar como supuesto a confirmar por Joaquín**: si se aplica estricto el criterio de la tabla, estos dos agentes bajarían a Básico. La versión personal "Mi IVA" (variante de Impuestos BMA para un solo usuario) se asume **incluida en el mismo agente**, no facturada aparte, porque es una personalización (ficha "Crear mi versión"), no un agente nuevo — otro supuesto a confirmar.
 
-Crédito de IA incluido total: USD 20+36+36+18 = **USD 110/mes**. Tope de gasto por defecto total: **USD 550/mes** (crédito × 5 por agente). Cifras de setup y cantidad/tier de agentes deben cerrarse recién cuando termine Discovery y corra el Presupuestador real de `contadores-bma-agentes-ia`.
+Crédito de IA incluido total: USD 20+36+36+18 = **USD 110/mes**. Tope de gasto por defecto total: **USD 550/mes** (crédito × 5 por agente). Cifras de setup y cantidad/tier de agentes deben cerrarse recién cuando termine Discovery y corra el Presupuestador real de `contadores-bma-agentes-ia`. **Superada por el rediseño de 2026-10-13 de abajo** (el esquema "plan base + N agentes a medida" asumía pocos agentes por cliente — no es así, ver regla nueva).
+
+**REDISEÑO de pricing AI Agents multirubro — Joaquín, 2026-10-13.** Motivo: *"las empresas pueden tener infinitos agentes. no escatimar en esto y recuantificar la manera de incluirlos en los planes."* **Joaquín aprueba el MODELO como regla fija. El PRECIO (los montos de abajo) queda VIGENTE PERO BAJO REVISIÓN — textual: "no estoy seguro del precio, me parece caro"** — no tratar estos números como definitivos sin chequear si ya se ajustaron. Research de mercado hecho el mismo día (ver tabla comparativa más abajo): en los tres mercados comparables (implementadores Argentina, gestorías España, AI accounting SaaS EE.UU.) y contra el costo de construir la plataforma desde cero (USD 100.000–300.000, agencia, 2026), el precio vigente de Olvidata aparece **barato, no caro** — queda registrado así, la decisión final de ajustar o no es de Joaquín.
+
+El driver de costo real **no es la cantidad de agentes** (un agente derivado por instructivo vía M15, self-service, cuesta USD 0 de construir) — son: integraciones reales a mantener, ingeniería nueva genuina (agente no derivable del núcleo), y volumen de tokens medido (ya cubierto por crédito/excedente ×3). Reemplaza el supuesto de "plan base + N agentes a medida" con tope implícito.
+
+1. **Setup — tres ejes, nunca por cantidad de agentes:**
+   - Licencia de rubro + organización (alta tenant, roles, cartera, piloto): USD 1.500, 50/50. Sin cambios respecto de lo ya fijado.
+   - Conector nuevo (integración externa), por sistema distinto, sin importar cuántos agentes lo usen: Simple USD 500 · Media USD 900 · Compleja/sin API USD 1.500.
+   - Agente 100% personalizado (bespoke, no derivable del núcleo por instructivo): Básico +500 · Intermedio +1.000 · Avanzado +2.000 (mismos montos y crédito/tope ya fijados el 2026-09-21).
+   - **Agente derivado por instructivo (self-service, M15): USD 0, cantidad ilimitada.** Es la pieza que resuelve el "infinitos agentes" de Joaquín.
+
+2. **Mensual:** base por tier de volumen de uso real de la organización — Org S/M/L, **números propuestos por `olvidata-ceo`, no fijados por Joaquín todavía**: S USD 90 (crédito 20, tope 100) · M USD 150 (crédito 50, tope 250) · L USD 250 (crédito 100, tope 500) — + USD 25/mes por cada conector activo (monitoreo/credenciales) + el mensual propio de cada agente personalizado (40/80/150, sin cambios). Un cliente con muchos agentes derivados paga más automáticamente porque cae en un tier Org más alto por volumen medido, no porque se facture "por agente".
+
+3. **Regla operativa de clasificación núcleo vs. personalizado (aplicable, no a ojo): si la regla la fija el organismo o el sistema externo (ARCA, ARBA, el formato de Bejerman/SOS Contador), va al núcleo, dentro de la licencia. Si la regla la fija el estudio/organización, es personalizado y se cobra aparte.** Reutiliza la distinción que el propio portal ya usa en diseño ("reglas de organización/cliente" vs. reglas del rubro) también como criterio de facturación.
+
+4. **El núcleo se nutre en cada setup — eso NO sube el precio de la licencia.** Lo generalizable de cada cliente (bajo la regla del punto 3) pasa al núcleo y beneficia a todos los próximos estudios del rubro. La licencia se mantiene estable dentro de cada ciclo de promo/lista; el enriquecimiento del núcleo es argumento de venta y respalda las subas YA calendarizadas (lista 2027 ×1,20), nunca un recálculo ad hoc cliente por cliente.
+
+5. **Cliente 1 (el que aporta el criterio que después se estandariza) se reconoce con precio piloto, no con regalía ni % de reventa** — mismo mecanismo que "Pilotos con descuento hasta 2027" ya fijado el 2026-09-19.
+
+6. **Bernarda (relevamiento externo) dentro de este modelo: +USD 700 flat al setup (por cliente, no por agente) cuando el proyecto tiene ≥1 agente 100% personalizado Intermedio/Avanzado.** Su entregable tiene que cumplir, como condición exigible del acuerdo: (1) vocabulario exacto del cliente/rubro, (2) reglas de negocio en formato condicional, (3) circuitos paso a paso con actor/rol/herramienta real, (4) ejemplos reales anonimizados, (5) excepciones/casos borde que se resuelven a mano, (6) inventario de integraciones con tipo de acceso. Sin estos seis puntos no sirve de insumo de configuración. Su trabajo arranca **después del 50% de anticipo cobrado**, nunca antes de firmar — así no hay riesgo de que Olvidata le pague sin que el cliente cierre. Lo que releva alimenta tanto el núcleo (lo generalizable) como lo personalizado (lo que se cobra) — parte de lo que paga ese cliente termina mejorando el producto para los próximos.
+
+7. **BMA recalculado sobre los 4 ejes reales del requerimiento original** (`metadata.md` / `guion-discovery.md` Bloque 3: conciliación bancaria, balances, impuestos, sueldos — "manuales/soporte" queda fuera del conteo como transversal, no eje de negocio) **y no sobre los agentes nacidos del research técnico** (`cont-control-arca`, `cont-arba`, `cont-soporte-sistemas`: surgieron del research de ARCA/ARBA/SOS del 2026-09-23 para probar capacidad del sistema, no del relevamiento con el cliente): **setup USD 4.000 (+USD 700 Bernarda si aplica) / mensual USD 290, sin conector** (los 4 ejes trabajan sobre archivo exportado, no necesitan integración). La brecha contra lo informalmente pactado (USD 2.500/USD 170) queda registrada como **descuento piloto**, no como error de cálculo — detalle en `docs/contadores-bma-agentes-ia/trazabilidad.md`, entrada 2026-10-13.
+
+**Research de mercado 2026-10-13 (resumen; detalle completo lo tiene el chat con Joaquín, no reproducido aquí para no congelar un número en revisión):** en los tres comparables — implementadores de agentes IA en Argentina (setup US$5.000–15.000+/mensual US$300–1.500+ para "agente integrado", cosys.com.ar, 2026-09-18), gestorías/asesorías España (€9.000–15.000 setup + €280–450/mes para un despacho de 7-15 personas con 3 flujos, agregado de javadex.es, 2026) y AI accounting SaaS EE.UU. (US$20.000–80.000/año mid-market) — el precio vigente de Olvidata para un caso tipo BMA (USD 4.000–4.700 setup / USD 290/mes) queda **por debajo de los tres**. Contra el costo de construir la plataforma desde cero (plataforma multi-tenant con compliance/monitoreo: USD 100.000–300.000 + USD 2.000–15.000/mes de mantenimiento, agencia, groovyweb.co 2026), la diferencia es de un orden de magnitud — es el argumento de fondo de por qué vender licencia de un núcleo ya construido, no re-construirlo por cliente.
 
 **DECISIÓN de Joaquín 2026-09-19 — posicionamiento premium de AI Agents (la tabla de abajo queda REEMPLAZADA por esta regla):**
 1. **Promo 2026 fijada por research de mercado** (Argentina primero): aplicada en las tablas de arriba.
@@ -228,7 +252,8 @@ de memoria, nunca "verosímil". **Sin fuente puntual, no se publica.**
 
 1. ¿Se puede señalar **la fuente puntual** de cada dato — repo, doc, conversación registrada? Si no,
    no sale.
-2. ¿Cuenta **problema → solución → resultado** de un proyecto identificable, no genérico?
+2. ¿Muestra el **producto terminado operando** en un proyecto identificable, no genérico? (El
+   "cuenta cómo se armó" quedó derogado el 2026-10-13 — ver la regla de abajo.)
 3. ¿Tiene precio o CTA de venta? Si sí, **se cae**: el cierre de la pieza es autoridad, no oferta.
 4. ¿Pasa `claims.md`?
 
@@ -293,6 +318,129 @@ Consecuencias de posicionamiento:
 **Al encuadrar cualquier pieza, propuesta o conversación de producto:** empezá por la pieza del concepto
 donde entra lo que se está contando. Si no entra en ninguna, falta entenderlo — ese es el mismo criterio
 que usa el equipo para decidir si una funcionalidad nueva está bien pensada.
+
+## Se muestra el producto terminado operando — el método no se publica (Joaquín, 2026-10-13)
+
+**Regla dura, y cambio de paradigma: deroga la parte de las reglas de arriba que pedía contar el
+cómo.** Palabras de Joaquín: *"estoy mostrando cómo se hacen las cosas, y corro el peligro de que
+aprendan a hacerlo por su cuenta y no necesiten mis servicios. En vez de mostrar cómo se hacen las
+cosas, quiero mostrar el producto final terminado operando, como en el caso de la ferretería. La
+información es energía: no quiero explicar cómo hago lo que hago. Quiero mostrar lo que hice, y
+después avanzo en mayor nivel de detalle para ese lead en particular. La fórmula es secreta de
+Olvidata. Se va a monopolizar la información."*
+
+### 1. Resultado operando, no procedimiento
+
+Lo que sale al público es **la cosa terminada, andando**: la pantalla real resolviendo, el bot
+contestando, el sistema haciendo lo que hace. No el camino, no el paso a paso, no la decisión técnica
+explicada, no el "lo que no funcionó" del armado. El molde es el Reel de la ferretería: se ve el
+producto operando y se entiende qué hace sin que nadie enseñe nada.
+
+**Queda derogado** "el caso cuenta cómo se armó, no el resultado" (regla 2026-10-01). Se invierte: el
+resultado operando **es** la pieza. Lo que sigue en pie de esa regla es todo lo demás — sin precio,
+sin CTA de venta, sin nombre de cliente, y cada dato con fuente puntual en el proyecto real.
+
+### 2. La información es energía — escalera de revelación
+
+El detalle no se regala en público: se entrega por nivel, y **sube solo con el compromiso del lead**.
+
+- **Público** (Instagram, LinkedIn, sitio, apertura del outbound): el producto funcionando, qué hace,
+  qué se siente al usarlo, y el concepto rector como mapa. Nada reproducible.
+- **Demo**: se lo ve operar sobre el caso del prospecto. Se contesta *qué hace*, no *cómo está hecho*.
+- **Propuesta**: alcance, módulos, límites, precio.
+- **Cliente firmado**: criterios de diseño y documentación de su propio sistema.
+- **Nunca, en ningún nivel**: stack y arquitectura interna, prompts, pipeline de producción, nombres
+  de repos o archivos, herramientas usadas, tiempos de construcción, y el "cómo se armó" paso a paso.
+
+**La línea fina con el concepto rector** (sección de arriba, sigue plenamente vigente): el concepto
+es **el mapa** — qué hay, dónde va cada cosa y qué no se cruza. Eso se publica, porque es el
+argumento que sostiene el ticket y no es reproducible: saber que el agente tiene RAM y CPU no le dice
+a nadie cómo construirlo. **Se publica el mapa; nunca las instrucciones.** Si una pieza pasa del mapa
+al instructivo, se cae.
+
+### 3. Comunicación instantánea — un símbolo, un mensaje, una sensación
+
+Se vende por emoción, no por entendimiento. **Una pieza = una idea.** Si hay que leer para entender,
+la pieza falló; si hay que explicar la pieza, falló dos veces. El prospecto no tiene que comprender
+el producto: tiene que **sentir** qué pasa cuando existe.
+
+Respaldo externo, por si hace falta defenderlo: Binet & Field, sobre 996 campañas del IPA Databank
+(1980–2010), encontraron que las campañas emocionales superan a las racionales en todas las métricas
+de marca y de negocio, y a largo plazo tienen casi el doble de probabilidad de generar crecimiento
+fuerte de ganancias. Kahneman da el mecanismo: la decisión vive en el System 1 — rápido, intuitivo,
+emocional. La explicación apela al System 2, que es el que *no* decide.
+
+### 4. La promesa que se vende: jubilar a la gente de su trabajo cotidiano
+
+La sensación es siempre la misma: **que trabajen más las máquinas, entendiendo la lógica del
+usuario**. Esa es la emoción que se comunica, y el eje de todo el frente de agentes. No se argumenta
+por funcionalidad y no se argumenta por el dolor (regla 2026-10-11, que sigue firme): se muestra la
+máquina haciendo el trabajo, y la conclusión sobre su propio día la saca el prospecto.
+
+### ⏸ El mapa está pausado — as bajo la manga (Joaquín, 2026-10-13)
+
+Decisión del mismo día, encima de la regla: **las piezas que explican el producto con el concepto
+rector salen del feed y se guardan.** No se cayeron —el mapa está autorizado— se **reservan**, porque
+explicar el producto en público es gastar el argumento más caro con gente que todavía no pidió nada.
+
+- **Pausadas:** el carrusel del organismo, su compañera de LinkedIn (la computadora), memoria de
+  corto plazo, de instrucción a regla, y el carrusel del producto (`LINEA-SECOND-BRAIN.md` § *PAUSADA*).
+- **Dónde se usan desde hoy:** demo, propuesta y 1 a 1 — el nivel de la escalera donde ese detalle
+  corresponde. El carrusel del organismo es **material de venta**, no de feed.
+- **Qué sale en público mientras tanto:** sólo producto operando — casos por rubro y el estudio
+  contable andando.
+- **Cómo vuelve:** lo decide Joaquín. Criterio: cuando ya haya casos operando publicados que lo
+  respalden. Primero se ve la máquina andando; después se explica cómo está ordenada.
+
+### Second Brain corporativo se comercializa desde noviembre — por la tarea, no por la idea (Joaquín, 2026-10-13)
+
+Plan completo en `BotPublicitario/plan_comercializacion_second_brain_nov2026.md`. Lo que hay que
+tener a mano siempre:
+
+- **Se comercializa una tarea de oficina que deja de hacer una persona.** El molde son cuatro beats:
+  **el pedido** en castellano → **el agente trabajando** → **el entregable hecho** → **el límite
+  dicho** (*"nada se presenta, se paga ni se manda solo"*). Cierra con pregunta de oficio, sin precio.
+- **No se dice qué idea es.** Ni el concepto rector, ni por qué un segundo cerebro, ni cómo se hizo.
+  **El nombre no lidera:** es etiqueta al pie, nunca titular. El titular es la tarea resuelta.
+- **Noviembre es el estudio contable**, que es el único caso real: conciliación (10/11), sueldos
+  (24/11), impuestos (08/12). Por rubro, sin nombre, sin logo, sin montos, sin resultados.
+- **Diciembre en adelante, rubro por rubro, como ejemplo declarado** sobre organización de prueba:
+  la pieza y la caption dicen *"ejemplo armado sobre una organización de prueba"*. **Nunca** "un
+  cliente de X lo usa": sigue habiendo **un** caso real.
+- **La compuerta de los ejemplos — los tres moldes.** Un ejemplo sólo puede pedirle al agente lo que
+  ya corre en producción: **A** cruce con entregable, **B** tarea programada, **C** control contra
+  otra fuente. Si necesita entrar a un sistema, escribir en una base, mandar algo solo o decidir sin
+  que nadie revise, **no se publica**.
+- **El mapa sigue guardado** y se muestra en la demo y en la propuesta, que es donde sostiene el
+  ticket. Público: la tarea. Privado: la arquitectura.
+
+### Por qué esto, y qué dice el mercado
+
+El how-to es exactamente la parte que hoy produce cualquier IA en segundos. Publicarlo no construye
+autoridad: **la comoditiza**, y encima entrena al prospecto para no necesitarte. La ventaja
+competitiva de un servicio profesional es el conocimiento tácito — el que no se puede enumerar en un
+contrato; la literatura de consultoría lo dice en una línea: *si se pudiera escribir completo, el
+cliente no necesitaría al consultor*. Lo que el comprador no puede sacar de una IA es la experiencia
+de implementación y el resultado funcionando en un negocio como el suyo. Eso es lo único que se
+publica.
+
+Una tensión que queda registrada a propósito: el consenso de contenido 2026 recomienda **abrir por el
+problema** ("lead with the problem") porque convierte más. **Acá está vetado** por la regla del
+2026-10-11 y no se reabre. El problema lo pone el prospecto solo, cuando ve la máquina andando.
+
+### Riesgo asumido de antemano
+
+Sin tutorial y sin método, el contenido va a parecer menos "generoso" y pueden bajar guardados y
+comentarios. Se mide igual por **conversión asistida**, nunca por alcance. Y el criterio de audiencia
+no se discute: **el que quiere aprender a hacerlo no es un lead.**
+
+### Criterio operativo — tres preguntas, se chequea sin consultar a nadie
+
+1. ¿Un tercero podría **reproducir** algo con esta pieza? Si sí, **se cae**.
+2. ¿Se ve el producto **terminado y operando**, o se ve cómo se construye? Lo segundo **se cae**.
+3. ¿Se entiende **en un segundo, sin leer**, y deja una sensación? Si hay que explicarla, **se reescribe**.
+
+Detalle en `BotPublicitario/MARCA.md` § 0e.
 
 ## Plan financiero
 **Revisado 2026-07-29** — corrige la inconsistencia entre "43 clientes" (sección hito 2028) y "35 clientes" (esta tabla, versión anterior). Decisión del usuario: 43 es el número de referencia para 2028, no 35. Progresión ajustada aplicando el mismo patrón de aceleración del plan original (deltas +9/+10/+11/+12 entre años) más un bono conservador de **+3 clientes netos/año** (piso del rango +3 a +5 estimado por la política de expansión agresiva vigente desde 2026-07-29, ver `27-presupuesto-parametros.instructions.md`).

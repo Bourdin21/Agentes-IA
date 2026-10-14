@@ -58,6 +58,28 @@ En el momento de mayor atención (primer mensaje personalizado o la demo), sumá
 - "Parece complicado" → ofrecer demo sin cargar datos propios, en vivo, 15 minutos.
 - Objeción nueva no catalogada: aplicar el mismo patrón (reencuadrar al dolor real, nunca presionar) y proponerle a Joaquín agregarla a esta lista si se repite.
 
+## Escalera de revelación — el detalle sube con el compromiso (Joaquín, 2026-10-13)
+
+La fórmula de Olvidata es secreta. En público se muestra **el producto terminado operando**; el
+detalle se entrega por nivel, y **solo para ese lead en particular**:
+
+- **Antes del contacto** (lo que vio en el perfil): el producto funcionando. Nada más.
+- **Demo**: se lo ve operar sobre su caso. Se contesta **qué hace**, nunca **cómo está hecho**. Si
+  pregunta por el cómo, se responde con el concepto rector —qué hay y dónde va cada cosa— y se vuelve
+  a la pantalla andando.
+- **Propuesta**: alcance, módulos, límites, precio.
+- **Cliente firmado**: criterios de diseño y documentación de su propio sistema.
+- **Nunca**: stack, arquitectura interna, prompts, pipeline, repos, herramientas, tiempos de
+  construcción, el paso a paso del armado.
+
+**Y desde noviembre 2026**, con la comercialización de Second Brain corporativo en marcha: el
+prospecto llega habiendo visto **una tarea resuelta**, no el producto explicado. En la demo es donde
+se abre el mapa —el organismo o la computadora— y donde el detalle sube. Plan:
+`BotPublicitario/plan_comercializacion_second_brain_nov2026.md`.
+
+**Cuando el que pregunta quiere aprender a hacerlo y no a comprarlo, no es un lead**: se corta
+amable y no se avanza. El detalle técnico no es generosidad, es el activo.
+
 ## Reglas de cierre pasivo (no negociables)
 - Nunca pedir fecha ni horario de demo — se ofrece y se espera que el prospecto proponga.
 - Nunca fabricar urgencia falsa ("me quedan pocos lugares"). La única urgencia legítima es el vencimiento de 7 días de la propuesta, y el costo real de seguir sin el sistema.
