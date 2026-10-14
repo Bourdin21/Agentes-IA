@@ -50,3 +50,12 @@ Este formato define **estilo y estructura de secciones**, no el modelo de precio
 - **Presupuesto al cliente** (`presupuesto-cliente.md`): aplica el formato completo, secciones 1-9. La seccion de pricing usa Etapa1/Etapa2/Tokens IA/Mantenimiento para desarrollo a medida, o Planes disponibles para ofertas productizadas.
 - **Resumen de sprint del documentador** (salida del agente `documentador`): aplica encabezado, `## Sobre el proyecto` (breve), cambios entregados como bullets, beneficio para el cliente, pendientes si aplica, y pie de firma. No requiere las secciones de pricing/condiciones comerciales (ya se acordaron en el presupuesto) ni "Como funciona paso a paso" salvo que el sprint haya introducido un flujo nuevo que valga la pena explicar al cliente.
 - Los pasos de Discovery/Analisis/Diseño/Arquitectura (memorias internas de agentes) **no** usan este formato — son documentos tecnicos internos del estudio.
+
+## Cuando el documento se entrega como pagina navegable
+
+Esta instruccion define **que dice** el documento y **como esta escrito**. Cuando ademas se publica como
+pagina para que el cliente la lea y la comparta con su personal (manual de uso, resumen de sprint que se
+relee, instructivo de tramite), el envoltorio visual, las capturas de produccion y la estructura de la
+pagina los define `41-documento-navegable-cliente.instructions.md`. El `.md` sigue siendo la fuente; la
+pagina es la copia de lectura, y su URL se anota en `7-documentador.md` para poder actualizarla en el
+mismo link en vez de publicar una nueva.

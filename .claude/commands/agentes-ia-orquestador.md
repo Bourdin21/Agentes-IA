@@ -28,7 +28,7 @@ $ARGUMENTS
 | 4 | Presupuesto | `04-presupuesto.prompt.md` | rol presupuestador (este hilo) — **gate cliente** |
 | 5 | Implementacion | `05-implementacion.prompt.md` | **delegar al subagent `agentes-ia-implementador`** |
 | 6 | QA | `06-pruebas.prompt.md` | **delegar al subagent `agentes-ia-qa`** |
-| 7 | Documentacion | `07-documentacion.prompt.md` | rol documentador (este hilo) |
+| 7 | Documentacion | `07-documentacion.prompt.md` | rol documentador (este hilo) — si el entregable se publica como pagina, **`41`** |
 | 8 | Cierre calibracion | `08-cierre-calibracion.prompt.md` | rol presupuestador (este hilo) |
 
 Las etapas 0–4, 7 y 8 (modo Ask) se ejecutan en esta misma conversacion adoptando cada rol desde su `.github/agents/*.agent.md`. Las etapas 5 y 6 (modo Agent) se delegan a los subagents homonimos via la herramienta de agentes, **pasandoles el brief comprimido de abajo** (no "lee las definiciones del proyecto").
@@ -54,5 +54,13 @@ Si el brief no le alcanza al subagente, el problema es el brief: se corrige y se
 - **Gates duros:** no iniciar Diseño sin Analisis aprobado; ni Arquitectura sin Diseño; ni Presupuesto sin Arquitectura; ni Implementacion sin presupuesto aprobado **por el cliente**.
 - **Al cerrar cada etapa, mantener el techo de memoria (150 KB por archivo, instruccion 39 seccion 6):** si `5-implementador.md`, `6-qa.md` o `trazabilidad.md` pasaron el techo, correr `python scripts/archivar_memoria.py <archivo>` para mover los sprints cerrados a `historial/` antes de abrir la etapa siguiente. Es la unica razon por la que el arranque de los agentes se mantiene bajo control con el paso de los sprints.
 - Al cerrar cada etapa: editar el archivo existente (nunca duplicar), registrar en `trazabilidad.md`, y **actualizar la fila del proyecto en `docs/indice.md`** (no solo trazabilidad.md) cuando la etapa cambia el estado/numero visible del proyecto — especialmente relevante al cerrar Presupuesto.
+- **Entregable al cliente que se publica como pagina (etapa 7): la `41` es obligatoria.** Vale para manual de uso,
+  resumen de sprint que el cliente va a releer o compartir, e instructivos de tramite. Lo que el orquestador tiene
+  que exigirle al documentador son tres cosas: (a) **regla 0** — el contenido se verifica contra PRODUCCION, con un
+  usuario real y el menu renderizado, nunca contra los manuales previos ni las definiciones, que envejecen;
+  (b) el envoltorio de marca Olvidata oscura con las capturas de produccion sobre vidrio ahumado; (c) que la URL de
+  la pagina quede anotada en `7-documentador.md`, porque **la proxima entrega se republica sobre la misma URL** —
+  un link nuevo deja al personal del cliente leyendo la version vieja. Version corta operativa: skill
+  `documento-navegable-cliente`.
 - Si faltan datos criticos: marcar bloqueo y pedir informacion puntual antes de avanzar.
 - Frenar y pedir confirmacion del usuario en cada gate antes de pasar a la siguiente etapa.

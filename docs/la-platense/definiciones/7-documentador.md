@@ -76,6 +76,37 @@ Entregable: **`docs/la-platense/resumen-sprint-2026-10.md`**. Sigue el formato d
 ### Proximo paso sugerido
 Construir la pantalla de **cobro/ajuste de cuenta corriente de clientes** — cierra el unico circuito que hoy queda a medias dentro de lo ya entregado.
 
+### Manual completo navegable (2026-10-14) — PRIMER ENTREGABLE BAJO LA INSTRUCCION 41
+
+Entregable: **`https://claude.ai/artifact/RwYZ7J6x8LN7BMzvznaZeh`** — "Manual del sistema La Platense",
+22 secciones y 31 capturas de produccion. **Esta pagina NO tiene `.md` fuente: la pagina ES la fuente.**
+Se escribio recorriendo produccion con un usuario real, no resumiendo los documentos. Para actualizarla
+se republica **sobre esa misma URL**.
+
+**Los dos manuales anteriores quedaron desactualizados y no deben usarse como oraculo.** Lo que declaran
+como pendiente ya esta en produccion desde el deploy del 2026-10-09:
+- `manual-usuario.md` y `manual-usuario-entrega-2.md` dicen que la cuenta corriente de clientes es **solo
+  de consulta**. Es falso: `Clientes/RegistrarCobro` y `Clientes/RegistrarAjuste` existen y funcionan.
+- Los dos declaran Compras, CC de proveedores y notas de credito **fuera de alcance**. Estan en produccion.
+- Ninguno cubre: venta con/sin factura, facturacion parcial, devoluciones, intereses por tarjeta, plan de
+  echeqs, transferencia como medio propio, presupuestos, aumento masivo, cuentas de empleados, cuenta del
+  negocio ni saldo inicial de caja. El manual nuevo si.
+
+**El unico pendiente que el manual nuevo declara es AFIP** (certificado + CUIT del contribuyente), mas el
+nivel "Salud financiera" del inicio y la importacion automatica de listas de proveedor, que sigue sin cotizar.
+
+**Lo que esta entrega dejo escrito como regla del estudio:** `41-documento-navegable-cliente.instructions.md`
++ skill `documento-navegable-cliente`. La regla 0 salio de aca: **el contenido se verifica contra produccion,
+no contra los documentos.** Si se hubiera escrito desde `manual-usuario.md` y desde este mismo archivo, el
+manual habria vuelto a decirle al cliente que no puede cobrar un fiado que cobra hace nueve dias.
+
+**Dato de estado que conviene no re-derivar:** al 2026-10-14 produccion tiene el catalogo y los clientes
+cargados (112.485 productos, 2.990 clientes, 85 proveedores) y **cero actividad operativa** — 0 ventas,
+0 entregas, 0 presupuestos, 1 compra, 1 movimiento de caja. Por eso los listados salen vacios en las
+capturas y el peso del manual esta puesto en los formularios, y por eso se le agrego una seccion final de
+**plan de arranque**. Las capturas llevan datos reales del cliente: el artifact es privado y se avisa antes
+de compartirlo.
+
 ## Historial de ajustes
 - 2026-10-07 (2): instructivo del certificado AFIP, pedido por Joaquin. Se escribio sobre la instruccion 34 (circuito depurado contra AFIP produccion real) y no de memoria: de ahi salen la trampa del punto de venta tipo "RECE para aplicativo y web services" — confusion ocurrida en vivo — y el paso de autorizar el certificado al servicio, que sin el deja el certificado inutil. Unica excepcion aceptada a la regla de cero tecnicismos: los nombres de las opciones del portal van literales, porque el cliente tiene que encontrarlas en pantalla.
 - 2026-10-07: resumen de sprint de los 5 CR (venta sin factura, facturacion parcial, interes por tarjeta, plan de echeqs, transferencia) + la Entrega 5 (devoluciones y notas de credito). Se aparto del resumen de media pagina del formato estandar porque la ronda introdujo cuatro flujos nuevos no triviales, y la instruccion 31 habilita las secciones "paso a paso" justamente para eso. **Al redactarlo aparecio una verificacion que conviene dejar anotada:** el pendiente 1 del bloque anterior ("cobro de cuenta corriente, gap funcional real") **ya esta resuelto** desde el Sprint 0 del 2026-10-05, y el pendiente 3 ("anulacion de una venta ya confirmada") tambien — los dos seguian listados como pendientes en este archivo. Quedan vigentes solo AFIP (pendiente 2) y lo de compras/proveedores (pendiente 4), este ultimo ya construido pero sin deployar.

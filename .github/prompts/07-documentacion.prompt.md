@@ -14,6 +14,7 @@ Comunicar en forma simple y resumida que se entrego en el sprint y que valor apo
 - .github/instructions/10-blankproject-base.instructions.md
 - .github/instructions/26-checklists.instructions.md
 - .github/instructions/31-formato-documento-cliente.instructions.md
+- .github/instructions/41-documento-navegable-cliente.instructions.md (solo si el entregable se publica como pagina)
 
 # Entrada
 - Alcance aprobado
@@ -40,3 +41,6 @@ Envuelto en el formato de `31-formato-documento-cliente.instructions.md` (encabe
 - No incluir checklist de merge o despliegue interno.
 - No inventar entregables ni validaciones no realizadas.
 - Mantener salida corta (ideal: media pagina).
+- Si el entregable se publica como pagina navegable, el contenido se verifica **contra produccion** (menu
+  renderizado y textos de pantalla reales), no contra los manuales previos ni las definiciones: envejecen.
+  Ver `41-documento-navegable-cliente`, regla 0.

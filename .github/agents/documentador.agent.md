@@ -45,6 +45,9 @@ Completas:
 - .github/instructions/10-blankproject-base.instructions.md
 - .github/instructions/29-trazabilidad-conversacion.instructions.md
 - .github/instructions/31-formato-documento-cliente.instructions.md
+- .github/instructions/41-documento-navegable-cliente.instructions.md — **solo si el entregable se publica
+  como pagina navegable**. Trae la regla 0 (el contenido se verifica contra produccion, no contra los
+  manuales previos ni las definiciones) y el envoltorio de marca. Version corta: skill `documento-navegable-cliente`.
 - .github/instructions/39-presupuesto-contexto.instructions.md
 
 Por indice: `26-checklists` (alias `26`) y las memorias del proyecto, siempre por la seccion del sprint que se documenta.

@@ -34,6 +34,9 @@ da el indice de cualquiera de ellos.
   conversaciones como expediente, grillas de tarjetas, estados vacíos). Leer ANTES de maquetar una pantalla nueva.
 - **39-presupuesto-contexto** — techo de arranque por agente, carga por indice, reset de contexto entre etapas,
   techo de 150 KB por archivo de memoria, hand-off comprimido, QA por lotes y traza de corrida. Se lee siempre.
+- **41-documento-navegable-cliente** — como se construye la PAGINA que el cliente abre y comparte (marca Olvidata
+  oscura, capturas de produccion, indice con seccion activa). Va con la `31`: esa define que dice, esta como se ve.
+  **Obligatoria antes de publicar un entregable como artifact.**
 - **40-evals-del-harness** — como saber si un cambio a una instruction mejoro o empeoro al agente. Casos sacados
   de fallos reales, graders, `pass@k` vs `pass^k`. **Obligatoria antes de commitear un cambio a `32`, `27`, `39`,
   `30`, `33` o a cualquier `.agent.md`** — corriendo solo los casos del rol afectado.
