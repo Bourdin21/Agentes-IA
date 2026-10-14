@@ -838,6 +838,22 @@ Total              = Comision + Iva + ImpuestosBancarios
 | MercadoPago | MercadoPago | null | 4,08 | 0 | 0 | 0 |
 | BancoCarrefour | BancoCarrefour | null | 0,00 | 0 | 0 | 0 |
 
+> **Esta tabla es la del seed original de CR-83 y quedó obsoleta el 2026-10-14 (MH-055).** Se deja
+> porque explica de dónde salió cada coeficiente, pero **ninguna de sus columnas de impuestos
+> sigue vigente**. Lo que cambió, con las liquidaciones reales en la mano:
+>
+> - `PorcentajeIva` pasó a **21,00 en todas las filas de Mercado Pago y Payway**. Los porcentajes
+>   de MP son netos de IVA (ver abajo), y los de Payway pasaron a ser la base de servicios.
+> - Dos columnas nuevas, cada una con **su propia base**: `PorcentajePercepcionIIBB` (4% en Payway,
+>   sobre los servicios) y `PorcentajeRetencionSirtac` (1,50% en las dos, **sobre el bruto**).
+> - Los coeficientes de Payway **no cambiaron de total**, se descompusieron:
+>   `servicios = (total − 1,50) / 1,25`. 1 pago 3,92 → **1,9360**; 6 cuotas 20,2714 → **15,0171**.
+>   3 y 6 cuotas ganaron una vigencia desde el 01/10 (**12,5051** y **18,6128**) porque desde
+>   octubre venden el plan MiPyME y adelantan la acreditación.
+>
+> La tabla vigente, la fórmula con sus tres bases y las cinco verificaciones contra comprobantes
+> están en `5-implementador.md`, sección "Corrección MH-055 a MH-059 (2026-10-14)".
+
 **De dónde sale cada número, y por qué varios están en 0:**
 
 Las tres tasas de Payway en negrita **no son las publicadas: están despejadas del extracto de septiembre 2026**, cruzando cada liquidación "PAGOS A COMERCIOS VISA/MASTERCARD" contra el pago de tarjeta acreditado el mismo día. Salen exactas a seis decimales:
@@ -852,11 +868,11 @@ Las tres tasas de Payway en negrita **no son las publicadas: están despejadas d
 | 6 cuotas | 168.000,00 | 133.944,03 | 0,797286 | 20,2714% |
 | 6 cuotas | 366.000,00 | 292.428,59 | 0,798985 | 20,1015% |
 
-Cuatro liquidaciones independientes dan el coeficiente 0,797286 clavado, así que 20,2714% no es una estimación. Esto **resuelve** lo que la memoria del proyecto daba por no averiguable ("las cuotas se liquidan en 1 pago a 48 h hábiles descontando un costo financiero cuyo coeficiente sólo se publica dentro de Mi Payway"): el coeficiente es ese, y queda medido. Dato de negocio que sale de ahí: el sistema le cobra al comprador 25% de recargo en 6 cuotas (`ConfiguracionCuotaTarjeta`) y la plataforma se queda con 20,27%, así que el margen financiero real de vender en 6 cuotas es ~4,7 puntos, no 25.
+Cuatro liquidaciones independientes dan el coeficiente 0,797286 clavado, así que 20,2714% no es una estimación. Esto **resuelve** lo que la memoria del proyecto daba por no averiguable ("las cuotas se liquidan en 1 pago a 48 h hábiles descontando un costo financiero cuyo coeficiente sólo se publica dentro de Mi Payway"): el coeficiente es ese, y queda medido. Dato de negocio que sale de ahí: el sistema le cobra al comprador 25% de recargo en 6 cuotas (`ConfiguracionCuotaTarjeta`) y la plataforma se queda con 20,27%, así que el margen financiero real de vender en 6 cuotas es ~4,7 puntos, no 25. **Corregido el 2026-10-14 (MH-055/057):** ese 20,27% era sólo lo que retiene Payway en la liquidación, sin los impuestos bancarios sobre lo acreditado ni el servicio de cobro anticipado que se sumó en octubre. El costo real de 6 cuotas es **26,58%**, el recargo mínimo que no da pérdida es **36,2%** (el costo se cobra sobre el precio ya recargado), y el 25% configurado estaba dando **pérdida**. `ConfiguracionCuotaTarjeta` quedó en 37%.
 
 **Payway 9 y 12 cuotas en 0,00**: los tres pagos de septiembre con esos planes (565.000 y 948.000 a 12 cuotas, 900.000 a 9) no aparecen en ninguna liquidación del Provincia — esos planes se cobran por Mercado Pago. Inventar un número ahí sería peor que dejarlo en 0, que hace que el cálculo devuelva `SinTasaConfigurada` y el aviso visible en pantalla.
 
-**`PorcentajeIva = 0` en todas las filas**: las quitas de Payway son bruto menos neto, o sea que ya traen el IVA adentro; sumarle 21% encima lo duplicaría. Y de las tasas de Mercado Pago la memoria dice "costo total resultante" sin aclarar si incluyen IVA, y no hay ninguna liquidación de MP en el proyecto contra la que despejarlo. La columna se mantiene para el día que el cliente traiga una liquidación y se pueda desglosar arancel + IVA de verdad; sembrar 21% a ciegas habría inventado ~$111.000 de costo sobre septiembre.
+~~**`PorcentajeIva = 0` en todas las filas**~~ — **esta decisión se revirtió el 2026-10-14 (MH-055), y el razonamiento que la sostenía era correcto para Payway y equivocado para Mercado Pago.** Para Payway era cierto que las quitas del extracto son bruto menos neto y ya traen el IVA adentro; lo que no se veía es que ese total se podía *descomponer*, que es lo que hoy permite calcular cada tributo sobre su base real. Para Mercado Pago era directamente falso: la liquidación del Point Smart muestra que el "costo total resultante" de la memoria es **neto de IVA**, y que además hay una retención de IIBB SIRTAC del 1,50% **sobre el bruto** que no estaba contemplada en ninguna columna. El `PorcentajeIva = 0` no era prudencia, era un dato equivocado con cara de prudente: subestimaba el costo de septiembre en **$214.048,79**. La precaución que sí valió es la que está escrita acá al lado — no inventar números sin liquidación; lo que faltó fue **pedirla**.
 
 **BancoCarrefour en 0,00**: no hay fuente del arancel en ninguna memoria del proyecto, y es el segundo volumen del mes ($3.245.002,09 en 9 pagos). Queda pendiente de que el cliente lo cargue.
 

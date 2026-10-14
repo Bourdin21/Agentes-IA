@@ -823,7 +823,7 @@ Sin estados nuevos. `Pendiente -> Acreditado` (ahora con fecha capturada + gasto
 **Cerrado 2026-09-30.** Análisis de referencia: `1-analista-funcional.md`, sección "CR-83", criterios CA-83.1 a CA-83.9.
 
 ### Decisión de diseño que gobierna todo lo demás
-El costo de cobranza es una propiedad de la **línea de pago**, no de la venta ni de la línea de producto. Una venta pagada mitad en efectivo y mitad en 12 cuotas por Mercado Pago tiene costo 0 en la primera línea y 23,58% en la segunda. Todo el diseño cuelga de `PagoVenta`, igual que el IVA cuelga de `VentaItem` en PAT-003.
+El costo de cobranza es una propiedad de la **línea de pago**, no de la venta ni de la línea de producto. Una venta pagada mitad en efectivo y mitad en 12 cuotas por Mercado Pago tiene costo 0 en la primera línea y 30,03% en la segunda (MH-055; hasta el 2026-10-14 se creía 23,58%, que es el porcentaje neto de IVA y sin la retención SIRTAC). Todo el diseño cuelga de `PagoVenta`, igual que el IVA cuelga de `VentaItem` en PAT-003.
 
 ### Historias de usuario
 
@@ -843,7 +843,7 @@ Elegida la plataforma (y las cuotas, si aplica), la fila muestra el costo estima
 Si para esa combinación no hay tasa vigente, la fila avisa *"Sin tasa configurada para esta plataforma: el pago se registra con costo 0"* y **deja guardar igual** (CRM-020: una función opcional no puede romper el flujo que la hospeda). Nunca se inventa una tasa por defecto.
 
 **HU-83.3 — Ver el costo y completar los pagos viejos (Administrador).**
-La pantalla **Ingresos** (`PagosTarjeta/Index`, renombrada en CR-73) gana las columnas Plataforma, Comisión, IVA, Imp. bancarios y Costo total, cada una con su filtro. La Plataforma se edita **inline por AJAX** sobre la fila, con el mismo patrón on-demand de la nota de pago de CR-69, y al guardar recalcula y repinta el costo de esa fila sola, con `tabla.ajax.reload(null, false)` para no perder la página.
+La pantalla **Ingresos** (`PagosTarjeta/Index`, renombrada en CR-73) gana las columnas Plataforma, Comisión, IVA, Impuestos y retenciones, y Costo total, cada una con su filtro. (MH-055: la columna se llamaba "Imp. bancarios" y pasó a "Impuestos y retenciones" cuando dejó de contener sólo los del banco — ahora junta la percepción de IIBB y la retención SIRTAC de la plataforma con el IIBB bancario y la Ley 25413.) La Plataforma se edita **inline por AJAX** sobre la fila, con el mismo patrón on-demand de la nota de pago de CR-69, y al guardar recalcula y repinta el costo de esa fila sola, con `tabla.ajax.reload(null, false)` para no perder la página.
 Filtro adicional **"Sin plataforma asignada"**, que es la cola de trabajo real: todos los pagos anteriores a este CR nacen sin plataforma y son los que hay que completar para que el retroactivo funcione.
 
 **HU-83.4 — Recalcular un período y postear lo que falta (Administrador).**

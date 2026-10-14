@@ -796,9 +796,16 @@ El pedido sale del cruce del extracto `docs/consultaMovimientos.xls` (cuenta 502
 - El costo de cobranza **no está en el sistema con importes reales**. Hay 14 gastos de categoría `ComisionesBancarias` en septiembre por **$1.561.000** cargados a mano en montos redondos ($3.000, $138.000, $112.000, $25.000, $85.000, $18.000, $40.000, $100.000 con subcategoría "gastos payway pcia" = $521.000; y $380.000, $333.000, $17.000, $50.000, $260.000 con "gastos y comisiones mp" = $1.040.000).
 - Los **impuestos bancarios reales** del mes no están cargados en ninguna forma: retención ARBA $124.028,60 · Ley 25413 débitos $43.756,50 · Ley 25413 créditos $41.342,99 · contracargos VISA $24.326,84 · intereses $182,65 · clearing $101,00 · sellos $4,24. Menos la compensación de saldos a favor ($11.498,14), **$222.244,68 netos**.
 - La **comisión de la plataforma no es observable en el extracto**: el banco acredita "PAGOS A COMERCIOS VISA/MASTERCARD" ya neto de comisión, IVA y retenciones, sin desglosar. Los $2.553.499,76 acreditados en septiembre son netos. Por eso la comisión hay que *calcularla* con las tasas, que es exactamente lo que pide este CR — no se puede extraer del extracto.
-- La rentabilidad del sistema (`IRentabilidadService`, CR-80) es Ventas − Costo de mercadería. **No descuenta el costo de cobranza**, así que una venta en 12 cuotas por Mercado Pago muestra hoy el mismo margen que una en efectivo, cuando la diferencia real es del 23,58%.
+- La rentabilidad del sistema (`IRentabilidadService`, CR-80) es Ventas − Costo de mercadería. **No descuenta el costo de cobranza**, así que una venta en 12 cuotas por Mercado Pago muestra hoy el mismo margen que una en efectivo, cuando la diferencia real es del **30,03%** (MH-055, 2026-10-14: medido contra la liquidación real; antes se creía 23,58%).
 
 ### Tasas de referencia disponibles
+
+> **Corregido el 2026-10-14 (MH-055).** Los porcentajes de Mercado Pago de esta tabla son **netos
+> de IVA**, no el costo total: la plataforma factura 21% de IVA encima y retiene además 1,50% de
+> IIBB SIRTAC sobre el bruto. El costo real de 12 cuotas es **30,03%**, no 23,58%. Los de Payway
+> son sólo el arancel: el plan de cuotas y el servicio de cobro anticipado se cobran aparte.
+> Para los números vigentes y sus bases, ver `3-arquitecto-mvc.md`.
+
 De la memoria del proyecto (`project-costos-mercadopago`, tasas especiales negociadas por el cliente, vigentes al 30/09/2026):
 
 | Medio | Mercado Pago | Payway |
