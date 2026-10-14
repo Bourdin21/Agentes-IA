@@ -1,4 +1,4 @@
-﻿# Trazabilidad del proyecto
+# Trazabilidad del proyecto
 
 Registro acumulativo de decisiones y ajustes por etapa y agente.
 

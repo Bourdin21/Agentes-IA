@@ -8046,3 +8046,71 @@ regresiones:
     criterio_reverificacion: "Con app.UsePathBase(\"/laplatense\") activo, el formulario de FacturacionParcial/Emitir emite y el comprobante entra (delta 1 en comprobantesafip), y el token de otra pantalla sigue siendo rechazado. Hoy, con PathBase, se rechaza TODO: delta 0 y ni una fila en SubmitsProcesados."
     regla_preventiva: "Toda garantia que compare una URL generada (Url.Action, el action de un form) contra una URL recibida (Request.Path) tiene una discrepancia estructural: la generada lleva PathBase y la recibida no. Si de esa comparacion depende una guarda que falla cerrado, el modo de falla es una caida total que solo aparece en el deploy. Se mide levantando la app con UsePathBase en la verificacion, y conviene comparar identificadores de ACCION (controlador/accion del descriptor) y no rutas."
     fix_aplicado: null
+
+  - id: MH-060
+    modulo: "Costo de cobranza / TasaCostoCobranza / ConfiguracionCostosCobranza"
+    titulo: "Un porcentaje copiado del tarifario del proveedor se sembro como costo total: era NETO de IVA y sin la retencion que se cobra sobre el bruto, y el error se autoconfirma contra la misma fuente que lo origino"
+    severidad: critical
+    reproducido_en: "marihogar, 2026-10-14, produccion. Reportado por el cliente (una venta salia a un precio por debajo del correcto), medido contra la liquidacion real de Mercado Pago Point Smart y el Detalle de descuentos de Payway. Corregido en 3d6fe5f."
+    pasos:
+      - "Buscar una tabla de configuracion que guarde lo que cobra un tercero (procesadora, pasarela, banco) con UN solo porcentaje por combinacion."
+      - "Leer el doc-comment del seed. Si dice algo como 'el porcentaje sembrado es el costo total, con IVA incluido si lo lleva' y la fuente citada es el panel o el tarifario del proveedor y NO una liquidacion, el dato es parcial."
+      - "Tomar un comprobante real de esa plataforma y despejar: (bruto - acreditado) / bruto."
+      - "Comparar contra el porcentaje configurado. Si la diferencia es un factor 1,21, el tarifario publicaba la tasa neta de IVA."
+    sintoma: "El costo de cobranza que muestra el sistema es sistematicamente menor al que la plataforma descuenta de verdad, y la rentabilidad y la caja quedan optimistas. En el caso de origen: una venta de $444.000 en 12 cuotas calculaba $104.695,20 y Mercado Pago descontaba $133.355,00. Sobre septiembre 2026 completo, $214.048,79 de costo que nunca se registro. El sintoma visible para el usuario no fue el costo sino el PRECIO: el recargo por cuotas se habia fijado contra el mismo porcentaje equivocado."
+    expectativa: "Una columna por tributo, cada una con su propia base documentada en el modelo, y ninguna sembrada en 0 'porque ya esta incluido' sin una liquidacion que lo respalde. Donde el dato sea informado y no medido, decirlo con esas palabras en el doc-comment."
+    causa_raiz: "El error es silencioso porque se autoconfirma: el numero configurado coincide con el que publica el proveedor, asi que toda revision de la configuracion da bien. Lo unico que lo delata es restar bruto menos acreditado en un comprobante, y el equipo nunca tuvo uno hasta que el cliente lo mando. Ademas habia TRES bases distintas conviviendo (los servicios para el IVA y la percepcion de IIBB, el bruto para la retencion SIRTAC, el neto acreditado para los impuestos bancarios) y el modelo tenia una sola: calcular la retencion sobre el neto, como se hacia con los bancarios, daba $4.760 donde iban $6.660."
+    capa: Domain
+    deteccion_qa:
+      tipo: data
+      consulta: "Listar las filas de la tabla de tasas cuya columna de IVA este en 0 y cuyo doc-comment o fuente sea un tarifario publicado. Cada una es un candidato. Verificar con UNA liquidacion por combinacion: (bruto - acreditado) / bruto contra el porcentaje cargado."
+      condicion_falla: "El porcentaje despejado del comprobante difiere del configurado en un factor 1,21, o difiere en una retencion de base distinta a la que usa la formula."
+    archivos_fix:
+      - "Domain/Entities/TasaCostoCobranza.cs - columnas de percepcion de IIBB (base servicios) y retencion SIRTAC (base BRUTO), cada una con su base en el doc-comment."
+      - "Infrastructure/Services/CostoCobranzaService.cs - la formula con las tres bases; NetoAcreditado resta TODAS las retenciones de la plataforma y no solo la comision."
+      - "Infrastructure/Data/SeedData.cs - IVA 21% en las filas de MP y Payway; los coeficientes de Payway se descomponen sin cambiar su total."
+      - "Views/ConfiguracionCostosCobranza/_Form.cshtml - cada campo con su base explicada; el rotulo 'Imp. bancarios' pasa a 'Impuestos y retenciones'."
+    migracion_ef: "MH055EstructuraImpositivaCostoCobranza - columnas nuevas y UPDATE de las tasas ya cargadas, cada uno guardado por el valor viejo exacto para no pisar lo editado a mano."
+    regla_catalogo: "MH-060 en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "Cada combinacion configurada reproduce al centavo (o con un desvio declarado y acotado) una liquidacion real de esa plataforma."
+      - "El mes que ya estaba conciliado contra el extracto sigue dando exactamente igual: los coeficientes verificados se descomponen, no se reemplazan."
+      - "Ninguna columna de impuestos queda en 0 sin un doc-comment que diga si es 'verificado que no aplica' o 'no medido'."
+    pruebas_minimas:
+      - "Cargar un pago por cada combinacion y contrastar el costo estimado de la pantalla contra el comprobante de esa plataforma."
+      - "Recalcular un periodo ya conciliado y verificar que el ajuste sea ~0."
+    leccion_adicional: "Atajo de deteccion que no requiere ninguna liquidacion: si el coeficiente que el proveedor publica para trasladar el costo al cliente es 1 / (1 - tasa x 1,21) y no 1 / (1 - tasa), la tasa publicada es neta de IVA. En el caso de origen, la tabla oficial de Cuotas MiPyME de Payway daba 1,0912 y 1,1870, los dos al cuarto decimal con esa formula."
+
+  - id: MH-061
+    modulo: "Recalculo retroactivo / ConfiguracionCostosCobranza/Recalcular (PAT-012)"
+    titulo: "Un recalculo retroactivo idempotente por 'todo o nada' saltea las filas que ya tienen asiento, asi que no sirve para lo unico que se le pide en produccion: corregir"
+    severidad: major
+    reproducido_en: "marihogar, 2026-10-14, descubierto al corregir las tasas de MH-060: la correccion no tenia por donde entrar a los pagos ya posteados. Corregido en 3d6fe5f."
+    pasos:
+      - "Tomar un proceso que reprocese un periodo y postee asientos al ledger."
+      - "Buscar en el bucle de aplicacion una guarda del tipo `if (await ObtenerNetoPosteadoAsync(id) > 0) continue;`."
+      - "Cambiar un porcentaje de configuracion que afecte a filas del periodo."
+      - "Correr la previsualizacion sobre ese periodo."
+    sintoma: "La previsualizacion informa '0 a postear' sobre filas cuyo importe cambio, y el boton de aplicar queda deshabilitado. El usuario corrige una tasa, corre el recalculo y no pasa nada, sin ningun mensaje que explique por que. En el caso de origen, dos pagos de octubre quedaban congelados en $43.340,87 menos de lo que correspondia, y el unico camino disponible para corregirlos era cambiarle la PLATAFORMA al pago — que exige cambiarla a otra."
+    expectativa: "La idempotencia se calcula por diferencia: delta = importeVigente - netoYaPosteado. Si es 0 no se escribe nada (y ahi esta la idempotencia, la segunda corrida da 0 sola); si es positivo se postea un asiento por la diferencia; si es negativo, un contramovimiento por el exceso. El asiento original nunca se edita ni se borra (PAT-020)."
+    causa_raiz: "La guarda confunde 'ya se posteo' con 'esta bien'. Es correcta mientras el proceso se piense como carga inicial de un historico, que es como nacio, y deja de serlo en cuanto la configuracion de la que depende el importe puede cambiar — que es el motivo entero por el que esa configuracion tiene vigencia. Es facil de pasar por alto porque el proceso 'funciona': sobre datos sin postear hace exactamente lo que promete."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: codigo
+      consulta: "En el bucle de aplicacion de cualquier proceso de recalculo masivo, buscar `continue` o `return` condicionados a que ya exista un asiento previo para esa fila. Contrastar contra la pregunta: si el importe correcto cambiara, este proceso lo corregiria?"
+      condicion_falla: "La previsualizacion reporta 0 a postear sobre filas cuyo importe calculado difiere del posteado."
+    archivos_fix:
+      - "Infrastructure/Services/CostoCobranzaService.cs - AjustarEgresoAsync nuevo (postea solo el delta, en el sentido que haga falta) y AplicarRecalculoAsync lo usa en vez de saltear."
+      - "Application/DTOs/CostoCobranzaDtos.cs - el campo del DTO pasa a ser un ajuste NETO que puede ser negativo."
+      - "Views/ConfiguracionCostosCobranza/Recalcular.cshtml - la pantalla deja de decir 'se van a postear N egresos' y dice 'ajuste neto'; badges distintos para alta, ajuste y ajuste a favor."
+    migracion_ef: no
+    regla_catalogo: "MH-061 en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "Cambiar una tasa y recalcular el periodo postea la diferencia sobre los pagos que ya tenian asiento."
+      - "Correr el recalculo dos veces seguidas: la segunda no escribe nada."
+      - "Una tasa que BAJA genera un contramovimiento a favor, no se ignora."
+    pruebas_minimas:
+      - "Recalcular un periodo sin cambios previos: 0 movimientos."
+      - "Bajar una tasa, recalcular, y verificar el contramovimiento y el saldo de caja."
+      - "Verificar que el egreso original siga existiendo y no haya sido editado."
+    leccion_adicional: "El delta se calcula releyendo el neto del ledger JUSTO ANTES de escribir, no con la foto que armo la previsualizacion. Eso lo deja mas idempotente que la guarda que reemplaza, no menos. Nota: esta pantalla sigue teniendo abierto MH-054 (el Aplicar no recibe el snapshot de lo previsualizado), que es un problema distinto y complementario."
