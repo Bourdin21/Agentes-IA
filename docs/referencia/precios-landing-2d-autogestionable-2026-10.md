@@ -12,7 +12,7 @@ TC de referencia: USD 1 = ARS 1.555 (blue venta, 02/10/2026).
 |---|---|---|
 | **Landing 2D autogestionable — primer año** | **USD 500, todo incluido** | Diseño y desarrollo + panel de promos + dominio + hosting + SSL + SEO técnico básico + capacitación 20-30 min e instructivo de 1 página + soporte y mantenimiento del 1er año |
 | **Mantenimiento anual, desde el 2º año** | **USD 300/año** | Dominio, hosting, SSL, soporte, mantenimiento y sostenimiento del panel |
-| **Upgrade a 3D** (estética olvidata.com.ar) | **+USD 100** | Fijado a mano por Joaquín, muy por debajo del tier 3D del catálogo (setup 2.000-3.000 + 600-900/año en el research de sep). **No es precio de lista del frente Landing 3D** |
+| **Upgrade a 3D** (estética olvidata.com.ar) | **+USD 100** | Fijado a mano por Joaquín, muy por debajo de la lista Landing 3D (USD 1.000 el 1er año + 400/año, `precios-landing-3d-2026-10.md`). **No es precio de lista del frente Landing 3D** |
 | Módulo "Blog de promociones autogestionable" suelto | USD 240 de lista | M = 11,5 h, fórmula Merge/Extras (M × USD 16,80 × factor 2,5 × 1,25 de Tokens IA) |
 
 **Forma de pago:** una vez por año, en pesos, al valor del dólar blue **del día del pago** (no al del día de la propuesta). Al TC de referencia: 1er año ≈ ARS 777.000, anual ≈ ARS 466.000, upgrade 3D ≈ ARS 155.000.
