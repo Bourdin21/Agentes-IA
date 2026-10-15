@@ -4,6 +4,17 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-15 - implementador-dotnet — sesion de la app instalada (PWA): 30 dias renovables
+- Etapa: Implementacion (cambio cross-proyecto, pedido del owner: "en todas las versiones PWA el token de sesion dure un mes activo").
+- Alcance: 14 sistemas con PWA tocados de una vez con el mismo parche. Solo cambia la sesion que arranca desde la app instalada; la del navegador queda igual que estaba.
+- Que hace: `Views/Account/Login.cshtml` manda `EsPwa=true` cuando corre en `display-mode: standalone` (o `navigator.standalone` en iOS), y en `ConfigureApplicationCookie` dos eventos nuevos hacen el trabajo — `OnSigningIn` marca el ticket y le pone 30 dias propios, `OnValidatePrincipal` los vuelve a correr cuando queda menos de la mitad.
+- Decision de diseno: NO se subio `ExpireTimeSpan`. Subirlo habria alargado tambien la sesion de una PC de mostrador compartida, que es justo lo que no se quiere.
+- Lo que no es obvio (quedo en `PAT-070` y en la instruction `23-web`): la renovacion mueve `IssuedUtc` junto con `ExpiresUtc`, porque el handler de cookies no copia el vencimiento que se le deja — recalcula la vida como la diferencia entre ambos y la suma a ahora (medido con una duracion de prueba de 20 s: renovaba a 36 s). Y `OnValidatePrincipal` se chainea, no se reemplaza: ahi vive el `SecurityStampValidator` que revoca la sesion al cambiar la password o bloquear al usuario.
+- Impacto en capas: Web (`Program.cs`, `Views/Account/Login.cshtml`). Sin cambios en Application/Domain/Infrastructure, sin migracion EF, sin tocar permisos ni estados. No se toco el AccountController ni el LoginViewModel: el flag se lee del form en el evento.
+- Verificacion (en local sobre blankproject, MySQL de dev, con una duracion de prueba de 20 s): navegador 8 h sin cambios; PWA 30 dias; sin renovar antes de la mitad de la ventana; renovacion exacta pasada la mitad; y 302 al login cuando la ventana vence sin uso. Build OK en los 14 (0 errores).
+- Estado: COMMITEADO, **SIN DEPLOYAR**. Motivo: `web.config` quedo modificado sin commitear — publicar ahora arrastraria ese trabajo a produccion, asi que el deploy de este cambio queda a la espera. El commit no depende de nada mas: cuando ese trabajo se libere, viaja con el.
+
+
 ### 2026-10-15 - orquestador - SSL vencido 15 dias + habilitacion de validacion Let's Encrypt en produccion
 - Etapa: infraestructura/produccion. **No es una etapa del flujo Discovery->Cierre** (no hay feature ni CR): surgio de un relevamiento de vencimientos previo a un viaje del titular.
 - Hallazgo que lo origino: el **SSL Sectigo de vinoysefue.ar vencio el 2026-09-30 y estuvo 15 dias sirviendo un certificado vencido** sin que nadie lo notara — todo visitante veia la advertencia del navegador. Se detecto midiendo el handshake TLS real contra los 17 dominios de la flota, no leyendo documentacion: las tablas de vencimientos de la memoria de infraestructura (al 2026-07-30) estaban desactualizadas y señalaban como urgentes dos dominios que ya habian sido renovados.

@@ -4,6 +4,17 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-15 - implementador-dotnet — sesion de la app instalada (PWA): 30 dias renovables
+- Etapa: Implementacion (cambio cross-proyecto, pedido del owner: "en todas las versiones PWA el token de sesion dure un mes activo").
+- Alcance: 14 sistemas con PWA tocados de una vez con el mismo parche. Solo cambia la sesion que arranca desde la app instalada; la del navegador queda igual que estaba.
+- Que hace: `Views/Account/Login.cshtml` manda `EsPwa=true` cuando corre en `display-mode: standalone` (o `navigator.standalone` en iOS), y en `ConfigureApplicationCookie` dos eventos nuevos hacen el trabajo — `OnSigningIn` marca el ticket y le pone 30 dias propios, `OnValidatePrincipal` los vuelve a correr cuando queda menos de la mitad.
+- Decision de diseno: NO se subio `ExpireTimeSpan`. Subirlo habria alargado tambien la sesion de una PC de mostrador compartida, que es justo lo que no se quiere.
+- Lo que no es obvio (quedo en `PAT-070` y en la instruction `23-web`): la renovacion mueve `IssuedUtc` junto con `ExpiresUtc`, porque el handler de cookies no copia el vencimiento que se le deja — recalcula la vida como la diferencia entre ambos y la suma a ahora (medido con una duracion de prueba de 20 s: renovaba a 36 s). Y `OnValidatePrincipal` se chainea, no se reemplaza: ahi vive el `SecurityStampValidator` que revoca la sesion al cambiar la password o bloquear al usuario.
+- Impacto en capas: Web (`Program.cs`, `Views/Account/Login.cshtml`). Sin cambios en Application/Domain/Infrastructure, sin migracion EF, sin tocar permisos ni estados. No se toco el AccountController ni el LoginViewModel: el flag se lee del form en el evento.
+- Verificacion (en local sobre blankproject, MySQL de dev, con una duracion de prueba de 20 s): navegador 8 h sin cambios; PWA 30 dias; sin renovar antes de la mitad de la ventana; renovacion exacta pasada la mitad; y 302 al login cuando la ventana vence sin uso. Build OK en los 14 (0 errores).
+- Estado: COMMITEADO Y DEPLOYADO A PRODUCCION. Verificado en vivo (portal.lab-ipac.com.ar): HTTP 200 y el campo `EsPwa` presente en el login servido. Deploy por `msdeploy -verb:sync` con `AppOffline` y `DoNotDeleteRule` (sin borrar nada del servidor: keyring de Data Protection, certificados y adjuntos quedan intactos); el dry-run previo dio 0 agregados y 0 eliminados, o sea el repo local estaba alineado con produccion.
+
+
 ### 2026-09-03 - orquestador — CORRECCION DE FONDO (sesion 8) DEPLOYADA EN PRODUCCION — cantidad de unidades bioquimicas por Centro de Salud
 - Etapa: Deploy (cierre)
 - Cambio: commit `8de3e09` (55 archivos) sobre lo implementado por el subagent. Backup completo (mysqldump, 2.7MB) antes de migrar. Se aplico `deploy/migration_s8_prod.sql` (script plano, no el idempotente que sigue sin ser ejecutable con el cliente `mysql` classic — mismo defecto ya documentado en sesiones anteriores).

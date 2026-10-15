@@ -4,6 +4,17 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-15 - implementador-dotnet — sesion de la app instalada (PWA): 30 dias renovables
+- Etapa: Implementacion (cambio cross-proyecto, pedido del owner: "en todas las versiones PWA el token de sesion dure un mes activo").
+- Alcance: 14 sistemas con PWA tocados de una vez con el mismo parche. Solo cambia la sesion que arranca desde la app instalada; la del navegador queda igual que estaba.
+- Que hace: `Views/Account/Login.cshtml` manda `EsPwa=true` cuando corre en `display-mode: standalone` (o `navigator.standalone` en iOS), y en `ConfigureApplicationCookie` dos eventos nuevos hacen el trabajo — `OnSigningIn` marca el ticket y le pone 30 dias propios, `OnValidatePrincipal` los vuelve a correr cuando queda menos de la mitad.
+- Decision de diseno: NO se subio `ExpireTimeSpan`. Subirlo habria alargado tambien la sesion de una PC de mostrador compartida, que es justo lo que no se quiere.
+- Lo que no es obvio (quedo en `PAT-070` y en la instruction `23-web`): la renovacion mueve `IssuedUtc` junto con `ExpiresUtc`, porque el handler de cookies no copia el vencimiento que se le deja — recalcula la vida como la diferencia entre ambos y la suma a ahora (medido con una duracion de prueba de 20 s: renovaba a 36 s). Y `OnValidatePrincipal` se chainea, no se reemplaza: ahi vive el `SecurityStampValidator` que revoca la sesion al cambiar la password o bloquear al usuario.
+- Impacto en capas: Web (`Program.cs`, `Views/Account/Login.cshtml`). Sin cambios en Application/Domain/Infrastructure, sin migracion EF, sin tocar permisos ni estados. No se toco el AccountController ni el LoginViewModel: el flag se lee del form en el evento.
+- Verificacion (en local sobre blankproject, MySQL de dev, con una duracion de prueba de 20 s): navegador 8 h sin cambios; PWA 30 dias; sin renovar antes de la mitad de la ventana; renovacion exacta pasada la mitad; y 302 al login cuando la ventana vence sin uso. Build OK en los 14 (0 errores).
+- Estado: COMMITEADO Y DEPLOYADO A PRODUCCION. Verificado en vivo (www.estanciasantarosa.com.ar): HTTP 200 y el campo `EsPwa` presente en el login servido. Deploy por `msdeploy -verb:sync` con `AppOffline` y `DoNotDeleteRule` (sin borrar nada del servidor: keyring de Data Protection, certificados y adjuntos quedan intactos); el dry-run previo dio 0 agregados y 0 eliminados, o sea el repo local estaba alineado con produccion.
+
+
 ### 2026-10-07 - implementador — datos de demo en ganaderia_dev
 - Etapa: soporte a demo (no toca codigo de la aplicacion)
 - Cambio: se reemplazaron los datos de QA de `ganaderia_dev` (nombres tipo `asdqwd`, importes de $141M, detalles tipo "PF55 dos cheques") por un escenario coherente de establecimiento de cria e invernada, ejercicio 2026 con corte al 07/10: 6 grupos, 7 proveedores, 6 rubros, 23 movimientos de stock (inicial, nacimientos, muertes, 2 compras con costo, compensacion, ajuste y las ventas de cada factura), 7 facturas de venta con sus deducciones de liquidacion, 13 ingresos, 16 egresos, 20 pagos, 28 movimientos de caja y 157 registros de auditoria. Incluye un cobro rechazado y regularizado por cobro posterior, un cheque de egreso rechazado y regularizado, 5 cobros y 2 pagos pendientes a futuro, y un grupo bajo stock minimo para que dispare la alerta. Generador + SQL quedaron en `scripts/seed-demo-dev.py` y `scripts/seed-demo-dev.sql` (sin commitear).

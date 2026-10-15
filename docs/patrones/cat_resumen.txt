@@ -66,3 +66,5 @@ PAT-065   | infraestructura  | la-platense (ronda de QA 2 | Token de submit de u
 PAT-066   | frontend         | olvidata-agentes-multirubr | Adorno de estado vacio en SVG animado con CSS: el ritmo se deriva, no se escribe
 PAT-067   | infraestructura  | vinosefue (2026-10-15, SSL | Validacion HTTP-01 de Let's Encrypt en ASP.NET Core sobre IIS (bloque .well-known/acme-challenge)
 PAT-068   | integracion      | crm-olvidata (WhatsApp ->  | Ruteo de envio por canal del contacto (IMensajeriaSender)
+PAT-069   | integracion      | crm-olvidata (CRM-028, avi | Web Push desde ASP.NET Core: suscripcion por dispositivo, VAPID, SW sin cache
+PAT-070   | infraestructura  | cross-proyecto, 2026-10-15 | Sesion larga solo para la app instalada (PWA), sin tocar la del navegador

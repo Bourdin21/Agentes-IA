@@ -34,6 +34,7 @@ applyTo: "**/Web/**/*.{cs,cshtml,json}"
 - Policies: RequireSuperUsuario y RequireAdministracion.
 - Login POST con rate limiter policy login.
 - Session timeout: 60 minutos.
+- **La sesion de la app instalada (PWA) dura 30 dias y se renueva con el uso; la del navegador no cambia** (`PAT-070`). La vista de Login manda `EsPwa` cuando corre en `display-mode: standalone` y los dos eventos de `ConfigureApplicationCookie` hacen el resto. Al tocarlo: `OnValidatePrincipal` se chainea (ahi vive el `SecurityStampValidator`) y la renovacion mueve `IssuedUtc` junto con `ExpiresUtc` — el handler recalcula la vida como la diferencia entre ambos, no usa el vencimiento que se le deja.
 
 # jquery.maskMoney.js — nunca escuchar solo 'input' en un campo enmascarado
 - Hallazgo real (marihogar, 15/08/2026): el plugin intercepta cada tecla con

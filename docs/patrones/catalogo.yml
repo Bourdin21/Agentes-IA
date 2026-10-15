@@ -4342,3 +4342,132 @@ patrones:
       ANTIPATRON medido en el origen: el filtro que impedia que un contacto del canal nuevo entrara
       a un lote de envio "ya funcionaba" por casualidad (por el estado inicial del registro), no por
       diseño. Un filtro que funciona por casualidad no es una red de seguridad.
+  - id: PAT-069
+    nombre: "Web Push desde ASP.NET Core: suscripcion por dispositivo, VAPID, SW sin cache"
+    categoria: integracion
+    descripcion: >
+      Notificacion del sistema operativo a un navegador que NO tiene el sitio abierto. El servidor no
+      le habla al navegador: le entrega un sobre cifrado al push service del fabricante (FCM, Mozilla,
+      APNs) cuya URL es el endpoint que el propio navegador dio al suscribirse, y ese servicio despierta
+      a un service worker. Tres piezas que no existen en una app MVC comun: un service worker vivo, un
+      par de claves VAPID, y una suscripcion POR DISPOSITIVO guardada en BD (no por usuario: el mismo
+      usuario en la notebook y en el celular son 2 filas, y dar de baja una no afecta a la otra).
+    cuando_usar: >
+      Cuando el costo de que el usuario se entere tarde es el problema, no la falta de registro. El
+      disparador concreto: ya existe una notificacion in-app (campanita) y el pedido real es "que me
+      avise con el sistema cerrado". El push NO reemplaza a la campanita — la complementa: el push se
+      puede perder (dispositivo apagado, permiso revocado, suscripcion muerta) y la campanita queda.
+      No usarlo para avisos que no tienen urgencia: el permiso de notificaciones se pide una sola vez
+      por dispositivo y un "no" es practicamente permanente.
+    proyecto_origen: crm-olvidata (CRM-028, aviso de chat derivado a mano, 2026-10-15)
+    proyectos_que_lo_usan:
+      - crm-olvidata
+    archivos_referencia:
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Infrastructure/Services/PushNotificationService.cs
+        motivo: "El envio completo: VAPID por aviso, baja automatica en 404/410, best-effort con scope propio de DbContext."
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Domain/Entities/PushSubscription.cs
+        motivo: "La suscripcion y el hash del endpoint (el endpoint real no entra en un indice de MySQL)."
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Web/wwwroot/push-sw.js
+        motivo: "El service worker minimo: solo push y notificationclick, ni un fetch ni un caches."
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Web/wwwroot/js/push.js
+        motivo: "Los 4 estados del boton y la conversion base64url -> Uint8Array de la clave publica."
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Application/Settings/PushSettings.cs
+        motivo: "Donde vive cada clave y por que la privada nunca se commitea."
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Infrastructure/Data/Migrations/20261015230453_AddPushSubscriptions.cs
+        motivo: "El unico sobre columna generada (LP-057) con el modo de falla explicado."
+    dependencias:
+      - "Lib.Net.Http.WebPush 3.3.1 (solo ENVIA: no trae ningun VapidHelper, las claves se generan aparte)."
+      - "HTTPS valido en produccion. Es duro: sin certificado vigente el push se cae con el sitio."
+      - "Un servicio de notificacion in-app ya existente, al que este complementa (ver descripcion)."
+    notas: >
+      Las trampas, en orden de cuanto cuesta descubrirlas tarde:
+      (1) UN unregister() GLOBAL DE SERVICE WORKERS EN EL LAYOUT MATA EL SW NUEVO EN CADA CARGA. Es
+      comun que exista: se pone para barrer un SW heredado que cacheaba paginas. Pasarlo a selectivo
+      por scriptURL ANTES de escribir una linea de push, y verificarlo recargando 3 veces.
+      (2) El SW de push no puede tener un fetch ni un caches. En un sistema de gestion en vivo, un SW
+      que cachea muestra datos viejos en los listados; ya paso en el proyecto de origen y es la razon
+      por la que existia el unregister global del punto 1.
+      (3) El indice unico del endpoint va sobre una COLUMNA GENERADA, no sobre la columna real
+      (LP-057): la entidad tiene query filter de soft-delete y el navegador devuelve EL MISMO endpoint
+      al resuscribirse, asi que una fila dada de baja esconde el SELECT, el INSERT muere contra el
+      unico, y el boton de activar falla para siempre en ese dispositivo y solo en ese. El alta ademas
+      tiene que REVIVIR la fila con IgnoreQueryFilters(), no insertar otra. Y se indexa un hash de
+      largo fijo: el endpoint es varchar(500) y 2000 bytes utf8mb4 no entran en una clave de InnoDB.
+      (4) Si el aviso se dispara desde un webhook, el envio abre SU PROPIO scope de DbContext: el
+      compartido tiene cambios a medio aplicar y un SaveChanges del push los commitea por el costado.
+      (5) La marca del anti-ruido ("un aviso hasta que alguien lo lea") se guarda y se commitea ANTES
+      de enviar: el proveedor puede entregar 2 mensajes en requests paralelos, y con la marca escrita
+      despues de los envios los 2 leen null y avisan los 2 — justo en el caso que motiva la regla.
+      (6) 404/410 del push service = suscripcion muerta, se da de baja sola. Cualquier otro error solo
+      se cuenta: un 500 ajeno no significa que el navegador haya desaparecido.
+      (7) Nunca pedir el permiso sin que el usuario toque un boton, y mostrar los 4 estados
+      (activado aca / desactivado / bloqueado por el navegador / no soportado). Un boton que se oculta
+      no explica nada, y en iOS el push solo funciona con el sitio instalado en la pantalla de inicio:
+      hay que decirlo en vez de fallar en silencio.
+      (8) Rotar el par VAPID MATA todas las suscripciones vigentes: estan atadas a la clave publica con
+      la que se crearon. No es un secreto que convenga rotar por rutina.
+
+  - id: PAT-070
+    nombre: "Sesion larga solo para la app instalada (PWA), sin tocar la del navegador"
+    categoria: infraestructura
+    descripcion: >
+      La PWA instalada en el telefono hereda la cookie de Identity del navegador, asi que con un
+      ExpireTimeSpan de 8 h vuelve a pedir login casi todos los dias — y subir ese valor alargaria
+      tambien la sesion de una PC de mostrador compartida. El patron separa las dos: la vista de Login
+      avisa que corre en `display-mode: standalone`, y solo ese ticket nace persistente con su propio
+      vencimiento de 30 dias, que se renueva con el uso. El navegador queda exactamente como estaba.
+    cuando_usar: >
+      Cuando el pedido es "que no me pida login en el celular" sobre un sistema que tambien se usa en
+      una maquina compartida. Si no hay PWA, o si da lo mismo que la sesion de escritorio dure un mes,
+      no hace falta nada de esto: alcanza con `ExpireTimeSpan` + `SlidingExpiration = true`.
+    proyecto_origen: cross-proyecto, 2026-10-15 (aplicado de una vez a los 14 sistemas con PWA; verificado en blankproject)
+    proyectos_que_lo_usan:
+      - blankproject
+      - labipac
+      - koi
+      - recotrack
+      - ganaderia
+      - marihogar
+      - la-platense
+      - eleven-la-plata
+      - crm-olvidata
+      - vinosefue
+      - virtualwallet
+      - ShowroomGriffin
+      - olvidata-agentes-multirubro
+    archivos_referencia:
+      - proyecto: blankproject
+        path: BlankProject.Web/Program.cs
+        motivo: "Los dos eventos (OnSigningIn marca y fija los 30 dias; OnValidatePrincipal los renueva) dentro de ConfigureApplicationCookie."
+      - proyecto: blankproject
+        path: BlankProject.Web/Views/Account/Login.cshtml
+        motivo: "El campo oculto EsPwa y la deteccion de display-mode/navigator.standalone."
+    dependencias:
+      - "ASP.NET Core Identity con cookie de aplicacion (ConfigureApplicationCookie)."
+      - "Un manifest con display: standalone — sin eso el navegador nunca reporta la app como instalada."
+    notas: >
+      Las tres cosas que no son obvias:
+      (1) LA RENOVACION TIENE QUE MOVER `IssuedUtc` JUNTO CON `ExpiresUtc`. El handler de cookies no
+      copia el vencimiento que uno deja en las properties: recalcula la vida del ticket como
+      (ExpiresUtc - IssuedUtc) y la suma al momento actual. Dejando el emitido viejo la ventana sale
+      deformada — medido con una duracion de prueba de 20 s, renovaba a 36 s — y se estira sola en
+      cada renovacion.
+      (2) `OnValidatePrincipal` SE CHAINEA, NO SE REEMPLAZA: ahi vive el `SecurityStampValidator` que
+      instala `AddIdentity`, que es lo que revoca la sesion al cambiar la password o bloquear al
+      usuario. Se captura el delegate ya instalado y se invoca primero (mismo criterio que LP-106 en
+      la-platense, que ademas chequea `Estado` sobre el dato).
+      (3) El sliding global del handler renueva con `ExpireTimeSpan` — el valor del NAVEGADOR —, asi
+      que no sirve para esto: sin el segundo evento el mes queda FIJO desde el login. Por eso el flag
+      viaja dentro del ticket (`Properties.Items`) y no se vuelve a mirar el request.
+      El flag se lee del form en `OnSigningIn`, asi que no hace falta tocar el AccountController ni el
+      LoginViewModel: un campo extra en el POST que MVC ignora. Y la deteccion cubre iOS por
+      `navigator.standalone`, que no reporta display-mode.
+      Limite conocido: en Android la PWA comparte el almacen de cookies con Chrome, asi que si la
+      sesion se inicio en el navegador ANTES de instalar la app, la PWA arranca con la cookie corta
+      hasta el proximo login. No se puede evitar desde el servidor.
