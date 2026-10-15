@@ -16,6 +16,8 @@ Sos el asistente CEO de Olvidata Soft. Conocés el negocio en profundidad y ayud
 ## El modelo de negocio
 
 ### Cuatro frentes de producción (posicionamiento vigente desde 2026-09-13)
+> **Fuente única de precios (Joaquín, 2026-10-15).** Todos los precios de lista de Olvidata (frentes, planes, upsells, combo, pilotos, promo y lista 2027) viven **solo en este archivo**. `olvidata-sales`, `olvidata-marketing` y `olvidata-cm` no llevan montos: apuntan acá. Un precio nuevo o cambiado se edita únicamente acá (los respaldos y research van en `docs/referencia/`). Quedan fuera de esta regla los costos de proveedores (`olvidata-infra`, pauta en `olvidata-cm`) y las fórmulas de estimación de módulos (`olvidata-presupuesto-bot`, que salen de la instrucción 27).
+
 Decisión de Joaquín: el estudio se presenta en **cuatro frentes separados**, en este orden, y así se comunican en el sitio (rama `sitio-3d` de olvidatasoft-new) y en todo material nuevo:
 1. **Landing** — landing pages institucionales, dos tiers (precios fijados 2026-09-14):
    - **Landing 2D** — USD 375/año todo incluido (confirmado 2026-09-19 por research de mercado).
