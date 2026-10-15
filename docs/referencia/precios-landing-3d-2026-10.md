@@ -9,11 +9,11 @@ Continúa `research-precios-landing-build-2026-09.md`. Todos los precios **+ IVA
 | Concepto | Precio | Nota |
 |---|---|---|
 | **Landing 3D — primer año** | **USD 1.000, todo incluido** | Fijado por Joaquín. Diseño y desarrollo con motion 3D + dominio + hosting + SSL + SEO técnico básico + soporte y mantenimiento del 1er año |
-| **Mantenimiento anual, desde el 2º año** | **USD 400/año** | Propuesto 2026-10-15 (ver criterio abajo). Dominio, hosting, SSL, soporte, mantenimiento de la escena 3D (compatibilidad de navegadores, actualización de Three.js/GSAP, peso de assets) |
+| **Mantenimiento anual, desde el 2º año** | **USD 400/año** | Fijado por Joaquín 2026-10-15 (ver criterio abajo). Dominio, hosting, SSL, soporte, mantenimiento de la escena 3D (compatibilidad de navegadores, actualización de Three.js/GSAP, peso de assets) |
 
 **Forma de pago:** igual que la Landing 2D autogestionable — una vez por año, en pesos, al dólar blue del día del pago.
 
-## Criterio del mantenimiento (USD 400/año)
+## Criterio del mantenimiento (USD 400/año, confirmado)
 
 - **Mercado:** hosting + dominio + mantenimiento por separado en Argentina va de USD 200 a 410/año; mantenimiento mensual AR USD 16-98/mes (research de sep). 400/año (~USD 33/mes) queda en el techo del rango anual, justificado porque una escena 3D se rompe más que una 2D (navegadores, GPU móviles, librerías).
 - **Coherencia con el catálogo:** queda por encima de Landing 2D (USD 375/año) y de la 2D autogestionable (USD 300/año desde el 2º año), como corresponde a un producto superior.
