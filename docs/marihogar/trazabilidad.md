@@ -6,6 +6,23 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-15 — implementador-dotnet (MH-062: el adelanto vuelve a ser un dato de la venta, solo donde hay que elegir) — **DEPLOY A MEDIAS**
+
+- Etapa: Implementacion. Detalle tecnico en `5-implementador.md`. Commit `fc37126` sobre `59c2e1c`, pusheado.
+- **⚠ ESTADO DE PRODUCCION: la base quedo migrada y el sitio NO.** `dotnet ef database update` corrio OK (las dos columnas nuevas estan y el 6,03% cargado en las 7 filas de credito de MP), pero `msdeploy` fallo con **401 ERROR_USER_UNAUTHORIZED** en dos intentos seguidos. **No esta roto**: EF consulta solo las columnas de su modelo y `PagosVenta.CobroAnticipado` tiene DEFAULT false, asi que el codigo viejo (MH-059) convive sin problema con el esquema nuevo — lo que falta es que la funcionalidad este disponible. El sitio responde normal. Via MCP del hosting: WebDeploy **enabled** y sitio **Active**, asi que el problema es la credencial del publish profile, no el servidor. **Queda pendiente rotarla, y eso se consulto con el usuario antes de tocarla.**
+- **Tercera forma del mismo campo en dos dias, y la que cierra.** El recorrido es el diseño: MH-056 lo hizo flag por linea; MH-059 lo revirtio a vigencia dentro de la comision porque en Payway el tilde venia siempre marcado; MH-062 lo reintroduce al aparecer el dato de Mercado Pago.
+- **El error de los dos intentos anteriores era aplicar UNA sola forma a las dos plataformas.** El criterio correcto no es la plataforma ni la fecha: **es si el usuario tiene una decision que tomar en el momento de cobrar**. Payway es un plan contratado y siempre adelanta (su 3,5957% sigue dentro de la comision, MH-059 intacto, y su columna de anticipo queda en 0); Mercado Pago se pide por operacion (6,03% en sus filas de credito, suma solo si la venta esta marcada).
+- **Que el tilde aparezca sale de la TASA, no de una regla escrita en la vista** (`CostoCobranzaDto.OfreceCobroAnticipado`): el dia que se cargue el adelanto de otra plataforma la pantalla lo toma sola. Y si se cambia a una plataforma que no lo cobra, el flag se limpia en el cliente para no mandar un true que no aplica.
+- **Default apagado, y aca si corresponde:** en Mercado Pago adelantar es la excepcion. Eso es justo lo que hacia ruido en MH-058, donde venia encendido porque en Payway era la regla.
+- **Solo en credito de MP:** su acreditacion a 21 dias es la unica que deja algo para adelantar. Debito acredita en 2 dias, billetera y Pix al instante.
+- **Verificado en dev antes de deployar:** MP 6 cuotas sobre $1.000.000 pasa de $188.998 a $261.961 con el tilde; la venta 751 ($444.000 en 12 cuotas) de $133.341 a $165.737. Y el control que importa — **Payway con y sin tilde da exactamente $265.716,16**, que es por lo que la pantalla no lo ofrece ahi. Build 0 errores.
+- **El 6,03% esta INFORMADO por el panel, no medido contra una liquidacion**, y por eso se carga pelado. Si resultara neto de IVA como todos los demas porcentajes de ese panel (lo que MH-055 descubrio por las malas), seria 7,2963%. Declarado en la entidad, el seed y la migracion.
+- **Tasas de MP cotejadas contra el panel completo (captura del 15/10):** costo por cobro 4,08% + adicionales 2x 4,40 / 3x 6,20 / 6x 10,30 / 9x 15,30 / 12x 19,50 / 18x 26,10 — la suma da exactamente las 7 filas sembradas. Debito 2,88% y Pix 3,40% tambien. **Ninguna tasa cambio.**
+- **Dos medios que el panel ofrece y el sistema no tiene:** prepaga (3,68%, 3 dias) y credito extranjera (4,08%, 21 dias). No se agregaron: son `MetodoPago` nuevos y solo sirven si el vendedor los va a distinguir al cobrar.
+- **Nota de IDs:** este cambio es MH-062 y no MH-060 porque MH-060 y MH-061 ya se usaron como reglas del catalogo cross-proyecto el 14/10. El namespace es unico por proyecto, sin importar en cual de los tres lugares viva el ID.
+- Motivo: el cliente confirmo que las ventas de Mercado Pago se deben poder marcar como "adelantar cobro" o no, y que el % se calcule en base a eso.
+
+
 ### 2026-10-15 — documentador (correccion del informe de medios de pago: el ahorro estaba mal atribuido)
 
 - Etapa: Documentacion. **Correccion de un informe publicado el mismo dia**, sobre la MISMA URL (`https://claude.ai/artifact/UnKcoPVRcaqrxDBdDyx2Yq`, version 2) — es el primer caso donde se ejerce la regla de la instruccion 41 de republicar en vez de crear un link nuevo.
