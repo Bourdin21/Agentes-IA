@@ -401,8 +401,13 @@ Las fases 1 a 4 se pueden implementar con la app en modo desarrollo. El App Revi
    agrega solo lo que cambia: mensajes más cortos, sin menús, y que pida el WhatsApp o el mail cuando
    la charla ya tiene sustancia — no como objetivo en lugar de calificar, sino porque la ventana de
    24hs sin plantillas hace imposible una conversación de varios días.
-5. **Modo sombra: sí**, con la perilla que ya existía (`ConversacionIaModoSombra`). No hizo falta
-   código nuevo.
+5. **Modo sombra: sí, y POR CANAL** (2026-10-15). La perilla que existía
+   (`ConversacionIaModoSombra`) es global: con la IA ya en vivo para WhatsApp, la única forma de mirar
+   Instagram en sombra era poner todo en sombra — apagar el canal que funciona para estrenar el que
+   no. Se agregó `ConfiguracionOutbound.ConversacionIaModoSombraInstagram` (default `true`, migración
+   `AddModoSombraIaInstagram`), su toggle propio en `/Bot` y una fila de estado "IA en Instagram".
+   La regla es un OR: el flag general sigue siendo el maestro, así que no se puede sacar Instagram de
+   sombra sin salir de sombra arriba primero.
 
 ---
 
@@ -447,6 +452,45 @@ Las fases 1 a 4 se pueden implementar con la app en modo desarrollo. El App Revi
   Vacío = comportamiento idéntico al de siempre, para no dejar de recibir mensajes reales el día del
   deploy.
 
+### Prueba real de la mitad de ingreso (2026-10-15)
+
+El canal se probó de punta a punta **sin depender de Meta y sin deployar**: migraciones aplicadas a
+`olvidatacrm_dev`, app levantada en local y 19 chequeos contra el webhook con firma HMAC real.
+**19/19 OK.** Lo que quedó verificado, no supuesto:
+
+| Qué | Resultado |
+|---|---|
+| GET de verificación con el token correcto | 200 + el challenge |
+| GET con token incorrecto | 403 |
+| POST con firma `X-Hub-Signature-256` inválida | 403 y ningún contacto creado |
+| DM de texto con firma válida | 200 inmediato; contacto creado con `CanalMensajeria=2`, `CanalOrigen=5`, `Telefono=NULL`, `IgScopedId`, `EstadoEmbudo=Respondido` |
+| El mensaje queda en el hilo aunque el envío falle | sí (fallback CRM-020, ver abajo) |
+| Mismo `mid` dos veces | el segundo se descarta |
+| `is_echo: true` | no crea contacto ni dispara al bot |
+| Evento cuyo `sender.id` es la propia cuenta | descartado |
+| Reacción (un corazón) | no llega al LLM ni crea contacto |
+| Mensaje sin texto ni adjunto | descartado |
+
+Esquema resultante, verificado contra la base: los 444 contactos existentes quedaron **todos** en
+canal 1 (WhatsApp), `Telefono` nullable, el único de `IgScopedId` sobre la columna generada
+`IgScopedIdVivo`, y `ConversacionIaModoSombraInstagram = 1`. La base de dev se devolvió a su estado
+previo (flags restaurados, contactos de prueba borrados).
+
+**Dos defectos encontrados por esta prueba, los dos corregidos:**
+
+1. **CRM-020 — un fallo de envío perdía el mensaje entrante completo.** Los envíos del árbol
+   (`OnNewAsync`, `SendCurrentQuestionAsync`) no estaban envueltos uno por uno, así que una excepción
+   subía hasta el handler del webhook y el `SaveChanges` final nunca corría: el contacto no se creaba
+   y el mensaje del prospecto desaparecía sin rastro. **No era nuevo** —le pasaba igual a WhatsApp—
+   pero en Instagram se volvía probable en vez de raro: cuando venza el token a los 60 días, cada DM
+   nuevo se perdía, no solo quedaba sin respuesta. Ahora la entrega es best-effort y el registro está
+   garantizado, con notificación in-app al admin.
+2. **El GET de verificación devolvía 200 con token incorrecto.** `Results.Forbid()` invoca el esquema
+   de cookies y responde un 302 a `/Account/AccessDenied`. No filtraba el challenge, pero no era un
+   403 y era inconsistente con el POST del mismo endpoint. Ahora usa `Results.StatusCode(403)`.
+   El GET de `/webhook/whatsapp` tiene el mismo detalle y **se dejó como está**: funciona en
+   producción y no se toca por cosmética. Pendiente de 1 línea si alguna vez se quiere alinear.
+
 ### Lo que falta y por qué
 1. **Fase 0 — setup en Meta (bloqueante, lo hace Joaquín).** Producto Instagram en la app, permisos,
    token de Página, el toggle de "permitir acceso a los mensajes" en la app de Instagram, webhook
@@ -465,7 +509,9 @@ Las fases 1 a 4 se pueden implementar con la app en modo desarrollo. El App Revi
    entonces el adjunto por URL. **No está verificado** si la edge de upload existe por esta vía — un
    GET sobre ella devuelve el mismo error que sobre `/me/messages`, que sí existe para POST, así que
    el sondeo no distingue. La decisión se apoya en la documentación y en no tener URL pública.
-3. **Fase 6 — QA.** Lo mínimo a probar, más allá del catálogo: (a) regresión completa de WhatsApp
+3. **Fase 6 — QA.** La mitad de INGRESO ya está probada (ver arriba); lo que falta es todo lo que
+   necesita credenciales reales: el ENVÍO a un IGSID de verdad, el perfil, la descarga de adjuntos y
+   la ventana de 24hs. Más allá del catálogo: (a) regresión completa de WhatsApp
    —outbound, follow-ups, avisos de renovación— sobre la base ya migrada, no solo registros nuevos;
    (b) un mensaje mandado desde la app de Instagram en el celular **no** tiene que disparar al bot
    (`is_echo`); (c) la búsqueda global de `/Chats`, `/Contactos`, `/Clientes` y `/Clientes/Nuevo` con

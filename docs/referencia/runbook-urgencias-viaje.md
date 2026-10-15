@@ -112,6 +112,26 @@ sigue con `support_get_ticket` / `support_reply_ticket`.
 
 ---
 
+## 4b. No hay camino de deploy funcionando (verificado 2026-10-15) 🔴
+
+Al intentar subir el `web.config` de vinoysefue se descubrió que **ninguna de las dos vías de deploy funciona
+desde la red de casa**:
+
+- **FTP** (`win8232.site4now.net:21`, puerto abierto): el usuario root `olvidatasoft-002` devuelve
+  `530 User cannot log in`. La clave guardada es idéntica en los 24 perfiles de publicación del disco
+  (la más reciente, de 2026-09-23), así que no es una copia vieja: **la clave de FTP fue rotada del lado
+  del servidor** en algún momento y ningún perfil local quedó actualizado.
+- **Web Deploy**: habilitado del lado del servidor (`deployment_get_status` → `enabled`), pero el
+  **puerto 8172 es inalcanzable** desde esta red (TCP test falla). MSDeploy corta con
+  `ERROR_DESTINATION_NOT_REACHABLE`.
+- **Crear un usuario FTP acotado por MCP**: `ftp_create_user` con `path=/www/vinoysefue` falla dos veces con
+  `ftp_user_create_failed` (el servicio de hosting no completa la operación). No quedó ningún usuario a medio crear.
+
+**Implicancia para el viaje:** si surge una urgencia que requiera subir un archivo, hoy no se puede — ni desde
+el celular ni desde la notebook. Resolver ANTES de salir: traer la clave de FTP vigente del panel
+(FTP Manager en SmarterASP), guardarla en `docs/credenciales.local.md`, actualizar los perfiles de publicación
+y **probar un deploy real de punta a punta**. Un deploy que nunca se probó no es un camino de deploy.
+
 ## 5. Qué NO se puede resolver desde el celular
 
 - **Código y deploy.** Técnicamente sí (la notebook tiene los repos), pero sin poder verificar la app andando
