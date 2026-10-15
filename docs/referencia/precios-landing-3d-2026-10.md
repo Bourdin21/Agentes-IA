@@ -22,5 +22,6 @@ Continúa `research-precios-landing-build-2026-09.md`. Todos los precios **+ IVA
 
 ## Relación con otros precios
 
-- El **upgrade a 3D de +USD 100** sobre la Landing 2D autogestionable (`precios-landing-2d-autogestionable-2026-10.md`) sigue siendo un número de ese deal, no de lista: 500 + 100 = USD 600 queda muy por debajo de esta lista. Si se repite, revisarlo contra este archivo.
+- **Upgrade a 3D de la Landing 2D autogestionable:** desde 2026-10-15, **+USD 500 el 1er año y +USD 100/año** (queda en 1.000 / 400). El +USD 100 anterior queda como precio del deal MACERATA.
+- **Combo Landing 3D + AI Agents + Chatbots:** suma de listas con 10% de descuento sobre el setup, recurrente a lista (2026-10-15).
 - Rango de mercado de referencia: piso USD 150 (Fiverr), mediana USD 2.000-3.000, techo USD 20.000+. USD 1.000 queda debajo de la mediana global: precio de entrada, no premium.

@@ -400,3 +400,7 @@ Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-p
 
 - **2026-08** — 85 bloques (2026-08-14 a 2026-08-28) → [`trazabilidad-2026-08.md`](historial/trazabilidad-2026-08.md)
 - **2026-07** — 65 bloques (2026-07-17 a 2026-07-31) → [`trazabilidad-2026-07.md`](historial/trazabilidad-2026-07.md)
+
+## 2026-10-15 — Precio del combo definido (D-R7 cerrado)
+
+- Joaquín fija el precio del combo Landing 3D + AI Agents + Chatbots: suma de los precios de lista de los tres frentes con **10% de descuento sobre el setup**, recurrente a lista. Landing 3D de lista: USD 1.000 el 1er año + USD 400/año (`docs/referencia/precios-landing-3d-2026-10.md`). Destraba la primera propuesta real del combo. La IA del bot sigue sin cotizar.
