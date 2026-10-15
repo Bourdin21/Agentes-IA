@@ -10,3 +10,6 @@ Registro de cambios de `docs/olvidata-soft/`. Una línea por decisión o cambio;
 ### 2026-10-15 - olvidata-marketing
 - **Reglas de comunicación consolidadas en `comunicacion.md`** (COM-01..11), con `olvidata-marketing` como dueño. Estaban copiadas en `ceo`, `marketing` y `cm` y desincronizadas: `ceo` y `marketing` seguían prohibiendo abrir por el dolor en Agentes IA cuando `cm` ya tenía la derogación del 2026-10-14. Queda vigente la derogación (COM-04).
 - Regla nueva COM-09: ChatGPT, Claude y Copilot son el motor, no competencia.
+
+### 2026-10-15 - olvidata-ceo (plan)
+- **Plan rehecho por frente** en `plan.md` (propuesta, a confirmar por Joaquín), reproducible con `scripts/plan_olvidata.py`. El plan del 2026-07-29 (solo Build) queda superado. Resultado: con los precios vigentes la meta (recurrente neto ≥ USD 1.173/mes) se adelanta a 2027 en los dos escenarios; AI Agents es la palanca (~3 veces el recurrente de un cliente de Build). Riesgos: recurrente real de Build sin cargar por cliente y AI Agents con un solo cliente a precio piloto.
