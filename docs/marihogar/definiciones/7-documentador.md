@@ -9,6 +9,10 @@
 
 **Cierre de septiembre y octubre — ventas y compras (2026-10-15)** — pagina navegable, instruccion 41.
 
+**Los dos informes quedaron enlazados entre si (2026-10-15).** Son un par y hay que tratarlos como tal: el de medios de pago dice cuanto cuesta cobrar, el de cierre dice para que sirve esa plata, y ninguno de los dos se sostiene solo. El de medios de pago gano una seccion **"La configuracion optima"** —la receta cerrada: que terminal usar para cada medio, con su costo, mas los recargos cargados— y el de cierre apunta a esa seccion desde donde recomienda bajar el costo de cobranza. Enlaces cruzados en la bajada de los dos.
+
+**Argumento nuevo que aparecio al cerrar la receta, y no es de precio:** en Payway el adelanto de la acreditacion **viene incluido en el plan**, asi que se paga en cada venta aunque no haga falta; en Mercado Pago se elige por venta. Cobrar las cuotas por MP deja las dos opciones abiertas (18,90% sin adelantar contra 26,57% de Payway, o 26,20% adelantando) y **nunca sale peor**. Eso es mas fuerte que los 3,29 puntos de diferencia, porque no depende de la coyuntura de caja.
+
 **URL: https://claude.ai/artifact/QtmKxjbNLUe7k6DyZ9GEwx** — *las proximas versiones se republican SOBRE ESTA MISMA URL*.
 
 Responde "donde quedo la plata". Verificado contra produccion: ventas y OC no anuladas del 01/09 al 13/10 (43 dias), gastos no anulados, stock valorizado a PrecioCompra. **Ningun numero sale de los docs ni de memoria.**
