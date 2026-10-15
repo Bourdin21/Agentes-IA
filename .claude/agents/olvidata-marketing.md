@@ -119,6 +119,13 @@ tener a mano siempre:
 - **El mapa sigue guardado** y se muestra en la demo y en la propuesta, que es donde sostiene el
   ticket. Público: la tarea. Privado: la arquitectura.
 
+### Precio de AI Agents / Second Brain: se compara contra el precio por usuario de ChatGPT o Copilot (regla de producto, Joaquín 2026-10-15)
+
+- **En la propuesta y en la demo** (donde vive el precio), el ancla es el asistente genérico por usuario que el cliente ya conoce: ChatGPT Business USD 20–25, Claude Team 25, Microsoft 365 Copilot 21 (+ licencia M365) **por persona por mes**. Para un equipo de 15 son USD 300–450/mes.
+- **El argumento en una línea:** el mensual de Olvidata es por organización (USD 90/150/250), así que **sale más barato por persona** que darle un ChatGPT a cada uno, **y además conoce el rubro** (reglas, vocabulario y tareas de su oficina), cosa que un asistente genérico no.
+- Se dice como dato comparativo, una vez, sin desmerecer a la herramienta genérica (el cliente puede usarla y estar contento). Números y fuentes: `docs/referencia/research-precios-ai-agents-second-brain-2026-10.md`. Verificar los precios de ChatGPT/Copilot antes de cada ronda de propuestas: cambian.
+- **No va en contenido público:** la regla de "sin precio en contenido de autoridad" no cambia. En una pieza se puede usar el contraste sin números (*"no es otro chat: conoce cómo trabaja tu estudio"*).
+
 **Nota sobre el consenso de mercado:** la literatura de contenido 2026 recomienda abrir por el
 problema, y el research de referidos y educación de audiencia recomienda enseñar. **Ambas cosas están
 vetadas acá** por decisión de Joaquín (2026-10-11 y esta) y no se reabren.

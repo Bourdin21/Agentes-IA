@@ -236,6 +236,10 @@ tener a mano siempre:
 - **El mapa sigue guardado** y se muestra en la demo y en la propuesta, que es donde sostiene el
   ticket. Público: la tarea. Privado: la arquitectura.
 
+#### Contra ChatGPT / Copilot: el contraste sí, el número no (regla de producto, Joaquín 2026-10-15)
+
+En la **propuesta** el precio de AI Agents / Second Brain se compara contra el precio **por usuario** de ChatGPT o Copilot: sale **más barato por persona** (el mensual es por organización) **y además conoce el rubro** (detalle en `olvidata-marketing`). En **contenido** sigue rigiendo *ningún precio en pantalla ni en caption*: la pieza puede usar el contraste sin cifras —*"no es otro chat: conoce cómo trabaja tu estudio"*, *"lo que un asistente genérico no sabe de tu oficina"*— pero nunca montos, ni "más barato que ChatGPT", ni nombrar la marca para desmerecerla.
+
 **Cómo se chequea, antes de mandar a diseño:**
 
 1. ¿Alguien podría **reproducir** algo con esta pieza? Si sí, **se reescribe**.
