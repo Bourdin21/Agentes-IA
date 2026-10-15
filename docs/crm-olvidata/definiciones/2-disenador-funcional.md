@@ -580,7 +580,7 @@ Nuevos de esta etapa:
 - **D-R4 — Sin A/B por gancho** en esta entrega.
 - **D-R5 — Gancho cambiado después del envío:** el prospecto ya leyó otro mensaje; el aviso en Edit lo hace explícito.
 - **D-R6 — El combo alarga el mensaje y reparte el foco:** el aprendizaje del historial es que cierra quien nombra UN dolor concreto. Un mensaje con 3 productos puede bajar la tasa de respuesta frente a uno de un solo dolor. Mitigación: el combo va en una sola frase después del dolor, y la tasa se mide por gancho contra la línea base de `v13`.
-- **D-R7 — Precio del combo no definido:** la propuesta post-demo necesita un precio de paquete (setup + recurrente de Landing 3D + AI Agents + Chatbots). Lo define `olvidata-ceo`; no bloquea Arquitectura, sí la primera propuesta real.
+- **D-R7 — Precio del combo no definido:** la propuesta post-demo necesita un precio de paquete (setup + recurrente de Landing 3D + AI Agents + Chatbots). Lo define `olvidata-ceo`; no bloquea Arquitectura, sí la primera propuesta real. **Resuelto 2026-10-15 (Joaquín):** suma de las listas de los tres frentes con 10% de descuento sobre el setup, recurrente a lista (ver `olvidata-ceo`, frente Landing).
 
 #### 8.15 Plan funcional por etapas (para Arquitectura)
 

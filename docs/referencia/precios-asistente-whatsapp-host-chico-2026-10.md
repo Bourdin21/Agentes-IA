@@ -41,4 +41,4 @@ Contraste con el precedente que había: **BMA, USD 2.500 de setup + USD 170/mes*
 
 ## Pendiente
 
-Falta cerrar el precio de lista de los frentes **Chatbots** y **Landing 3D**: `pricing-agentes-multirubro.md` dice "bajo revisión" y el 3D solo tiene la propuesta no vigente del research de septiembre (setup USD 2.000-3.000 + 600-900/año). El único 3D fijado es el upsell de +USD 100 sobre Landing 2D (`precios-landing-2d-autogestionable-2026-10.md`), que **no** es precio de lista del frente.
+Falta cerrar el precio de lista del frente **Chatbots**: `pricing-agentes-multirubro.md` dice "bajo revisión". (**Landing 3D** quedó fijado el 2026-10-15: USD 1.000 el 1er año + 400/año, `precios-landing-3d-2026-10.md`.)

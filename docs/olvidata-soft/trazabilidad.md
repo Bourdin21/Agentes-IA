@@ -1,0 +1,25 @@
+# Trazabilidad — memoria de negocio de Olvidata Soft
+
+Registro de cambios de `docs/olvidata-soft/`. Una línea por decisión o cambio; el detalle vive en el archivo que corresponde.
+
+### 2026-10-15 - olvidata-ceo
+- **Se separa la memoria del negocio del rol del agente.** Antes todo vivía dentro de `.claude/agents/olvidata-ceo.md` (67 KB, cargado entero en cada consulta). Pasa a `precios.md`, `plan.md`, `negocio.md` y `clientes.md`; el agente queda con el rol y una tabla de punteros.
+- **Precios centralizados en `precios.md`** (decisión de Joaquín). Fijados hoy: Landing 3D USD 1.000 + 400/año; 2D autogestionable renueva a 375; upgrade a 3D +500/+100; upsell módulo nuevo vigente; combo con 10% sobre setup; pilotos 30% sobre setup, máximo 3 por frente; reglas de volumen de Chatbots; montos de AI Agents (rediseño 2026-10-13) incluido mensual Organización S/M/L 90/150/250.
+- La tabla "Lista 2027" de AI Agents por tier quedó superada con su base: la lista 2027 se recalculó como ×1,20 sobre la lista vigente.
+
+### 2026-10-15 - olvidata-marketing
+- **Reglas de comunicación consolidadas en `comunicacion.md`** (COM-01..11), con `olvidata-marketing` como dueño. Estaban copiadas en `ceo`, `marketing` y `cm` y desincronizadas: `ceo` y `marketing` seguían prohibiendo abrir por el dolor en Agentes IA cuando `cm` ya tenía la derogación del 2026-10-14. Queda vigente la derogación (COM-04).
+- Regla nueva COM-09: ChatGPT, Claude y Copilot son el motor, no competencia.
+
+### 2026-10-15 - olvidata-ceo (plan)
+- **Plan rehecho por frente** en `plan.md` (propuesta, a confirmar por Joaquín), reproducible con `scripts/plan_olvidata.py`. El plan del 2026-07-29 (solo Build) queda superado. Resultado: con los precios vigentes la meta (recurrente neto ≥ USD 1.173/mes) se adelanta a 2027 en los dos escenarios; AI Agents es la palanca (~3 veces el recurrente de un cliente de Build). Riesgos: recurrente real de Build sin cargar por cliente y AI Agents con un solo cliente a precio piloto.
+
+### 2026-10-15 - prueba de estructura
+- Cuatro agentes (ceo, marketing, sales, cm) respondieron preguntas con respuesta conocida arrancando solo por su archivo de rol: **todas correctas**, siguiendo los punteros (ceo leyó 19 KB en total). Corregido lo que encontraron: supuesto de entrada de AI Agents en `plan.md`, puntero de renovación y escalera duplicada en `olvidata-sales`, restos de nombres/logos de clientes y de la regla vieja del dolor en `olvidata-cm`, línea de código citada que se había corrido, excepción "el motor (Claude) se nombra" en COM-05, fecha y caso "precio antes de la demo" en COM-11, sección "Por canal" en `comunicacion.md`.
+
+### 2026-10-15 - decisiones de Joaquín tras la prueba
+- Propuesta: se presenta PREMIUM primero; se saca la táctica de mencionar SCALE para anclar (`olvidata-marketing`).
+- *"trabajan por vos"*, *"la IA hace tu trabajo"* y *"resuelven tu operatoria diaria"* dejan de estar prohibidas en `olvidata-cm` (COM-10). Falta actualizar `MARCA.md` §0c, fuera de este repo.
+- Descuento por agente adicional: no alcanza al crédito de IA ni al tope. Descuento piloto: sí alcanza al relevamiento de Bernarda (`precios.md`).
+- Calendario de `olvidata-cm` definido: ciclo de 4 semanas (Agentes, Build, Agentes, rotativo Landing / Pilar 2 / Chatbot).
+- Plan por frente confirmado como vigente. El plan de cada cliente de Build está en el CRM: falta exportarlo a `clientes.md`.

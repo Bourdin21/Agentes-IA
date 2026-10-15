@@ -57,7 +57,7 @@ Ver `.claude/README.md`. Entrada por rol:
 
 Cada comando/subagent lee su `.github/agents/*.agent.md` (fuente de verdad) y carga sus instrucciones modulares al activarse. Equivalen a `@rol` de Copilot / `/agentes-ia-*` de Cursor.
 
-Este repo aloja ademas los **agentes de negocio de Olvidata Soft** (`/olvidata-ceo`, `/olvidata-marketing`, `/olvidata-cm`, `/olvidata-sales`, `/olvidata-infra`, `/olvidata-presupuesto-bot`) — fuera de la secuencia Discovery→Cierre, se invocan sueltos. Detalle y setup de acceso global en `.claude/README.md`.
+Este repo aloja ademas los **agentes de negocio de Olvidata Soft** (`/olvidata-ceo`, `/olvidata-marketing`, `/olvidata-cm`, `/olvidata-sales`, `/olvidata-infra`, `/olvidata-presupuesto-bot`) — fuera de la secuencia Discovery→Cierre, se invocan sueltos. Detalle y setup de acceso global en `.claude/README.md`. **Su memoria de negocio vive en `docs/olvidata-soft/`** (precios, plan, negocio, clientes, reglas de comunicación), no dentro de los prompts de los agentes: cada agente apunta ahí y lee solo lo que el pedido toca.
 
 ## Cómo activar un agente en esta terminal
 
@@ -128,7 +128,7 @@ Las instrucciones modulares de arriba son la **fuente completa**; las skills de 
 
 ## Chequeo de consistencia (`scripts/doctor.py`)
 
-`python scripts/doctor.py` verifica en segundos que la memoria no se haya desincronizado: numeros de precio contradictorios entre archivos, estado de proyecto declarado fuera de `docs/indice.md`, IDs de regla duplicados, cierres reales que quedaron sin cargar en `docs/calibracion/dataset.yml`, **archivos de memoria sobre el techo de 150 KB**, **indices planos (`cat_resumen.txt`) desactualizados respecto de su catalogo**, archivos de mas de 300 KB y huerfanos. `--fast` corre solo los chequeos baratos (incluye el techo de memoria).
+`python scripts/doctor.py` verifica en segundos que la memoria no se haya desincronizado: numeros de precio contradictorios entre archivos, **montos en USD en los agentes `olvidata-ceo`/`-sales`/`-marketing`/`-cm` (los precios de lista viven solo en `docs/olvidata-soft/precios.md`)**, estado de proyecto declarado fuera de `docs/indice.md`, IDs de regla duplicados, cierres reales que quedaron sin cargar en `docs/calibracion/dataset.yml`, **archivos de memoria sobre el techo de 150 KB**, **indices planos (`cat_resumen.txt`) desactualizados respecto de su catalogo**, archivos de mas de 300 KB y huerfanos. `--fast` corre solo los chequeos baratos (incluye el techo de memoria).
 
 Los otros scripts: `python scripts/contexto.py` (presupuesto de arranque por agente, indices de los archivos grandes, regeneracion de los `cat_resumen.txt`), `python scripts/archivar_memoria.py` (mueve los sprints/CR/modulos cerrados a `historial/` para mantener el techo; dry-run por defecto, `--aplicar` para hacerlo), `python scripts/traza.py` (traza de corrida al cerrar una etapa: reintentos, criterios fallados y **reglas que hubo que releer** — una regla que se relee siempre esta mal ubicada en el arranque del rol) y `python scripts/evals.py` (suite de evals del harness; **`costo` antes de `preparar`: gasta tokens de verdad, y no ejecuta nada por si solo**).
 

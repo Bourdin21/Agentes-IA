@@ -320,12 +320,29 @@ def chequear_trazabilidad():
             err("%s: tiene BOM UTF-8 al inicio" % p)
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Precios de lista de Olvidata: fuente unica docs/olvidata-soft/precios.md
+# (Joaquin, 2026-10-15; duenio olvidata-ceo). Ningun agente de negocio lleva montos:
+# la copia de sales tenia tablas de AI Agents ya superadas sin que nada fallara.
+# Se permiten montos de COSTO de proveedores (generacion de video, pauta).
+# ─────────────────────────────────────────────────────────────────────────────
+AGENTES_SIN_PRECIOS = ("olvidata-ceo.md", "olvidata-sales.md", "olvidata-marketing.md", "olvidata-cm.md")
+RE_MONTO_USD = re.compile(r"(?:USD|US\$|U\$S)\s?~?\d")
+CTX_COSTO = ("costo", "por shot", "pauta", "cpm", "presupuesto de anuncio")
+def chequear_precios_centralizados():
+    for f in AGENTES_SIN_PRECIOS:
+        p = os.path.join(".claude", "agents", f)
+        for i, l in enumerate(lineas(p), 1):
+            if RE_MONTO_USD.search(l) and not any(c in l.lower() for c in CTX_COSTO):
+                err("%s:%d: monto en USD en un agente de negocio - los precios de lista viven solo en docs/olvidata-soft/precios.md (sacarlo y apuntar ahi)" % (p, i))
+
 def main():
     chequear_factor()
     chequear_tokens_ia()
     chequear_estado_proyectos()
     chequear_ids_reglas()
     chequear_techo_memoria()
+    chequear_precios_centralizados()
     if not FAST:
         chequear_catalogo_patrones()
         chequear_cierres()

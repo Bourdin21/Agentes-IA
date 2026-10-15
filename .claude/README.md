@@ -55,6 +55,17 @@ Ademas de los agentes del flujo MVC, este repo aloja los agentes de negocio del 
 | `/olvidata-infra` | Servidores, SSL, dominios, application pools, bases de datos |
 | `/olvidata-presupuesto-bot` | Matriz de modulos MVP/FULL del bot/CRM propio |
 
+**Memoria de negocio: `docs/olvidata-soft/`** (separada de los prompts el 2026-10-15). Los agentes son el rol; lo que saben del negocio se lee de ahi cuando el pedido lo toca.
+
+| Archivo | Contenido | Duenio |
+|---|---|---|
+| `precios.md` | Lista de precios unica (ningun agente lleva montos; `doctor.py` lo controla) | `olvidata-ceo` |
+| `plan.md` | Meta 2028 y modelo por frente | `olvidata-ceo` |
+| `negocio.md` | Frentes, catalogo, canales, proceso de venta, marca personal | `olvidata-ceo` |
+| `clientes.md` | Clientes activos, cierres, cobros pendientes | `olvidata-ceo` |
+| `comunicacion.md` | Reglas de comunicacion COM-01..11 | `olvidata-marketing` |
+| `trazabilidad.md` | Registro de cambios | todos |
+
 ## Acceso global — junctions de Windows
 
 Los agentes viven **solo aca** (unica copia, versionada en git), pero tienen que estar disponibles desde cualquier carpeta, no solo con el cwd en este repo. Eso se resuelve con dos junctions de Windows que apuntan la carpeta de usuario a este repo:
