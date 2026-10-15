@@ -114,7 +114,7 @@ Olvidata vende esos productos aplicados a la empresa: los agentes corren sobre C
 ## COM-10 — Comunicación instantánea y la promesa (2026-10-13)
 
 - **Un símbolo, un mensaje, una sensación.** Una pieza = una idea. Si hay que leer para entender, falló; si hay que explicarla, falló dos veces. Respaldo: Binet & Field (996 campañas, IPA Databank 1980–2010: las emocionales ganan en todas las métricas); Kahneman (decide el System 1).
-- **La promesa transversal de Agentes IA: jubilar a la gente de su trabajo cotidiano** — que trabajen más las máquinas, entendiendo la lógica del usuario. Se muestra la máquina haciendo el trabajo; la conclusión sobre su propio día la saca el prospecto.
+- **La promesa transversal de Agentes IA: jubilar a la gente de su trabajo cotidiano** — que trabajen más las máquinas, entendiendo la lógica del usuario. Frases como *"trabajan por vos"*, *"la IA hace tu trabajo"* o *"resuelven tu operatoria diaria"* están permitidas: son esta promesa (Joaquín, 2026-10-15). Se muestra la máquina haciendo el trabajo; la conclusión sobre su propio día la saca el prospecto.
 
 ## COM-11 — Cómo se menciona un precio en la propuesta (2026-09-14)
 

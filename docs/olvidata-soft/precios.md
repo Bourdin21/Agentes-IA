@@ -63,7 +63,7 @@ Modelo aprobado 2026-10-13, montos fijados 2026-10-15 (`docs/referencia/research
 - El tier de organización se asigna por **volumen de uso medido**, no por cantidad de agentes.
 - **Excedente:** agotado el crédito del mes, el costo real se factura × 3 en el ciclo siguiente.
 - **Núcleo vs. personalizado:** si la regla la fija el organismo o el sistema externo (ARCA, ARBA, Bejerman), va al núcleo, dentro de la licencia; si la fija la organización, es personalizado y se cobra.
-- **Varios agentes personalizados para un mismo cliente:** 10% de descuento en cada agente nuevo (desde el segundo), sobre setup y recurrente. El primero va a lista.
+- **Varios agentes personalizados para un mismo cliente:** 10% de descuento en cada agente nuevo (desde el segundo), sobre setup y recurrente. El primero va a lista. **No alcanza al crédito de IA ni al tope de corte**, que van a lista (2026-10-15).
 - **Integraciones:** cada sistema externo distinto cuenta como una (2 cuentas del mismo banco = 1; banco + Mercado Pago = 2).
 - **Cambio de tier de un agente:** paga la diferencia de setup y, desde la renovación siguiente, el mensual del tier nuevo.
 - **Entrega de código (excepción comercial):** USD 6.000 por rubro, pago único, licencia de uso interno sin reventa + soporte opcional USD 1.200/año. Contrato revisado por abogado.
@@ -87,7 +87,7 @@ Corregido 2026-09-17, tier Grandes empresas 2026-09-19. **Promo de entrada hasta
 ## 5. Reglas transversales
 
 - **Combo Landing 3D + AI Agents + Chatbots:** suma de las listas de los tres frentes con **10% de descuento sobre el setup**; el recurrente va a lista (2026-10-15).
-- **Pilotos (hasta 2027):** 30% de descuento sobre el setup, recurrente a lista, **máximo 3 por frente**, a cambio de caso + logo + testimonio (2026-10-15).
+- **Pilotos (hasta 2027):** 30% de descuento sobre el setup — **incluido el relevamiento externo de Bernarda** —, recurrente a lista, **máximo 3 por frente**, a cambio de caso + logo + testimonio (2026-10-15).
 - **Lista 2027** (cierres desde 2027-01-01, AI Agents y Chatbots): **promo × 1,20** (decisión 2026-09-19). Aplicado a la lista vigente:
   - AI Agents: licencia USD 1.800 · conectores 600/1.080/1.800 + 30/mes · agentes personalizados 600/1.200/2.400 + 48/96/180/mes · Organización S/M/L 108/180/300/mes.
   - Chatbots: setup 840–1.080 / 1.080–1.440 / 1.440–2.160 / 3.000–4.800 · 576 / 840 / 1.320 / 3.600 por año.

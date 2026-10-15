@@ -6,9 +6,9 @@ Dueño: `olvidata-ceo`. Precios: `precios.md`. Clientes: `clientes.md`. Revisar 
 
 Que el **recurrente neto** de Olvidata reemplace el sueldo del Ministerio de Joaquín (**USD 1.173/mes neto**) en **2028**. Desde ahí, independencia financiera real.
 
-## Modelo por frente — revisión 2026-10-15 (propuesta, a confirmar por Joaquín)
+## Modelo por frente — revisión 2026-10-15 (vigente, confirmado por Joaquín)
 
-**Propuesta de `olvidata-ceo`, a confirmar por Joaquín.** Reemplaza al plan del 2026-07-29, que calculaba todo con el ticket de Build y no incluía AI Agents, Chatbots ni los precios nuevos de Landing.
+**Confirmado por Joaquín el 2026-10-15.** Reemplaza al plan del 2026-07-29, que calculaba todo con el ticket de Build y no incluía AI Agents, Chatbots ni los precios nuevos de Landing.
 
 ### Punto de partida (fin de 2026, estimado)
 
@@ -64,7 +64,7 @@ Bruto = ingresos de entrada del año + recurrente promedio del año. Script del 
 
 ### Riesgos del modelo (verificar antes de decidir cuándo dejar el Ministerio)
 
-- **El recurrente de Build es un supuesto** (426/año por cliente). `clientes.md` no tiene el monto real de cada cliente: hay que cargarlo y recalcular el punto de partida.
+- **El recurrente de Build es un supuesto** (426/año por cliente). El plan real de cada cliente activo de Build está **en el CRM** (cada cliente tiene su plan asignado): exportar de ahí cliente → plan → monto anual, cargarlo en `clientes.md` y recalcular el punto de partida.
 - **AI Agents tiene un solo cliente, y a precio piloto.** Los 3–5 cierres por año no tienen historia todavía; es el supuesto más frágil y el que más mueve el resultado.
 - **El crédito de IA es un supuesto de arranque** (`negocio.md` § 3): si el consumo real es mayor, el neto de AI Agents baja.
 - **Capacidad:** 15–20 proyectos nuevos por año con un developer solo (más Matías puntual) es el techo práctico. El escenario base de 2029–2030 (25–28 cierres por año) probablemente requiera sumar a alguien.

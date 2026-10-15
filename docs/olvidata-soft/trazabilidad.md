@@ -16,3 +16,10 @@ Registro de cambios de `docs/olvidata-soft/`. Una línea por decisión o cambio;
 
 ### 2026-10-15 - prueba de estructura
 - Cuatro agentes (ceo, marketing, sales, cm) respondieron preguntas con respuesta conocida arrancando solo por su archivo de rol: **todas correctas**, siguiendo los punteros (ceo leyó 19 KB en total). Corregido lo que encontraron: supuesto de entrada de AI Agents en `plan.md`, puntero de renovación y escalera duplicada en `olvidata-sales`, restos de nombres/logos de clientes y de la regla vieja del dolor en `olvidata-cm`, línea de código citada que se había corrido, excepción "el motor (Claude) se nombra" en COM-05, fecha y caso "precio antes de la demo" en COM-11, sección "Por canal" en `comunicacion.md`.
+
+### 2026-10-15 - decisiones de Joaquín tras la prueba
+- Propuesta: se presenta PREMIUM primero; se saca la táctica de mencionar SCALE para anclar (`olvidata-marketing`).
+- *"trabajan por vos"*, *"la IA hace tu trabajo"* y *"resuelven tu operatoria diaria"* dejan de estar prohibidas en `olvidata-cm` (COM-10). Falta actualizar `MARCA.md` §0c, fuera de este repo.
+- Descuento por agente adicional: no alcanza al crédito de IA ni al tope. Descuento piloto: sí alcanza al relevamiento de Bernarda (`precios.md`).
+- Calendario de `olvidata-cm` definido: ciclo de 4 semanas (Agentes, Build, Agentes, rotativo Landing / Pilar 2 / Chatbot).
+- Plan por frente confirmado como vigente. El plan de cada cliente de Build está en el CRM: falta exportarlo a `clientes.md`.

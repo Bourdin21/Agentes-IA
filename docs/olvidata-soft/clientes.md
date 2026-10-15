@@ -22,4 +22,4 @@ Los precios pactados con clientes ya firmados **no cambian** con las subas de li
 
 ## Pendiente de revisar
 
-- Contar los clientes por frente (Build / Landing / AI Agents / Chatbots) y su recurrente real para alimentar `plan.md`. Hoy la lista de activos no dice frente ni monto por cliente.
+- Contar los clientes por frente (Build / Landing / AI Agents / Chatbots) y su recurrente real para alimentar `plan.md`. **Fuente: el CRM**, donde cada cliente activo de Build tiene su plan asignado (Joaquín, 2026-10-15). Falta exportarlo y cargarlo acá.

@@ -140,10 +140,10 @@ simétricas sobre cuatro frentes asimétricos:
 
 | Frente | Frase de oferta | Qué NO se dice | Estado |
 |---|---|---|---|
-| **Sistemas de gestión** | "Vendas por kilo, por metro o por unidad, el mismo sistema lo entiende." | "software de gestión", "ERP", stack técnico | ✅ 3 casos verificados · 2 de cada 4 martes |
-| **Chatbot de atención** | "Te contesta a las 3 de la mañana y a la mañana ves quién quiere comprar." *(sin validar por Joaquín)* | "IA conversacional"; que resuelve sin humano (es *contesta y deriva*); cualquier tasa de conversión del bot propio | ⚠️ sólo el bot propio · 1 de cada 4 |
-| **Webs que traen consultas** | "Hechas para el teléfono. Ahí te buscan." | "SEO", "UX", "responsive", "presencia digital"; promesas de tráfico | ⚠️ 1 caso con reparos · 1 de cada 4 |
-| **Agentes de IA** | Venta: "Sacale una foto…" → "Te digo dónde está la diferencia." · Marca: **"Dejá que trabajen las máquinas"** (2026-10-14; reemplazó a *"Tu empresa ya sabe todo. Le falta acordarse."*, que baja a línea de cuerpo) | ver la lista completa abajo — es el frente con más frases prohibidas | ✅ **1 de cada 4** — tiene caso: Contadores BMA en producción |
+| **Sistemas de gestión** | "Vendas por kilo, por metro o por unidad, el mismo sistema lo entiende." | "software de gestión", "ERP", stack técnico | ✅ 3 casos verificados · semana 2 del ciclo |
+| **Chatbot de atención** | "Te contesta a las 3 de la mañana y a la mañana ves quién quiere comprar." *(sin validar por Joaquín)* | "IA conversacional"; que resuelve sin humano (es *contesta y deriva*); cualquier tasa de conversión del bot propio | ⚠️ sólo el bot propio · semana 4, cuando le toca |
+| **Webs que traen consultas** | "Hechas para el teléfono. Ahí te buscan." | "SEO", "UX", "responsive", "presencia digital"; promesas de tráfico | ⚠️ 1 caso con reparos · semana 4, cuando le toca |
+| **Agentes de IA** | Venta: "Sacale una foto…" → "Te digo dónde está la diferencia." · Marca: **"Dejá que trabajen las máquinas"** (2026-10-14; reemplazó a *"Tu empresa ya sabe todo. Le falta acordarse."*, que baja a línea de cuerpo) | ver la lista completa abajo — es el frente con más frases prohibidas | ✅ **semanas 1 y 3 del ciclo** — tiene caso: Contadores BMA en producción |
 
 **La vara de claridad es "sacale una foto y…".** Si una frase de oferta necesita explicación, no
 sirve: se entiende sola o se cambia. La de sistemas, además, no es un slogan: es **linaje de código** —el
@@ -169,8 +169,8 @@ sirve: se entiende sola o se cambia. La de sistemas, además, no es un slogan: e
 - **Webs:** antes de usar el caso que existe hay que confirmar dos cosas con Joaquín — si el
   formulario (error 500 tras la migración, última entrada 08/09) se arregló, y si ese cliente está
   autorizado a aparecer, porque hoy sólo KOI y MariHogar lo están.
-- **Cuando agentes tenga caso**, entra sacándole un turno a sistemas. La cadencia de 1 por semana no
-  sube: eso ya está decidido.
+- **Cadencia:** ver "Calendario de publicación" (ciclo de 4 semanas, definido 2026-10-15). La cadencia
+  de 1 por semana no sube: eso ya está decidido.
 
 **Y lo que el contenido no arregla:** el cuello de botella medido es la conversión, no la generación.
 Abrir frentes de comunicación lo esquiva en vez de tocarlo. Lo que más rinde no cuesta pauta —14/14
@@ -222,15 +222,18 @@ y casi todas suenan bien, que es lo que las hace peligrosas:
 
 | Frase | Por qué cae |
 |---|---|
-| *"trabajan por vos"* · *"la IA hace tu trabajo"* | La regla más repetida del estudio: está en `MARCA.md` §0c y cuatro veces en el plan de comercialización |
 | *"ellos aprenden"* | `CA-03.5`: lo que el agente aprende queda como **recuerdo sin confirmar**, y **nunca** convierte una instrucción en memoria. Las reglas las define el usuario |
-| *"resuelven tu operatoria diaria"* | Promete cobertura del día a día, y eso no se puede sostener. **Lo que sí se dice, desde el 07/10, es concreto:** en un estudio contable hay **tres agentes andando — conciliación bancaria, liquidación de sueldos e impuestos**. Nombrar los tres pesa más que prometer todo |
 | *"la tecnología llegó"* | Rompe pain-first. La primera línea nombra el problema del dueño, nunca la tecnología |
 | *"el cerebro de tu empresa"* | Apunta a pensar y sugiere reemplazo. El producto es memoria |
 | *"portal multi-tenant"* · *"IA para tu empresa"* | El motor de atrás no se nombra |
 
-**Y el que lo resume:** nunca *"la IA hace tu trabajo"*, siempre *"vos definís cómo se hace, el
-sistema lo hace todos los días"*.
+**Permitidas desde el 2026-10-15 (Joaquín):** *"trabajan por vos"*, *"la IA hace tu trabajo"* y
+*"resuelven tu operatoria diaria"* ya **no** están prohibidas: son la promesa del frente (COM-10, jubilar
+a la gente de su trabajo cotidiano). Antes figuraban acá como prohibidas, igual que en `MARCA.md` §0c
+(fuera de este repo: hay que actualizarlo ahí también). Lo que sigue valiendo es COM-02: cuando la
+pieza dice qué hace, lo concreto pesa más — en un estudio contable hay **tres agentes andando:
+conciliación bancaria, liquidación de sueldos e impuestos**. Y el límite sigue siendo argumento:
+*"vos definís cómo se hace y aprobás; el sistema lo hace todos los días"*.
 
 ---
 
@@ -439,9 +442,21 @@ Ninguna acción que gaste plata real (generación de Veo, creación/activación 
 
 **Regla de jerarquía entre referencias (decidido 2026-09-09, no negociable):** la foto de **vestuario/estilo típico es la referencia principal** — define el video, la identidad y el look general. Las fotos de **rostro son de apoyo únicamente**, sirven para que la cara se renderice mejor, no son referencias de igual peso que la de vestuario. La API de Veo no tiene un campo nativo de prioridad entre `reference_images` (todas son tipo `asset`, sin jerarquía) — la única palanca real es selección y orden: el vestuario siempre va primero en la lista, y se completan los slots restantes (máximo 3 en total) con 1-2 fotos de rostro. El script `generate_video.py` ya implementa esto en `cargar_referencias()` — busca el archivo con "vestuario" en el nombre y lo antepone siempre. Antes de la primera tanda real, confirmar que `Veo/reference_photos/` tiene exactamente ese set curado (no las 8 fotos originales sin filtrar).
 
-### Calendario de publicación — 1 pieza/semana total, alternando pilares
+### Calendario de publicación — 1 pieza por semana, ciclo de 4 semanas (definido 2026-10-15)
 
-**Decidido (2026-09-09)**: la cadencia sigue siendo 1 publicación/semana en total — el Pilar 2 no se suma a la cadencia existente, comparte el mismo slot semanal con el Pilar 1 (casos de cliente). Default propuesto salvo que Joaquín prefiera otra proporción: **alternar semana por medio** (semana 1 = caso de cliente, semana 2 = tech/IA/FDE, y así sucesivamente) — es el reparto más simple de sostener y de trackear. Si en algún momento hay una razón puntual para romper el orden (ej. una campaña de cliente urgente, o una novedad de IA con ventana de vigencia corta), se salta el turno explícitamente, no se decide en silencio.
+Reemplaza el reparto anterior, que sumaba 5 piezas cada 4 semanas (2 de sistemas + 1 chatbot + 1 webs + 1
+agentes) y alternaba aparte el Pilar 2 en el mismo slot.
+
+| Semana del ciclo | Qué sale | Por qué |
+|---|---|---|
+| 1 | **Agentes IA / Second Brain** (COM-08: en noviembre conciliación 10/11, sueldos 24/11; impuestos 08/12) | Es la palanca del plan (`docs/olvidata-soft/plan.md`) |
+| 2 | **Build** (sistemas de gestión, casos verificados) | Es la base y el único frente con varios casos |
+| 3 | **Agentes IA / Second Brain** | Mismo calendario de COM-08, cada dos semanas |
+| 4 | **Rota mes a mes:** Landing → Pilar 2 (marca personal tech/IA/FDE) → Chatbot | Frentes con un solo caso o sin validar; el Chatbot entra solo con su frase validada por Joaquín |
+
+- El orden de la semana 4 se salta (no se reordena) si el frente que toca no tiene pieza lista: pasa al siguiente.
+- Si hay una razón puntual para romper el ciclo (campaña urgente, novedad con ventana corta), se salta el turno **explícitamente**, no en silencio.
+- Pilar 2 respeta COM-05: tech/IA como curiosidad o criterio, nunca el método de Agentes IA.
 
 ### Integración con BotPublicitario (`C:\Sistemas\BotPublicitario`) — estado real verificado 2026-09-09
 

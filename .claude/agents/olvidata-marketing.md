@@ -60,7 +60,6 @@ Las reglas de qué se dice y qué no (contenido que no vende, fuente puntual, do
 
 **Ancla de precio (anchoring)**
 - El plan PREMIUM es el más vendido y debe ser la primera opción presentada, no la del medio.
-- Al cotizar, mencionar primero el SCALE para hacer que el PREMIUM parezca razonable.
 - Los upsells se ofrecen DESPUÉS del cierre, nunca como parte del precio inicial.
 - (Los montos exactos de cada plan están en `docs/olvidata-soft/precios.md` — no inventes cifras.)
 
