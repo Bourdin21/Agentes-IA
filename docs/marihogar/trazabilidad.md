@@ -6,6 +6,20 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-15 — documentador (cierre de septiembre y octubre: ventas y compras)
+
+- Etapa: Documentacion. Entregable: `https://claude.ai/artifact/QtmKxjbNLUe7k6DyZ9GEwx`, pagina navegable (instruccion 41). Decisiones de redaccion en `7-documentador.md`.
+- **El pedido nacio de una pregunta de negocio**, no de un sprint: "cual es la decision financiera mas conveniente para el crecimiento". Contestarla exigio salir del informe de medios de pago y medir el negocio entero — margen, rotacion, compras y deuda —, y ahi aparecio que el trabajo de los dias anteriores estaba optimizando la palanca mas chica.
+- **El resultado del periodo es $136.786 sobre $23.482.490 de venta: 0,58%.** El margen sobre mercaderia es sano (49,1%), asi que no es un problema de precio. Se consume entre gastos operativos (39,6%) y costo de cobranza (8,9%).
+- **El hallazgo central: se compro 42% mas de lo que se vendio.** $16.986.588 de compras contra $11.960.422 de costo de mercaderia vendida, y **$4.975.648 de lo comprado no movio una sola unidad**. El stock quedo en $20,2M, de los cuales **$13.141.760 (65%, 88 productos) no vendieron nada en 43 dias**.
+- **La correccion de lectura que ordena todo lo demas:** la cobertura general de 73 dias sugiere sobrestock, pero **lo que rota cubre 26 dias** y hay **166 productos bajo el minimo**. El negocio no esta sobrestockeado sino mal stockeado, y por eso la recomendacion no es comprar menos sino comprar otra cosa.
+- **Jerarquia recomendada, por plata:** (1) convertir en caja los $13,1M dormidos — capital propio, sin interes, y alcanza para cancelar casi toda la deuda de $11,7M con proveedores; (2) frenar la compra de lo que no rota y reponer los 166 bajo minimo, donde el capital vuelve en 26 dias con 79% de margen de contribucion; (3) recien ahi el costo de cobranza, que son $2,08M, 15 veces el resultado.
+- **Se corrigio una recomendacion propia:** el informe de medios de pago trataba el adelanto de la acreditacion como un costo a evitar (134% anual en Payway, 105% en MP). Con la rotacion real medida, **adelantar conviene si la plata repone lo que rota** — vuelve en 26 dias con 79% de margen. Lo que no conviene es adelantar para comprar mas de lo que ya duerme. La diferencia no estaba en el costo financiero sino en el destino del capital, que el informe anterior no tenia como ver.
+- **Concentracion de compra:** 5 proveedores explican el 98%. Se senala como palanca de negociacion (plazo, descuento, devolucion de lo que no rota), no como riesgo.
+- **Tres salvedades declaradas en el propio informe**, porque son las que pueden mover las conclusiones: la imputacion de gastos del periodo, que "no vendio en 43 dias" puede ser estacionalidad, y que la deuda medida es solo la de las OC del periodo.
+- Motivo: pedido del usuario de hacer el informe sobre las ventas y compras de septiembre y octubre.
+
+
 ### 2026-10-15 — implementador-dotnet (MH-062: el adelanto vuelve a ser un dato de la venta, solo donde hay que elegir) — **DEPLOY A MEDIAS**
 
 - Etapa: Implementacion. Detalle tecnico en `5-implementador.md`. Commit `fc37126` sobre `59c2e1c`, pusheado.

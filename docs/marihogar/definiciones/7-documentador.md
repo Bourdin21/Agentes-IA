@@ -7,6 +7,20 @@
 
 ### Alcance entregado al cliente
 
+**Cierre de septiembre y octubre — ventas y compras (2026-10-15)** — pagina navegable, instruccion 41.
+
+**URL: https://claude.ai/artifact/QtmKxjbNLUe7k6DyZ9GEwx** — *las proximas versiones se republican SOBRE ESTA MISMA URL*.
+
+Responde "donde quedo la plata". Verificado contra produccion: ventas y OC no anuladas del 01/09 al 13/10 (43 dias), gastos no anulados, stock valorizado a PrecioCompra. **Ningun numero sale de los docs ni de memoria.**
+
+**Decision de redaccion:** el titular no es el resultado sino su causa. Decir "ganaste $136.786 sobre $23,5M" invita a discutir si los gastos estan bien imputados; decir "compraste $16,99M y vendiste $11,96M a costo" senala donde esta la plata y es incontestable. El resultado va igual, en la primera tabla, con el desglose completo.
+
+**Lo que el informe pone en primer plano, por orden de plata:** $13,1M de stock dormido (88 productos sin una unidad vendida en 43 dias, el 65% del inventario), compras 42% por encima de las ventas a costo, $4,98M comprado en el periodo que todavia no movio nada, y recien al final el costo de cobranza ($2,08M, 15 veces el resultado). **El orden es deliberado**: el trabajo de los dias anteriores fue sobre cobranza, y era la palanca mas chica de las tres.
+
+**El dato que corrige una lectura facil:** la cobertura general de 73 dias parece sobrestock, pero mirando solo lo que rota son **26 dias**, con 166 productos bajo minimo. El negocio no esta sobrestockeado, esta mal stockeado — y por eso la recomendacion no es "comprar menos" sino "comprar otra cosa".
+
+**Tres salvedades declaradas, cada una con de que depende:** el resultado depende de que los gastos del periodo esten bien imputados; "no vendio en 43 dias" puede ser estacionalidad o mercaderia recien llegada y hay que mirar producto por producto antes de liquidar; y la deuda de $11,7M es solo la de las OC del periodo, sin saldos anteriores.
+
 **Informe de medios de pago (2026-10-15)** — entregable publicado como **pagina navegable** (instruccion 41, skill `documento-navegable-cliente`):
 
 **URL: https://claude.ai/artifact/UnKcoPVRcaqrxDBdDyx2Yq** — *la proxima version se republica SOBRE ESTA MISMA URL*. Un link nuevo deja al cliente leyendo la version vieja.
