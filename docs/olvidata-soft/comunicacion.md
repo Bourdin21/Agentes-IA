@@ -5,7 +5,8 @@
 - **Dueño:** `olvidata-marketing` (la edita). Una decisión nueva de Joaquín se escribe **acá**, como regla nueva con fecha, y la que reemplaza queda marcada `superada por COM-xx`.
 - **La aplican:** `olvidata-cm` (cada pieza), `olvidata-marketing` (templates y canales), `olvidata-sales` (demo y propuesta), `olvidata-ceo` (encuadre de producto).
 - **Leerla entera antes de producir o revisar una pieza.** Es corta a propósito.
-- Detalle de origen en `C:\Sistemas\BotPublicitario\MARCA.md` § 0 y § 0e, y `claims.md`.
+- Detalle de origen en `C:\Sistemas\BotPublicitario\MARCA.md` § 0 y § 0e, y `claims.md` (junto a `MARCA.md`, fuera de este repo).
+- **Qué va acá y qué no:** las **reglas** que decide Joaquín (qué se puede decir, por frente o por canal) van acá; la **estrategia** de canal (qué conviene, cadencias, frameworks) vive en `olvidata-marketing`. Una regla de canal nueva va en la sección "Por canal" del final.
 
 ## Tabla rápida — qué se puede en cada frente
 
@@ -32,13 +33,13 @@
 
 ## COM-02 — Nada se afirma sin fuente puntual (2026-10-01)
 
-Todo caso sale del **proyecto real** — qué se pidió, qué problema había, cómo se resolvió — sacado del repo o de los docs. Nunca de memoria, nunca "verosímil". **Sin fuente puntual, no se publica.** El 2026-10-01 se escribieron ocho captions deduciendo la historia desde el rubro: las ocho eran plausibles y ninguna salía de ningún lado. El inventario de qué se puede afirmar de cada caso lo mantiene `olvidata-cm`.
+Todo caso sale del **proyecto real** — qué se pidió, qué problema había, cómo se resolvió — sacado del repo o de los docs. Nunca de memoria, nunca "verosímil". **Sin fuente puntual, no se publica.** El 2026-10-01 se escribieron ocho captions deduciendo la historia desde el rubro: las ocho eran plausibles y ninguna salía de ningún lado. El inventario de qué se puede afirmar de cada caso lo mantiene `olvidata-cm` en su archivo de rol (`.claude/agents/olvidata-cm.md`, sección "Inventario de casos reales").
 
 ## COM-03 — Directo al grano, sin compararse (2026-10-11; la parte del dolor, superada por COM-04)
 
 *"Tenés que ir directo al grano. Estamos mostrando un producto sin querer venderlo. El cliente compra experiencias."*
 
-- **La primera placa muestra la cosa**, no el contexto que la justifica. Si la primera línea se puede borrar sin perder nada, era preámbulo.
+- **Sin preámbulo:** la primera placa va directo — al dolor del dueño (COM-04) o a la cosa funcionando —, nunca al contexto que la justifica. Si la primera línea se puede borrar sin perder nada, era preámbulo.
 - **Se muestra la experiencia de usarlo**: qué se siente, qué pasa cuando lo usás.
 - **No se arma la pieza contra nada:** ni un competidor nombrado ni "la práctica genérica del mercado". Compararse es vender.
 - ~~Prohibido abrir por el problema, el riesgo o el error ajeno~~ → **superado por COM-04**.
@@ -55,7 +56,9 @@ Un hook que nombra la vida del dueño no enseña nada. Lo que protege el negocio
 
 **Alcance: solo el frente de Agentes IA / Second Brain** (*"En los sistemas Build está bien abrir por el dolor y contar cómo se hizo"*). En Build, el relato de cómo se resolvió **es** la prueba de oficio, y sin él las piezas quedaron sin arco (*"no tienen narrativa"*).
 
-**Lo que va:** el producto andando, filmado o capturado del proyecto real. Molde por defecto: el Reel de la ferretería.
+**Lo que va:** el producto andando, filmado o capturado del proyecto real. Molde de formato: el Reel de la ferretería (caso de Build) — se ve el producto operando y se entiende sin que nadie enseñe nada.
+
+**El motor sí se nombra:** los agentes corren sobre Claude (COM-09) y en Chatbots el cliente trae su propia key. Lo que nunca sale son prompts, pipeline, arquitectura interna y el resto de la fila "Nunca".
 
 **Lo que no va, en ninguna pieza pública de Agentes IA:** el paso a paso, "lo que no funcionó", la decisión técnica explicada como enseñanza, tips, tutoriales, stack, arquitectura interna, prompts, pipeline, repos, nombres de archivos, las herramientas con que se produce, cuánto tardó.
 
@@ -113,9 +116,10 @@ Olvidata vende esos productos aplicados a la empresa: los agentes corren sobre C
 - **Un símbolo, un mensaje, una sensación.** Una pieza = una idea. Si hay que leer para entender, falló; si hay que explicarla, falló dos veces. Respaldo: Binet & Field (996 campañas, IPA Databank 1980–2010: las emocionales ganan en todas las métricas); Kahneman (decide el System 1).
 - **La promesa transversal de Agentes IA: jubilar a la gente de su trabajo cotidiano** — que trabajen más las máquinas, entendiendo la lógica del usuario. Se muestra la máquina haciendo el trabajo; la conclusión sobre su propio día la saca el prospecto.
 
-## COM-11 — Cómo se menciona un precio en la propuesta
+## COM-11 — Cómo se menciona un precio en la propuesta (2026-09-14)
 
 - La **promo de AI Agents y Chatbots** (vigencia en `precios.md`) se dice **una sola vez**, como dato real con fecha (*"este valor es de lanzamiento, cierres hasta el 31/12"*). Nunca repetida como presión en los follow-ups ni con escasez fabricada encima.
+- Si el prospecto **pide el precio antes de la demo**, se le da (es la excepción que aplica `olvidata-sales`); la mención de la promo sigue siendo una sola.
 - La urgencia operante es el **vencimiento de 7 días** de cada propuesta. Si un deal de diciembre cruza la fecha sin que el prospecto dilate a propósito, se respeta el precio promo de la propuesta.
 - En Chatbots, decir siempre que la mensajería de Meta va aparte.
 
@@ -129,3 +133,7 @@ Olvidata vende esos productos aplicados a la empresa: los agentes corren sobre C
 4. ¿Se entiende **en un segundo, sin leer**, y deja una sensación? Si no, se reescribe (COM-10).
 5. ¿Se compara contra alguien o desmerece a ChatGPT, Claude o Copilot? Si sí, se reescribe (COM-03, COM-09).
 6. ¿Pasa `claims.md`?
+
+## Por canal
+
+(Sin reglas de canal propias todavía. La primera que decida Joaquín entra acá como COM-12.)

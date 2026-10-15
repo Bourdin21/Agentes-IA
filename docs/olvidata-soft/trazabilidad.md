@@ -13,3 +13,6 @@ Registro de cambios de `docs/olvidata-soft/`. Una línea por decisión o cambio;
 
 ### 2026-10-15 - olvidata-ceo (plan)
 - **Plan rehecho por frente** en `plan.md` (propuesta, a confirmar por Joaquín), reproducible con `scripts/plan_olvidata.py`. El plan del 2026-07-29 (solo Build) queda superado. Resultado: con los precios vigentes la meta (recurrente neto ≥ USD 1.173/mes) se adelanta a 2027 en los dos escenarios; AI Agents es la palanca (~3 veces el recurrente de un cliente de Build). Riesgos: recurrente real de Build sin cargar por cliente y AI Agents con un solo cliente a precio piloto.
+
+### 2026-10-15 - prueba de estructura
+- Cuatro agentes (ceo, marketing, sales, cm) respondieron preguntas con respuesta conocida arrancando solo por su archivo de rol: **todas correctas**, siguiendo los punteros (ceo leyó 19 KB en total). Corregido lo que encontraron: supuesto de entrada de AI Agents en `plan.md`, puntero de renovación y escalera duplicada en `olvidata-sales`, restos de nombres/logos de clientes y de la regla vieja del dolor en `olvidata-cm`, línea de código citada que se había corrido, excepción "el motor (Claude) se nombra" en COM-05, fecha y caso "precio antes de la demo" en COM-11, sección "Por canal" en `comunicacion.md`.

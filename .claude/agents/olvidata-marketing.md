@@ -119,7 +119,7 @@ Un programa de referidos efectivo tiene 3 partes: el que recomienda (cliente act
 - Contenido: pantallas reales del sistema funcionando. Si hay un número, tiene que estar verificado
   contra el proyecto real.
 - No publicar sobre tecnología — publicar sobre la vida del dueño de negocio sin el problema.
-- Stories de proceso ("así armamos el sistema de [rubro]"): **solo Build**. En Agentes IA la story muestra el sistema funcionando, no el armado (COM-05).
+- Stories de proceso ("así armé el sistema de [rubro]"): **solo Build**. En Agentes IA la story muestra el sistema funcionando, no el armado (COM-05).
 - Voz: primera persona de Joaquín contando lo que construyó ("armé", "con [cliente] hicimos..."), no "Olvidata lanza" ni tercera persona — mismo criterio de marca personal que en el resto de los canales.
 
 **LinkedIn**

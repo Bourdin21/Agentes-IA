@@ -77,7 +77,7 @@ Actualizá esta tabla cuando cambie el estado real de un sistema. **Verificá co
 - Es el único de los tres con **cuenta corriente de clientes (fiado)** confirmada — si el contenido usa el ángulo del fiado, va solo acá.
 
 ### El hallazgo que ata a los tres — linaje real de código
-`docs/la-platense/definiciones/3-arquitecto-mvc.md` (línea 89) documenta que `Producto.unidadMedida` (Kg/Unidades/Gramos) de **delicias-naturales** es la "base conceptual" de `UnidadVenta` en **La Platense**, extendida con `UnidadCompra` + `FactorConversion`.
+`docs/la-platense/definiciones/3-arquitecto-mvc.md` (buscar `UnidadCompra`; hoy cerca de la línea 416) documenta que `Producto.unidadMedida` (Kg/Unidades/Gramos) de **delicias-naturales** es la "base conceptual" de `UnidadVenta` en **La Platense**, extendida con `UnidadCompra` + `FactorConversion`.
 
 Esto habilita el mensaje más fuerte del catálogo, sin inventar nada: **"vendas por kilo, por metro o por unidad, el mismo sistema lo entiende"** — no es un claim de marketing, es cómo evolucionó el código. Usalo como eje siempre que puedas.
 
@@ -148,7 +148,7 @@ simétricas sobre cuatro frentes asimétricos:
 **La vara de claridad es "sacale una foto y…".** Si una frase de oferta necesita explicación, no
 sirve: se entiende sola o se cambia. La de sistemas, además, no es un slogan: es **linaje de código** —el
 `UnidadVenta` de la ferretería nace del `Producto.unidadMedida` de la dietética
-(`docs/la-platense/definiciones/3-arquitecto-mvc.md:89`)—, y por eso ningún ERP genérico la copia.
+(`docs/la-platense/definiciones/3-arquitecto-mvc.md`, buscar `UnidadCompra`)—, y por eso ningún ERP genérico la copia.
 
 **Reglas por frente que no se rompen:**
 
@@ -159,7 +159,8 @@ sirve: se entiende sola o se cambia. La de sistemas, además, no es un slogan: e
 - **Agentes:** tiene caso desde el 2026-10-06 — `contadores-bma-agentes-ia` en producción. Para
   mostrar **qué hace** todavía faltan los datos finos (qué agentes están activos, desde cuándo, sobre
   qué integración, y si el cliente autoriza aparecer por rubro). Sin eso se puede decir que existe,
-  no mostrarlo. Pauta: el plan sigue diciendo vender antes de pautar.
+  no mostrarlo — **salvo lo planificado en COM-08** (desde noviembre se muestra el agente trabajando
+  sobre el estudio contable, por rubro, sin nombre ni montos). Pauta: el plan sigue diciendo vender antes de pautar.
 - **Cuidado con "se carga solo"** (verificado el 2026-10-06 contra
   `plan_comercializacion_agentes_multirubro.md:815`): el agente **nunca escribe en la base**, deja un
   borrador pendiente de confirmación que una persona aprueba. Decir "se carga solo" promete una
@@ -201,7 +202,7 @@ todo el frente, no sólo para esa pieza.
 El nombre del frente es **Second Brain corporativo**, decidido el 2026-10-01.
 
 **El eje es la MEMORIA, no el pensamiento.** Es la distinción que ordena todo el frente: el producto
-no piensa por el dueño, se acuerda de lo que el dueño decidió. Por eso el slogan habla de acordarse
+no piensa por el dueño, se acuerda de lo que el dueño decidió. Por eso el slogan anterior hablaba de acordarse (desde el 2026-10-14 el slogan es *"Dejá que trabajen las máquinas"* y la idea de memoria baja a línea de cuerpo)
 y por eso *"el cerebro de tu empresa"* no sirve — apunta a pensar, que es justo lo que la marca
 evita.
 
@@ -240,7 +241,7 @@ Estructura de referencia (~26s, 9 shots + placa de síntesis + end card). Probad
 1. **Hook (3 shots x 2s)** — el mismo concepto repetido en 3 rubros distintos, con **encuadre y cadencia de cámara idénticos**. La repetición visual es lo que frena el scroll: el espectador se pregunta por qué le muestran lo mismo tres veces. Un overlay de 2-3 palabras por shot ("Por kilo." / "Por metro." / "Por unidad.").
 2. **3 pares capacidad → reveal (~5s cada par)** — el primer tramo puede ser **dolor → reveal** (vuelve a estar permitido desde el 2026-10-14, COM-04) o **capacidad → reveal**. En la versión de capacidad, el primer tramo (3s, generado por IA) muestra **la escena de trabajo cotidiano que la máquina se lleva** —sin enunciar el problema ni el error—, y el segundo el reveal en pantalla real del sistema haciéndolo (2s, **grabación real, nunca IA**). Nunca se muestra cómo se construyó.
 3. **Placa de síntesis (2s)** — callback literal al hook, texto apareciendo palabra por palabra.
-4. **End card (3s)** — isotipo + wordmark Olvidata, **los nombres/logos de los clientes reales en fila**, línea de categoría, CTA suave "Seguinos".
+4. **End card (3s)** — isotipo + wordmark Olvidata, línea de categoría (sin nombres ni logos de clientes — COM-01), CTA suave "Seguinos".
 
 **Reglas de la estructura:**
 - ~~La prueba social va en el end card con nombres reales de clientes.~~ **DEROGADO**: los nombres y logos de cliente no salen (`MARCA.md` § 5c, y la regla 2026-10-01). La prueba social es **el sistema operando** y el rubro: "tres comercios reales de tres rubros distintos", sin nombrarlos.
@@ -282,7 +283,7 @@ Estructura de referencia (~26s, 9 shots + placa de síntesis + end card). Probad
 ## Caption y hashtags
 
 - Primera línea = el dolor o la distinción, nunca "Somos Olvidata Soft...".
-- Nombrar los clientes reales y qué resuelve cada uno, en una línea por cliente. Concreto y verificable (números si los hay: "~96.500 productos", "más de un año en uso").
+- Nombrar **el rubro** de cada caso y qué resuelve, en una línea por caso — nunca el nombre del cliente (COM-01). Concreto y verificable (números si los hay: "~96.500 productos", "más de un año en uso").
 - Cierre pasivo: "Seguinos para ver cómo se arma 👇".
 - Hashtags: **máximo 5** — Instagram puso ese tope el 18/12/2025 y confirmó que no mueven alcance de forma significativa: valen como texto buscable, no como distribución. Elegí los 5 más específicos entre rubro (`#ferreteria #dietetica #casadedecoracion`), audiencia (`#pymeargentina #comerciantes`) y capacidad (`#gestioncomercial #ventapormetro`). La vieja regla de ~10 quedó sin efecto.
 - **Palabras buscables en el caption y en el texto alternativo**, no sólo en los hashtags: el buscador lee usuario, campo nombre, bio, caption, alt y hashtags. "Sistema de gestión para ferretería en La Plata" se busca; "soluciones integrales" no.
@@ -299,7 +300,7 @@ Devolvelo siempre junto con la pieza, con lo que falte marcado:
 - [ ] Ninguna integración de hardware afirmada sin documentación.
 - [x] Handle de Instagram de Olvidata: `@olvidata.soft` (confirmado en código).
 - [ ] Handles de los clientes mencionados confirmados.
-- [ ] **Autorización explícita de cada cliente** para aparecer con nombre/logo en contenido público de marca, + archivo de logo.
+- [ ] Ningún nombre ni logo de cliente en pantalla ni en caption (COM-01). Cara y pantalla real sí, con autorización del cliente.
 - [ ] Ninguna pantalla prohibida en los reveals (ej. facturación de La Platense).
 - [ ] Reveals grabados del sistema real, no mockups.
 - [ ] **Máximo 5 hashtags**, los más específicos.
