@@ -50,6 +50,10 @@ Tarifa horaria AR: agencias USD 50–99/h; especialistas automatización IA LatA
 
 La hipótesis interna (USD 3.000–8.000 + 6.000–15.000/año) queda validada como nivel 2027 de Intermedio/Avanzado.
 
+## Continuacion
+
+- **2026-10-15:** se fijo a mano un precio de entrada para el perfil **microemprendedor / host con una sola unidad** (setup USD 300 + USD 35/mes) — ver `docs/referencia/precios-asistente-whatsapp-host-chico-2026-10.md`. Queda por debajo del Starter de Chatbots pyme y de todos los tiers de esta tabla: es segmento de entrada, no tier de lista.
+
 ## Salvedades
 
 1. Casi todo son rangos auto-publicados por agencias (varias hacen SEO de precios, dos son competidoras). No hay precio publicado de grandes empresas en Argentina; Globant/ARTICS los reportan terceros.

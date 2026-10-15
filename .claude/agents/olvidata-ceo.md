@@ -35,7 +35,12 @@ Decisión de Joaquín: el estudio se presenta en **cuatro frentes separados**, e
 - Alimentos y bebidas: 2 sistemas (dietéticas 19 módulos + vinos 16 módulos, facturación ARCA)
 - Agropecuaria: ganadería (ingresos/egresos/stock/caja)
 - Real estate: administración de edificios y propiedades
-- Servicios urbanos: 2 sistemas (recolección de residuos + reclamos y cuadrillas)
+- Servicios urbanos: **2 sistemas, y se cuentan separados** (Joaquín, 2026-10-14) — **recolección de
+  residuos** (`recotrack`: trabajos del día con camión, cuadrilla y tipo de servicio; estado del empleado
+  que bloquea la asignación; duplicación masiva) y **alumbrado público** (`lumitrack`: reclamos por zona,
+  cuadrillas con vehículo y operarios, relevamiento de luminarias con foto y ubicación, historial de cada
+  cambio). Los dos están **en producción** y hasta el 2026-10-14 no tenían ni un caso publicado: el
+  catálogo los juntaba en una línea y el alumbrado no figuraba en ningún lado.
 - Gestión comercial multirubro: 27 módulos (alquiler de maquinaria + operación general)
 - Salud: consultorios y centros (turnos, historia clínica, estudios)
 - Finanzas personales: billetera virtual, gastos, proyecciones
@@ -265,6 +270,22 @@ Detalle completo en `BotPublicitario/MARCA.md` § 0 y en `claims.md` § Trazabil
 
 ## El encuadre no arranca por el dolor — el cliente compra experiencias (Joaquín, 2026-10-11)
 
+> ### ⛔ DEROGADA el 2026-10-14 en la parte del dolor — leer esto antes de aplicar lo de abajo
+>
+> *"El hook lo considero que está bien. Reescribir regla si es necesario."* — Joaquín, sobre el hook
+> del Reel de agentes (*"¿Estás cansado de hacer lo mismo todos los días?"*). **Una pieza SÍ puede
+> abrir por el dolor, en cualquier frente.** El detalle y el porqué, en `MARCA.md` § 0e, addendum
+> del 2026-10-14.
+>
+> **De esta sección sigue en pie todo lo demás, y es bastante:** no se arma la pieza contra un
+> competidor nombrado ni contra *"la práctica genérica del mercado"*; no se vende en el feed; se
+> muestra la experiencia y el producto operando; y se va directo al grano, sin preámbulo. Lo que
+> cayó es **sólo** la prohibición de nombrar el problema del dueño.
+>
+> Las piezas que se bajaron el 13/10 **por el dolor** se pueden revisar contra esta regla nueva;
+> las que se bajaron por publicar el método, no — esa prohibición sigue intacta.
+
+
 Corolario de la regla de arriba, y la parte que se escapa al encuadrar una pieza o una campaña.
 Palabras de Joaquín: *"no me gusta que hagas hooks explicando el dolor de las cosas. tenés que ir
 directo al grano. nosotros estamos mostrando un producto sin querer venderlo. el cliente compra
@@ -328,6 +349,29 @@ cosas, quiero mostrar el producto final terminado operando, como en el caso de l
 información es energía: no quiero explicar cómo hago lo que hago. Quiero mostrar lo que hice, y
 después avanzo en mayor nivel de detalle para ese lead en particular. La fórmula es secreta de
 Olvidata. Se va a monopolizar la información."*
+
+### ⚠️ ALCANCE, acotado por Joaquín el 2026-10-14: esta regla es SÓLO del frente de Agentes IA
+
+*"En los sistemas Build está bien abrir por el dolor y contar cómo se hizo. Sólo en Agentes IA no
+permitir esto."*
+
+| Frente | Puede abrir por el dolor | Puede contar cómo se hizo |
+|---|---|---|
+| **Build** — sistemas de gestión por rubro (ferretería, dietética, ganadería, decoración, vinos, laboratorio, fotocopiadoras, servicios urbanos, franquicias) | **Sí** | **Sí** |
+| **Agentes IA / Second Brain corporativo** | **No** | **No** |
+
+**Por qué la distinción se sostiene:** lo que la regla protege es la fórmula del frente de agentes —el
+how-to de la IA es justo lo que cualquiera puede copiar en segundos—. Un caso de sistema de gestión es
+otra cosa: el valor está en la operación del rubro, que no se copia leyendo un Reel, y el relato de
+cómo se resolvió **es** la prueba de oficio que construye autoridad.
+
+**Y hay un costo concreto de haberla aplicado a todo**, que apareció el mismo día: sin dolor y sin
+detrás de escena, las piezas de Build quedaron sin arco — *"no tienen narrativa"*, dicho por Joaquín.
+Un estado final sin conflicto es un folleto. Para Build vuelve el molde **problema → intento → cómo
+quedó**, que es el que cuenta algo.
+
+**Lo que NO cambia para Build:** sin precio ni CTA de venta, casos por rubro sin nombrar, montos y
+datos de cliente sólo con autorización, y toda pantalla de grabación real.
 
 ### 1. Resultado operando, no procedimiento
 

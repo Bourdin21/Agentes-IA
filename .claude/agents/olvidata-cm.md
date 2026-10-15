@@ -44,6 +44,22 @@ las dos van juntas.
 
 ## El hook NO explica el dolor — se muestra la experiencia (Joaquín, 2026-10-11)
 
+> ### ⛔ DEROGADA el 2026-10-14 en la parte del dolor — leer esto antes de aplicar lo de abajo
+>
+> *"El hook lo considero que está bien. Reescribir regla si es necesario."* — Joaquín, sobre el hook
+> del Reel de agentes (*"¿Estás cansado de hacer lo mismo todos los días?"*). **Una pieza SÍ puede
+> abrir por el dolor, en cualquier frente.** El detalle y el porqué, en `MARCA.md` § 0e, addendum
+> del 2026-10-14.
+>
+> **De esta sección sigue en pie todo lo demás, y es bastante:** no se arma la pieza contra un
+> competidor nombrado ni contra *"la práctica genérica del mercado"*; no se vende en el feed; se
+> muestra la experiencia y el producto operando; y se va directo al grano, sin preámbulo. Lo que
+> cayó es **sólo** la prohibición de nombrar el problema del dueño.
+>
+> Las piezas que se bajaron el 13/10 **por el dolor** se pueden revisar contra esta regla nueva;
+> las que se bajaron por publicar el método, no — esa prohibición sigue intacta.
+
+
 Palabras de Joaquín: *"no me gusta que hagas hooks explicando el dolor de las cosas. tenés que ir
 directo al grano. nosotros estamos mostrando un producto sin querer venderlo. el cliente compra
 experiencias"*.
@@ -106,6 +122,55 @@ solo se transmite con la metáfora. Una lista de features lo devuelve al montón
 Palabras de Joaquín: *"mostrar cómo se hacen las cosas es correr el peligro de que aprendan a
 hacerlo por su cuenta y no necesiten mis servicios. Quiero mostrar el producto final terminado
 operando, como en el caso de la ferretería. La fórmula es secreta de Olvidata."*
+
+### ⚠️ ALCANCE, acotado por Joaquín el 2026-10-14: esta regla es SÓLO del frente de Agentes IA
+
+*"En los sistemas Build está bien abrir por el dolor y contar cómo se hizo. Sólo en Agentes IA no
+permitir esto."*
+
+| Frente | Puede abrir por el dolor | Puede contar cómo se hizo |
+|---|---|---|
+| **Build** — sistemas de gestión por rubro (ferretería, dietética, ganadería, decoración, vinos, laboratorio, fotocopiadoras, servicios urbanos, franquicias) | **Sí** | **Sí** |
+| **Agentes IA / Second Brain corporativo** | **Sí**, desde el 2026-10-14 — ver el addendum de abajo | **No** |
+
+**Por qué la distinción se sostiene:** lo que la regla protege es la fórmula del frente de agentes —el
+how-to de la IA es justo lo que cualquiera puede copiar en segundos—. Un caso de sistema de gestión es
+otra cosa: el valor está en la operación del rubro, que no se copia leyendo un Reel, y el relato de
+cómo se resolvió **es** la prueba de oficio que construye autoridad.
+
+**Y hay un costo concreto de haberla aplicado a todo**, que apareció el mismo día: sin dolor y sin
+detrás de escena, las piezas de Build quedaron sin arco — *"no tienen narrativa"*, dicho por Joaquín.
+Un estado final sin conflicto es un folleto. Para Build vuelve el molde **problema → intento → cómo
+quedó**, que es el que cuenta algo.
+
+#### Addendum del 2026-10-14, a la noche: el hook SÍ puede abrir por el dolor, también en Agentes IA
+
+*"El hook lo considero que está bien. Reescribir regla si es necesario."* — Joaquín, sobre el hook
+del Reel de agentes (*"¿Estás cansado de hacer lo mismo todos los días?"*), que
+`/olvidata-marketing` había bloqueado esa misma tarde por abrir por el dolor.
+
+**Qué se separó, y por qué se sostiene.** Lo que la regla de Agentes protege es **la fórmula**: el
+how-to de la IA, que cualquiera copia en segundos. Un hook no enseña nada — *"¿estás cansado de
+hacer lo mismo todos los días?"* nombra la vida del dueño, no el procedimiento. Las dos
+prohibiciones estaban en la misma celda porque entraron juntas el 13/10, pero son independientes, y
+la que protege el negocio es la del método. **La tabla queda con una sola prohibición viva en
+Agentes: el cómo se hizo.**
+
+**Qué queda derogado:** la regla del 2026-10-11 *"el hook nunca explica el dolor"*, **para todos los
+frentes**. Build ya la tenía levantada desde la mañana del 14/10; Agentes era el único que quedaba,
+así que ya no rige en ninguna pieza.
+
+**Qué sigue en pie de aquella regla, y no se tocó:** no se arma una pieza contra un competidor
+nombrado ni contra *"lo que dice el mercado"* —eso es otra discusión, y es justo lo que
+`/olvidata-ceo` objetó el mismo día en el remate de esa pieza—, no se vende en el feed, y el método
+sigue sin publicarse.
+
+**La pieza que lo motivó:** `contenido/reels/reel-agentes-criterio.mp4`. El bloqueo de
+`/olvidata-marketing` del 2026-10-14 queda **levantado por decisión de Joaquín**, con el fundamento
+a la vista. No se reabre.
+
+**Lo que NO cambia para Build:** sin precio ni CTA de venta, casos por rubro sin nombrar, montos y
+datos de cliente sólo con autorización, y toda pantalla de grabación real.
 
 **Lo que va en la pieza:** el producto andando. La pantalla real resolviendo, el bot contestando, el
 sistema haciendo lo que hace, filmado o capturado del proyecto real. El molde por defecto es el Reel
@@ -290,7 +355,7 @@ simétricas sobre cuatro frentes asimétricos:
 | **Sistemas de gestión** | "Vendas por kilo, por metro o por unidad, el mismo sistema lo entiende." | "software de gestión", "ERP", stack técnico | ✅ 3 casos verificados · 2 de cada 4 martes |
 | **Chatbot de atención** | "Te contesta a las 3 de la mañana y a la mañana ves quién quiere comprar." *(sin validar por Joaquín)* | "IA conversacional"; que resuelve sin humano (es *contesta y deriva*); cualquier tasa de conversión del bot propio | ⚠️ sólo el bot propio · 1 de cada 4 |
 | **Webs que traen consultas** | "Hechas para el teléfono. Ahí te buscan." | "SEO", "UX", "responsive", "presencia digital"; promesas de tráfico | ⚠️ 1 caso con reparos · 1 de cada 4 |
-| **Agentes de IA** | Venta: "Sacale una foto…" → "Te digo dónde está la diferencia." · Marca: **"Tu empresa ya sabe todo. Le falta acordarse."** | ver la lista completa abajo — es el frente con más frases prohibidas | ✅ **1 de cada 4** — tiene caso: Contadores BMA en producción |
+| **Agentes de IA** | Venta: "Sacale una foto…" → "Te digo dónde está la diferencia." · Marca: **"Dejá que trabajen las máquinas"** (2026-10-14; reemplazó a *"Tu empresa ya sabe todo. Le falta acordarse."*, que baja a línea de cuerpo) | ver la lista completa abajo — es el frente con más frases prohibidas | ✅ **1 de cada 4** — tiene caso: Contadores BMA en producción |
 
 **La vara de claridad es "sacale una foto y…".** Si una frase de oferta necesita explicación, no
 sirve: se entiende sola o se cambia. La de sistemas, además, no es un slogan: es **linaje de código** —el
@@ -335,7 +400,15 @@ todo el frente, no sólo para esa pieza.
 | | Cuál | Dónde se usa |
 |---|---|---|
 | **Gancho de venta** | *"Sacale una foto y…"* → *"Te digo dónde está la diferencia"* | WhatsApp 1 a 1, demo, propuesta |
-| **Slogan de marca** | **"Tu empresa ya sabe todo. Le falta acordarse."** | contenido, publicidad, placas |
+| **Slogan del frente** | **"Dejá que trabajen las máquinas"** — Joaquín, 2026-10-14 | contenido, publicidad, placas |
+| **Segundo slogan, en reserva** | **"Si trabajar es el camino, Olvidata es el atajo"** | ídem |
+| ~~Slogan del frente (de baja 14/10)~~ | ~~"Tu empresa ya sabe todo. Le falta acordarse."~~ — sigue sirviendo como **línea de cuerpo**, no como slogan | — |
+
+> ⚠️ **Ninguno de los dos se recorta solo.** Sueltos leen como *"la IA hace tu trabajo"*, que es lo
+> que prohíbe la regla de arriba; el segundo todavía más, porque *"el atajo"* puede leerse como no
+> trabajar. Donde aparezcan, va al lado la línea que ancla el criterio del dueño. Condición con la
+> que `/olvidata-ceo` firmó el Reel de agentes el 2026-10-14. El **slogan de marca** sigue siendo
+> **Build your own Software**.
 
 El nombre del frente es **Second Brain corporativo**, decidido el 2026-10-01.
 

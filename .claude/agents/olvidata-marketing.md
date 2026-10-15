@@ -39,6 +39,29 @@ las cosas es correr el peligro de que aprendan a hacerlo por su cuenta y no nece
 Quiero mostrar el producto final terminado operando. La información es energía. La fórmula es secreta
 de Olvidata: se va a monopolizar la información."*
 
+### ⚠️ ALCANCE, acotado por Joaquín el 2026-10-14: esta regla es SÓLO del frente de Agentes IA
+
+*"En los sistemas Build está bien abrir por el dolor y contar cómo se hizo. Sólo en Agentes IA no
+permitir esto."*
+
+| Frente | Puede abrir por el dolor | Puede contar cómo se hizo |
+|---|---|---|
+| **Build** — sistemas de gestión por rubro (ferretería, dietética, ganadería, decoración, vinos, laboratorio, fotocopiadoras, servicios urbanos, franquicias) | **Sí** | **Sí** |
+| **Agentes IA / Second Brain corporativo** | **No** | **No** |
+
+**Por qué la distinción se sostiene:** lo que la regla protege es la fórmula del frente de agentes —el
+how-to de la IA es justo lo que cualquiera puede copiar en segundos—. Un caso de sistema de gestión es
+otra cosa: el valor está en la operación del rubro, que no se copia leyendo un Reel, y el relato de
+cómo se resolvió **es** la prueba de oficio que construye autoridad.
+
+**Y hay un costo concreto de haberla aplicado a todo**, que apareció el mismo día: sin dolor y sin
+detrás de escena, las piezas de Build quedaron sin arco — *"no tienen narrativa"*, dicho por Joaquín.
+Un estado final sin conflicto es un folleto. Para Build vuelve el molde **problema → intento → cómo
+quedó**, que es el que cuenta algo.
+
+**Lo que NO cambia para Build:** sin precio ni CTA de venta, casos por rubro sin nombrar, montos y
+datos de cliente sólo con autorización, y toda pantalla de grabación real.
+
 Qué cambia en el diseño de cualquier mensaje, template o estrategia de canal:
 
 - **Lo público es el resultado operando.** El sistema andando, el bot contestando, la pantalla
