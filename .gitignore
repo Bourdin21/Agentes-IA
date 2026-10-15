@@ -3,3 +3,6 @@ docs/credenciales.local.md
 
 # Memorias con credenciales en texto plano — nunca al historial (repo con remoto en GitHub).
 .claude/memorias/c--Sistemas-virtualwallet/
+
+# Volcados del MCP de Playwright (capturas de corrida de QA, no memoria).
+.playwright-mcp/

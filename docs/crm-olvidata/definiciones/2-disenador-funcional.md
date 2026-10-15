@@ -613,6 +613,32 @@ El outbound se reactiva con E1-E5 en producción (S4). E1-E2 se pueden desplegar
 
 **Dependencias abiertas que no bloquean Arquitectura:** textos finales de `olvidata-marketing`; precio del combo (`olvidata-ceo`).
 
+## 9. Aviso push cuando un chat derivado a mano recibe un mensaje (CRM-028, 2026-10-15)
+
+Hoy, cuando un contacto en `DerivadoManual` escribe, el sistema guarda el mensaje, no le contesta
+(correcto: lo lleva una persona) y lo deja "no leido" en `/Chats`. **Nadie se entera hasta abrir el
+CRM.** Son justo los chats donde un humano se comprometio a seguir la conversacion: el costo de
+tardar es el mas alto del embudo.
+
+- **Evento:** llega un mensaje entrante (texto o multimedia, WhatsApp o Instagram) de un contacto
+  cuyo `EstadoEmbudo` **ya era** `DerivadoManual` antes de procesar ese mensaje. Si es el propio
+  mensaje el que deriva el chat, no se avisa dos veces — ese caso ya tiene su aviso de derivacion.
+- **Destinatarios:** los usuarios con rol `SuperUsuario`, igual que `NotifyAdminsInAppAsync`.
+- **Canal:** Web Push (notificacion del sistema operativo, sirve con el CRM cerrado) **y** la
+  campanita in-app con el mismo texto. El WhatsApp al admin **no** se usa aca: ese canal queda
+  reservado para leads calificados, para no gastar la atencion del unico telefono que avisa.
+- **Anti-ruido (decision de Joaquin, 2026-10-15):** **un aviso por chat hasta que alguien lo lea.**
+  Si el contacto manda 5 mensajes seguidos, llega 1. Vuelve a avisar solo si el chat fue abierto o
+  respondido despues del ultimo aviso (misma idea que el guard `yaEscalado` del bot).
+- **Contenido:** titulo `Te escribio <nombre del negocio o contacto>`; cuerpo, los primeros ~120
+  caracteres de lo que escribio (o la etiqueta del multimedia: "te mando un audio"). Click -> el chat.
+- **Permiso:** boton explicito **"Activar avisos en este dispositivo"** en el dropdown de la
+  campanita y en `/Notifications`, con los 4 estados visibles (activado aca / desactivado /
+  bloqueado por el navegador / no soportado). Nunca se pide permiso sin que el usuario lo toque.
+- **Es por dispositivo, no por usuario:** cada navegador se activa por separado, y el mismo boton
+  da de baja. En iPhone solo funciona con el CRM agregado a la pantalla de inicio (limite de iOS):
+  el boton lo dice en vez de fallar en silencio.
+
 ## Historial de ajustes
 - 2026-07-14: Diseño funcional cerrado sobre el alcance recortado (solo migración de BotPublicitario). 5 pantallas, 2 máquinas de estados, 11 HU, plan funcional de 5 etapas.
 - 2026-08-27: Diseño del sprint "corrección de bugs/gaps de auditoría + 3 mejoras" — 17 HU (7 bugs + 7 gaps + 3 mejoras), cada una con criterio de aceptación explícito. Decisión tomada: `PresupuestoCotizadoUsd` (G4) se hace editable a mano en vez de sacar las lecturas muertas — conserva valor funcional del campo.
@@ -626,3 +652,4 @@ El outbound se reactiva con E1-E5 en producción (S4). E1-E2 se pueden desplegar
 - 2026-09-14: Diseño de "reorientar el bot de prospección a los 4 frentes" (seccion 8, pendiente de aprobacion) — tabla de decision de frente (web propia + grupo de rubro), lista de dominios, 4 borradores de plantilla, conversacion post-boton por frente (hallazgo: el boton lo resuelve el arbol forzando `rent`), fallback de categorias nuevas, card "Oferta" + filtros en Contactos/Chats, plantillas por frente en `/Bot`, modulos por frente sin alterar Build, plan en 7 etapas. Patron nuevo PAT-031 en el catalogo.
 - 2026-09-14: Seccion 8 rediseñada tras respuestas de Joaquin — combo Landing 3D + AI Agents + Chatbots para todos con gancho segun perfil (el dato por contacto pasa de "frente ofrecido" a "gancho"), Build y Landing 2D siguen, web propia = solo dominio propio, grupos/dominios en codigo, 4 plantillas combo por gancho (Gestion cae a la plantilla de campaña), venta cruzada en el prompt, selector multiple de frentes en Armar presupuesto. Pendiente confirmar 4 interpretaciones (8.16).
 - 2026-10-08: varios sistemas por cliente — un `Contacto` puede tener N `Cliente` activos (un negocio nos compra más de un producto, ej. Gastón Bourdin: Conversion + front de Contadores BMA). La conversión dejó de rechazar al segundo; a cambio exige `NombreSistema` desde el segundo en adelante y nombrar al que ya estaba si no tenía nombre propio. Se agregó `NombreSistema` al formulario de alta (antes solo existía en Editar, REG-012), el subtítulo con el titular en `Clientes/Index`, los otros sistemas en `Clientes/Details`, y el botón "Otro sistema" en `Contactos/Details`, `Chats/Detail` y `Clientes/Nuevo`.
+- 2026-10-15: Diseno de CRM-028 (seccion 9) — aviso push cuando un contacto `DerivadoManual` vuelve a escribir. Decisiones de Joaquin: Web Push real (no solo campanita, no WhatsApp al admin) y un aviso por chat hasta que se lea. Permiso por dispositivo con boton explicito y los 4 estados visibles.

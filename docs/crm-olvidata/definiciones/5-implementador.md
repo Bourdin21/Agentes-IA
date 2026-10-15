@@ -820,6 +820,125 @@ Si alguna vez se quiere: hace falta un endpoint de descarga firmado y de vida co
 
 **OJO con la precedencia**: `Program.cs` agrega `appsettings.Secrets.json` *después* de `CreateBuilder`, así que queda **último** y le gana a las variables de entorno — al revés de lo que dice su propio comentario. Deuda: corregir el comentario.
 
+## Web Push para chats derivados a mano (CRM-028, 2026-10-15) — implementado, pendiente de QA y de deploy
+
+Diseño §9 / Arquitectura "Web Push para los chats derivados a mano". **Primera vez que el estudio
+hace Web Push** — patrón nuevo **PAT-069** en el catálogo. Escaneo de reutilización: `cat_resumen.txt`
+sin match (PAT-068 es lo más cercano y es ruteo de envío, no notificación), y el `grep -ril` dirigido
+sobre `docs/*/definiciones/` por webpush / VAPID / service worker solo devuelve las definiciones de
+este mismo CR. **Sin antecedente: se construyó nuevo.**
+
+El problema: un contacto en `DerivadoManual` que escribe se guardaba, no se le contestaba (correcto,
+lo lleva una persona) y quedaba "no leído" en `/Chats`. Nadie se enteraba hasta abrir el CRM, justo en
+los chats donde alguien ya se comprometió a seguir la conversación.
+
+### Piezas nuevas
+
+| Archivo | Qué hace |
+|---|---|
+| `Domain/Entities/PushSubscription.cs` | Un dispositivo suscrito. `EndpointHash` (SHA-256 hexa) + `CalcularHash` como único punto de cálculo. `DispositivoVisible` para la lista. |
+| `Application/Interfaces/IPushNotificationService.cs` | `SuscribirAsync` / `DesuscribirAsync` / `TieneSuscripcionAsync` / `EnviarAsync`. |
+| `Application/DTOs/PushSubscriptionDto.cs` | La forma exacta de `PushSubscription.toJSON()` del navegador (`keys` anidado), para que el JS mande el objeto tal cual viene. |
+| `Application/Settings/PushSettings.cs` | `PublicKey` / `PrivateKey` / `Subject` + `EstaConfigurado`. |
+| `Infrastructure/Services/PushNotificationService.cs` | Envío sobre `Lib.Net.Http.WebPush` 3.3.1. Best-effort con 2 niveles de `try`. |
+| `Web/wwwroot/push-sw.js` | Service worker: **solo** `push` y `notificationclick`. Ni un `fetch`, ni un `caches`. |
+| `Web/wwwroot/js/push.js` | Botón con los 4 estados + conversión base64url→Uint8Array de la clave pública. |
+
+### Entidades y capas tocadas
+
+- `Contacto` + `FechaUltimoAvisoDerivado` y la propiedad de dominio **`EsperaAvisoDeChatDerivado`**
+  (avisa si el aviso es null o si `FechaUltimaLecturaAgente > FechaUltimoAvisoDerivado`). La regla vive
+  en la entidad y no en el servicio, por CRM-001. **No se tocó** la semántica de
+  `FechaUltimaLecturaAgente` ni de `MarcadoNoLeidoManual`: ese flag es marca de gestión del asesor, no
+  una lectura, y mezclarlo haría que marcar un chat como no leído dispare un push nuevo.
+- `BotFlowService`: `AvisarChatDerivadoAsync` + `VistaPreviaDelMensaje`, y el disparo **en
+  `HandleIncomingAsync`, el punto único de entrada**, con `eraDerivadoManual` capturado justo después
+  del lookup del contacto. Enganchar en las 3 ramas de `return` (multimedia en `loAtiendeUnaPersona`,
+  texto con el bot pausado, flujo normal con la pausa de 48hs vencida) garantizaba olvidarse de una,
+  hoy o el día que alguien agregue la cuarta. Destinatarios por `SeedData.RolSuperUsuario`, el mismo
+  criterio de `NotifyAdminsInAppAsync` — no se inventó otro.
+- `NotificationsController`: `GET ClavePublica`, `GET EstadoPush`, `POST Suscribir`, `POST Desuscribir`
+  (los 2 POST con `[ValidateAntiForgeryToken]`, token por el `meta[name=csrf-token]` que ya existía).
+- `_Layout.cshtml`: el `unregister()` **global** pasa a **selectivo** (desregistra todo scope cuyo
+  `scriptURL` no sea `/push-sw.js`) + botón en el dropdown de la campanita + `push.js`.
+  `Notifications/Index`: card con el botón y la explicación del estado.
+
+### Migración EF
+
+`20261015230453_AddPushSubscriptions` — **aditiva**: tabla `PushSubscriptions` +
+`Contactos.FechaUltimoAvisoDerivado`. **Editada a mano en 1 punto**: el único de `EndpointHash` va
+sobre la columna generada `EndpointHashVivo` (`IF(DeletedAt IS NULL, EndpointHash, NULL)`), regla
+**LP-057**, mismo patrón que `IgScopedIdVivo`. Con el único sobre la columna real, un dispositivo dado
+de baja no podría volver a activarse nunca: el navegador devuelve el mismo endpoint, el query filter
+esconde la fila, el INSERT muere contra el único y el botón falla para siempre en ese dispositivo y
+solo en ése. Por eso además `SuscribirAsync` busca con `IgnoreQueryFilters()` y **revive** la fila en
+vez de insertar otra. El hash existe porque el endpoint es varchar(500) y 2000 bytes utf8mb4 no entran
+en una clave de InnoDB.
+
+**Aplicada solo en dev** (`olvidatacrm_dev`), verificada en `information_schema`: columna
+`VIRTUAL GENERATED` + `UX_PushSubscriptions_EndpointHash_Vivo`. **Producción sin tocar.**
+
+### Decisiones que no estaban en las definiciones
+
+1. **`Lib.Net.Http.WebPush` 3.3.1 NO trae `VapidHelper`** — solo sabe enviar, no generar claves
+   (verificado contra el XML de documentación del paquete). El par VAPID se generó con un `ECDsa`
+   P-256 aparte: pública = punto sin comprimir `0x04||X||Y` en base64url, privada = el escalar `D`. No
+   buscar el helper en la librería, no está en esta versión.
+2. **El `SaveChanges` de la marca anti-ruido va ANTES de los envíos.** Meta puede entregar 2 mensajes
+   del mismo contacto en requests paralelos: con la marca guardada después de los envíos (cientos de ms
+   contra el push service), los 2 leerían null y avisarían los 2, justo en el caso que motiva la regla.
+3. **`EnviarAsync` abre su propio scope de `DbContext`** (riesgo R4). Corre dentro del webhook, donde el
+   contexto compartido tiene cambios del contacto a medio aplicar: un `SaveChanges` de ahí —dar de baja
+   una suscripción muerta, por ejemplo— los commitearía por el costado y a destiempo.
+4. `PushServiceClient` por `AddHttpClient` con timeout explícito de 15s, y **un `VapidAuthentication`
+   por aviso** (no por dispositivo): firmar el JWT es la parte cara y el mismo token sirve para los 3
+   navegadores del usuario.
+5. TTL 1800s + `Urgency.High`: el aviso dice "te escribieron AHORA"; entregarlo 6 horas después es
+   ruido sobre algo que ya se vio en el CRM.
+6. `404`/`410` → baja automática de la suscripción. Cualquier otro error solo incrementa
+   `FallosConsecutivos`: un 500 ajeno del push service no significa que el navegador haya desaparecido.
+
+### Configuración
+
+`Push:PublicKey` y `Push:Subject` en el `appsettings.json` commiteado (la pública la ve cualquiera que
+abra el CRM porque el JS la necesita; el subject es un mailto que los push services exigen).
+**`Push:PrivateKey` solo en `dotnet user-secrets` en dev**; en producción va en
+`appsettings.Secrets.json` del directorio del sitio —el mismo donde ya viven `Anthropic:ApiKey` y los
+secretos de Instagram— o como variable de entorno `Push__PrivateKey` del sitio, que gana sobre el
+archivo. Si el par rota, **todas las suscripciones vigentes mueren** y hay que reactivar dispositivo
+por dispositivo.
+
+### Verificado en dev
+
+`dotnet build -c Release` **0 errores** (21 advertencias, todas preexistentes — el
+`System.Security.Cryptography.Pkcs 8.0.1` vulnerable ya venía de MimeKit, no del paquete nuevo:
+confirmado contra el nuspec). End-to-end real por el webhook de WhatsApp sin firma (dev no tiene
+`AppSecret` cargado) contra un contacto en `DerivadoManual`:
+
+- suscripción **real contra FCM** creada desde el navegador, fila en BD, `EstadoPush` consistente;
+- **el push llegó**: `FechaUltimoEnvioOk` sellado y el globo presente en el service worker
+  (`registration.getNotifications()` → título "Te escribió Kiosco de Prueba", cuerpo con los primeros
+  120 caracteres, `tag: chat-524`, url `/Chats/Detail/524`);
+- **R1 cerrado**: el SW sobrevive 3 cargas de página con el `unregister` selectivo;
+- **anti-ruido**: 4 mensajes seguidos (3 de texto + 1 audio) → **1 solo aviso**, marca sin cambiar;
+- **re-armado**: con `FechaUltimaLecturaAgente` posterior al aviso, el audio siguiente sí avisó, con la
+  etiqueta "Te mandó un audio.";
+- baja y re-alta del dispositivo desde el botón, con la fila vieja fuera del único
+  (`EndpointHashVivo IS NULL`) — el LP-057 funcionando;
+- datos de prueba borrados de dev al terminar.
+
+### Lo que NO se probó
+
+- **La rama de revivir una fila soft-deleted** (`IgnoreQueryFilters`): Chrome emitió un endpoint
+  **nuevo** tras el `unsubscribe()`, así que se insertó otra fila en vez de revivir. La rama cubre el
+  caso real distinto —fila dada de baja por un 410 mientras el navegador conserva su suscripción— y
+  queda sin ejercitar.
+- **iOS** (R3): necesita el CRM instalado en la pantalla de inicio y un iPhone real.
+- **Firefox y Safari**: solo se probó Chromium.
+- **El caso "el mensaje es el que deriva el chat"**: la lógica es explícita (`eraDerivadoManual` se
+  captura antes de procesar) pero no se ejercitó con un payload.
+- **Producción**: ni migración, ni deploy, ni commit — pendiente de autorización de Joaquín.
+
 ## Historial de ajustes
 - 2026-09-14: **Feature "4 frentes — combo con gancho", E1-E7.** 2 enums, 5 props + `AsignarGancho` en Contacto, `Frente` en ModuloCatalogo, 4 plantillas por gancho en configuracion; 3 helpers nuevos en Application y `ModuloCatalogoQueries` compartida; lote con plantilla por contacto antes del `Take(cupo)` y A1-a; arbol/IA por gancho y frente; Contactos/Chats/Bot/Salud/Templates/Modulos. Migracion aditiva `AddGanchoYFrenteComercial` aplicada **solo en dev**. Build Release 0 errores (26 advertencias preexistentes). 11 desvios documentados (§6). Pendiente: QA, textos de marketing (concordancia de genero), aprobacion de Meta, migracion en produccion y deploy.
 - 2026-08-27: **Matriz de módulos valorizados + borrador de propuesta MVP/FULL** (feature nueva, reglas del agente `olvidata-presupuesto-bot`). 2 entidades nuevas + migración `20260828023654_AddModuloCatalogo` (2 tablas nuevas, 0 `ALTER`), aplicada **sólo en dev**; seed de la matriz real (**84 módulos / 88 asignaciones / 9 de 14 rubros**, los otros 5 sin datos a propósito); `IPropuestaMvpFullService` en Application con las 9 reglas de redacción, determinístico y sin IA en runtime; `ModulosController` + 5 vistas + 1 JS; wiring del botón "Sugerir" de `Chats/Detail` sin retirar la funcionalidad vieja; 5 cambios al cuestionario del bot. Build en Release **0 errores / 13 advertencias preexistentes**; app levantada y ejercitada por HTTP real (5 pantallas 200, 0 errores en Serilog); generador y resolver de rubro verificados contra datos reales de dev. **Sin deploy y sin tocar producción**, por instrucción explícita. Ver sección completa arriba. Pendiente: QA funcional, aplicar la migración en producción y deploy.

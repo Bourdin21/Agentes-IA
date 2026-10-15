@@ -27,3 +27,4 @@ Como usar este archivo (limite duro: 200 lineas o 25KB — lo que llegue antes; 
 - [Renumerar vuelve inauditable la retirada](renumerar-vuelve-inauditable-la-retirada.md) — los mismos ids en dos versiones con sentidos distintos; y como revisar que una retirada no se lleve otra cobertura.
 - [Un verificador de perimetro se calibra con lo que ya sabemos que falta](verificador-de-perimetro-y-su-calibracion.md) — si no ve los sitios que ya tienen parte de defecto, no sirve para los que nadie encontro.
 - [El escenario de idempotencia pide MEDIA linea](escenario-de-idempotencia-media-linea.md) — con la linea entera el tope ataja el duplicado y la afirmacion pasa sobre el codigo roto; y la guarda nueva invalida los escenarios que median el tope.
+- [No commitear ni deployar](feedback-no-commit-no-deploy.md) — el implementador deja todo en el working tree y migra solo en dev; commit/deploy/producción los autoriza Joaquín

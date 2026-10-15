@@ -6,6 +6,34 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-15 - implementador-dotnet — sesion de la app instalada (PWA): 30 dias renovables
+- Etapa: Implementacion (cambio cross-proyecto, pedido del owner: "en todas las versiones PWA el token de sesion dure un mes activo").
+- Alcance: 14 sistemas con PWA tocados de una vez con el mismo parche. Solo cambia la sesion que arranca desde la app instalada; la del navegador queda igual que estaba.
+- Que hace: `Views/Account/Login.cshtml` manda `EsPwa=true` cuando corre en `display-mode: standalone` (o `navigator.standalone` en iOS), y en `ConfigureApplicationCookie` dos eventos nuevos hacen el trabajo — `OnSigningIn` marca el ticket y le pone 30 dias propios, `OnValidatePrincipal` los vuelve a correr cuando queda menos de la mitad.
+- Decision de diseno: NO se subio `ExpireTimeSpan`. Subirlo habria alargado tambien la sesion de una PC de mostrador compartida, que es justo lo que no se quiere.
+- Lo que no es obvio (quedo en `PAT-070` y en la instruction `23-web`): la renovacion mueve `IssuedUtc` junto con `ExpiresUtc`, porque el handler de cookies no copia el vencimiento que se le deja — recalcula la vida como la diferencia entre ambos y la suma a ahora (medido con una duracion de prueba de 20 s: renovaba a 36 s). Y `OnValidatePrincipal` se chainea, no se reemplaza: ahi vive el `SecurityStampValidator` que revoca la sesion al cambiar la password o bloquear al usuario.
+- Impacto en capas: Web (`Program.cs`, `Views/Account/Login.cshtml`). Sin cambios en Application/Domain/Infrastructure, sin migracion EF, sin tocar permisos ni estados. No se toco el AccountController ni el LoginViewModel: el flag se lee del form en el evento.
+- Verificacion (en local sobre blankproject, MySQL de dev, con una duracion de prueba de 20 s): navegador 8 h sin cambios; PWA 30 dias; sin renovar antes de la mitad de la ventana; renovacion exacta pasada la mitad; y 302 al login cuando la ventana vence sin uso. Build OK en los 14 (0 errores).
+- Estado: COMMITEADO, **SIN DEPLOYAR**. Motivo: hay trabajo en curso sin commitear (web push, con la migracion `AddPushSubscriptions` de hoy) — publicar ahora arrastraria ese trabajo a produccion, asi que el deploy de este cambio queda a la espera. El commit no depende de nada mas: cuando ese trabajo se libere, viaja con el.
+
+
+### 2026-10-15 - implementador (CRM-028: Web Push para los chats derivados a mano)
+
+- **Disparador**: un contacto en `DerivadoManual` que vuelve a escribir se guardaba, no recibía respuesta automática (correcto, lo lleva una persona) y quedaba "no leído" en `/Chats`. Nadie se enteraba hasta abrir el CRM — en los chats más caros del embudo, donde alguien ya se comprometió a seguir la conversación a mano.
+- **Alcance implementado**: Web Push real (notificación del sistema operativo, sirve con el CRM cerrado) **+** la campanita in-app con el mismo texto, a los usuarios con rol `SuperUsuario`. Anti-ruido: **un aviso por chat hasta que alguien lo lea**. Activación explícita por dispositivo, con los 4 estados visibles. **Primera vez que el estudio hace Web Push** → patrón nuevo **PAT-069** en el catálogo.
+- **El punto de enganche fue la decisión técnica central**: el disparo va en `BotFlowService.HandleIncomingAsync` —el punto único de entrada del mensaje entrante— con el estado del embudo capturado **antes** de procesar (`eraDerivadoManual`). Un `DerivadoManual` que escribe sale hoy por 3 caminos distintos, cada uno con su propio `return`: multimedia en la rama `loAtiendeUnaPersona`, texto con el bot pausado, y el flujo normal si la pausa de 48hs ya venció. Enganchar en las ramas garantizaba olvidarse de una, hoy o el día que alguien agregue la cuarta.
+- **Anti-ruido sin campo nuevo de lectura**: `Contacto.FechaUltimoAvisoDerivado` (nueva) contra `FechaUltimaLecturaAgente`, que ya escriben los 6 puntos de `/Chats` donde un asesor toca el chat. La regla vive en la entidad (`EsperaAvisoDeChatDerivado`, CRM-001). **No se tocó** la semántica de `FechaUltimaLecturaAgente` ni de `MarcadoNoLeidoManual`: ese flag es marca de gestión del asesor, no una lectura, y mezclarlo haría que marcar un chat como no leído dispare un push nuevo.
+- **Unicidad sobre columna generada (LP-057)**: el único de `PushSubscription.EndpointHash` va sobre `EndpointHashVivo`, no sobre la columna real. El modo de falla que evita es específico y difícil de reproducir: la entidad tiene query filter de soft-delete, el navegador devuelve **el mismo endpoint** al resuscribirse, así que una fila dada de baja esconde el SELECT, el INSERT muere contra el único, y el botón "Activar avisos" falla para siempre **en ese dispositivo y solo en ése**. `SuscribirAsync` además revive la fila con `IgnoreQueryFilters()` en vez de insertar otra. El hash existe porque el endpoint es varchar(500) y 2000 bytes utf8mb4 no entran en una clave de InnoDB.
+- **Riesgo R1 resuelto y verificado**: el `unregister()` **global** de service workers del layout (puesto para barrer un `sw.js` heredado de VirtualWallet que cacheaba un CRM en vivo) pasa a **selectivo** por `scriptURL`. Si quedaba global, el SW nuevo se suicidaba en cada carga de página sin que nada avisara. Probado con 3 cargas seguidas: sobrevive. El `push-sw.js` nuevo no tiene ni un `fetch` ni un `caches`, por el mismo incidente.
+- **Hallazgo sobre la librería**: `Lib.Net.Http.WebPush` 3.3.1 **no trae ningún `VapidHelper`** — solo sabe enviar, no generar claves. El par VAPID se generó aparte con un `ECDsa` P-256 (pública = punto sin comprimir `0x04||X||Y` en base64url, privada = el escalar `D`). Queda anotado para no volver a buscarlo en la librería.
+- **Best-effort, regla CRM-020**: todo el envío va envuelto en 2 niveles de `try`, y `EnviarAsync` abre **su propio scope de `DbContext`** (riesgo R4) para no commitear por el costado los cambios del contacto que el webhook tiene a medio aplicar. Una falla de push no puede hacer perder el mensaje que el contacto sí mandó. `404`/`410` = suscripción muerta y se da de baja sola; el resto de los errores solo cuenta `FallosConsecutivos`.
+- **Migración**: `AddPushSubscriptions`, **aditiva** (tabla nueva + 1 columna en `Contactos`), **aplicada solo en dev**. Producción sin tocar.
+- **Secreto**: `Push:PublicKey` y `Push:Subject` en el `appsettings.json` commiteado; `Push:PrivateKey` **solo** en user-secrets de dev. En producción va en `appsettings.Secrets.json` o como variable de entorno `Push__PrivateKey`. Si el par rota, todas las suscripciones vigentes mueren y hay que reactivar dispositivo por dispositivo.
+- **Verificado**: build Release **0 errores** (21 advertencias preexistentes). End-to-end real en dev: suscripción contra FCM, **push efectivamente entregado y mostrado por el service worker**, anti-ruido (4 mensajes → 1 aviso), re-armado tras la lectura, etiqueta de multimedia, y baja/re-alta del dispositivo. Datos de prueba borrados.
+- **No probado**: la rama de revivir una fila soft-deleted (Chrome emitió un endpoint nuevo tras el `unsubscribe()`, así que se insertó otra fila), iOS (R3: necesita el CRM en la pantalla de inicio y un iPhone real), Firefox y Safari.
+- **Riesgo abierto y con fecha**: **R2 — el certificado Let's Encrypt de `portal.olvidata.com.ar` vence el 2026-10-19 y no renueva solo**. Web Push exige HTTPS válido: si el cert vence, el push se cae junto con el sitio. Es anterior a este CR pero ahora tiene una consecuencia más.
+- **Pendiente**: QA funcional, migración en producción, deploy y commit — todo a la espera de autorización explícita de Joaquín.
+
 ### 2026-10-15 - orquestador - webhook de Instagram: el endpoint esta OK, el bloqueo es el estado de la app de Meta
 - Etapa: verificacion puntual a pedido (no es una etapa del flujo). Meta rechazaba la configuracion con
   "The callback URL or verify token couldn't be validated" sobre `https://portal.olvidata.com.ar/webhook/instagram`.
@@ -293,28 +321,6 @@ Mismo formato y tono que `olv_frio_v13` (pain-first, primera persona de Joaquin,
 - **Pendiente manual (sin navegador):** consola limpia y tema oscuro de los Select2/badges nuevos; confirmar en la pestaña Red que el XHR de "Frentes" viaja como `frentes=2&frentes=3`.
 - **Limpieza:** 6 contactos + 2 templates de prueba borrados; ganchos, `UpdatedAt` de los 234 contactos y configuración restaurados desde backup (verificado 0 diferencias); flags de outbound/Maps de vuelta a 0 como estaban; worktree y tablas de backup eliminados. Sin commits ni deploy.
 
-## 2026-09-15 — Fase 4 del plan de IA: el toque de "Sí, contame más" lo contesta la IA (+ 4 frentes commiteado, deploy bloqueado)
-
-- Pedido del cliente: "continuar con el plan de implementacion" (`plan-llm-conversacional-bot.md`). Fases 0-3 ya hechas (la 3, encendido en vivo para todos los inbound, se adelantó el 14/09).
-- **Medido antes de tocar nada** (producción, desde el encendido): 5 conversaciones atendidas por la IA, USD 0,17. 3 descartes correctos como bot (Capitaine y la "Anita" de Farmacias GSA respondiendo a `[Retomar conversación]`), 2 leads de ads con buena primera respuesta y sin segundo mensaje. 14 recuperaciones enviadas el 14/09. Volumen insuficiente para la fase 5 (medición).
-- **Conflicto detectado**: la feature **4 frentes — combo con gancho** (entradas 2026-09-14 (5)-(12), QA GO condicional) estaba **sin commitear** en el working tree y reescribía el mismo botón y los mismos mensajes fríos que toca la fase 4. **Decisión del cliente**: primero cerrar 4 frentes, después la fase 4 encima; y el toque de "Sí, contame más" lo contesta **la IA**.
-- **4 frentes**: commit `382ad19`. Migración `AddGanchoYFrenteComercial` (aditiva: 5 columnas en Contactos, 4 en ConfiguracionesOutbound, 1 en ModulosCatalogo, 1 índice) **aplicada a producción** con script revisado. La asignación de ganchos no corre sola (solo el botón de `/Bot`) y el outbound sigue pausado (`OutboundPausado=1`, `BusquedaMapsPausada=1` verificados).
-- **Fase 4** (commit `2f021b3`): en `BotFlowService.ProcessAsync`, el toque `seguir` en `ConfirmandoContinuar` es la excepción a "los botones no pasan por la IA". Nuevo `PrepararConfirmacionContinuar` (registra el toque + resuelve rubro/categoría por gancho) compartido por los 2 caminos, para que la IA arranque con la misma categoría que el árbol y el cuestionario, si la IA falla, no registre el toque 2 veces. Al modelo le llega "Sí, contame más", no el Id. Regla nueva en el bloque **estable** del prompt (reescribe la caché una vez): ya aceptó seguir, presentarse en media línea y preguntar por el dolor del gancho, y un toque de botón no es un bot.
-- **Verificación**: harness de consola reutilizado del QA del 14/09 (servicios reales contra `olvidatacrm_dev`, `IWhatsAppClient` falso, cada escenario con rollback) y la IA real. **25/25 PASS** en 4 escenarios: IA en vivo con gancho Consultas y sin gancho (v13), IA apagada (cuestionario idéntico a antes, 0 llamadas), "No me interesa" (baja determinística, 0 llamadas), y seguimiento con texto libre (2 respuestas, registra el dolor). Costo USD 0,086. Primera respuesta real de ejemplo: *"Hola! Soy Joaquín, de Olvidata. Contame una cosa: las consultas que les entran por las propiedades (WhatsApp, portales, Instagram), cómo las están manejando hoy?"*
-- **Deploy bloqueado**: el puerto 8172 de Web Deploy de site4now (208.98.35.232) no responde (2 intentos + monitoreo en segundo plano); el sitio sí responde 200. **No se usó el perfil FTP** a propósito: no pone `app_offline` y con el sitio corriendo puede dejar DLLs a medio reemplazar. Producción sigue con `2ad3830`, que es compatible con las columnas nuevas (todas nullable o con default).
-- **Pendiente**: deployar `382ad19` + `2f021b3` cuando vuelva el puerto; fase 5 (medición IA vs. árbol) cuando haya volumen — con el outbound pausado hasta octubre, no antes.
-- **Actualizacion mismo dia — DEPLOY OK**: el puerto 8172 volvio y se publicaron `382ad19` (4 frentes) + `2f021b3` (fase 4) juntos: 88 archivos, `/` y `/Account/Login` 200, pantallas internas 302 al login. La IA conversacional queda contestando tambien el toque de "Sí, contame más" en produccion. Outbound y Maps siguen pausados.
-
-## 2026-09-15 (2) — Bug: el bot contestaba "no llego a escuchar los audios" con el chat en manos de un asesor
-
-- Reporte del cliente: contacto **9931** (Valentino, lead de ads, reventa de servicios IT). La IA lo escaló a humano a las 17:20, Joaquín le escribió a mano a las 18:12 (bot pausado 48hs, contacto `DerivadoManual`), el prospecto mandó una **nota de voz** a las 18:19 y el bot contestó *"Perdón, no llego a escuchar los audios por acá. Me lo escribís en un mensaje?"* por encima del asesor, que sí la estaba escuchando. Aclaración del cliente: el CRM ya recibe y reproduce audios, imágenes y videos; el error es contestar con el bot pausado/derivado (no se pidió transcripción).
-- **Causa raíz**: la rama de multimedia de `BotFlowService.HandleIncomingAsync` (agregada el 14/09 para no dejar leads de ads en silencio) corre **antes** que la guarda de pausa por contacto, que va después del anti-loop a propósito. Su comentario afirmaba lo contrario ("esas guardas corren antes que esta") — el supuesto nunca se verificó.
-- **Fix** (commit del día): si la pausa está vigente (`BotPausado && !PausaBotVencida`) o el contacto está `DerivadoManual`, el archivo se registra igual con su `MediaId` (reproducible desde `/Chats`) y el bot no manda nada. No se movió la guarda de pausa para no alterar el orden del anti-loop. Sin nadie atendiendo, sigue pidiendo que lo escriban.
-- **Verificación**: harness (servicios reales contra `olvidatacrm_dev`, `IWhatsAppClient` falso, rollback): 15/15 PASS en 5 casos — derivado+pausado (el caso real), solo pausado, derivado con pausa vencida → callado; sin pausa y pausa vencida sin derivar → pide texto. Deploy a producción.
-- **Contexto medido**: en toda la historia entraron 5 audios (`audio/ogg`, `audio/mp4`) y 2 imágenes. Si más adelante se quiere que la IA los entienda: imágenes y PDF los procesa Claude directo; el audio necesita un servicio de transcripción aparte (no hay ninguno configurado en el estudio).
-- **Lección para el catálogo 32**: un comentario que afirma el orden de las guardas del webhook ("X corre antes que Y") es un supuesto a verificar contra el código, no documentación confiable.
-
-
 ## 2026-10-15 — Canal nuevo: el bot atiende los DM de Instagram (plan completo, fases 1-5, en producción apagado→encendido)
 
 - Pedido del cliente: *"implementar `plan-instagram-dm-bot.md`"*. El plan estaba escrito ese mismo día y sin una línea de código. Fases 1 a 5 implementadas en una pasada; la fase 0 (setup en Meta) la hizo Joaquín en paralelo y la fase 6 (QA funcional con credenciales) sigue abierta.
@@ -382,6 +388,13 @@ Esta entrada cierra el canal de Instagram, pero `trazabilidad.md` **no tiene ent
 
 Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
 
+- **2026-09** — 2 bloques (2026-09-15 a 2026-09-15) → [`trazabilidad-2026-09-2.md`](historial/trazabilidad-2026-09-2.md)
+
+
+### Bloques archivados (2026-10-15)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
 - **2026-09** — 1 bloques (2026-09-16 a 2026-09-16) → [`trazabilidad-2026-09.md`](historial/trazabilidad-2026-09.md)
 
 
@@ -400,3 +413,70 @@ Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-p
 
 - **2026-08** — 85 bloques (2026-08-14 a 2026-08-28) → [`trazabilidad-2026-08.md`](historial/trazabilidad-2026-08.md)
 - **2026-07** — 65 bloques (2026-07-17 a 2026-07-31) → [`trazabilidad-2026-07.md`](historial/trazabilidad-2026-07.md)
+
+### Traza de corrida -- 2026-10-15 / etapa implementacion
+- Reintentos: 2
+- Criterios fallados: ninguno
+- Reglas releidas: LP-057
+- Nota: CRM-028 Web Push. 2 reintentos sin reescribir logica: (a) el using del paquete quedo antes del BOM de DependencyInjection.cs, (b) build Debug fallido 2 veces por lock del exe de la app corriendo. Hallazgo para el arranque del rol: Lib.Net.Http.WebPush 3.3.1 NO trae VapidHelper, el par VAPID se genera con ECDsa P-256 aparte. LP-057 se releyo desde la migracion AddCanalInstagramDm del propio repo, no desde el catalogo: la migracion previa es mejor fuente que la regla porque trae el SQL.
+
+
+### 2026-10-15 — QA de CRM-028 (Web Push de chats derivados a mano), lote unico
+
+- **Veredicto: NO-GO para produccion hoy.** El codigo esta sano en lo observable (19 criterios PASS,
+  1 defecto minor, 0 major); lo que bloquea es el entorno: el certificado de `portal.olvidata.com.ar`
+  vence el **2026-10-19** y sin HTTPS valido el push no existe, y `Push:PrivateKey` no esta cargada
+  en el sitio. GO condicionado a esas 2 + el chequeo manual de R1/globo real + decision sobre CRM-029.
+- **Repo del sistema intacto:** `git status --porcelain` identico al del arranque, verificado al
+  cerrar. Ningun fix aplicado por QA. Datos de prueba de dev borrados (444 contactos, 7
+  notificaciones, 0 suscripciones — los mismos numeros del arranque).
+- **Limite de entorno que hay que anotar para las proximas corridas:** ni el MCP `playwright` ni un
+  Chrome propio (lanzado dentro o fuera del sandbox, con y sin `--no-sandbox` y
+  `--disable-features=NetworkServiceSandbox`) alcanzan el puerto de la app levantada por las
+  herramientas: `ERR_CONNECTION_REFUSED` contra `localhost`, `127.0.0.1` y la IP de LAN, con el
+  listener confirmado por `netstat` y accesible por `curl` desde el mismo contexto. Es el mismo
+  sintoma que la corrida del 2026-09-14 anoto como "Playwright MCP aislado del host", pero ahora
+  medido tambien contra un navegador propio: **no es el MCP, es la red del entorno.** Consecuencia:
+  todo criterio que necesite un navegador real queda NO VERIFICADO, no PASS.
+- **Metodo que si funciono y conviene reusar:** un **push service falso** propio (HTTP local) puesto
+  como `Endpoint` de la suscripcion. Recibe el sobre real que emite `PushNotificationService` —se
+  puede inspeccionar el header VAPID, el `Content-Encoding`, el TTL y el tamanio— y devuelve a
+  voluntad 201/404/410/500/conexion rechazada. Con eso se probaron los 5 modos de falla del
+  best-effort del webhook sin depender de FCM ni de un navegador.
+- **Se cerro un hueco que el Implementador declaro abierto:** la rama de revivir una fila
+  soft-deleted (`IgnoreQueryFilters` de `SuscribirAsync`, regla LP-057) quedo ejercitada y pasa.
+  Chrome emite un endpoint nuevo tras el `unsubscribe()`, por eso el Implementador no pudo llegar;
+  con el endpoint controlado por la prueba se reproduce el caso real (fila dada de baja por un 410 y
+  el navegador conservando su suscripcion) y la fila se revive en su lugar, sin duplicar.
+- **Defecto nuevo: CRM-029 (minor), catalogado y con parte emitido, sin fix.** El anti-ruido "un
+  aviso por chat hasta que alguien lo lea" se degrada a "un aviso por mensaje" cuando la pestania del
+  chat queda abierta: `Chats/HiloParcial` estampa `FechaUltimaLecturaAgente` en cada tick que trae
+  mensajes nuevos, y eso re-arma el guard justo antes del mensaje siguiente. La leccion general vale
+  para cualquier guard futuro: antes de reusar un campo existente como estado de un guard, listar
+  todos los puntos que lo escriben y preguntarse si alguno lo escribe como **efecto del mismo evento**
+  que el guard quiere limitar.
+- **Ultima validacion de reglas cross-proyecto movida a 2026-10-15.** LP-057 y CRM-025 ejecutadas
+  retroactivamente (PASS); CRM-026 y CRM-027 verificadas como no aplicables a esta superficie.
+  PAT-069 validado salvo la ultima milla.
+
+### Traza de corrida -- 2026-10-15 / etapa qa (lote 1 de 1)
+- Reintentos: 4
+- Criterios fallados: ninguno del sistema. Los 4 reintentos son del arnes de prueba, no del CRM.
+- Reglas releidas: LP-057, CRM-020, CRM-027
+- Nota: los 4 reintentos valen como dato de arranque del rol. (a) El login se probo contra
+  `/Identity/Account/Login` (Razor Pages) y este CRM usa `/Account/Login` con un
+  `AccountController` propio y campos `Email`/`Password`/`EsPwa` sin prefijo `Input.` — conviene
+  mirar `Views/Account/Login.cshtml` antes de escribir el helper de login. (b) El primer intento fue
+  por HTTP y la app redirige a HTTPS: hay que levantarla con `https://localhost:7201` y `verify=False`.
+  (c) 3 intentos perdidos peleando con el aislamiento de red del navegador antes de aceptarlo y caer
+  al arnes HTTP+SQL; la proxima corrida de este proyecto deberia **probar la conectividad del
+  navegador antes de planificar** y, si falla, no reintentar con otra combinacion de flags.
+  (d) Dos lecturas de la BD dieron falsos negativos por carrera: el webhook responde 200 al instante
+  y procesa en background, asi que con un endpoint inalcanzable en el lote el `SaveChanges` del push
+  tarda ~8 s — hay que esperar el final del procesamiento, no el 200.
+
+### Traza de corrida -- 2026-10-15 / etapa qa / lote 1
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: ninguna
+

@@ -1,16 +1,19 @@
 # Memoria - QA
 
 ## Proyecto: crm-olvidata — migración de BotPublicitario
-## Ultima actualizacion: 2026-09-14
+## Ultima actualizacion: 2026-10-15
 
 ## Definiciones vigentes
 
 ### Reglas cross-proyecto validadas
 
-**Última validación de reglas cross-proyecto: 2026-09-14**
+**Última validación de reglas cross-proyecto: 2026-10-15**
 
 - Primera corrida con este campo (antes no existía): se tomó como referencia la última QA de este proyecto (2026-08-28) y se validó contra el sistema todo lo agregado o modificado desde entonces en `32-estandares-qa-implementador.instructions.md` y `docs/qa/regresiones-manuales.yml`. Detalle en la sección "QA — feature 4 frentes — combo con gancho (2026-09-14)", punto F5.
 - Reglas agregadas por esta corrida: **CRM-023** (yml) y "Arrays por AJAX GET con jQuery: `traditional: true`" (32). La próxima corrida diferencia desde 2026-09-14.
+- 2026-10-15 (corrida CRM-028): diferencia tomada desde 2026-09-14 con `git log --since` sobre `32-estandares-qa-implementador.instructions.md` y `docs/qa/regresiones-manuales.yml`. Reglas nuevas en el período: **CRM-026** (defaultValue de enum en columna nueva), **CRM-027** (`Results.Forbid()` en endpoint anónimo), **LP-057** (único sobre entidad con baja lógica), **LP-004**, **MH-060/061**, **KOI-015/016/017**, **OLV-ALUC-01**, **OLV-EVAL-01** y el bloque LP-037→LP-111 de La Platense. Aplicables a este sistema y ejecutadas retroactivamente: **LP-057 PASS** (probada a nivel SQL contra `UX_PushSubscriptions_EndpointHash_Vivo`), **CRM-027 N/A verificado** (CRM-028 no agrega ningún endpoint anónimo: los 4 nuevos responden 302 al login sin sesión), **CRM-026 N/A** (la migración no agrega columnas de enum), **CRM-025 PASS** (el único admite varios dispositivos por usuario: 5 filas vivas del mismo `UserId`). El resto son reglas de dominio de otros proyectos (cobranzas, ledger, impositivo) sin superficie equivalente acá.
+- **PAT-069** (Web Push servidor → navegador sin el sitio abierto) validado como patrón nuevo: las 3 piezas que declara (service worker vivo, claves VAPID, suscripción por dispositivo en BD) existen y el sobre real sale bien formado (`vapid t=<jwt>, k=<clave pública>`, `Content-Encoding: aes128gcm`, TTL 1800, `Urgency: high`). Lo único de PAT-069 que **no** se pudo validar es la última milla (el navegador recibiendo el globo), por aislamiento de red del entorno — ver la sección de la corrida.
+- Reglas agregadas por esta corrida: **CRM-029** (yml) — un polling de background que estampa "leído" re-arma un guard anti-ruido en cada mensaje. La próxima corrida diferencia desde 2026-10-15.
 
 ### 0. Alcance funcional validado
 
@@ -459,233 +462,6 @@ Condiciones de liberación (ninguna bloqueante):
 3. CRM-014 y los 3 defectos abiertos (CRM-009/011/013) para un ciclo posterior.
 4. El camino de respaldo por mapeo (campañas sin `IndustriaCatalogoId`) sigue sin cobertura empírica: si producción tiene filas con esa FK en null, conviene mirar el primer `ImpactoDelete` post-deploy antes de confirmar un borrado.
 
-## QA — matriz de módulos valorizados + borrador de propuesta MVP/FULL (2026-08-28)
-
-Verificación previa al **primer deploy** de la feature. Nada estaba deployado: código sin commitear (working tree), migración aplicada sólo en `olvidatacrm_dev`. Reglas de negocio: agente `olvidata-presupuesto-bot` (9 reglas de redacción, qué no preguntar en el cuestionario). Referencia: §"Matriz de módulos valorizados…" de `5-implementador.md` (11 escenarios de QA + 3 decisiones propias del Implementador).
-
-### M1. Método y alcance
-
-App levantada en Release contra `olvidatacrm_dev` (`https://127.0.0.1:5444` + `http://127.0.0.1:5313`, Development), autenticada como SuperUsuario, y ejercitada por HTTP real: 26 pantallas, 8 endpoints POST/AJAX y **29 generaciones de mensaje** sobre datos reales, con assertions SQL independientes contra la base antes y después. **MCP `playwright` no expuesto en la sesión** — se declara explícitamente y se sustituye por verificación HTTP + SQL, igual que en las 2 pasadas anteriores; queda un residuo manual acotado (§M7).
-
-`dotnet build -c Release --no-incremental` corrido por QA **2 veces** (antes y después del auto-fix): **0 errores / 13 advertencias**, idénticas al baseline (2 NU1902 de MailKit/MimeKit, 2 CS8524, 1 CS0114, 2 CS8620 y las de restore). **0 `[ERR]`/`[FTL]`** en Serilog en las 3 corridas completas de la app.
-
-### M2. El ajuste manual del cliente sobre `Questions["build"]` — PASS
-
-Primer chequeo pedido, y el que condicionaba todo lo demás.
-
-| Verificación | Resultado |
-|---|---|
-| `Questions["build"]` tiene 2 preguntas, no 3 | **PASS** — "¿qué necesitás que haga el sistema?" + "¿Tenés una fecha…?" |
-| Numeración de emoji intacta | **PASS** — 1️⃣ y 2️⃣ consecutivos, sin 3️⃣ huérfano. `rent`, `rent_other` y `landing` también quedaron consistentes |
-| Ningún otro flujo depende de esa categoría | **PASS** — `CategoryNames["build"]` intacto; `MecanismoPregunta1Async` sólo actúa sobre `Categoria == "rent"`, así que `build` nunca entró en el mecanismo nuevo ni sale afectado |
-| `Contacto.CantidadUsuarios` sin escritores | **PASS por grep, no por supuesto** — la única aparición fuera de migraciones es la declaración de la propiedad en `Contacto.cs`. Cero lecturas, cero escrituras. El bloque de captura de dígitos de `OnAnswerAsync` ya no existe |
-| Build tras el cambio | **PASS** — confirmado de nuevo por QA, 0 errores |
-
-El comentario de cabecera de `Questions` quedó **actualizado y correcto** (dice "se sacó de TODAS las categorías… el cliente prefirió sacarla de todos lados igual"), o sea que el cambio manual no dejó documentación contradictoria. El riesgo #2 que el Implementador había declarado ("`build` conserva su pregunta") queda **cerrado por decisión del cliente**, no pendiente.
-
-### M3. Seed de datos — PASS (y una corrección al conteo)
-
-Verificado **contra la base, no contra el reporte**:
-
-```
-modulos vivos: 84 | asignaciones vivas: 88 | industrias con matriz: 9 | imprescindibles: 62
-```
-
-Los 9 rangos por rubro coinciden **exactamente**, uno por uno, con la tabla de `5-implementador.md` (Retail 510-806/991-1653, Laboratorios 637-1051/871-1387, Dietéticas 386-774/487-942, Alq. maquinaria 452-713/769-1152, Estudios contables 354-587/404-654, Ganadería 565-897/582-967, Residuos 168-304/360-551, Landing 194-260/261-344, Utilities 335-590/464-783). Los 3 módulos compartidos son los 3 declarados.
-
-**Matiz de método que vale documentar:** la primera consulta dio 89/10 en vez de 88/9. No era una discrepancia real: eran **2 filas soft-deleteadas de datos de prueba** (una del Implementador el 2026-08-28 02:48, otra mía al ejercitar el CRUD de asignación), que sólo aparecen si uno consulta `ModuloCatalogoIndustrias` sin filtrar `DeletedAt`. Filtrando bien, el seed es 84/88/9/62. Las 2 filas se **eliminaron en duro** al cerrar, así que dev queda idéntico al seed limpio. Lección para la próxima pasada: sobre este esquema, todo conteo de control va con `DeletedAt IS NULL` explícito.
-
-**Los 5 rubros sin matriz — PASS.** `E-commerce`, `Alquiler de inmuebles / gestión de propiedades`, `Finanzas personales`, `Finanzas simples` y `Farmacias` tienen **0 módulos** en base. `GET /Modulos/Checklist` sobre los 5 devuelve el aviso *"Todavía no hay módulos cargados para {rubro}"* con link a `/Modulos/Create` — **no** un checklist vacío ni un error. El combo de `/Modulos/Presupuesto` lista las 14 industrias y marca las 5 como `(sin matriz)` sin necesidad de entrar. El hallazgo del Implementador sobre **"Alquiler de inmuebles"** (que el pedido original enumeraba 13 de 14) queda **confirmado y correctamente tratado**: es el `industriaId=9`, 0 módulos, aviso presente.
-
-### M4. Cobertura de los 11 escenarios del Implementador
-
-| # | Escenario | Resultado | Evidencia |
-|---|---|---|---|
-| 1 | `/Modulos` → 84 módulos, badges por rubro | **PASS** | `GetData` → `recordsTotal: 84`; los 3 compartidos traen 2 entradas en `rubros` |
-| 2 | Retail: 14 módulos, 6 pre-tildados, rangos al abrir | **PASS** | 14 checkboxes, 6 con `checked`; `Calcular` → MVP 510-806 / FULL 991-1653 |
-| 3 | Rubro sin matriz → aviso, no checklist vacío | **PASS** | Los 5, uno por uno (§M3) |
-| 4 | Generar mensaje → las 9 reglas | **PASS con 1 defecto** | §M5 — reglas OK; defecto de texto **CRM-015**, auto-fixeado |
-| 5 | Casos degradados (sin MVP / sólo MVP / nada) | **PASS** | Los 3 discriminados con el mensaje y la advertencia correctos; "nada tildado" → `success:false` sin texto |
-| 6 | `/Modulos/Edit` → asignar / cambiar MVP / quitar rubro | **PASS** | Los 3 por AJAX; duplicado rechazado con mensaje claro; el rubro quitado **vuelve** al combo de disponibles |
-| 7 | Manipulación: id de otro rubro por inspector | **PASS** | `Calcular` con los 6 MVP de Retail + los 6 ids de Utilities + `99999/-1/0` da **exactamente el mismo resultado** que sin la basura (510-806, `cantidadFull: 6`) |
-| 8 | `Chats/Detail` de `indumentaria` → las 2 opciones | **PASS** | §M6 |
-| 9 | `Chats/Detail` de `inmobiliaria`/`restaurant` → comportamiento viejo | **PASS** | §M6 |
-| 10 | Bot: `rent`/`rent_other` en 2 preguntas; matriz vs. menú fijo | **PASS** | §M2 y §M7 |
-| 11 | Idempotencia del seed (2 reinicios) | **PASS** | 2 arranques completos posteriores al seed: **cero** líneas de "sembrada" en el log y conteos clavados en 84/88/9 |
-
-### M5. Las 9 reglas del agente `olvidata-presupuesto-bot`
-
-29 mensajes generados sobre los 9 rubros con matriz (variantes: todo tildado, sólo MVP, sólo no-MVP, un solo módulo, nada).
-
-| Regla | Resultado | Evidencia |
-|---|---|---|
-| R1 nunca tabla | **PASS** | Texto corrido en los 29; ni un pipe de tabla, ni "Plan A/Plan B" |
-| R2 máx. 3-4 ítems por opción | **PASS** | Tope duro de 4 + `"y N más"`. **Ganadería con 7 imprescindibles** (el caso que se pidió mirar): MVP lista 4 y cierra `"y 3 más"`. **El bug de la doble "y" está efectivamente corregido** — verificado leyendo la salida, no el código: en los 29 mensajes no aparece nunca `"… y X y N más"` como separador de lista |
-| R3 frasear por resultado | **PASS** | "todo resuelto de una" / "la base para salir del Excel ya". Cero apariciones de "versión reducida/completa" |
-| R4 FULL primero, MVP segundo | **PASS** | El bloque `*FULL*` precede a `*MVP*` en los 29 |
-| R5 extensión acotada | **PASS con observación** | §M8 |
-| R6 nunca número cerrado | **PASS** | `Ronda entre USD {mvpMin} y USD {fullMax}` + "te lo afino con el detalle exacto", en los 29 **incluidos los 3 degradados y el de un solo módulo** |
-| R7 ARS/cuotas en una línea | **PASS** | "en pesos, en cuotas, sin letra chica", sin desglose |
-| R8 a medida sin la frase de landing | **PASS** | Cero apariciones de "software factory y consultora de desarrollo de sistemas" |
-| R9 cierre de dirección, nunca de agenda | **PASS** | "¿Cuál te cierra más?" (2 opciones) / "¿Te sirve por ahí?" (degradados). **Cero** pedidos de fecha u horario |
-
-**Sobre R6 con más rigor.** El riesgo teórico de que el rango colapse a un número cerrado existe: hay **2 módulos con `PrecioMin == PrecioMax`** ("Pantalla única sin base de datos" y "Formulario de contacto", 17/17, ambos de Landing). Si alguna vez se tildara **sólo uno de esos dos**, el mensaje diría *"Ronda entre USD 17 y USD 17"*, que es un número cerrado disfrazado de rango. **Hoy es inalcanzable en la práctica** (los 2 son de Landing, que tiene 7 módulos y 6 imprescindibles) y no lo cuento como defecto, pero queda anotado como condición a vigilar si el catálogo crece con módulos de precio plano.
-
-**Las 3 decisiones propias del Implementador, revisadas de nuevo y no dadas por buenas:**
-
-1. **Truncado con "y N más"** — correcto, y el fix del doble "y" verificado empíricamente (arriba).
-2. **Sin ningún imprescindible → una sola opción** — correcto: el mensaje no inventa un MVP vacío y la advertencia explica por qué.
-3. **Sólo imprescindibles → una sola opción** — correcto, con una advertencia **distinta** de la anterior que además dice cómo obtener las dos ("Sumá algún módulo del bloque Solo FULL"). Buen criterio: 2 opciones idénticas sí habrían leído a relleno.
-
-### M6. Wiring del botón "Sugerir" en `Chats/Detail` — PASS
-
-12 contactos reales de dev, cubriendo los 3 vocabularios de `Contacto.Rubro`:
-
-| Contacto | Rubro | `matriz` | Comportamiento |
-|---|---|---|---|
-| #11 | `indumentaria` | Retail (14) | 2 opciones |
-| #424 | `indumentaria-once` (**sufijo de región**) | Retail (14) | 2 opciones |
-| #151 | `consultorio` | Laboratorios (14) | 2 opciones |
-| #1 | `estudio` | Estudios contables (10) | 2 opciones — **el fix del mapeo funcionando** |
-| #126 | `ganaderia` | Ganadería (8) | 2 opciones |
-| #230 | `servicios` | Utilities (6) | 2 opciones |
-| #53 | `comercio` | Alq. maquinaria (11) | 2 opciones |
-| #292 | `inmobiliaria` | `null` | **comportamiento viejo** |
-| #236 | `Inmuebles / Real estate` (reescrito por el bot) | `null` | **viejo**, con sugerencia genérica real |
-| #128 | `restaurant` | `null` | **viejo** |
-| #158 | `farmacia` | `null` | **viejo** |
-| #194 | `Otro rubro` | `null` | **viejo** |
-
-Los 4 caminos del JS revisados y coherentes con el servidor: con matriz y con sugerencia → SweetAlert de 2 opciones; con matriz y sin sugerencia → derecho al checklist (el caso que dejaba al botón sin uso); sin matriz y con sugerencia → prellena `#txtRespuesta` como siempre; sin matriz y sin sugerencia → el aviso de siempre. `btn-usar-en-chat` sólo escribe en `#txtRespuesta` y cierra el modal: **no hay flujo de envío paralelo**, el envío sigue siendo `Chats/EnviarMensaje`.
-
-### M7. Cuestionario del bot — PASS
-
-La tabla de decisión de `MecanismoPregunta1Async` computada contra la base para las 8 claves de `DolorOptionsPorRubro`:
-
-| Rubro del diálogo | Fila de catálogo | MVP en base | Mecanismo |
-|---|---|---|---|
-| Comercio o alquiler de maquinaria | Alquiler de maquinaria | 7 | **MatrizModulos** |
-| Alquiler de maquinaria | Alquiler de maquinaria | 7 | **MatrizModulos** |
-| Dietéticas y venta de productos | Dietéticas y comercios… | 8 | **MatrizModulos** |
-| Indumentaria o calzado | Retail | 6 | **MatrizModulos** |
-| Agro / Ganadería | Ganadería | 7 | **MatrizModulos** |
-| Servicios urbanos o técnicos | Utilities | 5 | **MatrizModulos** |
-| Recolección de residuos y logística | Residuos | 4 | **MatrizModulos** |
-| **Vinos y bebidas** | Gastronomía (**fila retirada 2026-07-17**) | 0 | **MenuFijo** ← el menú viejo intacto |
-
-**7 pasan al mecanismo nuevo, 1 se queda con el menú de 3 opciones** — exactamente lo que afirma el reporte. La coexistencia con `DolorOptionsPorRubro` es correcta: la matriz tiene prioridad y el menú viejo **no se retiró**.
-
-**Los 2 hallazgos que el Implementador dice haber corregido, verificados:**
-
-- **`MecanismoPregunta1Async` como fuente única** — **confirmado en los 2 call sites**: `SendCurrentQuestionAsync` (qué mandar) y `OnAnswerAsync` (cómo interpretar). En `OnAnswerAsync` la condición es `MecanismoPregunta1Async(...) == MenuFijo && DolorOptionsPorRubro.TryGetValue(...)`, o sea que el mapeo id→título **sólo** corre cuando efectivamente se mandó un menú. El bug que evita es real: sin eso, un prospecto de Indumentaria (que hoy recibe texto libre) que conteste "1" quedaba guardado como "Stock talle/color", una opción que nunca vio.
-- **`ArmarPitchPostDolorAsync` extendido** — **confirmado**: `tieneSistemaReal = DolorOptionsPorRubro.ContainsKey(industria) || (await ModulosMvpDelRubroAsync(industria)).Count > 0`. Y la prueba social que reciben los rubros nuevos **existe de verdad**, no cae al default: `SocialProofByType("estudio")` → "Contadores BMA", `("consultorio")` → "un centro médico en La Plata". Sin la extensión, esos 2 (que nunca estuvieron en `DolorOptionsPorRubro`) habrían caído al pitch genérico.
-
-**Residuo manual (sin MCP de navegador ni envío real a Meta):** el texto exacto que llega al WhatsApp del prospecto en la pregunta 1 con matriz no se verificó contra la API real de Meta — se verificó la función que lo arma y los datos que la alimentan. Queda para prueba manual con un número de test: *abrir una conversación de un rubro con matriz y confirmar que la pregunta 1 llega como texto libre con las viñetas de los 3-4 imprescindibles, y que un rubro de "Vinos y bebidas" sigue recibiendo la lista interactiva de 3 opciones*.
-
-### M8. Defectos
-
-**CRM-015 — `major` — AUTO-FIXEADO Y VERIFICADO.** Los módulos cuyo nombre **empieza** con una sigla salían deformados en el texto que se copia tal cual al WhatsApp del cliente: `ABM Cuadrilla` → **`aBM Cuadrilla`**, `SEO básico y deploy` → **`sEO básico y deploy`**, `CRM de WhatsApp (bandeja de conversaciones)` → **`cRM de WhatsApp…`**.
-
-- *Causa raíz:* `PropuestaMvpFullService.Minuscula()` bajaba **siempre** la inicial para que el nombre entrara en frase corrida. El comentario del propio método declaraba la intención de no romper siglas, pero sólo contemplaba las del **medio** del nombre (por eso no usa `ToLower()` completo); la sigla en la **primera** palabra no estaba contemplada.
-- *Alcance real:* **9 de los 84 módulos**, en **4 de los 9 rubros** con matriz (Utilities, Residuos, Landing, Alq. maquinaria). Los 9 son **imprescindibles**, o sea que caen dentro de los 4 ítems que el mensaje lista explícitamente — no es un caso de borde: Utilities mostraba 4 de sus 5 ítems del MVP deformados.
-- *Por qué `major` y no cosmético:* es el mensaje que Joaquín copia y pega en una conversación real después de una demo, y el capitalizado mixto lee como error de tipeo justo donde se está pidiendo confianza para un precio.
-- *Auto-fix aplicado* (sin lógica de negocio nueva — restaura la intención ya declarada en el comentario del propio método): guard de 2 mayúsculas iniciales en `Minuscula()`, `OlvidataCRM.Application/Services/PropuestaMvpFullService.cs`. Catalogado como **CRM-015** en `docs/qa/regresiones-manuales.yml` **antes** de proponer el fix, con `deteccion_qa` automatizable (regex de minúscula seguida de 2+ mayúsculas sobre el `texto` de `GenerarMensaje`).
-- *Re-ejecución post-parche:* build Release **0 errores / 13 advertencias** (baseline); `deteccion_qa` corrida sobre los **9 rubros × 2 variantes = 18 mensajes** → **0 fallas**; los 3 criterios de aceptación literales verificados (`ABM Cuadrilla`, `SEO básico y deploy`, `CRM de WhatsApp (bandeja de conversaciones)` presentes intactos); **sin regresión** en los nombres que sí deben bajar la inicial (`catálogo con variantes de color y talle`, `stock e inventario`) ni en las siglas del medio (`facturación electrónica AFIP/ARCA`, `reserva con QR`).
-
-**Observaciones no bloqueantes (ningún defecto abierto):**
-
-1. *(R5, juicio de negocio)* El mensaje tiene **5 bloques + cierre** (apertura, "armé dos caminos", FULL, MVP, precio, a-medida, pregunta), contra los "2 párrafos cortos + 1 línea de cierre" que pide la regla 5. Es defendible leer FULL y MVP como los 2 párrafos y el resto como andamiaje, pero **es una interpretación, no un cumplimiento literal**. No lo trato como defecto porque la regla es de criterio y su dueño es `olvidata-presupuesto-bot`: conviene que lo adjudique él en la primera revisión de un mensaje real.
-2. *(cosmético)* Cuando el nombre del módulo termina en una frase coordinada, el cierre del truncado repite la conjunción: *"…ventas con cobro multi-medio **y** cuotas **y** 2 más"*. **No es** el bug del doble "y" que el Implementador corrigió (ese era el separador de la lista, y está bien resuelto): acá la primera "y" pertenece al nombre del módulo. Se resuelve editando el nombre desde `/Modulos/Edit`, sin tocar código.
-3. *(inconsistencia menor, sin impacto hoy)* Un rubro con módulos pero **cero imprescindibles** es tratado distinto por los 2 consumidores: `ChatsController.MatrizDelRubroAsync` cuenta **todos** los módulos y ofrece el checklist, mientras que `BotFlowService.ModulosMvpDelRubroAsync` cuenta **sólo los MVP** y apaga el mecanismo nuevo. Reproducido a propósito asignando 1 módulo no-MVP a Farmacias. Los 2 comportamientos son defendibles por separado (la pantalla necesita un checklist, el bot necesita nombres que listar) y el generador maneja el caso con su degradado, así que no es defecto — pero si alguien carga un rubro entero como "sólo FULL", el bot no lo va a reflejar.
-4. *(comentario desactualizado)* El XML-doc de `RubroHelpers.CatalogoNombreDeRubroContacto`, paso (2), sigue citando "(Farmacia, Contabilidad)" como ejemplos de entradas mapeadas a `null` — justo las 2 que esta feature dejó de mapear a `null`. El código es correcto; el comentario induce a error a quien lo lea después.
-5. *(higiene de dev, ya resuelta)* Las 2 filas de asignación soft-deleteadas de datos de prueba se eliminaron en duro; dev cerró en 84/88/9/62 verificado.
-
-### M9. El fix del mapeo Farmacia/Contabilidad — no reintroduce cotización automática
-
-Punto explícitamente auditado, porque la regla del 2026-08-24 es que **el bot nunca más cotiza solo**. Rastreados **todos** los consumidores de `IndustriaACatalogoNombre`:
-
-- `BotFlowService.ResolveIndustriaCatalogoAsync` → devuelve la fila y se la pasa a `SendBriefToAdminAsync`, donde `industria?.Plan` se usa **únicamente** dentro de `if (contacto.PresupuestoCotizadoUsd.HasValue)`. Y `PresupuestoCotizadoUsd` **el bot ya no lo setea nunca**: `CompleteAsync` fija `EstadoEmbudo = DerivadoManual` y manda `MsgClosing`, sin ninguna rama de cálculo (el bloque está eliminado, con el comentario de la decisión en su lugar). Hoy ese campo sólo se escribe **a mano** desde `Contactos/Edit` (G4).
-- `IndustriasController` (ImpactoDelete) y `ChatsController.MatrizDelRubroAsync` → lectura, sin efecto sobre precio.
-- `CotizaAutomatico` de las 2 filas sigue en **`false`** en el seed, y el bot no lo consulta en ningún lado.
-
-**Conclusión: el fix no abre ningún camino hacia cotización automática.** Lo único que cambia de comportamiento es que un contacto de `farmacia`/`estudio` ahora **encuentra su fila de catálogo** — que es precisamente el punto, porque Estudios contables es uno de los 9 rubros con matriz real. Verificado end-to-end con el contacto #1 (`estudio`), que ahora sí recibe la matriz de 10 módulos.
-
-### M10. `.gitignore` y material de clave — PASS
-
-| Verificación | Resultado |
-|---|---|
-| Regla presente | **PASS** — `.gitignore:91` → `OlvidataCRM.Web/DataProtection-Keys/` |
-| Regla efectiva | **PASS** — `git check-ignore -v` la resuelve a esa línea; `git status --ignored` marca la carpeta como ignorada |
-| Ningún archivo de clave trackeado hoy | **PASS** — `git ls-files` sin coincidencias para `dataprotection`/`key-` |
-| Ningún archivo de clave commiteado **nunca** | **PASS** — `git log --all -- "*DataProtection-Keys/*" "*key-*.xml"` **sin resultados** en toda la historia |
-
-Hay una clave real en disco (`key-0cb0b67f-….xml`, generada al correr en local) y está correctamente ignorada. La duda que el Implementador dejó abierta ("vale confirmar que nunca se commiteó") queda **cerrada**: nunca se commiteó, no hace falta reescribir historia ni rotar el keyring.
-
-### M11. Regresión del resto del sistema — PASS
-
-Smoke autenticado sobre el sprint de 17 items ya deployado y el resto del CRM: **24 rutas** respondiendo 200/302, cero 500. `/Contactos` (+ Details/Create/Edit), `/Chats` (+ Detail), `/Campanas` (+ Edit), `/Industrias` (+ Create), `/Bot`, `/Bot/Salud`, `/Clientes`, `/Negocio/Dashboard`, `/Templates`, `/System`, `/Users`, `/Notifications`, `/Modulos` (+ las 5 vistas nuevas). Los 2 404 que aparecieron (`/Clientes/Create`, `/Negocio`) son **rutas que no existen** en esos controllers (`ClientesController` no tiene `Create`; `NegocioController` expone `Dashboard`, no `Index`) — error de mi lista de URLs, no del sistema. **0 `[ERR]`/`[FTL]`** en Serilog.
-
-### M12. Cobertura del catálogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
-
-54 items. Los que aplican a la superficie nueva:
-
-| id | aplica | resultado | acción |
-|---|---|---|---|
-| REG-010, KOI-003, KOI-005, KOI-006, CRM-002 | sí | **PASS** | Link "Módulos / Presupuesto" dentro de `@if (User.IsInRole("SuperUsuario"))`, respaldado por `[Authorize(Policy = "RequireSuperUsuario")]` real en el controller. Anónimo → 302 a Login en las 4 rutas. Ningún link a un controller inexistente |
-| CRM-003, MH-015 | sí | **PASS** | `AplicarOrden` con whitelist por índice (0-3) y las columnas 4-6 declaradas `orderable: false`: el conjunto de la vista y el del switch **coinciden exactamente**. Verificado por HTTP en asc/desc de las 4 columnas ordenables + índice fuera de rango (cae al default sin romper) |
-| MH-001 | sí | **PASS** | El cruce contra los ids del navegador se hace **en memoria** (`ResolverElegidosAsync`), justo el patrón que el catálogo marca como no traducible por este proveedor. `Calcular`/`GenerarMensaje` sin 500 en 29 corridas |
-| MH-003 | sí | **PASS** | Validación de servidor real, no sólo del cliente: POST directo con `max < min` → rechazado; precio negativo → rechazado por `[Range]`; nombre vacío → rechazado por `[Required]` |
-| KOI-001 | sí | **PASS** | El delete de `/Modulos/Index` construye el `<form>` por JS con el antiforgery adentro — no es un botón fuera del form |
-| GAN-003 | sí | **PASS** | El checklist no usa `<script type="text/x-template">` con `<partial>` adentro; se sirve como partial real desde `/Modulos/Checklist` |
-| DN-001, DN-002 | sí | **PASS** | `RubrosConMatrizAsync` evita la subconsulta correlacionada a propósito (2 consultas planas + agrupación en memoria); `GetData` no combina Include de colección con OrderBy dinámico + Skip/Take sobre navegación |
-| MH-002 | sí | **N/A** | No hay enums serializados a JSON en esta superficie |
-| REG-004, VSF-001, VSF-002 | sí | **N/A** | La feature no tiene máquina de estados propia (§M13) |
-| CRM-001, CRM-004, CRM-005, CRM-006 | no | sin cambios | Superficie del bot/outbound no tocada por esta feature más allá de §M7 |
-| REG-001…009, KOI-002, KOI-004, GAN-001/002/004, LP-\*, ELV-\*, LIP-\*, SG-001, MH-004…014 | no | N/A | Otros proyectos / módulos sin equivalente |
-| **CRM-015** | **sí** | **FAIL → auto-fixeado → PASS** | **Item nuevo, creado en esta pasada** (§M8) |
-
-### M13. Máquina de estados
-
-**No aplica**: la feature no introduce ninguna. `ModuloCatalogo` y `ModuloCatalogoIndustria` sólo tienen el ciclo `activo → soft-deleted` común a todo `SoftDestroyable`, verificado en sus 2 sentidos (quitar un rubro lo saca del checklist; el rubro quitado vuelve al combo de disponibles). `EsImprescindible` es un flag booleano editable en ambos sentidos, no un estado con transiciones restringidas. `EstadoEmbudo` **no se toca** desde esta feature: el borrador termina en un textarea, no cambia el estado de ningún contacto.
-
-### M14. Riesgos de liberación y mitigaciones
-
-1. **La migración falta aplicar en producción.** `20260828023654_AddModuloCatalogo` son **2 `CREATE TABLE` + 3 índices, cero `ALTER` sobre tablas existentes** (verificado leyendo el archivo, no el reporte): riesgo sobre datos existentes **nulo**. *Mitigación:* aplicarla antes o durante el deploy; sin ella, `/Modulos` y el botón "Sugerir" fallan.
-2. **El seed corre solo en el primer arranque post-deploy** y siembra 84 módulos. Es idempotente por fila y verificado en 2 reinicios. *Mitigación:* mirar el log del primer arranque y confirmar 84/88/9 en producción con la misma consulta de §M3 (con `DeletedAt IS NULL`).
-3. **Los nombres técnicos del seed** ("Parser de Excel propietario", "Producción mensual por centro", "Vista de resultados para confirmar o rechazar", y ahora también los "ABM …") siguen sonando a jerga en un WhatsApp. Riesgo #3 del Implementador, **confirmado y vigente**: el auto-fix de CRM-015 corrige el capitalizado, **no** el vocabulario. *Mitigación:* `olvidata-presupuesto-bot` los afina desde `/Modulos/Edit` sin tocar código — conviene hacerlo antes del primer envío real.
-4. **Interpretación de la regla 5** (§M8, obs. 1) sin adjudicar. *Mitigación:* que el dueño de las reglas revise el primer mensaje real antes de mandarlo.
-5. **Módulos de precio plano** (§M5): si el catálogo suma más, el rango puede colapsar a "USD 17 y USD 17". *Mitigación:* al cargar un módulo nuevo, dejar `PrecioMax > PrecioMin`.
-6. **Código sin commitear.** Todo el feature (incluido mi auto-fix) está en el working tree. *Mitigación:* commitear antes de deployar; el `.gitignore` ya cubre el material de clave (§M10).
-7. **Residuo de prueba manual** (§M7): el texto real de la pregunta 1 por WhatsApp, sin MCP de navegador ni envío a Meta.
-
-### M15. Checklist de salida para merge
-
-- [x] Build en Release, 0 errores / 13 advertencias preexistentes (2 corridas: pre y post auto-fix)
-- [x] Migración revisada: 2 tablas nuevas, 0 `ALTER`; aplicada en dev, sin pendientes
-- [x] Seed verificado contra la base: 84/88/9/62, 9 rangos coincidentes uno por uno
-- [x] Los 5 rubros sin matriz muestran el aviso, no un checklist vacío
-- [x] Las 9 reglas de redacción verificadas sobre 29 mensajes reales
-- [x] Autorización real (policy + sidebar) y CSRF en los POST
-- [x] Validación de servidor independiente del cliente
-- [x] Manipulación de ids del navegador sin efecto sobre el cálculo
-- [x] Wiring de "Sugerir" en los 2 caminos, 12 contactos reales
-- [x] Tabla de decisión del cuestionario del bot verificada contra la base (7 matriz + 1 menú)
-- [x] Sin camino a cotización automática (todos los consumidores rastreados)
-- [x] `.gitignore` efectivo y sin material de clave en la historia de git
-- [x] Regresión: 24 rutas sin 500, 0 errores en Serilog
-- [x] Idempotencia del seed en 2 reinicios
-- [x] Defecto encontrado catalogado (CRM-015) antes del fix, auto-fixeado y re-verificado
-- [x] Estado de dev restaurado (84/88/9/62)
-- [ ] **Pendiente del cliente:** commitear, aplicar la migración en producción, deployar, y la prueba manual de §M7
-
-### M16. Estado go/no-go
-
-**GO para deploy de producción.**
-
-La feature hace lo que dice el reporte, y lo verifiqué contra la base y contra la salida real del generador, no contra el reporte. El ajuste manual del cliente sobre `Questions["build"]` está bien hecho y no rompió nada. Las 3 decisiones propias del Implementador resisten revisión crítica. El fix del mapeo Farmacia/Contabilidad no abre ningún camino hacia cotización automática — punto auditado hasta el último consumidor. El único defecto encontrado (CRM-015) era `major` por ir en el texto que se le manda al cliente, y quedó catalogado, corregido y re-verificado sobre 18 mensajes sin regresión.
-
-Condiciones de liberación, ninguna bloqueante: aplicar la migración en producción (riesgo nulo, 2 `CREATE TABLE`), confirmar el seed en el primer arranque, y **afinar los nombres técnicos del catálogo desde `/Modulos/Edit` antes del primer envío real a un cliente** — es lo único que todavía puede hacer que un mensaje correcto suene mal.
-
 ## QA — expansión nacional de outbound: 176 campañas nuevas en 22 ciudades (2026-08-28, cambio de datos)
 
 ### N0. Alcance y método
@@ -919,7 +695,138 @@ Al levantar la app en local, el `AvisosRenovacionSchedulerService` **mandó un t
 6. **Editar un contacto de Instagram sin teléfono y guardar** (el teléfono es opcional en Edición y obligatorio en Alta: son reglas distintas a propósito).
 7. **Captura de teléfono por DM**: que tome `2216085665` → `5492216085665` y que **no** tome un CUIT de 11 dígitos.
 
+## QA — Web Push de chats derivados a mano (CRM-028, 2026-10-15)
+
+Lote de 1 ítem (integración: webhook de Meta + Web Push + service worker). Repo del sistema en
+**read-only**: `git status --porcelain` idéntico al del arranque (19 entradas, las del Implementador),
+verificado al cerrar. Todo criterio arrancó en FAIL. Build propio `dotnet build` **0 errores**
+(21 advertencias, todas preexistentes).
+
+### Método y límite del entorno
+
+App levantada contra `olvidatacrm_dev` en `https://localhost:7201`, con el access token real de
+WhatsApp de dev **neutralizado por variable de entorno** (`Olvidata_WhatsApp__AccessToken` inválido,
+confirmado por el `Invalid OAuth access token` del scheduler de templates) — 0 mensajes reales
+enviados. Outbound en standby. Evidencia por: HTTP autenticado, SQL contra la base, log de la app, y
+un **push service falso** propio (HTTP en `:8099`) que recibe el sobre real que emite
+`PushNotificationService` y devuelve el status que la prueba necesita (201 / 404 / 410 / 500 /
+conexión rechazada).
+
+**Lo que este entorno NO permitió verificar — declarado, no aprobado:** el MCP `playwright` y
+cualquier Chrome lanzado desde las herramientas no alcanzan al puerto de la app
+(`ERR_CONNECTION_REFUSED` contra `localhost`, `127.0.0.1` y la IP de LAN, con el listener confirmado
+por `netstat` y accesible por `curl`; probado también con `--disable-features=NetworkServiceSandbox`
+y `--no-sandbox`). Sin navegador quedan **sin verificar**: R1 (que `push-sw.js` sobreviva a las
+recargas con el `unregister` selectivo), la entrega del globo al navegador, los 4 estados del botón,
+iOS (R3) y Firefox/Safari.
+
+### Cobertura por criterio
+
+| Criterio | Veredicto | Evidencia observada |
+|---|---|---|
+| Multimedia de un `DerivadoManual` (rama `loAtiendeUnaPersona`) | **PASS** | Audio de un contacto en `DerivadoManual`: webhook 200, mensaje guardado (`ContactoRespuesta` "[Audio / nota de voz]"), campanita "Te escribió QA Push A" / "Te mandó un audio." → `/Chats/Detail/525`, sobre push de 230 B entregado, `FechaUltimoEnvioOk` sellado |
+| Texto con el bot pausado | **PASS** | Campanita + push con el texto del mensaje, `FechaUltimoAvisoDerivado` sellado, mensaje guardado como "(bot pausado, lo atiende un asesor)" |
+| Texto con la pausa de 48 hs vencida (flujo normal) | **PASS** | Contacto con `FechaBotPausado` a −72 hs: aviso emitido igual, 3er sobre al push service |
+| **No** avisa cuando es ese mensaje el que recién deriva | **PASS** | Contacto `Respondido` con categoría sin cuestionario: queda `DerivadoManual`, recibe **su** aviso de derivación (`/Contactos/Details/528`) y **ningún** aviso de CRM-028 — `FechaUltimoAvisoDerivado` quedó en `NULL` y no hubo 4º sobre |
+| Anti-ruido: varios mensajes → 1 aviso | **PASS** (con reserva, ver CRM-029) | 4 mensajes seguidos (2 texto + 2 audio) → **1** campanita, **1** push, marca sin cambiar |
+| Vuelve a avisar recién tras una lectura real | **PASS** | `GET /Chats/Detail/{id}` (uno de los 6 puntos) estampa `FechaUltimaLecturaAgente`; el mensaje siguiente genera aviso nuevo. Probado con la acción real del controller, no con SQL |
+| `MarcadoNoLeidoManual` sin tocar | **PASS** | `POST /Chats/MarcarNoLeido` cambia **solo** el flag (lectura sigue `NULL`, aviso sin cambiar) y el mensaje siguiente **no** avisa de nuevo. El guard no mira ese flag |
+| Best-effort del webhook (CRM-020) | **PASS** | 5 modos de falla forzados — 410, 404, 500, conexión rechazada y **clave privada VAPID basura** (`VAPID private key should be 32 bytes long`): en los 5 el mensaje del contacto quedó guardado, la campanita se creó y el webhook respondió 200 |
+| `404`/`410` dan de baja la suscripción sola | **PASS** | 410 → `DeletedAt` sellado + log "dada de baja sola (410)"; 404 → ídem. 500 y conexión rechazada → `FallosConsecutivos=1` y la fila **viva** |
+| Alta / baja / re-alta del dispositivo | **PASS** | `POST Suscribir` 200; `Desuscribir` idempotente (200 dos veces); endpoint vacío → 400 con motivo; endpoint > 500 chars → 400; sin antiforgery → 400; los 4 endpoints sin sesión → 302 al login |
+| **Único sobre `EndpointHashVivo`** (LP-057) | **PASS** | SQL directo: fila soft-deleted + fila viva con el **mismo** hash conviven; una 2ª fila viva con ese hash → `ERROR 1062 ... UX_PushSubscriptions_EndpointHash_Vivo`. Columna `VIRTUAL GENERATED` confirmada en `information_schema` |
+| Rama de **revivir** la fila (la que el Implementador declaró sin probar) | **PASS** | Con la fila dada de baja por el 410, re-suscribir el **mismo** endpoint la revive en su lugar: `DeletedAt=NULL`, `FallosConsecutivos` a 0 y el total de filas sin cambiar (4 → 4). La rama `IgnoreQueryFilters` queda ejercitada |
+| Privada de VAPID fuera del repo | **PASS** | `grep -rn PrivateKey` sobre `*.json/cs/js/cshtml/config/xml`: solo código y comentarios, ningún valor. `appsettings.Secrets.json` no está trackeado y no contiene `Push`. La privada vive en `user-secrets` (`aspnet-OlvidataCRM-4f6a9b2e…`) |
+| Canal sin configurar | **PASS** | Con la privada vacía: `configurado:false` en los 2 GET, **0** envíos intentados, mensaje y campanita igual |
+| Recorte del cuerpo a ~120 chars | **PASS** | Texto de 200 caracteres → cuerpo de exactamente 120 con elipsis |
+| Regresión campanita in-app | **PASS** | `GetRecent` 200 (`unreadCount` + 8 items), `MarkAsRead` 200, `/Notifications` 200 con el botón nuevo presente |
+| Regresión `/Chats` | **PASS** | `/Chats` 200, `Detail` 200 (2 contactos), `ListaParcial` 200, `HiloParcial` 200 |
+| Regresión flujo normal del bot | **PASS** | Contacto nuevo por webhook: creado (`Respondido` / `AwaitingCategory`), sin aviso de CRM-028 |
+| **R1 — `push-sw.js` sobrevive a las recargas** | **NO VERIFICADO** | Requiere navegador. Lo que sí se verificó: `sw.js` ya no existe en `wwwroot` (el único SW que la app puede registrar es `push-sw.js`), `GET /push-sw.js` 200 y el archivo no tiene handler de `fetch` ni uso de `caches` |
+| Entrega del globo a un navegador real | **NO VERIFICADO** | Lo reportado por el Implementador no se pudo reproducir por el aislamiento de red. Sí está probado todo lo anterior a la última milla: sobre cifrado `aes128gcm`, VAPID `vapid t=<jwt>, k=<pública>`, TTL 1800, `Urgency: high` |
+| iOS (R3) / Firefox / Safari | **NO VERIFICADO** | Fuera del alcance del entorno (iPhone real con el CRM en pantalla de inicio; solo había Chromium) |
+
+### Máquina de estados del anti-ruido
+
+`FechaUltimoAvisoDerivado = NULL` → (mensaje de `DerivadoManual`) → **avisado** → (n mensajes más)
+→ **avisado**, sin aviso nuevo → (`FechaUltimaLecturaAgente > FechaUltimoAvisoDerivado`) →
+**re-armado** → (mensaje) → **avisado**. Los 4 saltos reproducidos. El flag `MarcadoNoLeidoManual`
+**no** es una transición de esta máquina: verificado que no re-arma.
+
+### Defectos
+
+**CRM-029 — minor — parte de defecto emitido.** El anti-ruido no se sostiene cuando la pestaña del
+chat queda abierta: `Chats/HiloParcial` estampa `FechaUltimaLecturaAgente` cuando trae mensajes
+nuevos, y eso re-arma el guard justo antes del mensaje siguiente. Reproducido 3/3 — aviso 23:49:23 →
+lectura 23:49:27 → aviso 23:49:27 → lectura 23:49:31 → aviso 23:49:31: **3 mensajes, 3 avisos**, en
+el escenario más común (el asesor deja el chat abierto toda la jornada) y el peor (suena mientras
+está mirando ese mismo chat). Catalogado en `docs/qa/regresiones-manuales.yml`. **No se aplicó
+ningún fix.** Criterio de re-verificación: con la pantalla de detalle abierta en background, 3
+mensajes seguidos del contacto producen **1** aviso, y después de abrir o responder deliberadamente
+el siguiente mensaje **sí** vuelve a avisar.
+
+Defectos de la corrida anterior (2026-09-14): **CRM-023 cerrado** — no se re-abrió nada en esta
+corrida.
+
+### Observaciones no bloqueantes
+
+1. El envío de push corre **dentro** del procesamiento del webhook: con 3 dispositivos y uno
+   inalcanzable tardó ~8 s. Meta ya tiene su ACK (el procesamiento es en background), pero demora la
+   respuesta del bot al contacto. Candidato a cola si alguna vez hay muchos dispositivos.
+2. `push.js` usa `navigator.serviceWorker.getRegistration('/push-sw.js')`, que toma una URL de
+   **cliente** y no de script: hoy funciona porque el scope es la raíz, pero devolvería igual
+   cualquier otro SW registrado en `/`. Cosmético.
+3. El comentario del `_Layout` dice que "dos SW pueden compartir scope"; en realidad un scope tiene
+   una sola registración. La condición por `scriptURL` es correcta igual.
+4. Incidental, fuera de CRM-028: con el token de WhatsApp inválido aparecieron una notificación
+   apuntando a `/Contactos/Details/0` y la pérdida del `ContactoRespuesta` cuando `OnNewAsync` falla
+   al enviar (la excepción sube hasta el `catch` del webhook y se pierde el `SaveChanges`). Es
+   preexistente y solo se manifiesta con credenciales rotas; no lo introduce este CR.
+
+### Riesgos de liberación
+
+- **R2 sigue abierto y es el riesgo dominante:** sin HTTPS válido no hay push. El certificado de
+  `portal.olvidata.com.ar` vence **2026-10-19**. Deployar CRM-028 antes de resolver el certificado
+  es publicar una funcionalidad que se apaga en 4 días.
+- La privada de VAPID **todavía no está cargada en producción**: hay que ponerla en
+  `appsettings.Secrets.json` del sitio o en `Push__PrivateKey` **antes** del deploy; si no, el canal
+  queda inerte (degrada bien, pero no avisa nada).
+- R1 y la entrega real al navegador no están verificados por QA. Es un chequeo manual de 5 minutos
+  en el navegador de Joaquín: activar los avisos, recargar 3 veces, confirmar que el botón sigue en
+  "activados" y que llega un globo con el CRM cerrado.
+- La migración es aditiva y ya está aplicada en dev; producción sin tocar.
+
+### Checklist de merge
+
+- [x] Build en limpio, 0 errores
+- [x] Migración aditiva, reversible (`DropTable` se lleva la columna generada y su único)
+- [x] Ningún secreto en el repo
+- [x] Los 4 endpoints nuevos exigen sesión y antiforgery
+- [x] Best-effort del webhook probado con 5 modos de falla
+- [x] Sin regresión en campanita, `/Chats` ni flujo normal del bot
+- [ ] R1 + entrega real al navegador (manual, pendiente)
+- [ ] Certificado de producción resuelto (R2)
+- [ ] `Push:PrivateKey` cargada en producción
+- [ ] CRM-029 resuelto o aceptado explícitamente como conocido
+
+### Estado go/no-go
+
+**NO-GO para deploy a producción hoy**, por dos condiciones de entorno que no dependen del código:
+el certificado que vence el 2026-10-19 (sin HTTPS válido el push no existe) y la privada de VAPID
+sin cargar en el sitio. El código, en lo que este QA pudo observar, está sano: 19 criterios PASS,
+1 defecto minor, 0 major, 0 blocker, y la rama que el Implementador había dejado sin probar quedó
+cubierta y pasa. **GO condicionado** a: (1) certificado resuelto, (2) privada cargada, (3) el
+chequeo manual de 5 minutos de R1 + globo real en un navegador, y (4) decisión sobre CRM-029 —
+arreglarlo o aceptarlo por escrito.
+
 ## Historial de ajustes
+
+### Bloques archivados (2026-10-15)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-08** — 1 bloques (2026-08-28 a 2026-08-28) → [`6-qa-2026-08.md`](historial/6-qa-2026-08.md)
+
 
 ### Bloques archivados (2026-09-25)
 
@@ -927,6 +834,7 @@ Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-p
 
 - **2026-07** — 2 bloques (2026-07-21 a 2026-07-25) → [`6-qa-2026-07.md`](historial/6-qa-2026-07.md)
 
+- 2026-10-15 (CRM-028, Web Push de chats derivados a mano): lote de 1 ítem, repo del sistema read-only y `git status` idéntico al cierre. Navegador **no disponible** (ni el MCP `playwright` ni un Chrome propio alcanzan el puerto de la app: `ERR_CONNECTION_REFUSED` con el listener confirmado por `netstat` y accesible por `curl`) → método HTTP autenticado + SQL + log + **push service falso propio** que recibe el sobre real y devuelve 201/404/410/500/conexión rechazada. WhatsApp de dev neutralizado por variable de entorno, 0 mensajes reales. **19 criterios PASS, 3 NO VERIFICADOS** (R1 del `unregister` selectivo, el globo llegando a un navegador real, iOS/Firefox/Safari). Los 3 caminos de entrada PASS y el negativo PASS (el mensaje que recién deriva **no** duplica el aviso). LP-057 probado a nivel SQL contra el único de la columna generada; **la rama de revivir la fila soft-deleted, que el Implementador declaró sin probar, quedó cubierta y pasa**. Best-effort CRM-020 probado con 5 modos de falla incluida la clave VAPID basura. Privada de VAPID fuera del repo, confirmada en `user-secrets`. **1 defecto minor nuevo: CRM-029** — el anti-ruido se cae a un aviso por mensaje cuando la pestaña del chat queda abierta, porque `HiloParcial` estampa la lectura en cada tick con mensajes nuevos (3/3 reproducido); parte de defecto emitido, **sin fix aplicado**. **NO-GO hoy**: el certificado de producción vence el 2026-10-19 y sin HTTPS válido no hay push, y la privada no está cargada en el sitio. GO condicionado a esas 2 cosas + el chequeo manual de R1/globo real + decisión sobre CRM-029.
 - 2026-09-14 (feature "4 frentes — combo con gancho", E1-E7): QA con la app ejecutada contra `olvidatacrm_dev`, sin navegador (Playwright MCP aislado del host) → HTTP autenticado + SQL + **harness de consola con WhatsApp falso y rollback** (dev tenía credenciales reales de Meta/Places y outbound despausado: se pausó y se usaron credenciales inválidas; 0 mensajes, 0 Places). Baseline HEAD en worktree para "idéntico a antes". IA real 7 mensajes, USD 0,149. **8/8 puntos obligatorios OK**; CU-30 a CU-35 PASS (CU-33 CA3 parcial, CU-35 CA2 sin datos). **1 defecto major, CRM-023** (selector "Frentes" nunca bindeaba en el GET del checklist → Build en silencio), auto-fix `traditional: true` en 2 vistas, re-verificado, catalogado en yml y en 32. R3 medido: 234/234 Pendiente → Presencia web. Primera corrida con el campo "Última validación de reglas cross-proyecto" (2026-09-14). **GO condicional**; manual pendiente: consola, tema oscuro y XHR real.
 - 2026-08-28 (expansión nacional de outbound): QA de un **cambio de datos** en producción — 176 campañas + 176 industrias + 528 queries insertadas por 2 agentes en paralelo sobre 22 ciudades nuevas. Sólo lectura contra la base real, 0 escrituras. **GO, 7/7 PASS, 0 defectos.** Conteos exactos y rangos de `Id` perfectamente contiguos (142-317 / 142-317 / 881-1408), `ClaveRubro` única en 304/304 filas incluyendo las soft-deleteadas, `IndustriaCatalogoId` verificado en **las 22 ciudades** con firma idéntica y coincidente con el mapeo de las 108 preexistentes, las 6 campañas protegidas intactas (`UpdatedAt` ≤ 08-26; las únicas escrituras de hoy sobre filas viejas son del scheduler de 03:02-03:09), integridad referencial sin un solo huérfano, y las **528** queries con anclaje geográfico correcto (510 con la ciudad en el texto, 18 con localidad vecina + provincia), 0 duplicados y 0 colisiones con `GoogleMapsQueryUsadas`. Cupo real **465-469 msj/día** (49,4-49,9% de `CupoDiario`=940, lejos del techo y con tope global duro que lo hace inviolable). El incidente de MySqlConnector de la tanda A no dejó rastro — probado por contigüidad de `AUTO_INCREMENT`. **3 observaciones no bloqueantes**: el próximo barrido nocturno pasa de 91 a ~255 queries de Google Maps (el restock global recorre todas las campañas activas todos los días, sin filtrar por `Dias`) → salto de coste de API a vigilar; la demanda diaria quedó ~17% arriba de `MetaDiaria`=400 (preexistente, palanca `RebalancearMatrizAsync`); slug vs. `Nombre` cosmético. **Efecto colateral positivo no reportado por las tandas**: 266 contactos huérfanos adoptados (127 `Pendiente`), huérfanos totales de 460 a 333. Hallazgo preexistente cuantificado: **140 de 721 queries viejas** sin anclaje geográfico a su `Region`, con ~20 genuinamente ambiguas — no se tocó, queda como deuda.
 - 2026-08-28: QA de la feature **matriz de módulos valorizados + borrador de propuesta MVP/FULL**, previa al primer deploy (código sin commitear, migración sólo en dev). Método: build propio en Release **2 veces** (0 errores / 13 advertencias preexistentes, antes y después del auto-fix), app levantada contra `olvidatacrm_dev`, **26 pantallas, 8 endpoints POST/AJAX y 29 generaciones de mensaje** por HTTP autenticado, con assertions SQL independientes. MCP `playwright` no disponible (declarado; residuo manual acotado al texto real de la pregunta 1 por WhatsApp). **Los 11 escenarios del Implementador: 11 PASS** (el #4 con 1 defecto, auto-fixeado). Seed verificado contra la base —**84/88/9/62** y los 9 rangos por rubro coincidiendo uno por uno—; la lectura inicial de 89/10 resultó ser 2 filas soft-deleteadas de datos de prueba, eliminadas al cerrar. Los 5 rubros sin matriz (incluido **Alquiler de inmuebles**, el hallazgo del Implementador) muestran el aviso, no un checklist vacío. Las **9 reglas de redacción**: PASS, con el truncado a 4 ítems verificado en el caso pedido (**Ganadería con 7 imprescindibles → "y 3 más"**) y **el bug del doble "y" confirmado como corregido leyendo la salida, no el código**. Wiring de "Sugerir" probado con **12 contactos reales** cubriendo los 3 vocabularios de `Contacto.Rubro`: 7 con matriz (incluido `estudio`, o sea el fix del mapeo funcionando, y `indumentaria-once` con sufijo de región), 5 con el comportamiento viejo intacto. Cuestionario del bot: `Questions["build"]` en **2 preguntas** con la numeración de emoji correcta, `Contacto.CantidadUsuarios` **sin un solo escritor ni lector** (por grep), y la tabla de decisión computada contra la base da **7 rubros al mecanismo nuevo + "Vinos y bebidas" al menú fijo**; los 2 hallazgos del Implementador (`MecanismoPregunta1Async` como fuente única en los 2 call sites, `ArmarPitchPostDolorAsync` reconociendo las 2 fuentes) verificados, con la prueba social real confirmada para los rubros nuevos. **El fix Farmacia/Contabilidad no reintroduce cotización automática**: rastreados todos los consumidores hasta el último (`industria?.Plan` sólo dentro de `if (PresupuestoCotizadoUsd.HasValue)`, campo que el bot ya nunca setea; `CotizaAutomatico` sigue en `false`). `.gitignore` efectivo y **ningún archivo de clave commiteado nunca** (`git log --all` sin resultados) — cierra la duda que el Implementador dejó abierta. Regresión del sprint ya deployado: 24 rutas sin 500, 0 `[ERR]`/`[FTL]`. **1 defecto: CRM-015 (major) — auto-fixeado.** Los módulos cuyo nombre empieza con sigla salían deformados en el texto que se copia al WhatsApp del cliente (`ABM Cuadrilla` → `aBM Cuadrilla`, `SEO básico y deploy` → `sEO…`, `CRM de WhatsApp` → `cRM…`): 9 de 84 módulos, los 9 imprescindibles, en 4 de los 9 rubros. Catalogado en `docs/qa/regresiones-manuales.yml` **antes** del fix, corregido con un guard de sigla inicial en `PropuestaMvpFullService.Minuscula()` (sin lógica de negocio nueva: restaura la intención ya declarada en el comentario del propio método), y re-verificado sobre **18 mensajes con 0 fallas** y sin regresión en los nombres que sí deben bajar la inicial. 4 observaciones no bloqueantes (interpretación de la regla 5, "y" duplicada que viene del nombre del módulo, inconsistencia matriz-con-0-MVP entre los 2 consumidores, comentario desactualizado en `RubroHelpers`). Estado dev restaurado (84/88/9/62). Estado: **GO para deploy de producción** (deploy no ejecutado, queda para el cliente; pendiente commitear y aplicar la migración en producción).

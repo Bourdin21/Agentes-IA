@@ -612,6 +612,68 @@ vive en `plan-instagram-dm-bot.md` §4-§7 y §14, y la implementacion en `5-imp
   tiene query filter global de soft-delete (LP-057). El hueco equivalente del unico **preexistente**
   de `Telefono` queda abierto y anotado como deuda.
 
+## Web Push para los chats derivados a mano (CRM-028, 2026-10-15)
+
+Primera vez que el estudio hace Web Push. Patron nuevo **PAT-069** (ver catalogo): el servidor
+notifica a un navegador que no tiene el sitio abierto. Tres piezas que no existian: un service
+worker vivo, claves VAPID, y una suscripcion por dispositivo guardada en BD.
+
+**Domain**
+- `PushSubscription : SoftDestroyable` — `UserId`, `Endpoint` (varchar(500)), `P256dh`, `Auth`,
+  `EndpointHash` (char(64), SHA-256 del endpoint), `UserAgent`, `FechaUltimoEnvioOk`,
+  `FallosConsecutivos`. El unico va sobre la **columna generada** `EndpointHashVivo` y no sobre
+  `EndpointHash`, por el query filter global de soft-delete (LP-057, mismo patron que `IgScopedId`).
+  No sobre `Endpoint` directo: 500 chars utf8mb4 no entran en un indice de MySQL.
+- `Contacto` + `FechaUltimoAvisoDerivado` (`DateTime?`). Es el estado del anti-ruido: se avisa si
+  `FechaUltimoAvisoDerivado == null` o si `FechaUltimaLecturaAgente > FechaUltimoAvisoDerivado`
+  (= alguien lo leyo desde el ultimo aviso). No hace falta campo nuevo de lectura: `/Chats` ya
+  escribe `FechaUltimaLecturaAgente` en los 6 puntos donde un asesor toca el chat.
+
+**Application**
+- `IPushNotificationService`: `SuscribirAsync(userId, dto)`, `DesuscribirAsync(userId, endpoint)`,
+  `EnviarAsync(userId, titulo, mensaje, url, tag)`, `TieneSuscripcionAsync(userId)`.
+- `PushSubscriptionDto` (endpoint + keys.p256dh + keys.auth, la forma que devuelve el navegador) y
+  `PushSettings` (`PublicKey`, `PrivateKey`, `Subject`).
+
+**Infrastructure**
+- `PushNotificationService` sobre **`Lib.Net.Http.WebPush` 3.3.1** (`PushServiceClient` +
+  `VapidAuthentication`), registrado con `AddHttpClient` — el envio sale del webhook, no de un
+  request del usuario, asi que nada puede depender de `HttpContext` y el cliente no puede ser
+  `new HttpClient()` por envio.
+- **Best-effort, igual que el resto del webhook (CRM-020):** todo el envio va envuelto; una falla de
+  push no puede tirar el procesamiento del mensaje que el contacto SI mando. `404`/`410` del push
+  service = suscripcion muerta -> se da de baja sola. Otros errores: log y seguir.
+- `BotFlowService.AvisarChatDerivadoAsync(contacto, texto)`. **Se llama desde el punto unico de
+  entrada del mensaje entrante, con el estado capturado ANTES de procesar** — no desde las ramas de
+  `return`. Hoy un `DerivadoManual` que escribe sale por 3 caminos distintos (multimedia en la rama
+  `loAtiendeUnaPersona` ~l.524, texto con bot pausado ~l.626, y el flujo normal si la pausa de 48hs
+  ya vencio); enganchar en las ramas garantiza olvidarse de una.
+
+**Web**
+- `NotificationsController`: `GET ClavePublica`, `POST Suscribir`, `POST Desuscribir`,
+  `GET EstadoPush`.
+- `wwwroot/push-sw.js`: **solo** `push` y `notificationclick`. Sin un solo `fetch`/`caches` —
+  el service worker anterior de este proyecto se desregistro justamente por cachear un CRM en vivo.
+- `_Layout.cshtml`: el `unregister()` **global** de hoy (l.266) pasa a selectivo (desregistra todo
+  scope que no sea el de `push-sw.js`). Si queda global, el SW nuevo se suicida en cada carga.
+- `wwwroot/js/push.js` + el boton en el dropdown de la campanita y en `/Notifications`.
+
+**Configuracion:** `Push:PublicKey` / `Push:PrivateKey` / `Push:Subject` (mailto). La privada va en
+User Secrets en dev y en environment secret del hosting en produccion — **nunca** en un
+`appsettings.json` commiteado. Si rota, todas las suscripciones vigentes mueren y hay que reactivar
+dispositivo por dispositivo.
+
+**Migracion EF:** `AddPushSubscriptions` — tabla nueva + 1 columna en `Contacto`. Aditiva.
+
+**Riesgos**
+- R1: el `unregister()` global del layout mata el SW nuevo. Es el primer punto a verificar en QA.
+- R2: **push exige HTTPS valido.** El cert Let's Encrypt de `portal.olvidata.com.ar` vence
+  **2026-10-19 y no renueva solo** (`metadata.md`) — si vence, el push se cae con el sitio.
+- R3: iOS entrega push solo si el CRM esta instalado en la pantalla de inicio. El `manifest.webmanifest`
+  ya existe, asi que alcanza con instalarlo.
+- R4: el aviso se dispara desde el webhook de Meta, fuera de cualquier request autenticado: el
+  servicio resuelve destinatarios por rol y abre su propio scope de DbContext.
+
 ## Historial de ajustes
 - 2026-07-14: Arquitectura técnica cerrada (migración base de BotPublicitario). 4 entidades Domain + 4 enums, 4 interfaces Application, mapa completo de reutilización (WhatsAppClient/GoogleMapsService portados sin cambio de lógica; BotFlowService/OutboundCampaignService migrados a BD). 1 migración EF. Runbook de corte de producción definido y ejecutado.
 - 2026-07-21: Arquitectura de "campañas de contacto frío configurables" cerrada. Resueltas 2 ambigüedades: `ClaveRubro`/queries cuelgan de `CampanaOutboundIndustria` (no de `IndustriaCatalogo`, varios rubros comparten precio); `TemplateWhatsApp` de campaña gobierna solo el primer contacto frío (Referido/follow-up mantienen template fijo). 3 entidades + 1 enum, 1 migración EF, `CampanasController` nuevo, 2 filas de seed para Farmacia/Estudio.
@@ -624,3 +686,4 @@ vive en `plan-instagram-dm-bot.md` §4-§7 y §14, y la implementacion en `5-imp
 - 2026-09-14: agregadas las migraciones `AddPausaBotPorContacto` y `AddConversacionIa`, la seccion 6.2 (conversacion agentica con LLM: piezas, 9 herramientas con enums cerrados, prompt en 2 bloques por la cache, fallback al arbol, modo sombra sin efectos, pausa por contacto) y la ampliacion de 6.1 a 3 lineas de costo con reparto y techos derivados. Actualizados 2 riesgos: el standby ya se persiste, y se suma `StartsWith` a la familia MH-001.
 - 2026-09-04: agregadas las 6 migraciones posteriores a `AddCampanaBusquedaCompleta` y la sección 6.1 (control de costos del bot: tarifas Meta por país, caché de `place_id` de Maps, tope único en ARS, volumen diario derivado del precio).
 - 2026-09-14: Arquitectura de "4 frentes — combo con gancho" (§7.2, pendiente de aprobación). 2 enums, 5 props en `Contacto` + `AsignarGancho`, `Frente` en `ModuloCatalogo`, 4 plantillas en `ConfiguracionOutbound`; helpers `CategoriaHelpers`/`GanchoHelpers`/`PlantillasCombo`; consulta de módulos compartida; 1 migración aditiva `AddGanchoYFrenteComercial`. Hallazgos: filtro de no-envío antes del `Take(cupo)`, guardas de plantillas y `TemplatesSinCampana` a extender (LP-002), follow-up `nurturing_v2` incoherente con el combo (decisión A1).
+- 2026-10-15: Arquitectura de CRM-028 (Web Push, PAT-069) cerrada. Entidad `PushSubscription` con unico sobre columna generada (LP-057) e indice por hash del endpoint, `Contacto.FechaUltimoAvisoDerivado` como estado del anti-ruido reusando `FechaUltimaLecturaAgente`, `Lib.Net.Http.WebPush` 3.3.1 por `IHttpClientFactory`, service worker sin nada de cache y el `unregister()` global del layout a selectivo. 1 migracion aditiva. Riesgo externo anotado: el cert de produccion vence 2026-10-19 y sin HTTPS valido no hay push.

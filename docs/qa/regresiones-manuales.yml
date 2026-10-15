@@ -8047,6 +8047,36 @@ regresiones:
     regla_preventiva: "Toda garantia que compare una URL generada (Url.Action, el action de un form) contra una URL recibida (Request.Path) tiene una discrepancia estructural: la generada lleva PathBase y la recibida no. Si de esa comparacion depende una guarda que falla cerrado, el modo de falla es una caida total que solo aparece en el deploy. Se mide levantando la app con UsePathBase en la verificacion, y conviene comparar identificadores de ACCION (controlador/accion del descriptor) y no rutas."
     fix_aplicado: null
 
+  - id: CRM-029
+    modulo: "Guard anti-ruido de avisos contra el estado de lectura de un listado con polling"
+    titulo: "Un polling de background que estampa 'leido' re-arma el guard anti-ruido en cada mensaje: el 'un aviso por chat' se degrada a un aviso por mensaje"
+    severidad: minor
+    reproducido_en: "crm-olvidata, 2026-10-15, QA de CRM-028 (Web Push de chats derivados a mano). Reproducido 3/3 con la pestania del chat abierta."
+    pasos:
+      - "Tener un guard anti-ruido del tipo 'avisar solo si FechaUltimoAviso es null o si FechaUltimaLectura > FechaUltimoAviso'."
+      - "Dejar abierta en background la pantalla de detalle del chat, que hace polling cada pocos segundos y estampa FechaUltimaLectura cuando trae mensajes nuevos."
+      - "Hacer que el contacto mande 3 mensajes seguidos."
+    sintoma: "Llegan 3 avisos en vez de 1. Cada mensaje nuevo hace que el tick siguiente del polling estampe la lectura con fecha POSTERIOR al aviso, lo que re-arma el guard justo antes del mensaje siguiente. Medido: aviso 23:49:23 -> lectura 23:49:27 -> aviso 23:49:27 -> lectura 23:49:31 -> aviso 23:49:31. El escenario es el mas comun de todos (el asesor deja el chat abierto toda la jornada) y ademas es el peor: el aviso suena mientras la persona esta mirando ese mismo chat."
+    expectativa: "El guard se re-arma solo con una lectura DELIBERADA del asesor (abrir el detalle, responder, marcar todos leidos), no con un refresco automatico que el asesor no pidio."
+    causa_raiz: "Se reusa como senal de lectura un campo que dos actores distintos escriben con semanticas distintas: el asesor cuando abre o responde, y el polling cuando detecta mensajes nuevos. Para el listado de 'no leidos' ambas escrituras son equivalentes; para un guard anti-ruido no lo son, porque la del polling esta causalmente disparada por el mismo mensaje que motiva el aviso."
+    capa: "Negocio (el guard) + Web (el endpoint de polling)"
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "Mensaje entrante -> GET del endpoint de polling del hilo -> mensaje entrante. Contar avisos."
+      condicion_falla: "Se emite mas de un aviso sin ninguna accion deliberada del asesor en el medio."
+    archivos_fix:
+      - "El guard: comparar contra un campo de lectura DELIBERADA propio, o excluir la escritura del polling."
+      - "El endpoint de polling: no estampar el estado de lectura, o estamparlo en un campo aparte del que lee el guard."
+    migracion_ef: "posible (1 columna nueva si se separa la lectura deliberada de la lectura por refresco)"
+    regla_catalogo: "pendiente de alta en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "Con la pantalla de detalle abierta en background, 3 mensajes seguidos del contacto producen 1 solo aviso."
+      - "Despues de que el asesor abre o responde el chat deliberadamente, el mensaje siguiente SI vuelve a avisar."
+      - "El listado de no leidos sigue comportandose igual que antes (el polling puede seguir marcando leido si eso es lo que se decide para esa pantalla)."
+    pruebas_minimas:
+      - "Secuencia mensaje -> polling -> mensaje -> polling -> mensaje, contando avisos emitidos y mirando las fechas de aviso y lectura."
+    leccion_adicional: "Antes de reusar un campo existente como estado de un guard nuevo, listar TODOS los puntos que lo escriben y preguntarse si alguno lo escribe como efecto del mismo evento que el guard quiere limitar. Si lo hace, el guard no limita nada."
+
   - id: MH-060
     modulo: "Costo de cobranza / TasaCostoCobranza / ConfiguracionCostosCobranza"
     titulo: "Un porcentaje copiado del tarifario del proveedor se sembro como costo total: era NETO de IVA y sin la retencion que se cobra sobre el bruto, y el error se autoconfirma contra la misma fuente que lo origino"
