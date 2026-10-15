@@ -6,6 +6,20 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-15 — documentador (correccion del informe de medios de pago: el ahorro estaba mal atribuido)
+
+- Etapa: Documentacion. **Correccion de un informe publicado el mismo dia**, sobre la MISMA URL (`https://claude.ai/artifact/UnKcoPVRcaqrxDBdDyx2Yq`, version 2) — es el primer caso donde se ejerce la regla de la instruccion 41 de republicar en vez de crear un link nuevo.
+- **Disparador: el cliente aporto el panel completo de costos de Mercado Pago y un dato que no estaba: adelantar el cobro cuesta 6,03% mas.** Con ese numero, la conclusion principal del informe deja de sostenerse como estaba escrita.
+- **El error era de ATRIBUCION, no de aritmetica.** Los $458.855 son correctos, pero el informe los presentaba como el ahorro de "cambiar de terminal", cuando en realidad son el resultado de DOS decisiones independientes. La descomposicion: **$275.927 los aporta dejar de adelantar** y **$182.927** el cambio de terminal. Y lo mas importante: **cambiar de terminal sin dejar de adelantar ahorra $0** (−$83 exactos). Un informe que promete $458.855 por mover el posnet y despues no ahorra nada es peor que no haberlo escrito.
+- **Por que no se habia visto:** la comparacion era Payway CON adelanto contra Mercado Pago SIN adelanto, porque la tasa de MP no tenia adelanto cargado — no existia el dato. No era un supuesto declarado, era un hueco que se leia como una ventaja de la plataforma.
+- **Dato nuevo, con su supuesto marcado:** el adelanto de Mercado Pago cuesta 6,03%. En el informe figura como ~7,30 puntos, aplicandole IVA porque **todos** los demas porcentajes de ese panel resultaron netos de IVA (MH-055). Queda declarado como supuesto: falta una liquidacion con un adelanto hecho. Si el 6,03% fuera final, el adelanto de MP sale aun mas barato.
+- **Hallazgo lateral que cambia como mirar el adelanto:** Payway cobra menos puntos (4,39 contra ~7,30) pero adelanta menos dias (~12 contra ~21). **En tasa anual, el adelanto de Mercado Pago sale mas barato: ~105% contra ~134%.** Los dos siguen siendo mas caros que una linea bancaria.
+- **Las tasas de Mercado Pago quedaron verificadas una por una contra el panel** (captura del 15/10): costo por cobro 4,08% y adicionales 2x 4,40 · 3x 6,20 · 6x 10,30 · 9x 15,30 · 12x 19,50 · 18x 26,10 — la suma da exactamente las 6 filas sembradas. Debito 2,88% y Pix 3,40% tambien. **Ninguna tasa cargada cambio**: la configuracion estaba bien, lo que faltaba era el adelanto.
+- **Dos medios que el panel ofrece y el sistema no tiene:** tarjeta prepaga (3,68%, 3 dias) y tarjeta de credito extranjera (4,08%, 21 dias). Hoy entran como credito comun y su costo queda mal calculado. No se agregaron: son `MetodoPago` nuevos y hay que querer distinguirlos en el momento de cobrar, que es una decision de operacion.
+- **Decision de modelo pendiente, y no se toco a proposito.** El adelanto de MP es opcional ("si se quiere adelantar"), mientras que en Payway el cliente esta adherido a un plan permanente. Eso es exactamente el caso que MH-056 modelo como flag por linea de pago y MH-059 revirtio a vigencia, por pedido del cliente, hace un dia. **Mover el modelo por tercera vez sin confirmacion seria el tercer ida y vuelta del mismo campo**, asi que se planteo la decision con los numeros en la mano en vez de implementarla.
+- Motivo: el cliente aporto configuraciones nuevas de plataformas de pago que invalidaban la atribucion del ahorro.
+
+
 ### 2026-10-15 — documentador (informe de medios de pago publicado como pagina navegable)
 
 - Etapa: Documentacion (etapa 7). No hubo etapas 0-6: el analisis se construyo sobre la estructura de costos que MH-055/059 dejo medida la vispera. Entregable y decisiones de redaccion en `7-documentador.md`; **la URL queda anotada ahi y las proximas versiones se republican sobre la misma**.

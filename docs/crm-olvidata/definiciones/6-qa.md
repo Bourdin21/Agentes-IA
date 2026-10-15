@@ -870,6 +870,55 @@ Harness (rollback): S1 tabla de gancho (26), S2A lote sin combos con A/B, S2B lo
 
 **GO condicional** para merge y deploy de E1-E7 con el outbound pausado, sujeto al procedimiento manual F8. **NO GO para reactivar el envío de combos** hasta tener las plantillas corregidas y aprobadas en Meta.
 
+## QA — canal nuevo de DM de Instagram (2026-10-15)
+
+**Alcance probado: la mitad de INGRESO, sin Meta y sin deployar.** Migraciones aplicadas a `olvidatacrm_dev`, app en local y 19 chequeos contra el webhook con firma HMAC real. **19/19 PASS.** El lado de ENVÍO queda abierto: necesita credenciales y un IGSID real.
+
+### Resultados
+
+| Chequeo | Resultado |
+|---|---|
+| GET de verificación con token correcto | 200 + el challenge |
+| GET con token incorrecto | 403 |
+| POST con firma `X-Hub-Signature-256` inválida | 403, ningún contacto creado |
+| DM de texto con firma válida | 200 inmediato (ACK); contacto con `CanalMensajeria=2`, `CanalOrigen=5`, `Telefono=NULL`, `IgScopedId`, `EstadoEmbudo=Respondido` |
+| El mensaje queda en el hilo aunque el envío falle | sí (ver CRM-020 abajo) |
+| Mismo `mid` dos veces | el segundo se descarta |
+| `is_echo: true` | no crea contacto ni dispara al bot |
+| `sender.id` = la propia cuenta | descartado |
+| Reacción (corazón) | no llega al LLM ni crea contacto |
+| Mensaje sin texto ni adjunto | descartado |
+
+Esquema verificado contra la base de dev y después contra producción: `Telefono` nullable, `IgScopedIdVivo` VIRTUAL GENERATED con su único, `ArchivoAdjunto` longblob, y **los 10.235 contactos de producción en `CanalMensajeria = 1`**. La base de dev se devolvió a su estado previo (flags restaurados, contactos de prueba borrados).
+
+### Defectos encontrados por esta prueba
+
+**CRM-020 (reincidencia) — un fallo de envío perdía el mensaje entrante completo.** `major`.
+Los envíos del árbol (`OnNewAsync`, `SendCurrentQuestionAsync`) no están envueltos uno por uno, así que una excepción subía hasta el handler del webhook y el `SaveChanges` final nunca corría: el contacto no se creaba y el mensaje del prospecto desaparecía **sin ningún rastro**. No era nuevo —le pasaba igual a WhatsApp— pero en Instagram pasaba de raro a probable: al vencer el token a los 60 días, **cada DM nuevo se perdía**, no solo quedaba sin respuesta. Fix: `ProcessAsync` envuelto, la entrega es best-effort y el registro está garantizado, con nota en el hilo y notificación in-app al admin. Verificado en la prueba (el contacto se creó con el envío fallando por falta de token).
+
+**CRM-027 (nuevo) — `Results.Forbid()` en un endpoint anónimo devuelve 200, no 403.** `minor`, pero con consecuencia operativa real.
+El GET de verificación con token incorrecto devolvía 200: `Forbid()` invoca el esquema de cookies y responde un 302 a `/Account/AccessDenied`, que con `UseStatusCodePagesWithReExecute` termina en una página HTML. No filtraba el challenge, pero no era un 403 y era inconsistente con el POST del mismo endpoint. Fix: `Results.StatusCode(403)`. **El GET de `/webhook/whatsapp` tiene el mismo detalle y se dejó como está**: funciona en producción y no se toca por cosmética. Cargado al catálogo 32 y a `regresiones-manuales.yml`.
+
+### Defecto encontrado en revisión, antes de aplicar (no por prueba)
+
+**CRM-026 — el `defaultValue` que genera EF para una columna nueva ignora el default de la entidad.** `blocker` si se aplicaba.
+Detalle y reincidencia en el catálogo 32. Lo relevante para QA: el caso 2 del smoke-check de "modificación sobre módulo existente" (los datos PREVIOS a la migración, no solo los nuevos) es el que lo detecta — `SELECT Campo, COUNT(*) FROM Tabla GROUP BY Campo` después de migrar.
+
+### Incidente durante la prueba
+
+Al levantar la app en local, el `AvisosRenovacionSchedulerService` **mandó un template real de WhatsApp**: el `user-secrets` de desarrollo tiene las credenciales de Meta de producción. Fue a un número de datos sembrados (`5490000770005`), nadie lo recibió, pero Meta aceptó la llamada. La prueba se repitió apagando los switches del propio sistema en la base de dev y restaurándolos después, sin tocar `user-secrets`.
+**Regla operativa para el próximo QA de este proyecto: verificar el `user-secrets` antes de levantar la app en local.** El recordatorio de renovación de ese mismo cliente vence el 18/10 y volvería a salir en cada corrida local mientras `AvisoRenovacionHabilitado = 1`.
+
+### Pendiente — fase 6 con credenciales
+
+1. **Envío**: texto, quick replies (incluido el menú de rubros degradado a quick replies y a texto numerado si pasan de 13), perfil (`GetPerfilAsync` sobre un IGSID real) y descarga de adjuntos entrantes antes de que venza la URL.
+2. **Ventana**: 24hs, el cartel de cerrada, el botón "Reactivar" oculto y "Seguir por WhatsApp" cuando hay número.
+3. **`is_echo` con un mensaje real** mandado desde la app de Instagram del celular — el fallo más probable de toda la integración.
+4. **Regresión completa de WhatsApp** sobre la base ya migrada (outbound, follow-ups, avisos de renovación), no solo registros nuevos.
+5. **LP-002**: la búsqueda global de `/Chats`, `/Contactos`, `/Clientes` y `/Clientes/Nuevo` con un `@usuario` que solo existe en un contacto de Instagram.
+6. **Editar un contacto de Instagram sin teléfono y guardar** (el teléfono es opcional en Edición y obligatorio en Alta: son reglas distintas a propósito).
+7. **Captura de teléfono por DM**: que tome `2216085665` → `5492216085665` y que **no** tome un CUIT de 11 dígitos.
+
 ## Historial de ajustes
 
 ### Bloques archivados (2026-09-25)

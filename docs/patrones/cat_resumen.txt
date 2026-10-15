@@ -64,3 +64,5 @@ PAT-063   | financiero       | la-platense (CR-04, plan d | Generador de un PLAN
 PAT-064   | financiero       | la-platense (modulo 16 / E | Nota de credito sobre un comprobante PARCIAL: no reabre el pendiente y devuelve el cargo de impuesto con regla de REMANENTE
 PAT-065   | infraestructura  | la-platense (ronda de QA 2 | Token de submit de un solo uso: idempotencia que identifica al REQUEST y no al dato de negocio (lo que ninguna clave natural puede)
 PAT-066   | frontend         | olvidata-agentes-multirubr | Adorno de estado vacio en SVG animado con CSS: el ritmo se deriva, no se escribe
+PAT-067   | infraestructura  | vinosefue (2026-10-15, SSL | Validacion HTTP-01 de Let's Encrypt en ASP.NET Core sobre IIS (bloque .well-known/acme-challenge)
+PAT-068   | integracion      | crm-olvidata (WhatsApp ->  | Ruteo de envio por canal del contacto (IMensajeriaSender)

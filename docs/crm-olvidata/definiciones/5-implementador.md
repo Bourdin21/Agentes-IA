@@ -772,6 +772,54 @@ Todo contacto de outbound frio recibe el combo (pagina 3D + agentes de IA + asis
 - [x] `arbol-comunicacion-bot.md` y `logica-negocio-bot.md` actualizados (E7). [x] PAT-031 confirmado en catalogo. [x] Regla nueva en `32-estandares` (filtro antes del `Take(cupo)`).
 - [ ] Commit (no realizado por instruccion).
 
+## Canal nuevo: DM de Instagram (2026-10-15) — fases 1-5 EN PRODUCCIÓN, fase 6 (QA con credenciales) abierta
+
+Plan: `plan-instagram-dm-bot.md` (§14 tiene el detalle y las decisiones que no estaban en el plan).
+Vía de autenticación: **Instagram Login** (token `IGAA`, envío por `graph.instagram.com/{ver}/me/messages`).
+
+### Piezas nuevas
+
+| Archivo | Qué hace |
+|---|---|
+| `Domain/Enums/CanalMensajeria.cs` | WhatsApp=1 / InstagramDm=2. Decide cliente de envío, clave de búsqueda y elegibilidad para plantillas. |
+| `Application/Settings/InstagramSettings.cs` | Config del canal. `EstaConfigurado` = AccessToken + IgUserId. |
+| `Application/Interfaces/IInstagramClient.cs` + `Infrastructure/Services/InstagramClient.cs` | Texto, quick replies, perfil y descarga de adjuntos ENTRANTES. HttpClient tipado, timeout 30s. **No tiene envío de archivos**: ver abajo. |
+| `Infrastructure/Services/InstagramApiException.cs` | Conserva el código de Meta: 190 token, 10/200 permiso, rate limit, ventana cerrada. |
+| `Application/Interfaces/IMensajeriaSender.cs` + `Infrastructure/Services/MensajeriaSender.cs` | **Pieza clave**, catalogada como **PAT-068**. Rutea el envío por `contacto.CanalMensajeria`. |
+| `Web/Webhook/InstagramWebhookModels.cs` | Payload crudo, forma Messenger (`entry[].messaging[]`). Aparte del de WhatsApp: no comparten forma. |
+| `Web/Webhook/FirmaMetaWebhook.cs` | `X-Hub-Signature-256` compartida por los 2 webhooks. Sin App Secret cargado devuelve true (comportamiento histórico de WhatsApp). |
+
+### Entidades tocadas
+
+- `Contacto`: **`Telefono` pasa a nullable** + `CanalMensajeria`, `IgScopedId` (único), `IgUsername` (display). Métodos de dominio: `TieneIdentidad`, `DestinatarioDelCanal`, `IdentidadVisible` — los 3 existen para que la regla no se reimplemente en los ~20 sitios que hacían `NombreNegocio ?? NombreContacto ?? Telefono` (CRM-001).
+- `ContactoRespuesta.ArchivoAdjunto` (longblob, tope 8 MB): bytes del adjunto entrante de Instagram, bajados en el momento porque **las URLs del webhook de IG vencen** (a diferencia del media id de WhatsApp). Columna aparte de `ArchivoPdf` a propósito: esa significa "presupuesto enviado" y la lee `MensajeriaHelpers.TuvoPresupuesto`.
+- `ConfiguracionOutbound.ConversacionIaModoSombraInstagram` + `EnSombraParaCanal(canal)` (OR con el flag general).
+
+### Migraciones
+
+- `AddCanalInstagramDm` — **editada a mano en 2 puntos**: `CanalMensajeria` con `defaultValue: 1` (EF generaba 0, que no es un valor del enum → los 10.235 contactos en un canal inexistente y el outbound apagado en silencio; regla **CRM-026**), y el único de `IgScopedId` sobre columna generada `IgScopedIdVivo` por **LP-057** (query filter de soft-delete).
+- `AddModoSombraIaInstagram` — **misma trampa con signo invertido**: `defaultValue: true`, no el `false` de EF, porque el canal arranca en sombra.
+
+### Reglas del catálogo aplicadas
+
+- **LP-002**: el barrido de `Telefono` lo dirigió el compilador (nullable reference types → 37 warnings). Búsqueda, listado y ficha actualizados en `/Chats`, `/Contactos`, `/Clientes` y `/Clientes/Nuevo` — los 4 buscan también por `@usuario`.
+- **CRM-024**: los filtros de canal van **antes** del `Take(cupo)` en las 4 queries de outbound, nunca con un `continue` adentro del `foreach`.
+- **MH-001 / CRM-019**: todos los filtros de canal por igualdad contra el int del enum; el "es entrante" de `/Bot` con `EF.Functions.Like`, no `StartsWith`.
+- **CRM-020**: la captura del perfil de IG, la captura de teléfono y el procesamiento entero del mensaje van envueltos. Se encontró y corrigió una instancia vieja — ver `6-qa.md`.
+- **CRM-022**: en modo sombra la tool de teléfono **no escribe**.
+- **CRM-018**: la sombra por canal se persiste en base, no en un static.
+
+### Lo que NO se puede hacer por Instagram, y por qué
+
+**Mandar archivos.** La Attachment Upload API (`/message_attachments`) es de Messenger/Página y por la vía Instagram Login no existe; la alternativa por URL pública no aplica (el PDF vive como bytes y su endpoint está detrás de `[Authorize]`). `IInstagramClient` no expone ningún método de envío de archivos a propósito: el corte vive en `MensajeriaSender` con un mensaje que el asesor entiende. `/Chats` corta el upload del PDF **antes** de guardarlo, y el envío de imágenes del mismo día queda solo en WhatsApp (esa acción guarda el `MediaId` de Meta para poder volver a verla, y ese id no existe por esta vía).
+Si alguna vez se quiere: hace falta un endpoint de descarga firmado y de vida corta, y recién entonces el adjunto por URL.
+
+### Config y encendido
+
+`Olvidata_Instagram` en `appsettings.json` (no secretos) y los 3 secretos + `Features:InstagramDm` + `TokenVenceEl` en **`appsettings.Secrets.json`** del directorio del sitio (gitignoreado, fuera del `.csproj`, sobrevive los deploys). Los 2 flags y el token se leen con **`IOptionsMonitor`**, no `IOptions`: con `IOptions` bindeaban una sola vez al arrancar y editar el archivo no tenía efecto hasta reciclar el app pool — que es exactamente el síntoma que hizo fallar la validación del webhook en Meta sin ninguna pista. Ver `6-qa.md`, CRM-027.
+
+**OJO con la precedencia**: `Program.cs` agrega `appsettings.Secrets.json` *después* de `CreateBuilder`, así que queda **último** y le gana a las variables de entorno — al revés de lo que dice su propio comentario. Deuda: corregir el comentario.
+
 ## Historial de ajustes
 - 2026-09-14: **Feature "4 frentes — combo con gancho", E1-E7.** 2 enums, 5 props + `AsignarGancho` en Contacto, `Frente` en ModuloCatalogo, 4 plantillas por gancho en configuracion; 3 helpers nuevos en Application y `ModuloCatalogoQueries` compartida; lote con plantilla por contacto antes del `Take(cupo)` y A1-a; arbol/IA por gancho y frente; Contactos/Chats/Bot/Salud/Templates/Modulos. Migracion aditiva `AddGanchoYFrenteComercial` aplicada **solo en dev**. Build Release 0 errores (26 advertencias preexistentes). 11 desvios documentados (§6). Pendiente: QA, textos de marketing (concordancia de genero), aprobacion de Meta, migracion en produccion y deploy.
 - 2026-08-27: **Matriz de módulos valorizados + borrador de propuesta MVP/FULL** (feature nueva, reglas del agente `olvidata-presupuesto-bot`). 2 entidades nuevas + migración `20260828023654_AddModuloCatalogo` (2 tablas nuevas, 0 `ALTER`), aplicada **sólo en dev**; seed de la matriz real (**84 módulos / 88 asignaciones / 9 de 14 rubros**, los otros 5 sin datos a propósito); `IPropuestaMvpFullService` en Application con las 9 reglas de redacción, determinístico y sin IA en runtime; `ModulosController` + 5 vistas + 1 JS; wiring del botón "Sugerir" de `Chats/Detail` sin retirar la funcionalidad vieja; 5 cambios al cuestionario del bot. Build en Release **0 errores / 13 advertencias preexistentes**; app levantada y ejercitada por HTTP real (5 pantallas 200, 0 errores en Serilog); generador y resolver de rubro verificados contra datos reales de dev. **Sin deploy y sin tocar producción**, por instrucción explícita. Ver sección completa arriba. Pendiente: QA funcional, aplicar la migración en producción y deploy.

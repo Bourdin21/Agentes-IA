@@ -11,6 +11,8 @@
 
 **URL: https://claude.ai/artifact/UnKcoPVRcaqrxDBdDyx2Yq** — *la proxima version se republica SOBRE ESTA MISMA URL*. Un link nuevo deja al cliente leyendo la version vieja.
 
+**Version 2 (2026-10-15), republicada sobre la misma URL.** El cliente aporto el panel completo de Mercado Pago y el dato del adelanto (6,03%), y eso corrigio la conclusion principal: los $458.855 no son el ahorro de cambiar de terminal sino el de DOS decisiones — **$275.927 dejar de adelantar + $182.927 cambiar de terminal** —, y cambiar de terminal sin dejar de adelantar da **$0**. La correccion se declara dentro del propio informe en vez de reescribirla en silencio: el cliente leyo la version 1 y el numero que recordaba cambio de significado.
+
 Fuente editable (Claude Docs, misma bajada y mismas tablas): https://claude.ai/code/artifact/369fcc07-8a40-4951-9241-2d249a41b91d
 
 Responde "que medio de pago conviene y cual no". Contenido verificado contra produccion (regla 0): los porcentajes salen de `TasasCostoCobranza` y `ConfiguracionesCuotaTarjeta` vigentes al 15/10/2026, el volumen de `PagosVenta` desde el 01/09, y el recargo de lista (21,07%) del promedio de los 230 productos con los dos precios cargados. **No lleva capturas**: es un informe de numeros, no un manual de uso, asi que el envoltorio usa `.vidrio-claro` sobre fondo oscuro plano y no `.vidrio` (que es para capturas, que son claras).

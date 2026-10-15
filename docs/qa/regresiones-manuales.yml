@@ -26,7 +26,7 @@
 
 version: 1
 proyecto: ShowroomGriffin
-ultima_actualizacion: 2026-10-07
+ultima_actualizacion: 2026-10-15
 
 regresiones:
 
@@ -8114,3 +8114,63 @@ regresiones:
       - "Bajar una tasa, recalcular, y verificar el contramovimiento y el saldo de caja."
       - "Verificar que el egreso original siga existiendo y no haya sido editado."
     leccion_adicional: "El delta se calcula releyendo el neto del ledger JUSTO ANTES de escribir, no con la foto que armo la previsualizacion. Eso lo deja mas idempotente que la guarda que reemplaza, no menos. Nota: esta pantalla sigue teniendo abierto MH-054 (el Aplicar no recibe el snapshot de lo previsualizado), que es un problema distinto y complementario."
+
+  - id: CRM-026
+    modulo: "Migraciones EF / columna nueva NOT NULL de un tipo con default propio en la entidad"
+    titulo: "El defaultValue que genera EF para una columna nueva es el del TIPO, no el de la entidad: las filas preexistentes quedan en un valor que el dominio no define"
+    severidad: blocker
+    reproducido_en: "crm-olvidata, 2026-10-15. Detectado al revisar la migracion generada ANTES de aplicarla, y reincidente el mismo dia con el signo invertido en una segunda migracion. Corregido en las 2 migraciones."
+    pasos:
+      - "Agregar a una entidad existente una propiedad NOT NULL cuyo default en C# NO sea el default del tipo: un enum que arranca en 1 (`CanalMensajeria Canal { get; set; } = CanalMensajeria.WhatsApp`) o un bool inicializado en true."
+      - "Correr `dotnet ef migrations add` y abrir la migracion generada."
+      - "Mirar el `defaultValue` del AddColumn: va a ser 0 para el enum y false para el bool."
+      - "Aplicar la migracion sobre una base con filas preexistentes."
+      - "Correr `SELECT Campo, COUNT(*) FROM Tabla GROUP BY Campo`."
+    sintoma: "Nada falla: la migracion corre, la app arranca, las pantallas se dibujan. Lo que se rompe es toda query que filtre por igualdad contra ese enum, que de golpe devuelve CERO filas para los registros viejos. Si esas queries alimentan un proceso de fondo (un lote de envio, un scheduler), el proceso se apaga entero, en silencio, el dia del deploy, y el sintoma que llega es 'dejo de andar' sin un solo error en ningun log."
+    expectativa: "Las filas preexistentes quedan en el valor que representa el comportamiento historico: el mismo que el default de la entidad."
+    causa_raiz: "EF genera el default del tipo CLR (0 / false / null), no el inicializador de la propiedad. La regla no es 'los enums que arrancan en 1': es que cualquier columna nueva NOT NULL cuyo default en C# difiera del default del tipo necesita que la migracion se edite a mano."
+    capa: Infrastructure
+    deteccion_qa:
+      tipo: data
+      consulta: "SELECT <campo>, COUNT(*) FROM <tabla> GROUP BY <campo> despues de aplicar la migracion."
+      condicion_falla: "Aparece un valor que el enum del dominio no define (tipicamente 0), o un false en una columna cuya entidad la inicializa en true."
+    archivos_fix:
+      - "La migracion generada: defaultValue al valor del dominio + un `migrationBuilder.Sql(\"UPDATE Tabla SET Campo = <valor> WHERE Campo = <default del tipo>\")` idempotente, que cubre el caso de la migracion reintentada donde el DEFAULT del ADD COLUMN no se vuelve a aplicar a las filas viejas."
+    migracion_ef: "AddCanalInstagramDm y AddModoSombraIaInstagram (crm-olvidata)"
+    regla_catalogo: "CRM-026 en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "Despues de migrar, ninguna fila queda en un valor que el enum no define."
+      - "Las queries de elegibilidad que filtran por ese campo siguen devolviendo los registros historicos."
+      - "Correr la migracion dos veces no cambia los datos."
+    pruebas_minimas:
+      - "Contar por valor del campo nuevo sobre la base migrada, no sobre registros nuevos (caso 2 del smoke-check de 'modificacion sobre modulo existente')."
+      - "Ejercitar el proceso de fondo que filtra por ese campo y verificar que el conteo de candidatos no cayo a 0."
+    leccion_adicional: "En el caso de origen eran 10.235 contactos y 4 queries de elegibilidad del outbound. El agujero se cerro mirando la migracion generada, no probando: con defaultValue 0 la prueba habria pasado igual sobre datos nuevos."
+
+  - id: CRM-027
+    modulo: "Endpoints anonimos (webhooks) en una app con autenticacion por cookies"
+    titulo: "Results.Forbid() en un endpoint anonimo no devuelve 403: invoca el esquema de cookies y responde un redirect a la pantalla de acceso denegado"
+    severidad: minor
+    reproducido_en: "crm-olvidata, 2026-10-15, encontrado por el smoke test del webhook de Instagram (el unico chequeo que fallo de 19). Corregido el mismo dia."
+    pasos:
+      - "En una app con ConfigureApplicationCookie y AccessDeniedPath, mapear un endpoint anonimo (un webhook de verificacion)."
+      - "Devolver Results.Forbid() en la rama de rechazo."
+      - "Hacer un GET con el token/credencial incorrecta y mirar el status, siguiendo redirects."
+    sintoma: "El endpoint responde 302 a /Account/AccessDenied, que con UseStatusCodePagesWithReExecute termina en un 200 con HTML para cualquier cliente que siga el redirect. Un validador externo (Meta, un health check, un monitor) no puede distinguir rechazo de exito, y una sonda externa ve 200 donde esperaba 403."
+    expectativa: "Un 403 con cuerpo vacio o el de la pagina de status, pero con el status code real."
+    causa_raiz: "Results.Forbid() delega en el esquema de autenticacion configurado. En una app de cookies eso es un redirect por diseño. El endpoint es anonimo, asi que no hay ningun esquema que deba intervenir: lo que corresponde es escribir el status code directo."
+    capa: Web
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "GET al endpoint anonimo con credencial invalida, sin seguir redirects."
+      condicion_falla: "El status es 302 (o 200 siguiendo el redirect) en vez de 403."
+    archivos_fix:
+      - "Program.cs - Results.StatusCode(StatusCodes.Status403Forbidden) en vez de Results.Forbid() en el GET de verificacion del webhook."
+    migracion_ef: no
+    regla_catalogo: "CRM-027 en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "GET con credencial invalida devuelve 403."
+      - "GET con credencial valida sigue devolviendo 200 con el cuerpo esperado."
+    pruebas_minimas:
+      - "curl -o /dev/null -w '%{http_code}' sobre el endpoint con credencial invalida (sin -L)."
+    leccion_adicional: "En el proyecto de origen el webhook preexistente de WhatsApp tiene el mismo detalle y se dejo como esta a proposito: funciona en produccion (Meta manda el token correcto y recibe el 200 con el challenge) y no se toca por cosmetica. La inconsistencia quedo anotada. Al auditar, el grep es `Results.Forbid()` dentro de endpoints sin [Authorize]."

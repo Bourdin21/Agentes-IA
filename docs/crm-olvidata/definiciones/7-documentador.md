@@ -1,7 +1,7 @@
 # Memoria - Documentador
 
 ## Proyecto: crm-olvidata — CRM interno de OlvidataSoft
-## Ultima actualizacion: 2026-08-27
+## Ultima actualizacion: 2026-10-15
 
 ## Definiciones vigentes
 
@@ -41,3 +41,67 @@ Sistema propio más confiable para el trabajo diario de calificación y seguimie
 
 ## Historial de ajustes
 - 2026-08-27: Primera ficha de documentación real de este proyecto (plantilla nunca se había completado). Cierre del sprint "corrección de bugs/gaps de auditoría + 3 mejoras": 17 items + 3 correcciones post-QA (CRM-007/010/012), deployado a producción sin downtime ni migraciones, verificado 200 OK. QA final: GO.
+
+---
+
+## Sprint: el bot ahora atiende los mensajes de Instagram — en producción desde el 15/10/2026
+
+> Nota: en este proyecto el "cliente" es el propio estudio. El resumen se mantiene igual de simple
+> porque sirve para releerlo en 3 meses sin volver a abrir el código.
+
+### Resumen
+
+Hasta ahora el bot solo contestaba WhatsApp. Ahora también atiende los mensajes directos de
+Instagram de `@olvidata.soft`: entran al mismo CRM, al mismo embudo y a la misma pantalla de chats,
+y los contesta la misma IA que ya atiende WhatsApp. No hay un segundo sistema ni una segunda bandeja.
+
+### Qué cambia en el uso diario
+
+- **Los DM de Instagram aparecen en `/Chats`** como cualquier otro chat, con un ícono que te dice
+  por dónde te escribieron, y un filtro nuevo para ver solo uno de los dos canales.
+- **Un contacto de Instagram puede no tener teléfono.** Se lo identifica por su `@usuario`, y si
+  después te lo da en la conversación, el sistema lo guarda solo. Podés buscarlo por el `@usuario`
+  en Chats, Contactos y Clientes.
+- **La IA sabe que está en Instagram**: mensajes más cortos, sin menús, y pide el WhatsApp o el mail
+  cuando la charla ya tiene sustancia — porque en Instagram la conversación se cierra a las 24 horas
+  y, a diferencia de WhatsApp, **no hay forma de reabrirla**. Esa es la diferencia más importante
+  entre los dos canales.
+- **Por Instagram no se puede mandar un presupuesto en PDF ni una imagen** (la plataforma no lo
+  permite por la vía que usamos). Si intentás adjuntar un PDF, la pantalla te lo dice y te ofrece
+  mandarlo por WhatsApp.
+- **Card nueva en `/Bot`** con el estado del canal: si está encendido, cuándo llegó el último DM,
+  cuántos hubo hoy y **cuándo vence el token** — ese último dato es el que evita el "el bot dejó de
+  contestar y nadie sabe por qué", que es la forma en que esto se rompe sin avisar.
+- **Perilla nueva para probar sin riesgo**: podés tener la IA contestando en vivo WhatsApp y
+  *en sombra* en Instagram (calcula y registra lo que habría contestado, pero al prospecto le
+  responde el guion de siempre). Se prende y apaga por canal, independiente.
+
+### Beneficio
+
+Un canal más de entrada, sin trabajo extra: los DM de Instagram dejan de quedar sin contestar y
+entran al mismo embudo medido que el resto. No se abrió una segunda bandeja ni se duplicó ninguna
+automatización, y WhatsApp no cambió en nada.
+
+### Pendientes y fuera de alcance
+
+- **No sale nada hacia Instagram por nuestra cuenta.** La conversación la abre siempre la persona:
+  no existen plantillas ni campañas por este canal, y está bloqueado por diseño para que un contacto
+  de Instagram no pueda entrar nunca a un lote de envío.
+- **Falta la aprobación de Meta** (App Review) para poder contestarle a cualquiera. Hasta entonces
+  el bot solo responde a cuentas con permiso en la app.
+- **Comentarios y menciones de posts quedan afuera**: son otro circuito y otra política de
+  respuesta. Si se quiere, es un trabajo aparte.
+- **Si la misma persona te escribe por los dos canales, van a ser dos fichas.** El sistema te avisa
+  del posible duplicado cuando detecta el mismo número, pero unirlas es a mano, a propósito: unir
+  automáticamente mezclaría el historial de dos personas distintas con una corazonada.
+- **El tope de gasto diario de la IA es compartido con WhatsApp.** Si un día entran muchos DM de
+  relleno, se consume y WhatsApp también pasa a contestar con el guion ese día. Separarlo por canal
+  está ofrecido y sin decidir.
+
+### Próximo paso sugerido
+
+1. Suscribir los campos del webhook en Meta y mandar un DM de prueba: sin ese paso el canal queda
+   configurado y no llega ningún mensaje.
+2. Leer las primeras 20-30 conversaciones reales antes de dar por buena la respuesta de la IA en
+   este canal — el DM trae mucho más relleno que el outbound de WhatsApp.
+3. Decidir si se separa el tope de gasto por canal.

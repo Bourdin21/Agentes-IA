@@ -580,6 +580,38 @@ Se propone **una sola migración** con todas las columnas (E3, E5 y E6) para no 
 
 QA manual (sin automatización de navegador, preferencia ya establecida del estudio): validar cada historia de usuario contra la base de desarrollo — webhook simulado con curl/Postman (mensaje nuevo, respuesta de calificación, reintento con mismo `message_id`), verificación de datos persistidos en `Contacto`/`ContactoRespuesta`, prueba manual del scheduler fuera de horario (invocar el `IHostedService` sin esperar el cronograma real).
 
+## Canal de mensajeria como dimension del modelo (2026-10-15, DM de Instagram)
+
+Decision de arquitectura que atraviesa el sistema entero. Se registra corta a proposito: el detalle
+vive en `plan-instagram-dm-bot.md` §4-§7 y §14, y la implementacion en `5-implementador.md`.
+
+- **Identidad por canal en la MISMA fila de `Contacto`**, no una entidad `ContactoCanal` 1:N.
+  `Telefono` pasa a **nullable** y se suman `CanalMensajeria` (enum), `IgScopedId` (unico) e
+  `IgUsername` (display, nunca clave). La entidad 1:N es mas limpia en el papel y toca todas las
+  queries de 3 controllers, el pipeline de Maps y los 4 schedulers: con un canal y medio de trafico
+  no se justifica. **Criterio de revision: si entran Messenger o Telegram, se migra a 1:N.**
+- **El envio se ruteia, no se ramifica** (`IMensajeriaSender`, patron **PAT-068**): el llamador pasa
+  la ENTIDAD y no decide canal. Nacio de contar 17 llamadas a `_wa.Send*(contacto.Telefono, ...)` en
+  `BotFlowService`. Los avisos al admin quedan FUERA del ruteo: salen siempre por WhatsApp, porque el
+  admin es un telefono y no un contacto del CRM.
+- **Lo que un canal no tiene se declara en el contrato**, no se descubre en runtime: lo que degrada
+  (lista interactiva -> quick replies -> texto numerado) no tira; lo imposible en el canal (plantilla,
+  adjunto) tira con mensaje legible, y es la SEGUNDA red — la primera son los filtros
+  `CanalMensajeria == WhatsApp` en las 4 queries de elegibilidad del outbound, antes del corte de
+  cupo (CRM-024).
+- **La ventana de respuesta libre pasa a ser funcion del canal**
+  (`MensajeriaHelpers.HorasVentana` / `UmbralAvisoVentanaHoras`), consumida por `/Chats` y 2
+  schedulers. El literal "24" estaba escrito en 5 lugares. La asimetria que importa: en WhatsApp una
+  ventana cerrada se reabre con una plantilla; **en Instagram no se reabre con nada**, y eso cambia la
+  UI (se oculta "Reactivar"), el umbral de aviso (6hs vs 3hs) y el texto de error de los envios
+  programados.
+- **Perillas de runtime por canal, no globales**: `ConversacionIaModoSombraInstagram` se suma al flag
+  general con un OR (`ConfiguracionOutbound.EnSombraParaCanal`). Un flag global obligaba a apagar el
+  canal que funciona para estrenar el que no.
+- **Indice unico sobre una columna generada** (`IgScopedIdVivo`) y no sobre `IgScopedId`: `Contacto`
+  tiene query filter global de soft-delete (LP-057). El hueco equivalente del unico **preexistente**
+  de `Telefono` queda abierto y anotado como deuda.
+
 ## Historial de ajustes
 - 2026-07-14: Arquitectura técnica cerrada (migración base de BotPublicitario). 4 entidades Domain + 4 enums, 4 interfaces Application, mapa completo de reutilización (WhatsAppClient/GoogleMapsService portados sin cambio de lógica; BotFlowService/OutboundCampaignService migrados a BD). 1 migración EF. Runbook de corte de producción definido y ejecutado.
 - 2026-07-21: Arquitectura de "campañas de contacto frío configurables" cerrada. Resueltas 2 ambigüedades: `ClaveRubro`/queries cuelgan de `CampanaOutboundIndustria` (no de `IndustriaCatalogo`, varios rubros comparten precio); `TemplateWhatsApp` de campaña gobierna solo el primer contacto frío (Referido/follow-up mantienen template fijo). 3 entidades + 1 enum, 1 migración EF, `CampanasController` nuevo, 2 filas de seed para Farmacia/Estudio.

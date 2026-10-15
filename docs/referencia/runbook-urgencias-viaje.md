@@ -13,9 +13,10 @@ por `claude.ai/code` y se le pide el procedimiento por nombre ("corré el paso 2
 | # | Qué | Por qué | Dónde |
 |---|---|---|---|
 | 1 | **Verificar y renovar `olvidata.com.ar` en nic.ar** | La memoria lo tiene venciendo el **18/10/2026**. Si cae, se van juntos el sitio del estudio, `portal.olvidata.com.ar` (CRM), `agentes.olvidata.com.ar` y **el correo**. nic.ar no tiene MCP ni API: es manual, con clave fiscal | nic.ar |
-| 2 | **SSL de `vinoysefue.ar` — VENCIDO el 30/09/2026** | Hace 15 días que el sitio sirve un certificado vencido: todo visitante ve pantalla roja de advertencia | Panel SmarterASP / MCP `ssl_request` |
-| 3 | **SSL de `elevenlaplata.com.ar` — vence 19/10 (4 días)** | Sectigo, NO auto-renueva. Cae durante el viaje | Panel SmarterASP |
-| 4 | **SSL de `piapartments.es` — vence 31/10 (16 días)** | Sectigo, NO auto-renueva. Cae durante el viaje | Panel SmarterASP |
+| 2 | **SSL de `vinoysefue.ar` — VENCIDO el 30/09/2026.** ⏳ Preparado el 2026-10-15, **falta emitir** | El `web.config` ya tiene el bloque de validación (PAT-067) y se verificó end-to-end que la ruta ACME sirve 200 `text/plain`. Falta un paso manual: emitir el certificado desde la **UI del panel** (`ssl_request` del MCP no sirve, ver 4c). Hasta entonces el sitio sigue sirviendo el certificado vencido | Panel SmarterASP → SSL |
+| 3 | **SSL de `elevenlaplata.com.ar` — vence 19/10 (4 días)** | Sectigo, NO auto-renueva. Cae durante el viaje. Su `web.config` tiene el mismo patrón que vinoysefue, así que **necesita el bloque PAT-067 antes de poder emitir Let's Encrypt** | Panel SmarterASP + web.config |
+| 4 | **SSL de `piapartments.es` — vence 31/10 (16 días)** | Sectigo, NO auto-renueva. Cae durante el viaje. **No hay repo local** de este proyecto: su `web.config` hay que mirarlo en el servidor | Panel SmarterASP + web.config |
+| 4b | Actualizar la password en los 24 perfiles de publicación | Todos tienen la vieja (`olvidata123`); el primer deploy va a fallar la autenticación | Visual Studio / `.pubxml.user` |
 | 5 | Pausar Windows Update en la notebook (5 semanas) | Horas activas 08:00–01:00 → puede reiniciar solo de madrugada y matar la sesión sin forma de levantarla | Configuración → Windows Update |
 | 6 | Dejar la notebook **enchufada** | Con batería suspende a los 30 min (enchufada ya está en "nunca") | — |
 | 7 | Prueba de humo del circuito celular → notebook | Confirmar que responde antes de estar a 3.000 km | `claude.ai/code` |
@@ -81,10 +82,27 @@ Los 15 están en el plan `plan-10954015` (cuenta `olvidatasoft-002`, Premium, ve
 
 ### P2 — SSL vencido o advertencia del navegador
 1. Confirmar cuál es: pedir la medición en vivo (el script de TLS handshake quedó en el historial de esta sesión).
-2. Si es **Let's Encrypt**: esperar. Renueva solo. Si pasaron más de 24 h del vencimiento, `ssl_request` lo fuerza.
-3. Si es **Sectigo**: hay que comprarlo/renovarlo en el panel — tiene costo. **Avisar el costo y esperar OK
-   antes de ejecutar.** Alternativa gratis e inmediata: emitir Let's Encrypt para ese dominio con `ssl_request`.
-4. Tras emitir: `website_restart` y volver a medir el handshake para confirmar la fecha nueva.
+2. Si es **Let's Encrypt**: esperar. Renueva solo, server-side.
+3. **`ssl_request` del MCP no sirve** en estos sitios (ver 4c): el preflight exige 200 sin redirect. La emisión
+   va por la UI del panel de SmarterASP, que no tiene ese preflight.
+4. Antes de emitir, confirmar que el sitio sirve `/.well-known/acme-challenge/` como estático: subir un archivo
+   de prueba por FTPS a `/<sitio>/.well-known/acme-challenge/x` y pedirlo por **http** (sin `-L`). Si responde
+   200 `text/plain`, la validación va a pasar. Si responde el 404 de la app, falta el bloque `<location>` del
+   `web.config` (ver 4d).
+5. Si es **Sectigo** y hay que pagarlo: **avisar el costo y esperar OK antes de ejecutar.**
+6. Tras emitir: volver a medir el handshake TLS y confirmar emisor + fecha nueva. No confiar en el "listo" del panel.
+
+### 4d — Bloque de web.config para que ande Let's Encrypt
+Los sitios ASP.NET Core de la flota tienen `<handlers><add name="aspNetCore" path="*" verb="*">`, que se come
+`/.well-known/acme-challenge/*`: la app responde su propio 404 y la validación HTTP-01 falla. **El redirect a
+HTTPS no es el problema** — Let's Encrypt sigue redirects e ignora certificados inválidos; se comprobó midiendo.
+El arreglo es un `<location path=".well-known/acme-challenge">` que limpia handlers y sirve estático con
+mimeMap `.` → `text/plain`. Aplicado y verificado en vinoysefue el 2026-10-15; el bloque exacto está en
+`C:\Sistemas\vino-y-se-fue\VinoSeFue.Web\web.config`. **Los otros sitios de la flota lo necesitan igual.**
+
+Al editar un `web.config` en el servidor: bajarlo primero y parchear **esa** copia, nunca subir la del repo.
+El publish reescribe `processPath` (`dotnet` en el repo vs. `.\<App>.exe` en el servidor) y agrega un comentario
+`ProjectGuid` al final — subir la del repo pisa ambos.
 
 ### P3 — No me llega / no sale el mail
 1. `email_get_smtp_settings` + `email_test_smtp` del dominio → separa "no sale" de "no llega".
@@ -112,20 +130,38 @@ sigue con `support_get_ticket` / `support_reply_ticket`.
 
 ---
 
-## 4b. No hay camino de deploy funcionando (verificado 2026-10-15) 🔴
+## 4b. Estado real del deploy (verificado 2026-10-15)
 
-Al intentar subir el `web.config` de vinoysefue se descubrió que **ninguna de las dos vías de deploy funciona
-desde la red de casa**:
+**FTPS por el puerto 21 funciona** con `olvidatasoft-002` / la password vigente (está en
+`docs/credenciales.local.md`, actualizada ese día). Es el único camino operativo y es suficiente para subir
+archivos sueltos, que es lo que cubre una urgencia.
 
-- **FTP** (`win8232.site4now.net:21`, puerto abierto): el usuario root `olvidatasoft-002` devuelve
-  `530 User cannot log in`. La clave guardada es idéntica en los 24 perfiles de publicación del disco
-  (la más reciente, de 2026-09-23), así que no es una copia vieja: **la clave de FTP fue rotada del lado
-  del servidor** en algún momento y ningún perfil local quedó actualizado.
+- **Los 24 perfiles de publicación del disco tienen la password vieja** (`olvidata123`), incluido el más
+  reciente, de 2026-09-23. Un deploy desde Visual Studio va a fallar la autenticación hasta actualizarlos.
+- **Web Deploy NO sirve desde la red de casa**: habilitado del lado del servidor
+  (`deployment_get_status` → `enabled`), pero el **puerto 8172 es inalcanzable** (TCP test falla; no hay VPN
+  de por medio, verificado con un solo adaptador activo y ruta única). MSDeploy corta con
+  `ERROR_DESTINATION_NOT_REACHABLE`. La notebook se queda en esta red durante el viaje, así que **seguirá
+  bloqueado** salvo que se pruebe desde otra conexión.
 - **Web Deploy**: habilitado del lado del servidor (`deployment_get_status` → `enabled`), pero el
   **puerto 8172 es inalcanzable** desde esta red (TCP test falla). MSDeploy corta con
   `ERROR_DESTINATION_NOT_REACHABLE`.
-- **Crear un usuario FTP acotado por MCP**: `ftp_create_user` con `path=/www/vinoysefue` falla dos veces con
-  `ftp_user_create_failed` (el servicio de hosting no completa la operación). No quedó ningún usuario a medio crear.
+- **Crear un usuario FTP acotado por MCP**: `ftp_create_user` falla **5 veces** con `ftp_user_create_failed`
+  (el servicio de hosting no completa la operación), probando 3 variantes de `path`, login y quota. No es un
+  problema de parámetros; no quedó ningún usuario a medio crear. **Esa tool no sirve** — para un usuario FTP
+  nuevo, usar el panel.
+
+## 4c. `ssl_request` del MCP no sirve en sitios que fuerzan HTTPS (verificado 2026-10-15) 🔴
+
+El preflight de `ssl_request` exige **HTTP 200 en la raíz del dominio mapeado, sin redirect**. Todos los sitios
+del estudio redirigen (canónico a `www` y/o forzado de HTTPS), así que **el preflight falla siempre** — no es un
+problema de vinoysefue. Medido ahí: `http://vinoysefue.ar/` → 301, `http://www.vinoysefue.ar/` → 301,
+`https://vinoysefue.ar/` → 301; sólo `https://www.vinoysefue.ar/` → 200. Falla igual pidiendo el dominio
+desnudo que el `www`.
+
+Satisfacer ese preflight exigiría apagar el forzado de HTTPS del sitio durante la emisión — una regresión de
+seguridad en un sitio con login. **No hacerlo.** Para emitir Let's Encrypt, usar la UI del panel de SmarterASP,
+que no pasa por este preflight.
 
 **Implicancia para el viaje:** si surge una urgencia que requiera subir un archivo, hoy no se puede — ni desde
 el celular ni desde la notebook. Resolver ANTES de salir: traer la clave de FTP vigente del panel

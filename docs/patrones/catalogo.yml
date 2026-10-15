@@ -25,7 +25,7 @@
 # en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
 
 version: 1
-ultima_actualizacion: 2026-10-07
+ultima_actualizacion: 2026-10-15
 
 # IDs retirados / sin asignar (para que un hueco no parezca un error):
 #   PAT-011 - se retiro sin reemplazo y NO se recicla (ver docs/delicias-naturales/definiciones/5-implementador.md)
@@ -4258,3 +4258,87 @@ patrones:
       COMO SE VERIFICA SIN OJO: con el navegador, `document.getAnimations()` devuelve una animacion por elemento con
       su delay resuelto (0 / 1100 / 2200 / 3300 ms), y pausando todas en un instante -- `a.pause(); a.currentTime =
       t` -- se lee el transform exacto en la llegada. Eso prueba el ritmo y el viaje sin mirar una captura.
+
+  - id: PAT-067
+    nombre: "Validacion HTTP-01 de Let's Encrypt en ASP.NET Core sobre IIS (bloque .well-known/acme-challenge)"
+    categoria: infraestructura
+    descripcion: >
+      Bloque <location path=".well-known/acme-challenge"> en el web.config que limpia los handlers
+      heredados y sirve esa ruta con StaticFileModule y mimeMap "." -> text/plain. Sin el, el handler
+      aspNetCore (path="*" verb="*") se come la ruta de validacion, la app responde su propio 404 y la
+      emision/renovacion del certificado falla.
+    cuando_usar: >
+      Cualquier sitio ASP.NET Core sobre IIS que vaya a emitir o renovar Let's Encrypt. Es condicion
+      previa a la emision, no un arreglo posterior: sin el bloque la validacion no pasa nunca. Y es
+      permanente, porque la renovacion automatica revalida cada ~60 dias.
+    proyecto_origen: vinosefue (2026-10-15, SSL Sectigo vencido 15 dias sin que nadie lo notara)
+    proyectos_que_lo_usan: [vinosefue]
+    archivos_referencia:
+      - proyecto: vinosefue
+        path: "VinoSeFue.Web/web.config"
+        motivo: "El bloque <location> exacto, con el comentario que explica por que es permanente"
+        pendiente_verificar: false
+    dependencias: []
+    notas: >
+      LO QUE PARECE LA CAUSA Y NO LO ES: el redirect a HTTPS. Let's Encrypt sigue redirects en HTTP-01 y
+      NO valida el certificado del destino, asi que un sitio con forzado de HTTPS y certificado vencido
+      valida igual. Se midio: siguiendo el redirect, la request terminaba en el 404 de la app, no en un
+      loop. Un diagnostico que culpe al redirect lleva a un parche que no arregla nada.
+      COMO SE VERIFICA ANTES DE EMITIR: subir un archivo cualquiera a /<sitio>/.well-known/acme-challenge/x
+      y pedirlo por http SIN seguir redirects. 200 con text/plain = la validacion va a pasar. El 404 de
+      IIS (XHTML Strict, Server: Microsoft-IIS) ya indica que el handler estatico tomo el control y solo
+      falta el archivo; el 404 branded de la app significa que el bloque no esta o no tomo efecto.
+      AL EDITAR EL web.config EN EL SERVIDOR: bajar esa copia y parchearla, nunca subir la del repo. El
+      publish reescribe processPath (`dotnet` en el repo vs. `.\<App>.exe` en el servidor) y agrega un
+      comentario ProjectGuid al final; subir la del repo pisa ambos y puede dejar el sitio sin arrancar.
+      El cambio se aplica tambien al repo, o el proximo publish lo revierte.
+      LO QUE NO SIRVE: la tool `ssl_request` del MCP de SmarterASP. Su preflight exige HTTP 200 en la raiz
+      del dominio sin redirect, y todo sitio con canonico a www y/o forzado de HTTPS devuelve 301 — falla
+      en toda la flota, no es un problema de un sitio. La emision va por la UI del panel. Satisfacer ese
+      preflight exigiria apagar el forzado de HTTPS durante la emision: no hacerlo en un sitio con login.
+
+  - id: PAT-068
+    nombre: "Ruteo de envio por canal del contacto (IMensajeriaSender)"
+    categoria: integracion
+    descripcion: >
+      Interfaz unica de envio que recibe la ENTIDAD del destinatario (no su telefono/id) y rutea al
+      cliente del proveedor que corresponde a su canal, leyendo un enum del propio registro. La
+      identidad de cada canal vive en la misma fila de la entidad (telefono, id scopeado, usuario),
+      con metodos de dominio que resuelven "con que se le escribe" y "como se lo nombra en pantalla".
+    cuando_usar: >
+      Cuando un sistema que habla con sus contactos por UN canal tiene que soportar un segundo
+      (WhatsApp + DM de Instagram o Messenger, SMS + push, email + WhatsApp). El disparador concreto:
+      contar cuantas veces el codigo llama a `_cliente.Send*(entidad.CampoDeIdentidad, ...)`. Si son
+      mas de 5, meter el canal con un `if` en cada sitio es el camino que se desalinea.
+    proyecto_origen: crm-olvidata (WhatsApp -> + DM de Instagram, 2026-10-15)
+    proyectos_que_lo_usan:
+      - crm-olvidata
+    archivos_referencia:
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Application/Interfaces/IMensajeriaSender.cs
+        motivo: "El contrato. Documenta que metodo existe en los 2 canales, cual degrada y cual tira."
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Infrastructure/Services/MensajeriaSender.cs
+        motivo: "El ruteo. Deliberadamente tonto: no sabe nada de la maquina de estados ni de la ventana."
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Domain/Entities/Contacto.cs
+        motivo: "Identidad por canal en la misma fila: TieneIdentidad, DestinatarioDelCanal, IdentidadVisible."
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Application/Helpers/MensajeriaHelpers.cs
+        motivo: "HorasVentana / UmbralAvisoVentanaHoras: la ventana de respuesta como funcion del canal."
+    dependencias:
+      - "Un cliente tipado por proveedor (ver WhatsAppClient / InstagramClient del proyecto de origen)."
+    notas: >
+      Las 3 decisiones que hacen que esto funcione, y que son las que se copian:
+      (1) El campo de identidad del canal original pasa a NULLABLE y eso es un barrido, no un cambio
+      de modelo: con nullable reference types activado el compilador lista todos los sitios que lo
+      leen (en el origen, 37). Clasificarlos en busqueda/listado/ficha (LP-002).
+      (2) Lo que el canal nuevo NO tiene se declara en el contrato, no se descubre en runtime: un
+      metodo que degrada (lista interactiva -> quick replies -> texto numerado) no tira; uno que
+      representa algo imposible en el canal (plantilla, adjunto) tira con un mensaje que se lee, y es
+      la SEGUNDA red — la primera son los filtros de canal en las queries de elegibilidad.
+      (3) Una entidad 1:N de canales es mas limpia en el papel y mucho mas cara: toca todas las
+      queries de los listados y los schedulers. Con 2 canales no se justifica; con 3+ se migra.
+      ANTIPATRON medido en el origen: el filtro que impedia que un contacto del canal nuevo entrara
+      a un lote de envio "ya funcionaba" por casualidad (por el estado inicial del registro), no por
+      diseño. Un filtro que funciona por casualidad no es una red de seguridad.
