@@ -6,7 +6,7 @@ Dueño: `olvidata-ceo`. Precios: `precios.md`. Clientes: `clientes.md`. Revisar 
 
 Que el **recurrente neto** de Olvidata reemplace el sueldo del Ministerio de Joaquín (**USD 1.173/mes neto**) en **2028**. Desde ahí, independencia financiera real.
 
-## Modelo por frente — revisión 2026-10-15 (vigente)
+## Modelo por frente — revisión 2026-10-15 (propuesta, a confirmar por Joaquín)
 
 **Propuesta de `olvidata-ceo`, a confirmar por Joaquín.** Reemplaza al plan del 2026-07-29, que calculaba todo con el ticket de Build y no incluía AI Agents, Chatbots ni los precios nuevos de Landing.
 
@@ -26,7 +26,7 @@ Que el **recurrente neto** de Olvidata reemplace el sueldo del Ministerio de Joa
 |---|---|---|---|
 | Build | 35,5 (426/año) | 1.500 | 10% |
 | Landing | 32 (375–400/año) | 600 (1er año menos el recurrente) | 10% |
-| AI Agents | 105 (Organización S + 1 agente personalizado = 130, menos ~25 de crédito de IA a costo) | 2.500 | 10% |
+| AI Agents | 105 (Organización S + 1 agente personalizado Básico = 130, menos ~25 de crédito de IA a costo) | 2.000 (licencia 1.500 + agente Básico 500) | 10% |
 | Chatbots | 40 (Starter/Pro, neto de crédito) | 900 | 15% |
 
 AI Agents y Chatbots suben × 1,20 desde 2027 (lista 2027). Clientes ya firmados mantienen su precio.
@@ -57,7 +57,7 @@ Bruto = ingresos de entrada del año + recurrente promedio del año. Script del 
 ### Lo que dice el modelo
 
 1. **La meta de 2028 se adelanta a 2027 en los dos escenarios**, porque el plan viejo solo contaba Build. Con cerrar la mitad de lo previsto, el recurrente pasa los USD 1.173/mes en 2027.
-2. **AI Agents es la palanca.** Un cliente de AI Agents deja ~3 veces el recurrente de uno de Build (105 contra 35,5 por mes). Desde 2029 es el frente que más aporta en los dos escenarios.
+2. **AI Agents es la palanca.** Un cliente de AI Agents deja ~3 veces el recurrente de uno de Build (105 contra 35,5 por mes). En 2027 la base sigue siendo Build; AI Agents pasa a ser el frente que más aporta desde 2028 en el escenario base y desde 2029 en el conservador.
 3. **Build sigue siendo la base**, pero no alcanza solo: con 8 cierres por año llega a ~1.000/mes recién en 2028.
 4. **Landing y Chatbots suman volumen, no la meta.** Sirven de entrada al combo y a AI Agents.
 5. **El cuello de botella es la tasa de cierre**, no el volumen de prospectos (igual que en el plan anterior).

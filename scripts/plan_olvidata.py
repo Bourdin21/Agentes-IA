@@ -13,7 +13,7 @@ META = 1173  # sueldo del Ministerio, USD/mes neto
 
 # Recurrente neto por cliente nuevo (USD/mes), ingreso de entrada (USD) y bajas por año.
 REC = {"Build": 426 / 12, "Landing": 32, "AI Agents": 105, "Chatbots": 40}
-ENTRADA = {"Build": 1500, "Landing": 600, "AI Agents": 2500, "Chatbots": 900}
+ENTRADA = {"Build": 1500, "Landing": 600, "AI Agents": 2000, "Chatbots": 900}  # AI Agents: licencia + 1 agente Basico
 BAJAS = {"Build": 0.10, "Landing": 0.10, "AI Agents": 0.10, "Chatbots": 0.15}
 SUBA_2027 = {"AI Agents": 1.2, "Chatbots": 1.2}  # lista 2027 = promo x 1,20
 
