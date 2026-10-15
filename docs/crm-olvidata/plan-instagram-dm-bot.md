@@ -379,10 +379,17 @@ Las fases 1 a 4 se pueden implementar con la app en modo desarrollo. El App Revi
 
 ## 13. Definiciones de Joaquín — RESUELTAS el 2026-10-15
 
-1. **Autenticación: Facebook Login** (token de Página). Envío por
-   `graph.facebook.com/{page-id}/messages` con la forma de Messenger; permisos
-   `instagram_manage_messages` + `pages_manage_metadata`. Reusa la app y el token de Página que ya se
-   usan para WhatsApp/Ads. Implementado así en `InstagramClient` + `InstagramSettings`.
+1. **Autenticación: Instagram Login** (corregido el 2026-10-15, era Facebook Login). Al hacer la
+   fase 0 se dio de alta una app de Instagram con su propio id y secret
+   (`Olvidata Ads Manager-IG`, app id `1516384240104466`) y el token generado es de usuario de
+   Instagram (prefijo `IGAA`), no de Página. Verificado contra las 2 APIs: `graph.instagram.com/me`
+   lo acepta (`user_id 17841456625525075`, `olvidata.soft`, BUSINESS) y `graph.facebook.com` lo
+   rechaza con error 190 "Cannot parse access token". Es además la vía que este plan recomendaba.
+   Envío por `graph.instagram.com/{version}/me/messages`; no hace falta `PageId`; el `AppSecret` de
+   la firma del webhook es **el de la app de Instagram**.
+   **Consecuencia:** por esta vía no existe la Attachment Upload API (es de Messenger/Página) y la
+   alternativa por URL pública no sirve, así que **el presupuesto PDF no se puede mandar por
+   Instagram** — ver §14.
 2. **`CanalOrigen.InstagramOrganico = 5`**, valor nuevo. No se reutiliza `Referido` ni `AdsPagos`:
    contar un DM orgánico como conversión de ads diluiría el 41% de ads pagos con tráfico que no se
    pagó. Hay que revisar los filtros publicados del panel que listan los valores del enum.
@@ -445,10 +452,19 @@ Las fases 1 a 4 se pueden implementar con la app en modo desarrollo. El App Revi
    token de Página, el toggle de "permitir acceso a los mensajes" en la app de Instagram, webhook
    apuntado a `https://portal.olvidata.com.ar/webhook/instagram` con su Verify Token, y los 3
    secretos cargados como variables de entorno del sitio.
-2. **El PDF por Instagram usa la Attachment Upload API y hay que verificarlo contra la doc de Meta**
-   el día que se pruebe (§7.1 lo pedía explícitamente). Si esa subida no funciona, el envío falla con
-   `InstagramApiException` y la pantalla ya dice "el PDF quedó guardado pero el envío falló" — nunca
-   se pierde el archivo. Está marcado con un comentario en `InstagramClient.SendDocumentAsync`.
+2. **El presupuesto PDF no se manda por Instagram** (resuelto el 2026-10-15 al pasar a Instagram
+   Login). La Attachment Upload API (`/message_attachments`) es un endpoint de Messenger/Página, y la
+   única alternativa documentada —adjunto por URL pública— no aplica: el PDF vive como bytes en
+   `ContactoRespuesta.ArchivoPdf` y su endpoint está detrás de `[Authorize]`.
+   Cómo quedó: `/Chats` corta el upload **antes** de guardar el archivo y dice "mandáselo por
+   WhatsApp al +…" (si el contacto dio el teléfono). No se guarda un `ArchivoPdf` que nunca salió,
+   porque esa columna significa "presupuesto enviado" y la lee
+   `MensajeriaHelpers.TuvoPresupuesto`. Un envío programado de PDF a un contacto de Instagram queda
+   `Fallido` con ese mismo texto en `ErrorMensaje`.
+   Si alguna vez se quiere: hace falta un endpoint de descarga firmado y de vida corta, y recién
+   entonces el adjunto por URL. **No está verificado** si la edge de upload existe por esta vía — un
+   GET sobre ella devuelve el mismo error que sobre `/me/messages`, que sí existe para POST, así que
+   el sondeo no distingue. La decisión se apoya en la documentación y en no tener URL pública.
 3. **Fase 6 — QA.** Lo mínimo a probar, más allá del catálogo: (a) regresión completa de WhatsApp
    —outbound, follow-ups, avisos de renovación— sobre la base ya migrada, no solo registros nuevos;
    (b) un mensaje mandado desde la app de Instagram en el celular **no** tiene que disparar al bot
@@ -465,6 +481,12 @@ Las fases 1 a 4 se pueden implementar con la app en modo desarrollo. El App Revi
 
 - **2026-10-15** — plan creado. Datos de la API de Instagram verificados contra la documentación de
   Meta ese día. Nada implementado.
+- **2026-10-15** — vía de autenticación corregida a **Instagram Login** (§13.1) al hacer la fase 0: el
+  token generado es `IGAA` y no de Página. Cambió `InstagramClient` (host `graph.instagram.com`, envío
+  a `me/messages`), `InstagramSettings` (se cae `PageId`, el `AppSecret` es el de la app de Instagram)
+  y se dio de baja el envío de adjuntos. La guarda anti-eco pasa a comparar contra `entry[].id` del
+  propio payload además del `IgUserId` configurado: Instagram Login expone 2 formas del id de la
+  cuenta (`user_id` 17841… y uno scopeado a la app, 27077…) y no son el mismo número.
 - **2026-10-15** — las 5 definiciones de §13 resueltas por Joaquín y fases 1 a 5 implementadas. Ver
   §14 por lo que quedó, las decisiones que no estaban en el plan y lo que falta. El canal se deploya
   apagado (`Features:InstagramDm = false`).

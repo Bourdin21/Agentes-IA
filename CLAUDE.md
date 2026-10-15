@@ -100,6 +100,7 @@ Leer según el agente activo:
 - `37-servicios-externos-fiscales` — consumo de servicios fiscales externos (padrones, constancias, validaciones)
 - `38-diseno-pantallas-portal` — decisiones de diseño de las pantallas del portal del usuario final
 - `39-presupuesto-contexto` — **techo de contexto por agente, carga por indice, techo de 150 KB por archivo de memoria, reset de contexto entre etapas, hand-off comprimido, QA por lotes y traza de corrida (siempre)**
+- `41-documento-navegable-cliente` — entregable al cliente publicado como **pagina navegable** (manual de uso, resumen de sprint que se va a releer o compartir, instructivo de tramite): el `.md` es la fuente y la pagina la copia de lectura. Contenido verificado contra **produccion** y no contra los documentos previos, envoltorio de marca Olvidata oscura, y la URL anotada en `7-documentador.md` porque **la proxima entrega se republica sobre la misma URL**. Version corta operativa: skill `documento-navegable-cliente`
 - `40-evals-del-harness` — suite de evals del propio sistema de agentes: casos sacados de fallos reales, graders, `pass@k` vs `pass^k`. Obligatoria antes de commitear un cambio a `32`, `27`, `39`, `30`, `33` o a cualquier `.agent.md`
 
 ## Presupuesto de contexto (obligatorio, `39-presupuesto-contexto`)
