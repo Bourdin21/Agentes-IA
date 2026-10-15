@@ -236,9 +236,9 @@ tener a mano siempre:
 - **El mapa sigue guardado** y se muestra en la demo y en la propuesta, que es donde sostiene el
   ticket. Público: la tarea. Privado: la arquitectura.
 
-#### Contra ChatGPT / Copilot: el contraste sí, el número no (regla de producto, Joaquín 2026-10-15)
+#### ChatGPT, Claude y Copilot no son competencia: son el motor (regla de producto, Joaquín 2026-10-15)
 
-En la **propuesta** el precio de AI Agents / Second Brain se compara contra el precio **por usuario** de ChatGPT o Copilot: sale **más barato por persona** (el mensual es por organización) **y además conoce el rubro** (detalle en `olvidata-marketing`). En **contenido** sigue rigiendo *ningún precio en pantalla ni en caption*: la pieza puede usar el contraste sin cifras —*"no es otro chat: conoce cómo trabaja tu estudio"*, *"lo que un asistente genérico no sabe de tu oficina"*— pero nunca montos, ni "más barato que ChatGPT", ni nombrar la marca para desmerecerla.
+Olvidata vende esos productos aplicados a la empresa (los agentes corren sobre Claude). **Ninguna pieza se posiciona contra ellos**: ni "más barato que", ni "mejor que", ni "no es otro chat", ni nada que los desmerezca. El ángulo es de suma: *Claude trabajando con lo que sabe tu oficina* — el rubro, las reglas, la tarea hecha. Sigue rigiendo *ningún precio en pantalla ni en caption* (detalle en `olvidata-marketing`).
 
 **Cómo se chequea, antes de mandar a diseño:**
 
