@@ -76,6 +76,35 @@ aun así hubo que reescribirlo entero.
 - Es el único de los tres con **cuenta corriente de clientes (fiado)** confirmada — si el contenido
   usa el ángulo del fiado, va solo acá.
 
+### Contadores BMA — estudio contable (`docs/contadores-bma-agentes-ia/`, `docs/contadores-bma-conversor/`)
+
+**Es el caso del frente AI Agents** (confirmado por Joaquín el 2026-10-16, DEC-007). Antes de usarlo
+en una pieza hay que hacer el paso 1-2-3: el proyecto está en Discovery/Diseño y lo que esté
+implementado hay que verificarlo contra `docs/contadores-bma-agentes-ia/` — tiene tres ramas
+(Contabilidad e Impuestos sobre SOS Contador, Sueldos, y el conversor ya entregado).
+
+- **Afirmable sin verificar nada más:** el conversor está entregado y en uso (es uno de los dos
+  sistemas de este cliente en `clientes.md`), y el relevamiento estructural del estudio reordenó el
+  proyecto en 2026-09-23 — o sea, hay trabajo real de análisis sobre la operación del cliente.
+- **Ojo:** los dos sistemas de este cliente están **regalados** (sin plan de mantenimiento). No usar
+  el caso para hablar de recurrente ni de valor del plan.
+- **Antes de afirmar una funcionalidad de agente:** grep en sus definiciones. Que el frente tenga
+  caso no significa que cualquier capacidad esté construida.
+
+### El CRM de Olvidata — el caso del frente Chatbots (producto propio)
+
+**Es el caso del frente Chatbots** (confirmado por Joaquín el 2026-10-16, DEC-007), y se puede
+mostrar aunque sea producto propio y no de un cliente.
+
+- **Afirmable:** el agente de ventas IA (conversación agéntica con Claude vía API) está **encendido y
+  en vivo en producción** desde 2026-09-14: contesta solo en WhatsApp y categoriza al contacto. Está
+  registrado en `docs/crm-olvidata/trazabilidad.md`. Hay volumen real detrás —ver `pipeline.md`: más
+  de 10.000 contactos y 9.000 respuestas registradas.
+- **NO afirmable:** ninguna tasa de conversión o cierre del bot, que no está medida (y la conversión
+  asistida no se puede atribuir, ver `metricas.md`). Que resuelva sin humano: **contesta y deriva**.
+- **Cómo se presenta:** como lo que es — la herramienta con la que Olvidata vende, funcionando todos
+  los días. No como "un cliente que usa Chatbots". Es más fuerte así: el que lo vende lo usa.
+
 ### El hallazgo que ata a los tres — linaje real de código
 
 `docs/la-platense/definiciones/3-arquitecto-mvc.md` (línea 89) documenta que
@@ -106,8 +135,10 @@ dirigido y evita que el caso se descarte por desconocimiento.
 | Lumitrack / Recotrack | `docs/lumitrack/`, `docs/recotrack/` | Dos sistemas del mismo cliente, caso de expansión (land-and-expand) |
 | Diercas SA | `docs/diercas/` | Único caso del frente **Landing** con cliente real — hoy el frente se vende sin ningún caso propio |
 | PiApartments | `docs/piapartments/` | Alquileres temporarios, rubro distinto a todo el resto |
-| Contadores BMA | `docs/contadores-bma-conversor/`, `docs/contadores-bma-agentes-ia/` | El único con un pie en **AI Agents**; recurrente en 0 en el CRM |
 
-> **Lo que falta y se nota:** de los cuatro frentes, solo **Build** tiene fichas verificadas. El
-> frente Landing tiene un cliente real (Diercas) sin ficha, y **AI Agents y Chatbots no tienen
-> ningún caso propio** — se venden con la promesa, no con la prueba. Está anotado en `decisiones.md`.
+> **Cobertura por frente, al 2026-10-16:** **Build** tiene tres fichas verificadas (Delicias, La
+> Platense, Marihogar). **AI Agents** tiene Contadores BMA y **Chatbots** el CRM propio, los dos
+> confirmados por Joaquín al resolver DEC-007 — con la salvedad de que ninguno de los dos tiene
+> todavía claims verificados feature por feature, así que hay que hacer el 1-2-3 antes de usarlos.
+> **Landing** es el único frente que queda sin ficha: su cliente real es Diercas, y además tiene el
+> formulario con error 500 sin resolver (DEC-002, abierta).

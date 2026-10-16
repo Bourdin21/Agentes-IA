@@ -42,3 +42,28 @@ Formato: `### <fecha> — <qué cambió>` y, abajo, de dónde a dónde y quién 
   contradicción vivió semanas sin detectarse porque los archivos estaban en repos distintos; por eso
   el mismo día MARCA.md se movió acá.
 - **Registrado como:** `decisiones.md` DEC-000 (resuelta).
+
+### 2026-10-16 — siete decisiones resueltas por Joaquín, y lo que cambió con cada una
+- **DEC-004 (ticket real):** el promedio de la base es más bajo por el precio viejo de los clientes
+  antiguos, no por error de carga. Se agregó el cálculo **a lista vigente**: ticket USD 498, por
+  encima de los 426 de planificación. El breakeven del Ministerio bajó de "48 clientes si el ticket
+  real fuera 294" a **29 a lista vigente**.
+- **DEC-005 (recurrente en 0):** BMA (x2) y LABIPAC son **sistemas regalados**; marcados como tal, se
+  cuentan aparte y ya no bajan el ticket promedio.
+- **DEC-006 (ESCABA):** la renovación ya se cobró; el plan es de USD 240 anuales en 4 cuotas
+  trimestrales. **Destapó que el CRM no modela periodicidad de pago** — un plan trimestral se ve como
+  una renovación anual vencida cada 3 meses. Queda como corrección pendiente de cargar.
+- **DEC-003 (lista 2027):** está confirmada (promo × 1,20). El desactualizado era
+  `olvidata-marketing.md`; corregido ahí y en `precios.md`.
+- **DEC-007 (casos por frente):** AI Agents tiene **Contadores BMA** y Chatbots **el CRM propio**
+  (en vivo desde 2026-09-14). Dos fichas nuevas en `casos.md`. Landing queda como único frente sin
+  ficha.
+- **DEC-001 (frase del Chatbot):** confirmada y mejorada — *"Contesta a las 3 de la madrugada. A las 8
+  sabés quién quiere comprar."* La original usaba "mañana" con dos sentidos en la misma frase.
+- **DEC-009 (setup + recurrente):** el plan se piensa con las dos mitades. `metricas.md` las muestra
+  separadas (no recurrente acumulado USD 7.818 contra recurrente contratado USD 3.820/año) y queda
+  escrito por qué el umbral del Ministerio se mide **solo** con el recurrente.
+- **Precios:** `precios.md` cambió solo la nota de la lista 2027 (de "sin confirmar" a confirmada).
+  Ningún número de la tabla se tocó.
+- **Quedan abiertas:** DEC-002 (formulario del caso de Landing con error 500) y DEC-008 (el frente de
+  ESCABA y PiApartments sigue inferido).

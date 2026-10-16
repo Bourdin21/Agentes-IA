@@ -11,15 +11,6 @@ el historial de por qué algo se decidió así vale tanto como la decisión.
 
 ## Abiertas
 
-### DEC-001 · La frase de oferta del Chatbot no está validada
-- **Qué:** `"Te contesta a las 3 de la mañana y a la mañana ves quién quiere comprar."` figura como
-  mensaje del frente Chatbots con la marca *(sin validar por Joaquín)*.
-- **Dónde:** `.claude/agents/olvidata-cm.md`, tabla de mensajes por frente.
-- **Por qué importa:** es el único mensaje del frente y ya está en la tabla que el CM usa para
-  producir piezas. O se aprueba, o se reemplaza: hoy cualquiera la usa sin saber que no pasó
-  revisión.
-- **Lo que ya está acotado:** no se puede decir que resuelve sin humano (es *contesta y deriva*), ni
-  usar ninguna tasa de conversión del bot propio, que no está medida.
 
 ### DEC-002 · El caso del frente Landing tiene el formulario roto
 - **Qué:** el formulario del único caso de webs dio **error 500** en producción después de la
@@ -29,63 +20,94 @@ el historial de por qué algo se decidió así vale tanto como la decisión.
   exponer un sistema roto; y es el único cliente real del frente (Diercas, ver `casos.md`).
 - **Lo que hace falta:** confirmar si el 500 sigue, arreglarlo, y recién entonces habilitar el caso.
 
-### DEC-003 · La lista post-promo 2027 está "confirmada" en un agente y "sin confirmar" en otro
-- **Qué:** `olvidata-ceo.md` dice que la lista 2027 es **promo × 1,20, confirmada por Joaquín el
-  2026-09-19**. `olvidata-marketing.md` dice que desde 2027-01-01 rige "una lista post-promo todavía
-  sin confirmar, no cotizar esa lista de memoria".
-- **Por qué importa:** los dos agentes cotizan. Si un lead pregunta hoy qué pasa en enero, la
-  respuesta depende de a quién se le preguntó.
-- **Para resolver:** si está confirmada, corregir marketing; si no, corregir el CEO. Es una línea en
-  cada uno, pero hay que decidir cuál es la verdad.
 
-### DEC-004 · El ticket de planificación (USD 426) está 31% arriba del real
-- **Qué:** el plan financiero proyecta con USD 426/año por cliente. El real de los clientes que pagan
-  recurrente, medido en el CRM, es **USD 294/año** (ver `clientes.md`).
-- **Por qué importa:** el breakeven del Ministerio se calcula con ese número. Con 426, 35 clientes
-  alcanzan; con 294 harían falta ~48 para el mismo recurrente. No es un detalle de planilla: cambia
-  cuántos clientes hay que cerrar antes de poder dejar el empleo.
-- **Para resolver:** recalibrar el plan con el ticket real, o explicar por qué el real es más bajo
-  (año 1 gratis vigente en 4 clientes, 2 clientes con recurrente en 0 — ver DEC-005) y proyectar el
-  ticket que va a quedar cuando esos se normalicen.
 
-### DEC-005 · Dos clientes activos tienen recurrente en 0
-- **Qué:** Contadores BMA (ambos sistemas) y LABIPAC figuran activos con `TicketAnualUsd = 0`.
-- **Por qué importa:** o no tienen plan de mantenimiento (y entonces el conteo de "clientes activos"
-  mezcla dos cosas distintas), o lo tienen y está sin cargar en el CRM (y entonces el recurrente real
-  es más alto que el medido).
-- **Para resolver:** una línea por cliente. Es el dato que más mueve la aguja de DEC-004.
 
-### DEC-006 · La renovación de ESCABA venció y el cliente sigue activo
-- **Qué:** `FechaProximaRenovacion` = 2026-10-02, hace 13 días, y el cliente está activo con USD
-  160/año.
-- **Por qué importa:** o se renovó y nadie lo registró (el CRM queda mintiendo), o hay plata sin
-  cobrar.
-- **Dónde:** `clientes.md`, sección Renovaciones.
 
-### DEC-007 · Dos de los cuatro frentes no tienen ningún caso propio
-- **Qué:** **AI Agents** y **Chatbots** se venden sin un caso de cliente verificable. El único
-  "caso" de Chatbots es el bot del CRM propio de Olvidata, que es herramienta interna, no un cliente.
-- **Por qué importa:** la regla de oro del contenido exige respaldo documental para todo claim. Esos
-  dos frentes solo pueden comunicar promesa, y la regla vigente dice que el producto se muestra
-  terminado operando.
-- **Para resolver:** decidir si el bot propio se puede mostrar como caso (es real y está en vivo), o
-  si el frente espera al primer cliente.
 
 ### DEC-008 · El frente de dos clientes está inferido, no confirmado
 - **Qué:** ESCABA y PiApartments tienen frente **Build** asignado por inferencia del tipo de sistema.
 - **Dónde:** `datos-manuales.yml`, marcados con un comentario.
 - **Por qué importa:** poco, hoy. Importará cuando se mida "cierres por frente" (ver `metricas.md`).
 
-### DEC-009 · El plan atribuye USD 1.243/mes a 43 clientes, y matemáticamente son 35
-- **Qué:** la sección "La matemática del hito 2028" dice "43 clientes → recurrente USD 1.243/mes",
-  pero 1.243 sale de 35 × 426 / 12. Con 43 el recurrente sería ≈USD 1.526/mes.
-- **Por qué importa:** la conclusión ("cubre el Ministerio") se sostiene igual y de hecho con más
-  margen, así que no urge. Pero el texto queda contradiciendo su propia aritmética, y ya está
-  marcado como hallazgo sin corregir dentro del propio `olvidata-ceo.md`.
-- **Para resolver:** decidir si 35 es el breakeven y 43 el objetivo con colchón (lo más probable) y
-  redactarlo así, o corregir el número.
 
 ## Resueltas
+
+### DEC-004 · El ticket real es USD 294 y no 426 — **resuelto 2026-10-16**
+- **Decisión de Joaquín:** *"el real es más bajo porque son clientes antiguos que quedaron con precio
+  viejo"*.
+- **Qué significa:** no es un error de carga ni una pérdida — es la política de no aplicar las subas
+  retroactivamente a clientes ya firmados (precedente 2026-07-24, mismo criterio que el
+  grandfathering de COM-016). El promedio de la base mezcla precios de tres rondas distintas.
+- **Qué se cambió:** `clientes.md` ahora calcula también **el mismo parque a lista vigente**: USD
+  6.480/año, ticket **USD 498** — es decir, por encima de los 426 de planificación, no por debajo. La
+  diferencia de USD 2.660/año contra lo contratado es lo que se decidió no cobrarle a la base.
+- **Regla que queda:** para proyectar clientes **nuevos** se usa la lista vigente (498); el promedio
+  de la base (294) sirve para medir la cartera actual, no para planificar. Mezclarlos era lo que hacía
+  parecer descalibrado al plan. El breakeven quedó recalculado en `olvidata-ceo.md`: **29 clientes** a
+  lista vigente, contra los 48 que harían falta si el ticket real fuera el de la base.
+
+### DEC-005 · Dos clientes activos con recurrente en 0 — **resuelto 2026-10-16**
+- **Decisión de Joaquín:** *"Contadores BMA y LABIPAC están en 0 porque son sistemas regalados"*.
+- **Qué se cambió:** los tres sistemas (BMA Front web, BMA Conversor, LABIPAC) están marcados como
+  `regalados` en `datos-manuales.yml`. `clientes.md` los cuenta aparte — "16 activos (13 con plan pago
+  + 3 regalados)" — y ya no los mete en el ticket promedio ni los reporta como dato faltante.
+- **Lo que sigue vivo:** si mañana aparece otro cliente en 0 sin estar marcado, el archivo lo señala
+  como "falta cargar el plan o falta marcarlo". El control queda, el falso positivo no.
+
+### DEC-006 · La renovación de ESCABA figuraba vencida — **resuelto 2026-10-16**
+- **Decisión de Joaquín:** *"ya se cobró, y el plan anual es de USD 240 en 4 pagos trimestrales"*.
+- **Hallazgo que destapó:** **el CRM no modela periodicidad de pago.** Tiene `TicketAnualUsd` y una
+  sola `FechaProximaRenovacion`, así que un plan trimestral se va a ver como una renovación anual
+  vencida cada tres meses — y el aviso de renovación va a saltar cuatro veces por año sin motivo.
+- **Qué se cambió:** el dato quedó en `datos-manuales.yml` como corrección pendiente, y `clientes.md`
+  lo imprime como aviso para que no se pierda mientras el CRM no se actualice.
+- **Pendiente operativo (no es una decisión, es una carga):** poner 240 como anual y mover la fecha a
+  2027-01-02 en el CRM. Y decidir, cuando haya tiempo, si el CRM necesita un campo de periodicidad —
+  con un solo cliente trimestral, el workaround alcanza.
+
+### DEC-003 · La lista post-promo 2027 — **resuelto 2026-10-16**
+- **Decisión de Joaquín:** *"la del CEO está confirmada"* — la lista 2027 es **promo × 1,20**,
+  confirmada el 2026-09-19.
+- **Qué se cambió:** `olvidata-marketing.md` era el desactualizado y se corrigió; `precios.md` dejó de
+  decir "no aplicar hasta que Joaquín la confirme" y ahora dice que está confirmada, con la aclaración
+  de que aplica a clientes nuevos (el que cerró con la promo mantiene su precio, COM-016).
+
+### DEC-007 · Los frentes AI Agents y Chatbots sí tienen caso — **resuelto 2026-10-16**
+- **Decisión de Joaquín:** *"sí tienen: Contadores BMA y CRM Olvidata"*.
+- **Qué se cambió:** `casos.md` suma las dos fichas. **Contadores BMA** es el caso de AI Agents (con
+  la salvedad de que sus dos sistemas son regalados, así que no sirve para hablar de recurrente) y **el
+  CRM de Olvidata** es el de Chatbots: el bot de ventas está en vivo desde 2026-09-14, contesta en
+  WhatsApp y categoriza, con más de 10.000 contactos reales detrás. Se presenta como producto propio
+  funcionando —"el que lo vende lo usa"—, nunca como un cliente.
+- **Lo que no cambia:** sigue prohibido afirmar tasas de conversión del bot, que no están medidas, y
+  decir que resuelve sin humano (contesta y deriva).
+- **Queda un solo frente sin ficha:** Landing, cuyo cliente real es Diercas y arrastra DEC-002.
+
+### DEC-001 · La frase del Chatbot — **resuelto 2026-10-16**
+- **Decisión de Joaquín:** confirmarla, y mejorarla si se podía.
+- **Vigente:** **"Contesta a las 3 de la madrugada. A las 8 sabés quién quiere comprar."**
+- **Qué se mejoró:** la original —"Te contesta a las 3 de la mañana y a la mañana ves quién quiere
+  comprar"— usaba *mañana* con dos sentidos distintos en la misma frase (la madrugada y el comienzo del
+  día), que es justo donde un hook pierde el golpe. La versión nueva fija dos horas concretas, y la
+  decisión sigue siendo del dueño ("sabés quién quiere comprar"), no del bot.
+- **Lo que se mantiene prohibido:** "IA conversacional", que resuelva sin humano, y cualquier tasa de
+  conversión del bot propio.
+
+### DEC-009 · Setup + recurrente en todo el plan — **resuelto 2026-10-16**
+- **Decisión de Joaquín:** *"tener en cuenta el precio de setup + recurrente en todo el plan de
+  Olvidata"*.
+- **Qué se cambió:** `metricas.md` tiene una sección propia con las dos mitades (no recurrente
+  acumulado USD 7.818 contra recurrente contratado USD 3.820/año — hoy el setup es la mayor parte de
+  lo que entra), y la columna mensual pasó a llamarse "no recurrente del mes". `olvidata-ceo.md`
+  arranca la matemática del hito declarando que el plan se piensa con las dos.
+- **La distinción que queda escrita:** el **umbral del Ministerio se mide solo con el recurrente**,
+  porque la decisión es sostener el ingreso sin vender nada nuevo ese mes. Si el setup cuenta para el
+  umbral, el mes que no se cierra un cliente el sueldo desaparece. Para capacidad de pago de un
+  proyecto o caja del año, van los dos.
+- **De paso, la aritmética que molestaba:** 35 era el breakeven y 43 el objetivo con colchón; el texto
+  no lo decía y parecía un error. Ahora la tabla muestra el breakeven con los tres tickets posibles.
+
 
 ### DEC-000 · MARCA.md § 0c prohibía una frase que el CEO tenía habilitada — **resuelto 2026-10-15**
 - **Era:** § 0c prohibía toda la familia de "la IA hace tu trabajo", y con eso vetaba la promesa que

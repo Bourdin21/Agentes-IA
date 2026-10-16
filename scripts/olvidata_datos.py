@@ -171,30 +171,66 @@ def gen_clientes(cx, man, dry_run):
     ticket_real = (contratado / len(con_recurrente)) if con_recurrente else Decimal(0)
     total_upsells = sum(u["monto"] for lista in upsells.values() for u in lista)
 
+    # Los regalados no son un dato faltante (DEC-005): se entregaron sin plan. Van aparte para no
+    # ensuciar el ticket promedio ni el conteo de clientes que pagan.
+    marcados = set(man.get("regalados") or [])
+    def es_regalado(f):
+        return ("%s|%s" % (f["nombre"], f["sistema"] or "")) in marcados or (f["nombre"] in marcados)
+    regalados = [f for f, _ in activos if es_regalado(f)]
+    pagan = [f for f, _ in activos if not es_regalado(f)]
+
+    # A lista vigente: lo que el mismo parque pagaria hoy con los precios de `precios.md`. La
+    # diferencia contra lo contratado es el costo de la politica de no recalibrar retroactivo
+    # (DEC-004) — no es plata perdida, es lo que decidimos no cobrarle a la base vieja.
+    lista = man.get("precios_lista_vigentes") or {}
+    a_lista = sum(Decimal(str(lista.get(PLANES.get(f["plan"]), 0))) for f in pagan)
+    ticket_lista = (a_lista / len(pagan)) if pagan else Decimal(0)
+
     lineas.append("## Lo que suma\n\n")
     lineas.append("| Concepto | Valor |\n|---|---:|\n")
-    lineas.append("| Clientes activos | %d |\n" % len(activos))
+    lineas.append("| Clientes activos | %d (%d con plan pago + %d regalados) |\n" % (
+        len(activos), len(pagan), len(regalados)))
     lineas.append("| Recurrente anual **contratado** | USD %s |\n" % plata(contratado))
     lineas.append("| Recurrente anual **cobrable hoy** (sin los de año 1 gratis) | USD %s |\n" % plata(cobrable))
     lineas.append("| Recurrente mensual cobrable | USD %s |\n" % plata(cobrable / 12))
     lineas.append("| Ticket anual real promedio (solo los que pagan recurrente) | USD %s |\n" % plata(ticket_real))
+    lineas.append("| El mismo parque **a lista vigente** | USD %s/año · ticket USD %s |\n" % (
+        plata(a_lista), plata(ticket_lista)))
     lineas.append("| Ticket anual de planificación que usa el plan financiero | USD %s |\n" % plata(ticket_plan))
-    lineas.append("| Upsells registrados (acumulado histórico) | USD %s en %d operaciones |\n" % (
+    lineas.append("| Ingresos **no recurrentes** registrados (setup, cuotas de implementación, trabajo adicional) | USD %s en %d operaciones |\n" % (
         plata(total_upsells), sum(len(v) for v in upsells.values())))
     lineas.append("\n")
 
     desvio = (ticket_real - ticket_plan) / ticket_plan * 100 if ticket_plan else 0
-    lineas.append("**Contraste con el supuesto del plan:** el ticket real promedio de los clientes que "
-                  "pagan recurrente es USD %s contra los USD %s que usa el plan financiero (%+.0f%%). "
-                  "Con %d clientes activos, el recurrente contratado da USD %s/mes.\n\n" % (
-                      plata(ticket_real), plata(ticket_plan), desvio, len(activos),
-                      plata(contratado / 12)))
+    lineas.append("**Por qué el ticket real está abajo del de planificación** (DEC-004, resuelta): el "
+                  "promedio real es USD %s contra los USD %s del plan (%+.0f%%), y la razón es la "
+                  "política, no un error de carga — **las subas no se aplican retroactivamente a "
+                  "clientes ya firmados**, así que la base vieja quedó con el precio anterior "
+                  "(precedente 2026-07-24, mismo criterio que el grandfathering de COM-016). El mismo "
+                  "parque a lista vigente daría USD %s/año (ticket USD %s): esa diferencia de USD %s/año "
+                  "es lo que decidimos no cobrarle a la base, no plata perdida.\n\n" % (
+                      plata(ticket_real), plata(ticket_plan), desvio,
+                      plata(a_lista), plata(ticket_lista), plata(a_lista - contratado)))
+    lineas.append("> **Para proyectar clientes nuevos se usa la lista vigente (USD %s de ticket "
+                  "promedio), no el promedio de la base.** Mezclar las dos cosas es lo que hacía que el "
+                  "plan pareciera descalibrado.\n\n" % plata(ticket_lista))
 
-    sin_ticket = [f["nombre"] for f, _ in activos if not (f["ticket"] or 0)]
-    if sin_ticket:
-        lineas.append("**Clientes activos con recurrente en 0** (o no tienen plan de mantenimiento, o "
-                      "está sin cargar en el CRM — conviene decidir cuál de las dos): %s.\n\n" %
-                      ", ".join(sorted(set(sin_ticket))))
+    if regalados:
+        lineas.append("**Sistemas regalados** (entregados sin plan de mantenimiento — su recurrente en 0 "
+                      "es la decisión, no un dato faltante): %s.\n\n" %
+                      ", ".join(sorted(set("%s%s" % (f["nombre"], " (%s)" % f["sistema"] if f["sistema"] else "")
+                                           for f in regalados))))
+    otros_en_cero = [f["nombre"] for f in pagan if not (f["ticket"] or 0)]
+    if otros_en_cero:
+        lineas.append("**Con recurrente en 0 y sin estar marcados como regalados** — o falta cargar el "
+                      "plan en el CRM, o hay que marcarlos en `datos-manuales.yml`: %s.\n\n" %
+                      ", ".join(sorted(set(otros_en_cero))))
+
+    for c in (man.get("correcciones_pendientes_crm") or []):
+        lineas.append("> ⚠️ **El CRM está desactualizado en %s.** Dice: %s. En realidad: %s "
+                      "(confirmado el %s). %s\n\n" % (
+                          c.get("cliente"), c.get("dice_el_crm"), c.get("es_en_realidad"),
+                          c.get("confirmado"), (c.get("nota") or "").strip()))
     if sin_frente:
         lineas.append("**Sin frente asignado** en `datos-manuales.yml`: %s.\n\n" %
                       ", ".join(sorted(set(sin_frente))))
@@ -358,7 +394,7 @@ def gen_metricas(cx, man, dry_run):
                   "queda entonces por encima del total de `clientes.md`, que sí excluye a los inactivos. "
                   "La diferencia es exactamente el recurrente de las bajas.\n\n")
     lineas.append("| Mes | Clientes activos | Recurrente contratado USD/mes | Cobrable USD/mes | "
-                  "Altas | Upsells USD | ¿Supera el umbral? |\n|---|---:|---:|---:|---:|---:|---|\n")
+                  "Altas | No recurrente del mes USD | ¿Supera el umbral? |\n|---|---:|---:|---:|---:|---:|---|\n")
 
     seguidos, racha_max = 0, 0
     for mes in meses:
@@ -378,6 +414,25 @@ def gen_metricas(cx, man, dry_run):
             mes.strftime("%Y-%m"), len(vivos), plata(contratado), plata(cobrable),
             altas or "—", plata(ups) if ups else "—", "sí" if supera else "no"))
 
+    total_nr = sum(u["monto"] for u in upsells)
+    meses_con_nr = len({(u["fecha"].year, u["fecha"].month) for u in upsells if u["fecha"]})
+    lineas.append("\n## Setup + recurrente: las dos mitades del ingreso\n\n")
+    lineas.append("El plan tiene que mirar las dos (indicación de Joaquín, 2026-10-16: *\"tener en "
+                  "cuenta el precio de setup + recurrente en todo el plan\"*). No se suman en una sola "
+                  "línea porque no se comportan igual: el setup entra una vez por cliente y el "
+                  "recurrente vuelve todos los años.\n\n")
+    lineas.append("| Concepto | Valor |\n|---|---:|\n")
+    lineas.append("| Ingreso no recurrente acumulado (setup, cuotas de implementación, trabajo adicional) | USD %s |\n" % plata(total_nr))
+    lineas.append("| Promedio por mes con movimiento (%d meses) | USD %s |\n" % (
+        meses_con_nr, plata(total_nr / meses_con_nr) if meses_con_nr else 0))
+    lineas.append("| Recurrente anual contratado | USD %s |\n" % plata(
+        sum((c["ticket"] or 0) for c in clientes if c["activo"])))
+    lineas.append("\n**Por qué el semáforo de abajo usa solo el recurrente:** la decisión de dejar el "
+                  "Ministerio es sostener un ingreso **sin vender nada nuevo ese mes**. El setup es "
+                  "ingreso real y hoy es la mayor parte de la facturación, pero depende de cerrar un "
+                  "cliente nuevo: si se cuenta en el umbral, el mes que no se cierra nada el sueldo "
+                  "desaparece. Para medir capacidad de pago de un proyecto o la caja del año, sí van "
+                  "los dos.\n")
     lineas.append("\n## Semáforo de la decisión del Ministerio\n\n")
     ultimo_cobrable = sum((c["ticket"] or 0) for c in clientes if c["activo"] and not c["gratis"]) / 12
     falta = umbral - ultimo_cobrable

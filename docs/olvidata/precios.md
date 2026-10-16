@@ -1,9 +1,10 @@
 # Precios
 
 **Fuente única de precios de Olvidata.** Vivía dentro de `.claude/agents/olvidata-ceo.md`, donde lo
-citaban `olvidata-marketing`, `olvidata-sales` y `olvidata-presupuesto-bot` de memoria — y así
-nacieron las dos contradicciones que `decisiones.md` registra hoy (DEC-003, la lista 2027
-"confirmada" en un agente y "sin confirmar" en otro).
+citaban `olvidata-marketing`, `olvidata-sales` y `olvidata-presupuesto-bot` de memoria — y así nació
+la contradicción que `decisiones.md` registra como DEC-003: la lista 2027 figuraba confirmada en un
+agente y sin confirmar en otro. **Resuelta el 2026-10-16: está confirmada** (promo × 1,20), y el que
+estaba desactualizado era `olvidata-marketing`.
 
 **Regla de edición, controlada por `scripts/doctor.py`:** todo cambio a este archivo deja una línea
 en `docs/olvidata/trazabilidad.md` con la fecha, el precio viejo, el nuevo y quién lo decidió. Un
@@ -37,7 +38,7 @@ Upsell observado H1 2026 (con precios pre-suba): +39% sobre el plan base → tic
 
 ### Planes AI Agents y Chatbots (vigente desde 2026-09-14 — confirmado por Joaquín, PROMO de entrada)
 
-**Condición de la promo:** estos precios son **promocionales de entrada**, válidos solo para clientes que **cierren (firman/pagan anticipo) hasta el 2026-12-31**. Desde el 2027-01-01 rige la lista post-promo (ver más abajo, todavía sin confirmar). Setup = pago único; Recurrente = USD/año, mismo esquema de pago que el resto del catálogo (ARS al TC del día).
+**Condición de la promo:** estos precios son **promocionales de entrada**, válidos solo para clientes que **cierren (firman/pagan anticipo) hasta el 2026-12-31**. Desde el 2027-01-01 rige la lista post-promo (ver más abajo): **promo × 1,20, confirmada por Joaquín** el 2026-09-19 y reconfirmada el 2026-10-16 (DEC-003). Setup = pago único; Recurrente = USD/año, mismo esquema de pago que el resto del catálogo (ARS al TC del día).
 
 **AI Agents** — agentes administrativos/operacionales, tier por complejidad del agente (no por costo de IA, que es marginal frente al valor de horas administrativas ahorradas):
 
@@ -164,7 +165,7 @@ El driver de costo real **no es la cantidad de agentes** (un agente derivado por
 | Chatbot Pro | USD 500–800 | USD 700 |
 | Chatbot Scale | USD 500–800 | USD 1.150 |
 
-Justificación de la suba (~25-30%): (1) precedente propio — la suba de Build de 2026-07-24 y la ronda de upsells del mismo día aplicaron incrementos del mismo orden (~20-25%); (2) para 2027 estos dos frentes van a tener casos reales/prueba social (hoy cero) que suben la disposición a pagar (category design: una vez posicionado como categoría propia, no hace falta competir por precio); (3) mantiene la cadencia ya usada de rondas de precio, sin regalar dos veces la eficiencia ganada. **No aplicar esta lista hasta que Joaquín la confirme explícitamente** — mientras tanto, después del 2026-12-31 y sin nueva confirmación, cotizar como "a definir, consultar a Joaquín", nunca la tabla de arriba de memoria.
+Justificación de la suba (~25-30%): (1) precedente propio — la suba de Build de 2026-07-24 y la ronda de upsells del mismo día aplicaron incrementos del mismo orden (~20-25%); (2) para 2027 estos dos frentes van a tener casos reales/prueba social (hoy cero) que suben la disposición a pagar (category design: una vez posicionado como categoría propia, no hace falta competir por precio); (3) mantiene la cadencia ya usada de rondas de precio, sin regalar dos veces la eficiencia ganada. **Lista confirmada por Joaquín** (2026-09-19, reconfirmada 2026-10-16 al resolver DEC-003): se cotiza desde el 2027-01-01. El cliente que cerró con la promo antes del 2026-12-31 mantiene su precio (COM-016), así que esta lista aplica a clientes nuevos, no a la base.
 
 **Cómo comunicar la promo en la venta (coherente con cierre pasivo, ver sección de canales):**
 - Se menciona **una sola vez**, como parte natural de la propuesta ("este valor es de lanzamiento, para cierres hasta el 31/12") — no se repite como presión en cada follow-up.

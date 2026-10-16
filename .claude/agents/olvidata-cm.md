@@ -338,7 +338,7 @@ simétricas sobre cuatro frentes asimétricos:
 | Frente | Frase de oferta | Qué NO se dice | Estado |
 |---|---|---|---|
 | **Sistemas de gestión** | "Vendas por kilo, por metro o por unidad, el mismo sistema lo entiende." | "software de gestión", "ERP", stack técnico | ✅ 3 casos verificados · 2 de cada 4 martes |
-| **Chatbot de atención** | "Te contesta a las 3 de la mañana y a la mañana ves quién quiere comprar." *(sin validar por Joaquín)* | "IA conversacional"; que resuelve sin humano (es *contesta y deriva*); cualquier tasa de conversión del bot propio | ⚠️ sólo el bot propio · 1 de cada 4 |
+| **Chatbot de atención** | **"Contesta a las 3 de la madrugada. A las 8 sabés quién quiere comprar."** *(confirmada por Joaquín 2026-10-16, DEC-001 — reemplaza "Te contesta a las 3 de la mañana y a la mañana ves quién quiere comprar", que usaba "mañana" con dos sentidos en la misma frase)* | "IA conversacional"; que resuelve sin humano (es *contesta y deriva*); cualquier tasa de conversión del bot propio | ✅ el bot propio, en vivo (ver `docs/olvidata/casos.md`) · 1 de cada 4 |
 | **Webs que traen consultas** | "Hechas para el teléfono. Ahí te buscan." | "SEO", "UX", "responsive", "presencia digital"; promesas de tráfico | ⚠️ 1 caso con reparos · 1 de cada 4 |
 | **Agentes de IA** | Venta: "Sacale una foto…" → "Te digo dónde está la diferencia." · Marca: **"Dejá que trabajen las máquinas"** (2026-10-14; reemplazó a *"Tu empresa ya sabe todo. Le falta acordarse."*, que baja a línea de cuerpo) | ver la lista completa abajo — es el frente con más frases prohibidas | ✅ **1 de cada 4** — tiene caso: Contadores BMA en producción |
 

@@ -4,7 +4,7 @@
 
 | Cliente | Sistema | Frente | Plan | Recurrente anual USD | Año 1 gratis | Alta | Próxima renovación |
 |---|---|---|---|---:|---|---|---|
-| Contadores BMA | Conversor | Build | Starter | 0 | no | 2026-06-26 | 2027-06-26 |
+| Contadores BMA | Conversor | AI Agents | Starter | 0 | no | 2026-06-26 | 2027-06-26 |
 | Contadores BMA | Front web | Landing | Starter | 0 | no | 2026-02-23 | 2027-02-23 |
 | Delicias Naturales | — | Build | Premium | 200 | no | 2026-03-01 | 2027-03-01 |
 | Diercas SA | — | Landing | Premium | 400 | sí | 2026-08-17 | 2027-08-17 |
@@ -33,17 +33,22 @@ El CRM marca el cliente como inactivo pero **no guarda la fecha de la baja**, as
 
 | Concepto | Valor |
 |---|---:|
-| Clientes activos | 16 |
+| Clientes activos | 16 (13 con plan pago + 3 regalados) |
 | Recurrente anual **contratado** | USD 3.820 |
 | Recurrente anual **cobrable hoy** (sin los de año 1 gratis) | USD 1.820 |
 | Recurrente mensual cobrable | USD 152 |
 | Ticket anual real promedio (solo los que pagan recurrente) | USD 294 |
+| El mismo parque **a lista vigente** | USD 6.480/año · ticket USD 498 |
 | Ticket anual de planificación que usa el plan financiero | USD 426 |
-| Upsells registrados (acumulado histórico) | USD 7.818 en 35 operaciones |
+| Ingresos **no recurrentes** registrados (setup, cuotas de implementación, trabajo adicional) | USD 7.818 en 35 operaciones |
 
-**Contraste con el supuesto del plan:** el ticket real promedio de los clientes que pagan recurrente es USD 294 contra los USD 426 que usa el plan financiero (-31%). Con 16 clientes activos, el recurrente contratado da USD 318/mes.
+**Por qué el ticket real está abajo del de planificación** (DEC-004, resuelta): el promedio real es USD 294 contra los USD 426 del plan (-31%), y la razón es la política, no un error de carga — **las subas no se aplican retroactivamente a clientes ya firmados**, así que la base vieja quedó con el precio anterior (precedente 2026-07-24, mismo criterio que el grandfathering de COM-016). El mismo parque a lista vigente daría USD 6.480/año (ticket USD 498): esa diferencia de USD 2.660/año es lo que decidimos no cobrarle a la base, no plata perdida.
 
-**Clientes activos con recurrente en 0** (o no tienen plan de mantenimiento, o está sin cargar en el CRM — conviene decidir cuál de las dos): Contadores BMA, LABIPAC.
+> **Para proyectar clientes nuevos se usa la lista vigente (USD 498 de ticket promedio), no el promedio de la base.** Mezclar las dos cosas es lo que hacía que el plan pareciera descalibrado.
+
+**Sistemas regalados** (entregados sin plan de mantenimiento — su recurrente en 0 es la decisión, no un dato faltante): Contadores BMA (Conversor), Contadores BMA (Front web), LABIPAC (Instituto Privado de Análisis Clínicos).
+
+> ⚠️ **El CRM está desactualizado en ESCABA.** Dice: TicketAnualUsd 160, proxima renovacion 2026-10-02 (vencida). En realidad: Plan anual de USD 240, pagado en 4 cuotas trimestrales. La del 02/10 YA SE COBRO. (confirmado el 2026-10-16). El CRM no modela periodicidad de pago: tiene TicketAnualUsd y una sola FechaProximaRenovacion, asi que un plan trimestral se ve como una renovacion anual vencida cada 3 meses. Mientras no exista el campo, cargar 240 como anual y mover la fecha al proximo trimestre (2027-01-02).
 
 ## Renovaciones
 

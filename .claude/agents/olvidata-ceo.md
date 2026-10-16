@@ -84,15 +84,41 @@ Para estimar esfuerzo y armar un presupuesto de proyecto, el archivo es otro:
 `.github/instructions/27-presupuesto-parametros.instructions.md`.
 
 ## La matemática del hito 2028
-- Breakeven real (cubre el sueldo del Ministerio, USD 1.173/mes): **35 clientes** activos con upsells → recurrente ≈ USD 1.243/mes.
-- **43 clientes es el objetivo de referencia** (decisión 2026-07-29, con margen sobre el breakeven): a 43 clientes el recurrente sube a ≈ USD 1.526/mes — cubre el Ministerio con colchón, no al límite.
-- Ticket efectivo (valor conservador de planificación) = USD 426 (plan promedio $342 + upsells $84) — el observado real H1 2026 es USD 474
-- Nunca se necesitan más de 8–10 contactos nuevos por semana
-- El cuello de botella es tasa de cierre, no volumen de prospectos
 
-## Clientes activos (H1 2026)
-VINOSEFUE · ESUR/RecoTrack · ULISES · DELICIAS NATURALES · ESCABA · LUMITRACK · Eleven (x2) · Belclau (baja 2026-09) · Ganadería Fausto · Ganadería Emo · ShowroomGriffin · KoiDumplings · Contadores BMA · LabIPAC · VirtualWallet · SaldoClaro · Alquileres (Roaming/Augusto)
-Pendientes de cobrar: KoiDumplings · Ganadería Fausto
+**Todo el plan se piensa con las dos mitades del ingreso: setup + recurrente** (indicación de Joaquín,
+2026-10-16, DEC-009). El setup entra una vez por cliente y el recurrente vuelve todos los años, así
+que no se suman en una sola línea — pero tampoco se mira una sola. Hoy el no recurrente es la mayor
+parte de lo que entra: USD 7.818 acumulados contra USD 3.820/año de recurrente contratado
+(`docs/olvidata/metricas.md`, sección "Setup + recurrente").
+
+**El umbral del Ministerio se mide solo con el recurrente**, y es a propósito: la decisión es
+sostener el ingreso **sin vender nada nuevo ese mes**. Si el setup entra en el umbral, el mes que no
+se cierra un cliente el sueldo desaparece.
+
+| Con qué ticket | Clientes para cubrir USD 1.173/mes |
+|---|---:|
+| Lista vigente, USD 498/año (lo que paga un cliente nuevo hoy) | **29** |
+| Planificación conservadora, USD 426/año | 33 |
+| Promedio real de la base actual, USD 294/año | 48 |
+
+- El número a usar para proyectar es el de **lista vigente (29)**: el promedio real de la base (294)
+  está abajo porque las subas no se aplican retroactivamente a clientes ya firmados, no porque el
+  producto valga menos (DEC-004, ver `docs/olvidata/clientes.md`).
+- **43 clientes sigue siendo el objetivo de referencia** (decisión 2026-07-29): no es el breakeven,
+  es el breakeven con colchón. Ese es el sentido de la diferencia entre 35 y 43 que antes parecía una
+  contradicción aritmética (DEC-009): 35 era el breakeven con el ticket de 426 y los upsells de
+  entonces; 43 es el objetivo. Los dos números convivían sin decir cuál era cuál.
+- Medido hoy: recurrente cobrable **USD 152/mes**, el 13% del umbral, 0 meses de racha de los 6 que
+  pide el plan. El dato vive en `docs/olvidata/metricas.md` y se regenera del CRM.
+- Nunca se necesitan más de 8–10 contactos nuevos por semana.
+- El cuello de botella es tasa de cierre, no volumen de prospectos — y el embudo real lo confirma:
+  responde el 6,0%, de esos recibe presupuesto el 9,5%, y de los presupuestados **cierra el 50%**
+  (`docs/olvidata/pipeline.md`). El problema está arriba del embudo, no en el cierre.
+
+## Clientes activos
+👉 **`docs/olvidata/clientes.md`** — uno por fila, con plan, recurrente, si tiene el año 1 gratis, alta y próxima renovación; más los sistemas regalados aparte y las renovaciones vencidas. Se genera del CRM, así que no se desactualiza como se desactualizó la lista en prosa que estaba acá (tenía nombres que ya no eran clientes y le faltaban los que entraron después).
+
+Al 2026-10-16: **16 activos** (13 con plan pago + 3 regalados), recurrente contratado USD 3.820/año, cobrable USD 1.820/año.
 
 **Nuevos cierres confirmados (2026-07-30):**
 - **La Platense** (ferretería, sistema de gestión integral — Build): USD 1.500 (3 pagos) + mantenimiento PREMIUM USD 500/año desde el año 2 (año 1 regalado como incentivo de cierre). Detalle en `docs/la-platense/`.
@@ -380,7 +406,7 @@ Detalle en `BotPublicitario/MARCA.md` § 0e.
 **Método y honestidad de los números:**
 - Clientes: 2026 arranca en 20 porque a mitad de año ya hay ~20 clientes activos listados en "Clientes activos H1 2026" — el plan original (16 para el año completo) ya estaba desactualizado antes de aplicar ningún bono. Desde ahí, cada año suma el delta original del plan viejo (+9, +10, +11, +12) más el bono fijo de +3. Con el bono en el piso del rango (+3, no +5), 2028 ya cierra en 45 — cumple "43 o más" con margen de 2, sin necesitar el extremo agresivo del rango.
 - Bruto USD: **esto NO es un modelo reconstruido de Build one-time + recurrente acumulado** — no tengo ese desglose completo por año. Es una aproximación: tomé el ratio Bruto/cliente implícito de la tabla anterior (USD 951 en 2026, subiendo a ~1.180 en 2028, bajando levemente a ~1.126 en 2030 — reflejaba mezcla de Build nuevo + recurrente compuesto) y lo apliqué a los clientes nuevos de esta tabla. Es una extrapolación razonable, no un cálculo preciso. Antes de usar esta columna para decisiones financieras finas (ej. cuánto retirar, cuándo dejar el Ministerio), reconstruir el modelo real separando ingreso one-time de Build vs. recurrente anual acumulado de Rent/Mantenimiento.
-- **Hallazgo adicional a revisar (no corregido acá, fuera del alcance de este pedido):** la sección "La matemática del hito 2028" dice "43 clientes → recurrente USD 1.243/mes". Ese número de USD 1.243/mes en realidad sale de 35 clientes × USD 426 / 12 (≈ USD 1.242,5), no de 43. Con 43 clientes el recurrente real sería ≈ USD 1.526/mes (43 × 426 / 12) — más margen sobre el sueldo del Ministerio (USD 1.173), no menos, así que la conclusión ("cubre el Ministerio") sigue siendo válida y de hecho más sólida. Pero el texto de esa sección atribuye el 1.243 a 43 cuando matemáticamente corresponde a 35 — vale la pena decidir si querés que actualice esa frase también o si la dejás como está (35 = breakeven ajustado, 43 = objetivo con colchón).
+- **Resuelto el 2026-10-16 (DEC-009):** la aparente contradicción entre "35 clientes" y "43 clientes" era que uno es el breakeven y el otro el objetivo con colchón, sin que el texto lo dijera. La sección "La matemática del hito 2028" ahora lo explicita y muestra el breakeven con los tres tickets posibles (lista vigente, planificación y promedio real de la base).
 - Revisar esta tabla cada trimestre contra cierres reales, como ya indica el gatillo trimestral de la política de expansión agresiva (¿subió la cantidad de Builds cerrados por mes?). Si no, recalibrar el bono de +3/año a la baja.
 
 ## Teorías de negocio aplicadas a la transición servicio → producto
