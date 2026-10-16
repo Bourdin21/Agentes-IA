@@ -17,3 +17,4 @@ Como usar este archivo (limite duro: 200 lineas o 25KB — lo que llegue antes; 
 - [Medir un gate que es un instrumento](project_medir_un_gate_de_instrumento.md) — darle trabajo nuevo, mutante de la REUBICACION, mutacion semanticamente nula para la guarda de derivacion; y el par discriminante que se invalida por el route value, la cookie jar por perdedor, `bit_xor` en vez de `group_concat`, y el control de que la primera pasada hizo algo.
 - [Entorno sin navegador usable](entorno-sin-navegador.md) — ningún navegador alcanza el puerto de la app: probar conectividad con 1 intento y caer al arnés HTTP+SQL+doble local
 - [Estado de CRM-028 (Web Push)](crm-028-estado.md) — NO-GO del 2026-10-15 por certificado y privada VAPID, no por el código; CRM-029 pendiente de re-verificar
+- [El arnés miente antes que el sistema](feedback-arnes-miente-primero.md) — ante un resultado raro, verificar el arnés primero; una entidad nueva por escenario y sin acciones masivas en el medio

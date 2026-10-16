@@ -29,3 +29,4 @@ Como usar este archivo (limite duro: 200 lineas o 25KB — lo que llegue antes; 
 - [El escenario de idempotencia pide MEDIA linea](escenario-de-idempotencia-media-linea.md) — con la linea entera el tope ataja el duplicado y la afirmacion pasa sobre el codigo roto; y la guarda nueva invalida los escenarios que median el tope.
 - [No commitear ni deployar](feedback-no-commit-no-deploy.md) — el implementador deja todo en el working tree y migra solo en dev; commit/deploy/producción los autoriza Joaquín
 - [La precondicion de un parche en lote](precondicion-de-un-parche-en-lote.md) — se verifica en el sistema de referencia y se declara OK en los N; hay que LEERLA en cada uno.
+- [CRM-028 Web Push: commiteado sin deployar](project-crm028-web-push.md) — GO de QA pero deploy pendiente; cert vence 19/10 sin renovar y la privada VAPID no está en producción
