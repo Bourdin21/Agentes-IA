@@ -820,7 +820,7 @@ Si alguna vez se quiere: hace falta un endpoint de descarga firmado y de vida co
 
 **OJO con la precedencia**: `Program.cs` agrega `appsettings.Secrets.json` *después* de `CreateBuilder`, así que queda **último** y le gana a las variables de entorno — al revés de lo que dice su propio comentario. Deuda: corregir el comentario.
 
-## Web Push para chats derivados a mano (CRM-028, 2026-10-15) — implementado, pendiente de QA y de deploy
+## Web Push para chats derivados a mano (CRM-028, 2026-10-15) — QA pasado (19 PASS / 0 major), CRM-029 corregido, pendiente de re-verificación y de deploy
 
 Diseño §9 / Arquitectura "Web Push para los chats derivados a mano". **Primera vez que el estudio
 hace Web Push** — patrón nuevo **PAT-069** en el catálogo. Escaneo de reutilización: `cat_resumen.txt`
@@ -938,6 +938,126 @@ confirmado contra el nuspec). End-to-end real por el webhook de WhatsApp sin fir
 - **El caso "el mensaje es el que deriva el chat"**: la lógica es explícita (`eraDerivadoManual` se
   captura antes de procesar) pero no se ejercitó con un payload.
 - **Producción**: ni migración, ni deploy, ni commit — pendiente de autorización de Joaquín.
+
+### CRM-029 (defecto de QA, minor) — aplicado, pendiente de re-verificación
+
+QA pasó CRM-028 con 19 PASS y 0 major, y emitió un solo parte: el anti-ruido no se sostenía con la
+pestaña del chat abierta. `Chats/HiloParcial` estampa `FechaUltimaLecturaAgente` cuando trae mensajes
+nuevos, y el anti-ruido colgaba de esa fecha, así que el polling lo re-armaba solo cada 8 segundos:
+3 mensajes → 3 avisos, reproducido 3/3.
+
+**Lo que NO se podía hacer**: sacar el estampado de `HiloParcial`. De esa fecha depende el "no leído"
+de la lista de Chats, y tiene su propio bug histórico documentado justo sobre esa semántica
+(`ChatsController.cs`, la nota larga arriba de `HiloParcial`). Lo que tenía que cambiar era **de qué
+depende el re-armado**.
+
+**Fix**: campo nuevo `Contacto.FechaUltimaLecturaDeliberadaAgente` y
+`EsperaAvisoDeChatDerivado` pasa a colgar de él. Las 2 fechas coexisten porque responden preguntas
+distintas: `FechaUltimaLecturaAgente` = "¿se mostró en pantalla?" (la lista de no leídos),
+`FechaUltimaLecturaDeliberadaAgente` = "¿alguien hizo algo?" (el anti-ruido del push).
+
+De los **6 puntos** de lectura, **5 son deliberados** y pasan por el método de dominio nuevo
+`Contacto.RegistrarLecturaDeliberada(ahora)`, que estampa las 2 fechas (CRM-001: quien agregue mañana
+una sexta acción de lectura estampa las 2 sin tener que saber que la segunda existe, que es
+exactamente lo que se rompió acá):
+
+| Punto | Acción | Deliberado |
+|---|---|---|
+| `Detail` | abrir el chat | sí → método de dominio |
+| `EnviarMensaje` / `EnviarPresupuestoPdf` / `EnviarImagen` | responder | sí → método de dominio |
+| `MarcarTodosLeidos` | marcar leído desde la lista | sí → `.SetProperty` replicado (es `ExecuteUpdateAsync`, no materializa entidades) |
+| **`HiloParcial`** | tick del polling | **no** — queda con el estampado inline y un comentario que dice que agregar ahí el método de dominio devuelve el defecto |
+
+**Hay 3 estampados más de `FechaUltimaLecturaAgente` fuera de `ChatsController`** que el parte no
+listaba y que quedan **deliberadamente sin tocar**: `BotFlowService.DescartarNoEsProspectoAsync`,
+`BotFlowService.ProcesarBajaAsync` y `ContactosController.CambiarEstado`. Los 3 son el mismo
+criterio ("todo lo que pasa a `Descartado` queda leído porque ya está resuelto"), no son lecturas
+humanas, y sobre todo: un contacto `Descartado` ya salió de `DerivadoManual`, así que el aviso no
+se evalúa nunca más para él. Anotados acá para que no parezcan un olvido.
+
+`RegistrarLecturaDeliberada` **no** toca `MarcadoNoLeidoManual` a propósito: de los 5 puntos, solo 2
+lo limpiaban y los 3 de envío nunca lo hicieron. Meterlo adentro cambiaría comportamiento legacy que
+nadie pidió cambiar.
+
+**Migración**: `20261016000404_AddLecturaDeliberadaChat` — aditiva, 1 columna nullable, **aplicada
+solo en dev**. Lleva un `UPDATE` idempotente que siembra la columna nueva desde
+`FechaUltimaLecturaAgente` para las filas que la tienen: sin él los ~10.000 contactos arrancan en
+"nadie leyó nunca este chat" y la columna no significa nada hasta que cada chat se abra una vez. No
+cambia ningún comportamiento observable hoy (`FechaUltimoAvisoDerivado` también arranca en NULL, así
+que el primer mensaje avisa igual por la primera condición del guard). Verificado en dev: 20 de 20
+filas con lectura quedaron sembradas.
+
+**Las 2 observaciones cosméticas de QA, en la misma corrida**:
+- `push.js`: `getRegistration('/push-sw.js')` toma una URL de **cliente**, no de script — funcionaba
+  de casualidad porque el scope es la raíz. Reemplazado por `registracionDePush()`, que recorre
+  `getRegistrations()` y matchea por `scriptURL`.
+- `_Layout.cshtml`: el comentario decía que "dos SW pueden compartir scope". Corregido: un scope tiene
+  una sola registración; lo que justifica filtrar por `scriptURL` es que el scope no identifica al
+  archivo.
+
+**Verificado en dev** (build Release **0 errores**, 21 advertencias preexistentes), reproduciendo el
+escenario exacto del parte con la pantalla de detalle abierta en background y el polling corriendo
+(6 llamadas a `HiloParcial` en el log):
+
+- **3 mensajes seguidos → 1 aviso.** `FechaUltimaLecturaAgente` quedó en 00:06:24 (el polling siguió
+  estampando, o sea que el guard viejo se habría re-armado) mientras la lectura deliberada quedó en
+  00:05:51, anterior al aviso de 00:06:00. Las 2 mitades del criterio de QA, medidas.
+- **Tras abrir el detalle deliberadamente, el mensaje siguiente sí avisó** (2º aviso).
+- `MarcarTodosLeidos` escribe la columna nueva (verificado aparte: es la única implementación que no
+  pasa por el método de dominio).
+- Los 3 puntos de envío comparten el método de dominio con `Detail`, que sí se ejercitó; no se
+  dispararon por separado para no mandar WhatsApp reales desde dev.
+- Datos de prueba borrados.
+
+**Fuera de alcance de esta corrida, por indicación**: pasar el envío de push a una cola (observación 1
+de QA: ~8 s dentro del webhook con 3 dispositivos y uno inalcanzable) y el hallazgo incidental de
+`OnNewAsync` con token roto, anotado como defecto aparte en `trazabilidad.md` sin tocarlo.
+
+### Runbook de deploy de CRM-028 + CRM-029 (preparado 2026-10-16, SIN EJECUTAR)
+
+Lo que viaja: `1005cd2` (feature), `fb45699` (fix de CRM-029) y `e5da865` (sesión de un mes para la
+PWA, que esperaba justamente el web push). QA dio GO. **El deploy no lo ejecutó el implementador**:
+es la única acción de la secuencia que Joaquín reservó para sí ("el deploy lo hago yo cuando QA
+re-verifique"), y una autorización relevada por otro agente no la reemplaza. Queda esto, en orden:
+
+1. **La privada de VAPID, ANTES del publish.** Va en `appsettings.Secrets.json` del directorio del
+   sitio (el mecanismo de `c5a1a6d`: gitignoreado, fuera del `.csproj`, y sobrevive los deploys
+   porque el perfil usa `DeleteExistingFiles=false` + `SkipExtraFilesOnServer=true`). Es el mismo
+   archivo donde ya viven `Anthropic:ApiKey` y los secretos de Instagram, así que **hay que
+   agregarle la clave, no reemplazarlo**. Bloque a sumar:
+   `"Push": { "PrivateKey": "48mIHTEWGAJF04bf3RGdaaRlglJnB9d7c2O0OS4qY9g" }`.
+   La pública y el subject ya viajan en el `appsettings.json` commiteado. Alternativa equivalente:
+   la variable de entorno `Push__PrivateKey` del sitio, que gana sobre el archivo. **Ojo con la
+   precedencia**: `Program.cs:39` agrega `appsettings.Secrets.json` *después* de `CreateBuilder`,
+   así que queda último y le gana a las variables de entorno — al revés de lo que dice su propio
+   comentario (deuda ya anotada). Sin la privada el canal **degrada bien pero no avisa nada**.
+2. **Chequear gaps de migraciones antes de aplicar nada.** Precedente del estudio: comparar la
+   última fila de `__EFMigrationsHistory` de producción contra la carpeta `Data/Migrations` del
+   repo. En el repo, la última antes de este CR es `20261015160552_AddModoSombraIaInstagram`; si
+   producción no la tiene, **hay gap y no se aplica nada hasta resolverlo**.
+   `SELECT MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId DESC LIMIT 5;`
+3. **Las 2 migraciones, aditivas**: `AddPushSubscriptions` (tabla nueva + 1 columna en `Contactos`,
+   más el `ALTER` a mano de la columna generada `EndpointHashVivo` y su único) y
+   `AddLecturaDeliberadaChat` (1 columna + el `UPDATE` de siembra).
+   **Confirmar el conteo real de la siembra, no asumirlo** — en dev fueron 20 de 20 filas con
+   lectura, pero producción tiene ~10.000 contactos y el número va a ser otro:
+   `SELECT COUNT(*) FROM Contactos WHERE FechaUltimaLecturaDeliberadaAgente IS NOT NULL;`
+   contra `SELECT COUNT(*) FROM Contactos WHERE FechaUltimaLecturaAgente IS NOT NULL;` — tienen
+   que dar **igual**. El `UPDATE` es idempotente (solo toca las filas en NULL), así que un
+   reintento es seguro.
+4. **Smoke test post-deploy, con evidencia**: `https://portal.olvidata.com.ar/` → 200; el login
+   servido trae el campo `EsPwa` (es lo que confirma que viajó `e5da865`); `/push-sw.js` servido con
+   `Content-Type` de JavaScript (si IIS lo devuelve como `text/plain` el navegador rechaza
+   registrar el SW y el push no funciona, sin ningún error del lado del servidor);
+   `/Notifications/ClavePublica` devolviendo la pública que está en `appsettings.json`;
+   `/Notifications` → 302 al login sin sesión. Y mirar el log del sitio en la ventana del deploy.
+5. **Verificación manual de 5 minutos que QA no pudo hacer** (R1 y la entrega real): activar los
+   avisos en el navegador de Joaquín, recargar 3 veces, confirmar que el botón sigue en "activados",
+   y que llega un globo con el CRM cerrado.
+
+**No se toca el certificado.** Vence el 2026-10-19 y Joaquín decidió explícitamente no renovarlo
+ahora. No bloquea el deploy (hoy es válido), pero **cuando venza, el push se cae con el sitio**:
+Web Push exige HTTPS válido. Es el riesgo R2 y sigue siendo el dominante de esta funcionalidad.
 
 ## Historial de ajustes
 - 2026-09-14: **Feature "4 frentes — combo con gancho", E1-E7.** 2 enums, 5 props + `AsignarGancho` en Contacto, `Frente` en ModuloCatalogo, 4 plantillas por gancho en configuracion; 3 helpers nuevos en Application y `ModuloCatalogoQueries` compartida; lote con plantilla por contacto antes del `Take(cupo)` y A1-a; arbol/IA por gancho y frente; Contactos/Chats/Bot/Salud/Templates/Modulos. Migracion aditiva `AddGanchoYFrenteComercial` aplicada **solo en dev**. Build Release 0 errores (26 advertencias preexistentes). 11 desvios documentados (§6). Pendiente: QA, textos de marketing (concordancia de genero), aprobacion de Meta, migracion en produccion y deploy.

@@ -4471,3 +4471,13 @@ patrones:
       Limite conocido: en Android la PWA comparte el almacen de cookies con Chrome, asi que si la
       sesion se inicio en el navegador ANTES de instalar la app, la PWA arranca con la cookie corta
       hasta el proximo login. No se puede evitar desde el servidor.
+      PRECONDICION QUE SE PASA POR ALTO, Y QUE EL CODIGO NO AVISA: el patron asume que `ExpireTimeSpan`
+      — el valor del NAVEGADOR — es CORTO. Si es mas largo que la duracion de la PWA, el patron queda
+      al reves de su proposito: la app instalada nace con 30 dias, el navegador tiene mas, y entonces la
+      PWA pide login ANTES que el escritorio. Paso de verdad: al aplicarlo a los 14 sistemas, 5 tenian 90
+      dias con `SlidingExpiration = true` (ganaderia, eleven-la-plata, vinosefue, virtualwallet,
+      ShowroomGriffin) y el mismo dia (2026-10-15) hubo que bajarlos a 8 h, acortando la sesion de
+      escritorio — decision del owner, con el costo asumido. Asi que antes de aplicar el patron: leer el
+      `ExpireTimeSpan` que ya tiene el sistema y, si no es claramente menor que la ventana de la PWA,
+      resolver primero que se hace con el. Verificar “el navegador queda igual que estaba” en un sistema
+      no alcanza: hay que mirar el numero de cada uno.

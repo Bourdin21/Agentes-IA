@@ -1,0 +1,30 @@
+<!-- Archivado de docs/crm-olvidata/trazabilidad.md el 2026-10-15 por scripts/archivar_memoria.py. Bloques cerrados: no editar aca, el estado vigente vive en el archivo de origen. -->
+
+# trazabilidad - 2026-09 (2 bloques archivados)
+
+- 2026-09-14 (11) — implementador: "4 frentes — combo con gancho", E1 a E7 implementadas (pendiente QA)
+- 2026-09-14 (12) — QA: "4 frentes — combo con gancho" (E1-E7) — GO condicional, 1 defecto major corregido
+
+---
+
+## 2026-09-14 (11) — implementador: "4 frentes — combo con gancho", E1 a E7 implementadas (pendiente QA)
+
+- **Agente/etapa:** `agentes-ia-implementador` (Agent). Detalle completo en `definiciones/5-implementador.md`, seccion "Feature 4 frentes — combo con gancho".
+- **Reutilizacion:** PAT-031 confirmado con rutas reales de codigo (`pendiente_verificar` retirado); todo lo demas reutilizacion intra-repo. Hallazgo: el repo NO tiene auto-init global de Select2 — cada combo nuevo se inicializa en su vista.
+- **Codigo:** Domain (2 enums, 5 props + `Contacto.AsignarGancho`, `ModuloCatalogo.Frente`, 4 plantillas por gancho en `ConfiguracionOutbound`); Application (`CategoriaHelpers`, `GanchoHelpers`, `PlantillasCombo`, DTOs, 2 metodos en `IOutboundCampaignService`); Infrastructure (`ModuloCatalogoQueries` compartida, `OutboundCampaignService`, `BotFlowService`, `ConversacionIaService`, `AppDbContext`); Web (Contactos, Chats, Bot, Salud, Templates, Modulos + JS/CSS).
+- **Puntos criticos verificados en codigo:** filtro "sin plantilla" antes del `Take(cupo)`; boton "Sí, contame más" fija categoria por gancho (sin gancho → `rent` identico); guardas de rename/delete de Templates y `TemplatesSinCampana` contemplan las 4 plantillas de configuracion (LP-002); `PlantillasCombo.TieneBotonContinuar` reemplaza la condicion literal v10-v13; oferta y modulos del contacto en el bloque no cacheado del prompt; sin `Contains` de lista de string ni `StartsWith`/`EndsWith` en queries nuevas; codigo nuevo del webhook envuelto; modo sombra sin escrituras nuevas; los 4 `new Contacto` cubiertos (Ads queda sin gancho por regla).
+- **Migracion:** `20260915010357_AddGanchoYFrenteComercial` (aditiva) aplicada **solo en `olvidatacrm_dev`** (destino verificado). Produccion sin tocar.
+- **Build:** Release `--no-incremental` 0 errores, 26 advertencias todas preexistentes.
+- **Desvios:** 11, documentados en `5-implementador.md` §6 (card con patron `dl` existente, gancho a mano solo outbound frio, "Automatico" no toca historicos ya enviados, escalada con pausa + notificacion unica, modulos genericos = MVP, entre otros).
+- **Pendientes para el owner:** (1) **concordancia de genero en los borradores combo** ("muchos clínicas/inmobiliarias/farmacias") → `olvidata-marketing` antes de Meta; (2) aprobacion de Meta y asignacion en /Bot; (3) contenido de modulos por frente (`olvidata-presupuesto-bot`); (4) precio del combo (`olvidata-ceo`); (5) QA + migracion en produccion + deploy; outbound sigue pausado.
+- **Catalogo 32:** regla nueva "Lote con cupo: todo filtro de elegibilidad va ANTES del Take(cupo)". E7: `arbol-comunicacion-bot.md` y `logica-negocio-bot.md` actualizados.
+## 2026-09-14 (12) — QA: "4 frentes — combo con gancho" (E1-E7) — GO condicional, 1 defecto major corregido
+
+- **Agente/etapa:** `agentes-ia-qa` (Agent). Detalle completo en `definiciones/6-qa.md`, sección "QA — feature 4 frentes — combo con gancho (2026-09-14)".
+- **Seguridad de la corrida:** dev tiene credenciales REALES de Meta (token, número y teléfono admin) y de Google Places en user-secrets, y el outbound estaba despausado con 26 campañas activas y 234 contactos Pendiente. Se pausaron `OutboundPausado`/`BusquedaMapsPausada` durante la prueba, la app corrió con token de WhatsApp, key de Places y teléfono admin inválidos por variable de entorno, y todo envío/webhook se ejecutó con un harness de consola (servicios reales + `IWhatsAppClient` falso + transacción con rollback). **0 mensajes de WhatsApp, 0 llamadas a Places.** IA real: 7 mensajes (14 requests), **USD 0,149**.
+- **Método:** Playwright MCP no disponible (el navegador del MCP corre aislado: `ERR_CONNECTION_REFUSED` a localhost/127.0.0.1, `host.docker.internal` no resuelve) → HTTP autenticado + SQL + harness. Baseline HEAD (2ad3830) en worktree temporal para las comparaciones "idéntico a antes". Build propio Release `--no-incremental` 0 errores.
+- **Resultado:** los 8 puntos obligatorios del Implementador PASS (cupo con salteados, regresión v13/A-B/Referido, botón por gancho con texto idéntico a HEAD sin gancho, IA con los 4 mensajes de CU-30 CA2 + precio + cliente actual + sin Merge, fallbacks, filtros con Session/Limpiar/sin coincidencias, guardas de plantillas y POST manipulado, A1-a, Armar presupuesto solo Build byte a byte igual a HEAD). Tabla de `GanchoHelpers` 26/26, carga inicial 234 + idempotente.
+- **Defecto CRM-023 (major, auto-fix aplicado):** el selector múltiple "Frentes" de `/Modulos/Presupuesto` y del modal de `Chats/Detail` nunca llegaba al servidor — `$.get` manda `frentes[]=`, que ASP.NET Core no bindea en query string, y `NormalizarFrentes` caía a Build en silencio. Fix: `$.ajax({ ..., traditional: true })` en las 2 vistas. Re-verificado por HTTP; build Release 0 errores. Catalogado en `regresiones-manuales.yml` + regla nueva en `32-estandares`.
+- **Hallazgo de negocio (R3 medido):** los 234 contactos Pendiente de dev reciben gancho Presencia web ("Sin web": ninguno tiene `PaginaWeb`). Mientras `olv_frio_combo_web_v1` no esté aprobada y asignada, el outbound manda 0 mensajes frescos.
+- **Pendiente manual (sin navegador):** consola limpia y tema oscuro de los Select2/badges nuevos; confirmar en la pestaña Red que el XHR de "Frentes" viaja como `frentes=2&frentes=3`.
+- **Limpieza:** 6 contactos + 2 templates de prueba borrados; ganchos, `UpdatedAt` de los 234 contactos y configuración restaurados desde backup (verificado 0 diferencias); flags de outbound/Maps de vuelta a 0 como estaban; worktree y tablas de backup eliminados. Sin commits ni deploy.

@@ -4,6 +4,16 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-15 - implementador-dotnet — el navegador baja a 8 h para que el patron de la PWA tenga sentido
+- Etapa: Implementacion (ajuste sobre `PAT-070`, mismo dia; decision del owner).
+- Por que: verificando el parche PWA aparecio que este sistema tenia `ExpireTimeSpan = TimeSpan.FromDays(90)` con `SlidingExpiration = true`, no las 8 h que asumia el patron. Con 90 dias el patron queda al reves de su proposito: la app instalada nace con 30 dias y el navegador tiene 90, asi que la PWA pide login ANTES que el escritorio. Pasaba en 5 de los 14 sistemas (ganaderia, eleven-la-plata, vinosefue, virtualwallet, ShowroomGriffin); los otros 9 ya estaban en 8 h y ahi el patron hacia lo que dice.
+- Cambio: `ExpireTimeSpan` 90 dias -> 8 horas en `Program.cs`, dentro de `ConfigureApplicationCookie`, con un comentario corto que explica por que bajo. `SlidingExpiration` queda en `true` como estaba: asi las 8 h se cuentan desde el ultimo uso, que es lo razonable para una maquina de mostrador (ponerlo en `false`, como los otros 9, serian 8 h fijas desde el login y esta fuera del pedido).
+- Consecuencia aceptada por el owner: acorta la sesion de escritorio de este sistema y los usuarios lo van a notar. La sesion larga ahora la da solo la app instalada.
+- Corrige la verificacion de la entrada anterior de hoy, que daba por sentado “navegador 8 h sin cambios” sobre los 14: cierto en 9, falso en estos 5.
+- Impacto en capas: Web (`Program.cs`, una linea mas el comentario). Sin migracion EF, sin tocar permisos ni estados, sin cambios en Application/Domain/Infrastructure. El bloque de eventos PWA usa su propia `duracionSesionPwa` y no deriva de `ExpireTimeSpan`, asi que la sesion de la app instalada (30 dias renovables) no se altera.
+- Verificacion: `dotnet build -c Release` OK, 0 errores. No se ejecuto la app (lo califica QA).
+- Estado: APLICADO EN EL WORKING TREE. **Sin commitear y sin deployar** — produccion sigue con 90 dias hasta que el owner autorice el deploy.
+
 ### 2026-10-15 - implementador-dotnet — sesion de la app instalada (PWA): 30 dias renovables
 - Etapa: Implementacion (cambio cross-proyecto, pedido del owner: "en todas las versiones PWA el token de sesion dure un mes activo").
 - Alcance: 14 sistemas con PWA tocados de una vez con el mismo parche. Solo cambia la sesion que arranca desde la app instalada; la del navegador queda igual que estaba.
@@ -384,3 +394,10 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Motivo: cliente necesita manejar productos de inventario propio separados del catalogo de proveedores.
 - Impacto en capas: todas.
 - Riesgos/supuestos: `RowVersion` incrementado manualmente (MySQL no tiene rowversion nativo). Build OK.
+
+### Traza de corrida -- 2026-10-15 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: PAT-070
+- Nota: ExpireTimeSpan 90d -> 8h en Program.cs (SlidingExpiration queda true). Ajuste sobre PAT-070: con el navegador en 90d el patron de la PWA (30d) quedaba al reves de su proposito; paso en 5 de los 14. Build Release 0 errores. Sin commitear ni deployar. Precondicion agregada a PAT-070: leer el ExpireTimeSpan de CADA sistema antes de aplicar el patron.
+

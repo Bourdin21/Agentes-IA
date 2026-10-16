@@ -1,0 +1,3 @@
+- [Entorno sin navegador usable](entorno-sin-navegador.md) — ningún navegador alcanza el puerto de la app: probar conectividad con 1 intento y caer al arnés HTTP+SQL+doble local
+- [Estado de CRM-028 (Web Push)](crm-028-estado.md) — GO de código al 2026-10-16; CRM-029 cerrado, CRM-030 minor abierto, falta el chequeo manual del service worker
+- [El arnés miente antes que el sistema](feedback-arnes-miente-primero.md) — ante un resultado raro, verificar el arnés primero; una entidad nueva por escenario y sin acciones masivas en el medio

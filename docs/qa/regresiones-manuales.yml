@@ -8047,6 +8047,36 @@ regresiones:
     regla_preventiva: "Toda garantia que compare una URL generada (Url.Action, el action de un form) contra una URL recibida (Request.Path) tiene una discrepancia estructural: la generada lleva PathBase y la recibida no. Si de esa comparacion depende una guarda que falla cerrado, el modo de falla es una caida total que solo aparece en el deploy. Se mide levantando la app con UsePathBase en la verificacion, y conviene comparar identificadores de ACCION (controlador/accion del descriptor) y no rutas."
     fix_aplicado: null
 
+  - id: CRM-030
+    modulo: "Guard anti-ruido migrado de un campo compartido a un campo propio"
+    titulo: "Al angostar un guard de un campo compartido a uno propio se pierden los re-armados LEGITIMOS que ese campo traia: hay que migrar los escritores uno por uno, no solo el que causaba el defecto"
+    severidad: minor
+    reproducido_en: "crm-olvidata, 2026-10-16, QA de la re-verificacion de CRM-029. Reproducido limpio en 1 pasada."
+    pasos:
+      - "Partir de un guard que colgaba de un campo de lectura compartido y moverlo a un campo nuevo que solo estampan las acciones deliberadas."
+      - "Buscar TODOS los escritores del campo viejo, no solo el que disparaba el defecto."
+      - "Para cada uno, preguntarse si su escritura era un re-armado legitimo del guard. Los que lo eran se quedaron afuera del campo nuevo."
+      - "Caso concreto medido: contacto en DerivadoManual avisado -> CambiarEstado a Descartado desde /Contactos (estampa la lectura vieja, no la nueva) -> CambiarEstado de vuelta a DerivadoManual a mano -> el contacto escribe."
+    sintoma: "El aviso no sale nunca mas para ese chat hasta que alguien lo abra desde /Chats. Medido: aviso 00:17:48, lectura vieja estampada 00:17:54 por el pase a Descartado, lectura deliberada en NULL, el contacto escribe y salen 0 avisos. Antes del cambio ese mismo estampado re-armaba el guard y el aviso salia. No se pierde informacion (el chat sigue visible en la bandeja de no leidos, verificado), pero el canal nuevo queda muerto en ese chat."
+    expectativa: "O el pase de estado cuenta como accion deliberada y estampa el campo nuevo, o el guard se resetea cuando la entidad SALE del estado que lo habilita (en este caso, limpiar FechaUltimoAvisoDerivado al dejar de ser DerivadoManual) — esa segunda es mas barata y cubre cualquier camino futuro."
+    causa_raiz: "El analisis del cambio se centro en el escritor que causaba el defecto (el polling) y valido los demas con un argumento de estado ('todos pasan a Descartado, y un Descartado ya salio del estado que dispara el aviso'). El argumento es correcto para la direccion que se temia —ninguno de esos escritores puede re-armar el guard de mentira— pero no cubre la vuelta: la entidad puede volver al estado que dispara el aviso, y entonces el guard arranca con el aviso viejo todavia puesto y sin ninguna lectura nueva."
+    capa: "Negocio (el guard) + Web (el pase de estado)"
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "Secuencia: disparar el aviso -> sacar la entidad del estado por cada camino que estampaba el campo viejo -> devolverla al estado -> disparar de nuevo. Contar avisos."
+      condicion_falla: "0 avisos en el ultimo paso."
+    archivos_fix:
+      - "El guard, o el handler del cambio de estado: resetear el estado del anti-ruido cuando la entidad sale del estado que lo habilita."
+    migracion_ef: no
+    regla_catalogo: "pendiente de alta en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "Avisado -> sacado del estado -> devuelto al estado -> el mensaje siguiente SI avisa."
+      - "Sigue sin avisar de mas: el pase de estado por si solo no genera ningun aviso."
+      - "El guard sigue aguantando varios mensajes seguidos sin lectura deliberada (no se reintroduce CRM-029)."
+    pruebas_minimas:
+      - "La secuencia de 4 pasos de arriba, mirando las 2 fechas de lectura y el campo de ultimo aviso en cada paso."
+    leccion_adicional: "Un guard de 'avisar una sola vez' tiene DOS entradas, no una: la marca de que ya se aviso y la senal que la levanta. Revisar solo la senal deja la marca pegada. La regla barata y general es resetear la marca cuando la entidad sale del estado que habilita el aviso: asi no hay que enumerar a los escritores de la senal cada vez que alguien agrega un camino."
+
   - id: CRM-029
     modulo: "Guard anti-ruido de avisos contra el estado de lectura de un listado con polling"
     titulo: "Un polling de background que estampa 'leido' re-arma el guard anti-ruido en cada mensaje: el 'un aviso por chat' se degrada a un aviso por mensaje"

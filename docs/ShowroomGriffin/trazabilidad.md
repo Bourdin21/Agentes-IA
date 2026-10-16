@@ -611,3 +611,19 @@ Primera feature de este proyecto en correr el flujo completo end-to-end en vez d
 - Verificacion (en local sobre blankproject, MySQL de dev, con una duracion de prueba de 20 s): navegador 8 h sin cambios; PWA 30 dias; sin renovar antes de la mitad de la ventana; renovacion exacta pasada la mitad; y 302 al login cuando la ventana vence sin uso. Build OK en los 14 (0 errores).
 - Estado: COMMITEADO Y DEPLOYADO A PRODUCCION. Verificado en vivo (www.showroomgriffin.com.ar): HTTP 200 y el campo `EsPwa` presente en el login servido. El dry-run previo dio 0 agregados y 0 eliminados (repo alineado con produccion). **Dos salvedades del deploy, no de este cambio:** (a) viajo tambien el restyling sin commitear de `Views/Home/Index.cshtml` (logo + texto de la home publica), que sigue sin commitear en el repo; (b) la migracion `20260816155505_V9_UniqueIndexVarianteProducto` sigue PENDIENTE en la base de produccion — no rompe el runtime porque la columna generada `ClaveUnicaVariante` no esta mapeada en el modelo (se crea por SQL crudo), pero hasta aplicarla la garantia de unicidad de variante no existe en produccion.
 
+### 2026-10-15 - implementador-dotnet — el navegador baja a 8 h para que el patron de la PWA tenga sentido
+- Etapa: Implementacion (ajuste sobre `PAT-070`, mismo dia; decision del owner).
+- Por que: verificando el parche PWA aparecio que este sistema tenia `ExpireTimeSpan = TimeSpan.FromDays(90)` con `SlidingExpiration = true`, no las 8 h que asumia el patron. Con 90 dias el patron queda al reves de su proposito: la app instalada nace con 30 dias y el navegador tiene 90, asi que la PWA pide login ANTES que el escritorio. Pasaba en 5 de los 14 sistemas (ganaderia, eleven-la-plata, vinosefue, virtualwallet, ShowroomGriffin); los otros 9 ya estaban en 8 h y ahi el patron hacia lo que dice.
+- Cambio: `ExpireTimeSpan` 90 dias -> 8 horas en `Program.cs`, dentro de `ConfigureApplicationCookie`, con un comentario corto que explica por que bajo. `SlidingExpiration` queda en `true` como estaba: asi las 8 h se cuentan desde el ultimo uso, que es lo razonable para una maquina de mostrador (ponerlo en `false`, como los otros 9, serian 8 h fijas desde el login y esta fuera del pedido).
+- Consecuencia aceptada por el owner: acorta la sesion de escritorio de este sistema y los usuarios lo van a notar. La sesion larga ahora la da solo la app instalada.
+- Corrige la verificacion de la entrada anterior de hoy, que daba por sentado “navegador 8 h sin cambios” sobre los 14: cierto en 9, falso en estos 5.
+- Impacto en capas: Web (`Program.cs`, una linea mas el comentario). Sin migracion EF, sin tocar permisos ni estados, sin cambios en Application/Domain/Infrastructure. El bloque de eventos PWA usa su propia `duracionSesionPwa` y no deriva de `ExpireTimeSpan`, asi que la sesion de la app instalada (30 dias renovables) no se altera.
+- Verificacion: `dotnet build -c Release` OK, 0 errores. No se ejecuto la app (lo califica QA).
+- Estado: APLICADO EN EL WORKING TREE. **Sin commitear y sin deployar** — produccion sigue con 90 dias hasta que el owner autorice el deploy.
+
+### Traza de corrida -- 2026-10-15 / etapa implementacion
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: PAT-070
+- Nota: ExpireTimeSpan 90d -> 8h en Program.cs (SlidingExpiration queda true). Ajuste sobre PAT-070: con el navegador en 90d el patron de la PWA (30d) quedaba al reves de su proposito; paso en 5 de los 14. Build Release 0 errores. Sin commitear ni deployar. Precondicion agregada a PAT-070: leer el ExpireTimeSpan de CADA sistema antes de aplicar el patron.
+

@@ -1,19 +1,20 @@
 # Memoria - QA
 
 ## Proyecto: crm-olvidata — migración de BotPublicitario
-## Ultima actualizacion: 2026-10-15
+## Ultima actualizacion: 2026-10-16
 
 ## Definiciones vigentes
 
 ### Reglas cross-proyecto validadas
 
-**Última validación de reglas cross-proyecto: 2026-10-15**
+**Última validación de reglas cross-proyecto: 2026-10-16**
 
 - Primera corrida con este campo (antes no existía): se tomó como referencia la última QA de este proyecto (2026-08-28) y se validó contra el sistema todo lo agregado o modificado desde entonces en `32-estandares-qa-implementador.instructions.md` y `docs/qa/regresiones-manuales.yml`. Detalle en la sección "QA — feature 4 frentes — combo con gancho (2026-09-14)", punto F5.
 - Reglas agregadas por esta corrida: **CRM-023** (yml) y "Arrays por AJAX GET con jQuery: `traditional: true`" (32). La próxima corrida diferencia desde 2026-09-14.
 - 2026-10-15 (corrida CRM-028): diferencia tomada desde 2026-09-14 con `git log --since` sobre `32-estandares-qa-implementador.instructions.md` y `docs/qa/regresiones-manuales.yml`. Reglas nuevas en el período: **CRM-026** (defaultValue de enum en columna nueva), **CRM-027** (`Results.Forbid()` en endpoint anónimo), **LP-057** (único sobre entidad con baja lógica), **LP-004**, **MH-060/061**, **KOI-015/016/017**, **OLV-ALUC-01**, **OLV-EVAL-01** y el bloque LP-037→LP-111 de La Platense. Aplicables a este sistema y ejecutadas retroactivamente: **LP-057 PASS** (probada a nivel SQL contra `UX_PushSubscriptions_EndpointHash_Vivo`), **CRM-027 N/A verificado** (CRM-028 no agrega ningún endpoint anónimo: los 4 nuevos responden 302 al login sin sesión), **CRM-026 N/A** (la migración no agrega columnas de enum), **CRM-025 PASS** (el único admite varios dispositivos por usuario: 5 filas vivas del mismo `UserId`). El resto son reglas de dominio de otros proyectos (cobranzas, ledger, impositivo) sin superficie equivalente acá.
 - **PAT-069** (Web Push servidor → navegador sin el sitio abierto) validado como patrón nuevo: las 3 piezas que declara (service worker vivo, claves VAPID, suscripción por dispositivo en BD) existen y el sobre real sale bien formado (`vapid t=<jwt>, k=<clave pública>`, `Content-Encoding: aes128gcm`, TTL 1800, `Urgency: high`). Lo único de PAT-069 que **no** se pudo validar es la última milla (el navegador recibiendo el globo), por aislamiento de red del entorno — ver la sección de la corrida.
-- Reglas agregadas por esta corrida: **CRM-029** (yml) — un polling de background que estampa "leído" re-arma un guard anti-ruido en cada mensaje. La próxima corrida diferencia desde 2026-10-15.
+- Reglas agregadas por esta corrida: **CRM-029** (yml) — un polling de background que estampa "leído" re-arma un guard anti-ruido en cada mensaje.
+- 2026-10-16 (re-verificación de CRM-029): sin reglas nuevas en el catálogo entre el 2026-10-15 y hoy más allá de las propias de esta corrida. Regla agregada: **CRM-030** (yml) — al angostar un guard de un campo compartido a uno propio se pierden los re-armados legítimos de ese campo. La próxima corrida diferencia desde **2026-10-16**.
 
 ### 0. Alcance funcional validado
 
@@ -819,6 +820,106 @@ cubierta y pasa. **GO condicionado** a: (1) certificado resuelto, (2) privada ca
 chequeo manual de 5 minutos de R1 + globo real en un navegador, y (4) decisión sobre CRM-029 —
 arreglarlo o aceptarlo por escrito.
 
+## QA — re-verificacion de CRM-029 (2026-10-16)
+
+Contexto nuevo, criterio de vuelta en **FAIL**. Alcance acotado a lo que toco el fix (`fb45699`
+sobre `1005cd2`): **no** se repitieron los 19 criterios de CRM-028 que ya habian pasado. Repo del
+sistema en read-only: `git status --porcelain` **vacio** al abrir y al cerrar (el Implementador
+commiteo todo). Build propio `dotnet build` **0 errores**, 21 advertencias preexistentes.
+Dev restaurado al cerrar: 444 contactos, 0 suscripciones, notificaciones 18-27, siembra intacta.
+
+### CRM-029: CERRADO
+
+El criterio que escribi, medido contra el fix:
+
+| Mitad del criterio | Veredicto | Evidencia observada |
+|---|---|---|
+| Pestania de detalle abierta en background, 3 mensajes seguidos → **1** aviso | **PASS** | La lectura comun se mueve en cada tick (00:14:25 → 00:14:29 → 00:14:33) y el aviso **no** se mueve: queda en 00:14:21. `FechaUltimaLecturaDeliberadaAgente` sigue en `NULL`. **1 aviso para 3 mensajes** (antes del fix: 3) |
+| Tras abrir o responder deliberadamente, el siguiente **si** avisa | **PASS** | `GET /Chats/Detail/{id}` estampa las 2 fechas (DELIB=00:14:34) y el mensaje siguiente genera aviso nuevo (00:14:34), 1 sobre al push service |
+
+### Los 3 puntos pedidos
+
+**1. El "no leido" de `/Chats` — PASS.** Los 6 pasos, con el filtro real `Interaccion=noLeidos`:
+recien abierto el detalle → leido; mensaje entrante nuevo → **no leido**; reabrir → leido;
+`MarcarNoLeido` → **no leido** (y el flag queda en 1); `MarcarTodosLeidos` (camino bulk) → leido;
+otro mensaje entrante → **no leido**. La semantica historica de `ChatsController.cs:351` intacta: el
+tick de `HiloParcial` sigue estampando la lectura comun y sigue siendo lo que sostiene el "no leido".
+(Dos lecturas intermedias dieron falso negativo por **mi** propio flood — 12 mensajes al mismo
+contacto en 2 minutos dispararon el corte anti-loop y el `MarcarTodosLeidos` masivo toco un contacto
+de otra prueba. Re-medido limpio sobre 2 contactos nuevos: PASS.)
+
+**2. El `UPDATE` de siembra — PASS.** En dev: 20 contactos tenian lectura comun, los 20 quedaron con
+la lectura deliberada sembrada, **0 sin sembrar** → ningun contacto preexistente arranca en "nadie
+leyo nunca". Idempotencia probada en el caso que importa: a un contacto con lectura deliberada
+**vieja** (2026-10-01) y lectura comun **mas nueva** (2026-10-14, el patron que deja el polling) se
+le volvio a correr el `UPDATE` y **no se piso** la deliberada — la clausula `WHERE ... IS NULL` lo
+protege. Y la siembra no tiene efecto observable sobre el guard en el deploy: los 444 contactos
+tienen `FechaUltimoAvisoDerivado` en `NULL`, asi que gana la primera condicion del guard y el primer
+mensaje de cada chat derivado avisa igual.
+
+**3. Los 5 puntos deliberados — 2 ejecutados (PASS), 3 verificados solo estructuralmente.**
+- `GET /Chats/Detail` → **PASS ejecutado** (estampa las 2 fechas y re-arma).
+- `MarcarTodosLeidos`, el camino bulk por `ExecuteUpdateAsync` → **PASS ejecutado**: estampa las 2
+  por `.SetProperty` (lectura=DELIB=00:15:56), el mensaje previo sin leer **no** habia avisado de
+  nuevo (0 avisos) y el posterior al bulk **si** aviso (1). El `.SetProperty` replicado no se olvido
+  de la columna nueva.
+- Los **3 envios** (`EnviarMensaje`, `EnviarPresupuestoPdf`, `EnviarImagen`) → **NO EJECUTADOS**: los
+  3 estampan recien **despues** de un envio exitoso a Meta, y la URL de la Graph API esta hardcodeada
+  en `WhatsAppClient` (`https://graph.facebook.com/{ApiVersion}/`), asi que no se puede sustituir por
+  un doble local ni hay destinatario seguro para un envio real. Lo que **si** esta medido
+  mecanicamente es el invariante que importa: en `ChatsController` queda **una sola** escritura de
+  `FechaUltimaLecturaAgente` —la linea 381, el tick de `HiloParcial`— y las otras 4 pasan por
+  `Contacto.RegistrarLecturaDeliberada` (lineas 249, 551, 650, 760), con la unica escritura directa
+  de la columna nueva en el `.SetProperty` del bulk (linea 499). El metodo ya quedo probado de punta
+  a punta por el camino de `Detail`. Riesgo residual: bajo, pero no es un PASS observado.
+
+### Defecto nuevo: CRM-030 (minor) — parte emitido, sin fix
+
+**El argumento del Implementador sobre los 3 estampados de `Descartado` es correcto en la direccion
+que se temia, y falla en la vuelta.** Medido:
+
+- `ContactosController.CambiarEstado → Descartado` estampa la lectura **comun** y deja
+  `FechaUltimaLecturaDeliberadaAgente` en `NULL` → **ninguno de los 3 puede re-armar el guard de
+  mentira.** La preocupacion planteada ("el guard arranca re-armado sin que nadie haya leido nada")
+  es estructuralmente imposible: esos 3 no escriben el campo del que ahora cuelga el guard.
+- Pero la entidad **si** puede volver a `DerivadoManual`: `EstadosManualesPermitidos` es
+  `Enum.GetValues<EstadoEmbudo>()`, o sea **todos** los estados son asignables a mano. Secuencia
+  medida limpia: avisado (aviso 00:17:48) → `CambiarEstado` a `Descartado` (estampa la lectura comun
+  00:17:54, DELIB sigue `NULL`) → `CambiarEstado` de vuelta a `DerivadoManual` → el contacto escribe
+  → **0 avisos**. Antes del fix ese mismo estampado re-armaba el guard y el aviso salia: el fix
+  cierra un re-armado espurio y, de paso, uno legitimo.
+- **No se pierde informacion**: el chat sigue visible en la bandeja de no leidos (verificado). Lo que
+  queda muerto es el canal push para ese chat hasta que alguien lo abra desde `/Chats`.
+- Alcance real acotado: si el pase de estado se hace **desde** `/Chats/Detail` el hueco no existe
+  (abrir el detalle ya estampo la deliberada). Solo se da haciendolo desde `/Contactos` sin abrir el
+  chat.
+
+Fix sugerido como hipotesis, no como instruccion: limpiar `FechaUltimoAvisoDerivado` cuando el
+contacto **sale** de `DerivadoManual`. Es mas barato que migrar escritores y cubre cualquier camino
+futuro. Criterio de re-verificacion: avisado → sacado del estado → devuelto al estado → el mensaje
+siguiente **si** avisa, sin reintroducir CRM-029 (3 mensajes seguidos con la pestania abierta siguen
+dando 1 aviso).
+
+### Cosmeticos del fix
+
+`push.js` ahora busca su registracion recorriendo `getRegistrations()` y matcheando por `scriptURL`,
+y el comentario del `_Layout` quedo corregido. Revisados por lectura: el `for` toma
+`active || waiting || installing`, que es el mismo criterio del barrido del layout, y no cambia el
+`register()`. **Que el SW siga sobreviviendo a las recargas sigue NO VERIFICADO**: el entorno sigue
+sin permitir que ningun navegador alcance el puerto de la app, y por indicacion del coordinador no se
+gasto otra vuelta en pelearlo. Es el mismo chequeo manual de 5 minutos que ya estaba pendiente, y
+ahora cubre tambien esta linea nueva.
+
+### Estado go/no-go
+
+**GO para subir, en lo que depende del codigo.** CRM-029 cerrado con evidencia en las 2 mitades del
+criterio, el "no leido" de `/Chats` sin regresion, la siembra correcta e idempotente, y los 2 puntos
+deliberados ejecutables pasando. Queda **CRM-030 (minor)** como conocido: no bloquea, degrada un
+corner case a "sin push, pero visible en la bandeja". Lo que sigue fuera de mi alcance y ya es
+decision tomada del owner: el certificado del 19/10 (sin HTTPS valido el push no existe) y la
+privada VAPID, que carga el coordinador en el deploy. Lo unico que pido que no se saltee es el
+chequeo manual de 5 minutos del service worker en un navegador real.
+
 ## Historial de ajustes
 
 ### Bloques archivados (2026-10-15)
@@ -834,6 +935,7 @@ Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-p
 
 - **2026-07** — 2 bloques (2026-07-21 a 2026-07-25) → [`6-qa-2026-07.md`](historial/6-qa-2026-07.md)
 
+- 2026-10-16 (re-verificacion de CRM-029, fix `fb45699`): contexto nuevo, criterio de vuelta en FAIL, alcance acotado al fix. **CRM-029 CERRADO** con las 2 mitades medidas: pestania abierta en background + 3 mensajes → **1** aviso (la lectura comun se mueve en cada tick, el aviso no), y tras `GET /Chats/Detail` el siguiente **si** avisa. El "no leido" de `/Chats` sin regresion en los 6 pasos con el filtro real (`Interaccion=noLeidos`), incluidos `MarcarNoLeido` y el bulk. Siembra de la columna nueva correcta (20/20, 0 sin sembrar) e **idempotente en el caso que importa**: no pisa una deliberada vieja con una lectura comun mas nueva. De los 5 puntos deliberados, 2 ejecutados (Detail y el bulk por `.SetProperty`) y los 3 envios **no ejecutados** —estampan despues de un envio exitoso y la URL de la Graph API esta hardcodeada—, cubiertos solo por el invariante mecanico de que en `ChatsController` queda una sola escritura directa de `FechaUltimaLecturaAgente` (el tick) y las otras 4 pasan por `RegistrarLecturaDeliberada`. **1 defecto minor nuevo: CRM-030** — el argumento del Implementador sobre los 3 estampados de `Descartado` es correcto en la direccion que se temia (no pueden re-armar el guard de mentira, no escriben el campo nuevo) pero falla en la vuelta: `EstadosManualesPermitidos` admite **todos** los estados, y Descartado → DerivadoManual a mano deja el guard con el aviso viejo puesto y 0 avisos para el mensaje siguiente; el chat sigue visible en la bandeja de no leidos, asi que degrada sin perder nada. Parte emitido, sin fix. El service worker sobreviviendo a las recargas sigue **NO VERIFICADO** (mismo aislamiento de red; por indicacion del coordinador no se gasto otra vuelta). **GO para subir en lo que depende del codigo**; certificado y privada VAPID son decision del owner.
 - 2026-10-15 (CRM-028, Web Push de chats derivados a mano): lote de 1 ítem, repo del sistema read-only y `git status` idéntico al cierre. Navegador **no disponible** (ni el MCP `playwright` ni un Chrome propio alcanzan el puerto de la app: `ERR_CONNECTION_REFUSED` con el listener confirmado por `netstat` y accesible por `curl`) → método HTTP autenticado + SQL + log + **push service falso propio** que recibe el sobre real y devuelve 201/404/410/500/conexión rechazada. WhatsApp de dev neutralizado por variable de entorno, 0 mensajes reales. **19 criterios PASS, 3 NO VERIFICADOS** (R1 del `unregister` selectivo, el globo llegando a un navegador real, iOS/Firefox/Safari). Los 3 caminos de entrada PASS y el negativo PASS (el mensaje que recién deriva **no** duplica el aviso). LP-057 probado a nivel SQL contra el único de la columna generada; **la rama de revivir la fila soft-deleted, que el Implementador declaró sin probar, quedó cubierta y pasa**. Best-effort CRM-020 probado con 5 modos de falla incluida la clave VAPID basura. Privada de VAPID fuera del repo, confirmada en `user-secrets`. **1 defecto minor nuevo: CRM-029** — el anti-ruido se cae a un aviso por mensaje cuando la pestaña del chat queda abierta, porque `HiloParcial` estampa la lectura en cada tick con mensajes nuevos (3/3 reproducido); parte de defecto emitido, **sin fix aplicado**. **NO-GO hoy**: el certificado de producción vence el 2026-10-19 y sin HTTPS válido no hay push, y la privada no está cargada en el sitio. GO condicionado a esas 2 cosas + el chequeo manual de R1/globo real + decisión sobre CRM-029.
 - 2026-09-14 (feature "4 frentes — combo con gancho", E1-E7): QA con la app ejecutada contra `olvidatacrm_dev`, sin navegador (Playwright MCP aislado del host) → HTTP autenticado + SQL + **harness de consola con WhatsApp falso y rollback** (dev tenía credenciales reales de Meta/Places y outbound despausado: se pausó y se usaron credenciales inválidas; 0 mensajes, 0 Places). Baseline HEAD en worktree para "idéntico a antes". IA real 7 mensajes, USD 0,149. **8/8 puntos obligatorios OK**; CU-30 a CU-35 PASS (CU-33 CA3 parcial, CU-35 CA2 sin datos). **1 defecto major, CRM-023** (selector "Frentes" nunca bindeaba en el GET del checklist → Build en silencio), auto-fix `traditional: true` en 2 vistas, re-verificado, catalogado en yml y en 32. R3 medido: 234/234 Pendiente → Presencia web. Primera corrida con el campo "Última validación de reglas cross-proyecto" (2026-09-14). **GO condicional**; manual pendiente: consola, tema oscuro y XHR real.
 - 2026-08-28 (expansión nacional de outbound): QA de un **cambio de datos** en producción — 176 campañas + 176 industrias + 528 queries insertadas por 2 agentes en paralelo sobre 22 ciudades nuevas. Sólo lectura contra la base real, 0 escrituras. **GO, 7/7 PASS, 0 defectos.** Conteos exactos y rangos de `Id` perfectamente contiguos (142-317 / 142-317 / 881-1408), `ClaveRubro` única en 304/304 filas incluyendo las soft-deleteadas, `IndustriaCatalogoId` verificado en **las 22 ciudades** con firma idéntica y coincidente con el mapeo de las 108 preexistentes, las 6 campañas protegidas intactas (`UpdatedAt` ≤ 08-26; las únicas escrituras de hoy sobre filas viejas son del scheduler de 03:02-03:09), integridad referencial sin un solo huérfano, y las **528** queries con anclaje geográfico correcto (510 con la ciudad en el texto, 18 con localidad vecina + provincia), 0 duplicados y 0 colisiones con `GoogleMapsQueryUsadas`. Cupo real **465-469 msj/día** (49,4-49,9% de `CupoDiario`=940, lejos del techo y con tope global duro que lo hace inviolable). El incidente de MySqlConnector de la tanda A no dejó rastro — probado por contigüidad de `AUTO_INCREMENT`. **3 observaciones no bloqueantes**: el próximo barrido nocturno pasa de 91 a ~255 queries de Google Maps (el restock global recorre todas las campañas activas todos los días, sin filtrar por `Dias`) → salto de coste de API a vigilar; la demanda diaria quedó ~17% arriba de `MetaDiaria`=400 (preexistente, palanca `RebalancearMatrizAsync`); slug vs. `Nombre` cosmético. **Efecto colateral positivo no reportado por las tandas**: 266 contactos huérfanos adoptados (127 `Pendiente`), huérfanos totales de 460 a 333. Hallazgo preexistente cuantificado: **140 de 721 queries viejas** sin anclaje geográfico a su `Region`, con ~20 genuinamente ambiguas — no se tocó, queda como deuda.

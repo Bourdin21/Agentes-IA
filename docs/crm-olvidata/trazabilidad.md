@@ -6,6 +6,46 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-16 - defecto abierto CRM-030 (minor, emitido por QA) - NO se arregla en esta corrida
+
+- **Qué pasa**: `EstadosManualesPermitidos` es `Enum.GetValues<EstadoEmbudo>()`, o sea que **cualquier**
+  estado del embudo es asignable a mano desde `/Contactos`. La secuencia que rompe el aviso:
+  contacto avisado → pasa a `Descartado` desde `/Contactos` (ese camino estampa la lectura **común** y
+  deja `FechaUltimaLecturaDeliberadaAgente` en NULL, ver CRM-029) → se lo vuelve a poner en
+  `DerivadoManual` a mano. El chat queda sin avisar cuando el contacto escribe, porque
+  `FechaUltimoAvisoDerivado` sobrevivió al viaje de ida y vuelta y la lectura deliberada nunca se
+  escribió.
+- **Severidad real**: minor. Solo se da cambiando el estado **sin abrir el chat**, y el chat sigue
+  visible en la bandeja de no leídos de `/Chats`, así que no hay pérdida silenciosa de información:
+  lo que se pierde es el aviso proactivo.
+- **Hipótesis de fix de QA** (no implementada): limpiar `FechaUltimoAvisoDerivado` cuando el contacto
+  **sale** de `DerivadoManual`. Es coherente con el resto del diseño —el marcador es estado del
+  anti-ruido de *ese* tramo de conversación, no un histórico— y es aditivo, sin migración. Cuando se
+  tome, conviene revisar de paso si `EstadosManualesPermitidos` debería ser una lista explícita en vez
+  de todo el enum: es la causa de fondo que habilita transiciones que la máquina de estados no prevé.
+- **Estado**: abierto, documentado, **sin tocar** por indicación explícita. No entra en el alcance de
+  CRM-028 ni de CRM-029.
+
+### 2026-10-16 - implementador (CRM-029: el anti-ruido del aviso push no sobrevivía a la pestaña abierta)
+
+- **Disparador**: parte de defecto de QA sobre CRM-028 (minor, 19 PASS / 0 major en la corrida). El anti-ruido colgaba de `Contacto.FechaUltimaLecturaAgente`, y `Chats/HiloParcial` estampa esa fecha cada vez que el polling trae mensajes nuevos. Con la pestaña del chat abierta —el escenario más común: el asesor la deja abierta toda la jornada— el tick re-armaba el guard justo antes del mensaje siguiente: **3 mensajes, 3 avisos**, reproducido 3/3 por QA. Y en el peor caso sonaba mientras el asesor estaba mirando ese mismo chat.
+- **La restricción que define el fix**: sacar el estampado de `HiloParcial` no era opción. De `FechaUltimaLecturaAgente` depende el "no leído" de la lista de Chats, y esa semántica ya tiene su propio bug histórico documentado arriba de `HiloParcial` (el tick pisaba el `MarcadoNoLeidoManual` que el asesor ponía a mano). Lo que tenía que cambiar era **de qué depende el re-armado**, no quién estampa qué.
+- **Fix**: campo nuevo `Contacto.FechaUltimaLecturaDeliberadaAgente` y `EsperaAvisoDeChatDerivado` pasa a colgar de él. Las 2 fechas coexisten porque responden preguntas distintas: la vieja es "¿se mostró en pantalla?" (lista de no leídos), la nueva es "¿alguien hizo algo?" (anti-ruido del push). De los **6 puntos** de lectura, los **5 deliberados** (abrir el detalle, los 3 envíos, el marcado masivo) pasan por el método de dominio nuevo `RegistrarLecturaDeliberada(ahora)`, que estampa las 2 — CRM-001, para que quien agregue mañana una sexta acción de lectura no tenga que saber que la segunda fecha existe, que es exactamente lo que se rompió acá. `HiloParcial` es el único que **no** lo llama, con un comentario que dice que agregarlo ahí devuelve el defecto. `MarcarTodosLeidos` lo replica con `.SetProperty` porque es `ExecuteUpdateAsync` y no materializa entidades (mismo motivo por el que ya replicaba el stamping de `UpdatedAt`).
+- **Decisión de alcance**: `RegistrarLecturaDeliberada` **no** toca `MarcadoNoLeidoManual`. De los 5 puntos que lo llaman, solo 2 limpiaban ese flag y los 3 de envío nunca lo hicieron; meterlo adentro cambiaría comportamiento legacy que nadie pidió cambiar.
+- **Migración**: `AddLecturaDeliberadaChat`, **aditiva** (1 columna nullable), aplicada **solo en dev**. Lleva un `UPDATE` idempotente que siembra la columna nueva desde `FechaUltimaLecturaAgente`: sin él los ~10.000 contactos arrancan en "nadie leyó nunca este chat" y la columna no significa nada hasta que cada chat se abra una vez. Sin efecto observable hoy, porque `FechaUltimoAvisoDerivado` también arranca en NULL.
+- **Observaciones cosméticas de QA, misma corrida**: `push.js` usaba `getRegistration('/push-sw.js')`, que toma una URL de **cliente** y no de script (funcionaba de casualidad porque el scope es la raíz) → ahora recorre `getRegistrations()` y matchea por `scriptURL`. Y el comentario del `_Layout` que decía "dos SW pueden compartir scope" quedó corregido: un scope tiene una sola registración, lo que justifica el filtro es que el scope no identifica al archivo.
+- **Verificado**: build Release **0 errores** (21 advertencias preexistentes). Reproducido el escenario exacto del parte en dev, con el detalle abierto en background y el polling corriendo (6 llamadas a `HiloParcial` en el log): **3 mensajes → 1 aviso**, con `FechaUltimaLecturaAgente` en 00:06:24 (el polling siguió estampando, o sea que el guard viejo se habría re-armado) y la lectura deliberada en 00:05:51, anterior al aviso de 00:06:00. Y tras abrir el detalle deliberadamente, el mensaje siguiente **sí** avisó. Las 2 mitades del criterio de re-verificación de QA, medidas. `MarcarTodosLeidos` escribe la columna nueva (verificado aparte, es la única implementación que no pasa por el método de dominio). Datos de prueba borrados.
+- **No probado**: los 3 puntos de envío por separado (comparten el método de dominio con `Detail`, que sí se ejercitó; dispararlos mandaría WhatsApp reales desde dev).
+- **Estado**: el defecto queda **aplicado, pendiente de re-verificación**. El cierre lo declara QA, no esta corrida. Sin deploy y sin tocar producción.
+- **Fuera de alcance por indicación**: pasar el envío de push a una cola (observación 1 de QA: ~8 s dentro del webhook con 3 dispositivos y uno inalcanzable).
+
+### 2026-10-16 - defecto abierto, preexistente (no lo introduce CRM-028): OnNewAsync pierde el ContactoRespuesta si falla el envío
+
+- **Origen**: hallazgo incidental de la corrida de QA de CRM-028, con el token de WhatsApp de dev inválido. **No lo introduce ese CR** y solo se manifiesta con credenciales rotas, así que se anota y no se toca.
+- **Síntomas, los 2 del mismo origen**: (1) una notificación in-app apuntando a `/Contactos/Details/0` —el contacto es nuevo y todavía no tiene Id asignado cuando se arma la URL—, y (2) la pérdida del `ContactoRespuesta` del mensaje entrante: la excepción del envío sube hasta el `catch` del webhook y se pierde el `SaveChangesAsync` que iba a persistirlo.
+- **Por qué importa igual**: el punto 2 es exactamente el modo de falla que la regla CRM-020 existe para evitar (que una falla de entrega haga perder el registro de lo que el contacto sí mandó). Que hoy solo se dispare con el token roto no lo hace inofensivo: un token vencido es un escenario real y recurrente en este sistema (los de Meta vencen a los 60 días).
+- **Pendiente**: asignarle id de defecto y alcance propio. No entra en la corrida de CRM-029 por decisión explícita.
+
 ### 2026-10-15 - implementador-dotnet — sesion de la app instalada (PWA): 30 dias renovables
 - Etapa: Implementacion (cambio cross-proyecto, pedido del owner: "en todas las versiones PWA el token de sesion dure un mes activo").
 - Alcance: 14 sistemas con PWA tocados de una vez con el mismo parche. Solo cambia la sesion que arranca desde la app instalada; la del navegador queda igual que estaba.
@@ -14,8 +54,61 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Lo que no es obvio (quedo en `PAT-070` y en la instruction `23-web`): la renovacion mueve `IssuedUtc` junto con `ExpiresUtc`, porque el handler de cookies no copia el vencimiento que se le deja — recalcula la vida como la diferencia entre ambos y la suma a ahora (medido con una duracion de prueba de 20 s: renovaba a 36 s). Y `OnValidatePrincipal` se chainea, no se reemplaza: ahi vive el `SecurityStampValidator` que revoca la sesion al cambiar la password o bloquear al usuario.
 - Impacto en capas: Web (`Program.cs`, `Views/Account/Login.cshtml`). Sin cambios en Application/Domain/Infrastructure, sin migracion EF, sin tocar permisos ni estados. No se toco el AccountController ni el LoginViewModel: el flag se lee del form en el evento.
 - Verificacion (en local sobre blankproject, MySQL de dev, con una duracion de prueba de 20 s): navegador 8 h sin cambios; PWA 30 dias; sin renovar antes de la mitad de la ventana; renovacion exacta pasada la mitad; y 302 al login cuando la ventana vence sin uso. Build OK en los 14 (0 errores).
-- Estado: COMMITEADO, **SIN DEPLOYAR**. Motivo: hay trabajo en curso sin commitear (web push, con la migracion `AddPushSubscriptions` de hoy) — publicar ahora arrastraria ese trabajo a produccion, asi que el deploy de este cambio queda a la espera. El commit no depende de nada mas: cuando ese trabajo se libere, viaja con el.
+- Estado: COMMITEADO Y **DEPLOYADO A PRODUCCION** el 2026-10-15, junto con CRM-028/029 (que era justamente lo que lo bloqueaba). Verificado en vivo: el login de `portal.olvidata.com.ar` sirve el campo `EsPwa` y la deteccion de `display-mode: standalone`. **Correccion sobre la verificacion original de esta entrada**: decia "navegador 8 h sin cambios" como si valiera para los 14 sistemas, y no era cierto — en 5 el navegador estaba en 90 dias, con lo que la PWA quedaba con sesion MAS CORTA que el escritorio y el patron no aportaba nada. Corregido el 2026-10-15 bajando esos 5 a 8 h por decision de Joaquin (ver la trazabilidad de cada uno).
+- El deploy sigue pendiente de que lo **ejecute Joaquín**: es la única acción de esta secuencia que no delegó (ver el runbook en `5-implementador.md`, sección de CRM-028). Al subirlo, cambiar este estado a DEPLOYADO con la fecha.
 
+
+### 2026-10-15 - orquestador (deploy de CRM-028 + CRM-029 a produccion, con un incidente de secretos)
+
+- Etapa: Implementacion / liberacion. Autorizacion explicita de Joaquin en la conversacion ("si a
+  todo menos al certificado", y despues eligio "arreglar CRM-029 y deployar junto"). **El
+  implementador se nego a deployar** y tenia razon: la autorizacion le llegaba relevada por el
+  orquestador, no del owner, y es la accion que Joaquin se habia reservado. El deploy lo ejecuto el
+  orquestador siguiendo el runbook que el implementador dejo escrito en `5-implementador.md`.
+- Que subio: `1005cd2` (CRM-028, web push), `fb45699` (fix de CRM-029), `e5da865` (la sesion de un
+  mes para la PWA, que esperaba justamente a que el web push se liberara) y `d3f5013` (el fix del
+  incidente de abajo).
+- **Correccion a la nota de credenciales**: el puerto 8172 (Web Deploy) **no** estaba bloqueado hoy
+  desde la red de casa — `docs/credenciales.local.md` lo daba por bloqueado y a FTPS como unico
+  camino. Se verifico abierto y el deploy salio por MSDeploy al primer intento (23 cambios: 8
+  agregados, 0 eliminados, 15 actualizados).
+- Migraciones: sin gap previo (produccion estaba en `AddModoSombraIaInstagram`).
+  `AddPushSubscriptions` y `AddLecturaDeliberadaChat` aplicadas con `dotnet ef database update`
+  contra produccion. **Siembra verificada con el numero real: 2769 = 2769 = 2769** (filas con
+  `FechaUltimaLecturaDeliberadaAgente`, filas con `FechaUltimaLecturaAgente`, y el conteo medido
+  antes de migrar). Los 10.235 contactos tienen `FechaUltimoAvisoDerivado` en NULL, asi que nadie
+  arranca con el guard armado. Columna generada `EndpointHashVivo` y el unico
+  `UX_PushSubscriptions_EndpointHash_Vivo` verificados en el esquema real.
+- Backup previo: `C:/Sistemas/_backups/crm-olvidata/Contactos-20261015-2137.csv` (10.235 filas,
+  4 MB) + el DDL de la tabla. El MCP de SmarterASP no pudo hacerlo (`database_create_backup`,
+  `website_restart` y `website_list_environment_secrets` fallan en esta cuenta), asi que se hizo por
+  pymysql.
+- **INCIDENTE REAL, con la causa ya corregida.** El publish **sobreescribio
+  `appsettings.Secrets.json` en el servidor**: produccion tenia 4 bloques (`Anthropic`, `Features`,
+  `Olvidata_Instagram` y la privada de VAPID recien cargada) y la copia local de desarrollo —que
+  solo tiene `Anthropic`— los piso. **Instagram, Features y la clave de push desaparecieron del
+  servidor por unos minutos**, entre el publish y la restauracion. Se restauro por FTPS desde la
+  copia bajada antes del deploy, y se verifico bloque por bloque que los 3 quedaron **identicos al
+  original** mas `Push`. `appsettings.Production.json` tambien viajo pero su contenido local es
+  identico al del servidor (hash verificado): sin daño ahi.
+  - La causa **no** es `SkipExtraFilesOnServer` (eso solo evita borrar lo que no esta en el origen):
+    el SDK web incluye el archivo en el publish por el glob `appsettings*.json` aunque este
+    gitignoreado. Fix en `d3f5013`: `CopyToPublishDirectory="Never"`, verificado con un publish a
+    carpeta. El riesgo estaba latente desde que existe el mecanismo y se materializo ahora porque
+    los bloques de Instagram y Features se cargaron a mano **despues** del ultimo deploy exitoso.
+  - Se chequearon los otros 12 sistemas del estudio: **ninguno tiene `appsettings.Secrets.json`**,
+    el mecanismo es exclusivo de este CRM, asi que el riesgo no se repite en otro repo.
+- Smoke test: `/` 200, `/Account/Login` 200 **con el campo `EsPwa` presente** (confirma que viajo
+  `e5da865`), `/push-sw.js` 200 y servido como `text/javascript` (el riesgo de que IIS lo diera como
+  `text/plain` y el navegador rechazara el service worker no se materializo), `/js/push.js` 200,
+  `/Notifications` 302. `/Notifications/ClavePublica` pide sesion (302), asi que **`EstaConfigurado`
+  no se pudo verificar sin login** — queda en el chequeo manual.
+- Pendiente para Joaquin (5 minutos, con sesion): activar los avisos en su Chrome, recargar 3 veces,
+  confirmar que el boton sigue en "activados" y que llega un globo con el CRM cerrado. Es R1 + la
+  unica confirmacion de que la app lee la privada de VAPID.
+- Defecto abierto: **CRM-030** (minor), sin fix, ver la entrada del implementador.
+- **R2 sin cambios y sigue siendo el riesgo dominante**: el certificado vence el **2026-10-19** y
+  Joaquin decidio explicitamente no renovarlo ahora. Cuando venza, el push se cae con el sitio.
 
 ### 2026-10-15 - implementador (CRM-028: Web Push para los chats derivados a mano)
 
@@ -239,20 +332,6 @@ Mismo formato y tono que `olv_frio_v13` (pain-first, primera persona de Joaquin,
 
 **Proximo paso:** que `analista-funcional` tome este brief como entrada de Discovery para `crm-olvidata` (o un sub-alcance nuevo dentro del mismo proyecto) y lo cierre en `1-analista-funcional.md` antes de pasar a Diseño.
 
-## 2026-09-14 (6) — analista-funcional: Discovery + Analisis de "reorientar el bot de prospeccion a los 4 frentes" (pendiente de aprobacion)
-
-- **Agente/etapa:** `analista-funcional`, Discovery + Analisis, modo Ask (sin codigo). Entrada: el brief de `olvidata-ceo` de la entrada (5). Detalle completo en `definiciones/1-analista-funcional.md`, seccion "Feature en analisis".
-- **Contexto de negocio al momento del analisis:** Landing 2D USD 375/año y 3D USD 600/año; precios de AI Agents y Chatbots confirmados por Joaquin como **promo de entrada hasta 2026-12-31**. Ninguno de esos precios entra al bot (la IA sigue sin poder cotizar).
-- **Verificado en codigo, corrige 1 supuesto del brief:** el campo `website` de Google Places **ya se pide y se guarda** en `Contacto.PaginaWeb` desde la migracion `AddPaginaWebContacto` (2026-08-20), dentro del SKU de Details que ya se paga — no es un dato nuevo ni tiene costo extra. Salvedad: los contactos anteriores a esa fecha, manuales o de ads lo tienen vacio sin que eso signifique "sin web".
-- **Hallazgo nuevo (riesgo R1):** `BotFlowService` indexa `Questions[contacto.Categoria!]` sin chequear la clave — un contacto clasificado por la IA con una categoria nueva (`ai_agents`/`chatbot`) que caiga al arbol de fallback tiraria error. Queda como criterio de aceptacion obligatorio (CU-33 CA4).
-- **`merge`** confirmado en 3 lugares (`ConversacionIaService.CategoriasValidas`, `BotFlowService.Questions`, `BotFlowService.CategoryNames`); hoy solo la IA puede asignarlo (el menu del arbol no lo ofrece).
-- **Otros hechos:** `Contacto.Categoria` es texto libre varchar(20), sumar claves no requiere migracion; el contenido que usa la IA por rubro sale del catalogo de modulos de Build (no hay nada para los frentes nuevos); Places no trae cantidad de reseñas (señal propuesta por el brief para Chatbots).
-- **Salida:** 6 CU propuestos (CU-30 a CU-35) con criterios de aceptacion, 8 riesgos, 4 supuestos, 8 preguntas al cliente con variantes (P1 donde se decide el frente — campaña/automatico/hibrido; P2 web vacia historica; P3 redes cuentan como web; P4 2D vs 3D; P5 merge historico; P6 contenido de la IA por frente; P7 metrica por frente; P8 señal de volumen de consultas).
-- **Banderas:** migracion EF probable (depende de P1), integracion externa si (3 plantillas nuevas en Meta), maquina de estados no.
-- **Impacto en capas:** Presentacion (Contactos/Chats/Campañas/Bot), Negocio (`ConversacionIaService`, `BotFlowService`, `OutboundCampaignService`, regla perfil→frente), Datos (posible campo de frente, filas de `TemplatesWhatsApp`).
-- **Gate:** Diseño bloqueado hasta aprobacion de Joaquin y respuesta a P1-P8.
-- **Actualizacion mismo dia — ANALISIS APROBADO por Joaquin, P1-P8 respondidas:** (P1) frente asignado automatico por contacto, campañas siguen por rubro/ciudad; (P2) web vacia = sin web → Landing, riesgo R2 aceptado explicitamente; (P3) solo Instagram/Facebook/Linktree = sin web propia → Landing; (P4) Landing 3D para rubros visuales, 2D el resto → **4 plantillas nuevas** en vez de 3; (P5) `merge` historico se deja como "discontinuado" y un cliente actual pidiendo mejora se escala a humano; (P6) **modulos por frente en el catalogo de modulos** (nueva dependencia con `olvidata-presupuesto-bot` y migracion); (P7) solo filtro por frente en Contactos/Chats, dashboard fuera; (P8) Chatbots solo por rubro, sin reseñas de Google. Migracion EF: si. Diseño habilitado.
-
 ## 2026-09-14 (7) — olvidata-ceo: precios de AI Agents y Chatbots CONFIRMADOS por Joaquin como promo de entrada
 
 **Nota de puntero, no de implementacion** (decision de negocio/pricing, no de codigo del CRM — la fuente de verdad completa vive en `.claude/agents/olvidata-ceo.md`, seccion "Planes AI Agents y Chatbots", y en la memoria `olvidata-cuatro-frentes-2026-09-13.md`). Se deja constancia aca porque el caso de uso que motiva el pricing de Chatbots es el bot de ventas de este mismo proyecto (`ConversacionIaService`, ya en vivo).
@@ -262,64 +341,6 @@ Mismo formato y tono que `olv_frio_v13` (pain-first, primera persona de Joaquin,
 - El costo real medido del bot propio (USD 0,006-0,045 por conversacion con Opus 5, ver `plan-llm-conversacional-bot.md` §5.5) es el dato de costo interno usado para justificar el margen de estos dos frentes — queda como referencia de calibracion para cuando se venda esto a terceros via `Olvidata Agentes Multi-rubro`.
 - Renovacion: el cliente que cierra con la promo mantiene ese precio en renovaciones sucesivas (grandfathereado), no pasa a lista automaticamente.
 - Sin impacto en codigo ni en el alcance tecnico definido en la entrada anterior (2026-09-14 (5)) — ese brief de segmentacion del bot de prospeccion sigue en pie tal cual, sin cambios por esta confirmacion de precio.
-
-## 2026-09-14 (8) — disenador-funcional: Diseño de "reorientar el bot de prospeccion a los 4 frentes" (pendiente de aprobacion)
-
-- **Agente/etapa:** `disenador-funcional`, modo Ask (sin codigo). Entrada: analisis aprobado (entrada (6) + `definiciones/1-analista-funcional.md`). Detalle completo en `definiciones/2-disenador-funcional.md`, seccion 8.
-- **Reutilizacion:** sin match en `catalogo.yml` ni en `docs/*/definiciones/`. Se reutilizan patrones propios del proyecto (`RubroHelpers` como fuente unica, `/Bot/Salud`, filtros en `Session`, matriz de modulos MVP/FULL). **Patron nuevo PAT-031** agregado al catalogo.
-- **Hallazgo que cambia el diseño:** el toque del boton "Si, contame mas" NO pasa por la IA (solo atiende texto libre): lo resuelve `BotFlowService.OnConfirmarContinuarAsync`, que fuerza `Categoria = "rent"` y manda la pregunta de gestion con modulos de Build. Es el camino principal del frio, no un fallback — cambiar solo la plantilla daria una conversacion incoherente. Diseño: la respuesta al boton sale del frente ofrecido (categoria y primera pregunta por frente).
-- **Correccion de un riesgo del analisis (R1):** el fallback desde `ConversandoConIa` si chequea la clave; el problema real es que con categoria nueva reinicia saludo + menu (repite la presentacion). El `KeyNotFoundException` solo aplica a `AskingQuestions` con categoria sin cuestionario → diseño: escalar a humano.
-- **Decisiones de diseño:** "frente ofrecido" (nuevo, lo asigna el sistema con motivo y fecha, no se recalcula solo) separado de "interes detectado" (`Categoria`); tabla de decision de 7 filas con web propia antes que rubro; grupos por clave de rubro y lista de dominios en `Application/Helpers`; contacto sin plantilla de frente aprobada no se envia ni consume cupo (nunca cae a `v13`); 4 borradores de plantilla con 1 placeholder y mismos botones que `v13`, el de Landing sin afirmar "no tenes web" (mitigacion R2); modulos por frente con Build intacto (R9).
-- **Pantallas:** Contactos/Index (2 columnas + filtros), Chats/Index (filtro + chip), card "Oferta" en Contactos/Details y Chats/Detail, campo en Create/Edit, card de plantillas por frente en `/Bot`, bloque en `/Bot/Salud`, frente en catalogo de modulos y Armar presupuesto.
-- **Migracion EF:** si (Contacto, ModuloCatalogo, ConfiguracionOutbound). Maquina de estados: sin cambios.
-- **Plan:** 7 etapas (E1 vocabulario/arbol, E2 prompt, E3 frente en contacto, E4 conversacion por frente, E5 envio por frente, E6 modulos por frente, E7 documentacion); E1-E2 desplegables antes sin tocar el envio.
-- **Pendiente de aprobacion del cliente:** tabla de grupos por rubro, lista de dominios, grupos fijos en codigo, borradores de plantilla. Arquitectura bloqueada hasta entonces.
-- **Ajuste mismo dia — respuestas de Joaquin:** (1) **combo para todos**: a cada prospecto frio se le ofrece Landing 3D + AI Agents + Chatbots "para que compre todo", con el mensaje abriendo por el dolor mas probable de su perfil; (2) Build y Landing 2D siguen disponibles; (3) web propia = solo dominio propio (Tiendanube/Wix/Google Sites/marketplaces tambien cuentan como sin web); (4) grupos y dominios fijos en codigo; (5) borradores pasan a `olvidata-marketing`. **Rediseño de la seccion 8:** el dato por contacto pasa de "frente ofrecido" a **"gancho"** (Presencia web / Administracion / Consultas / Gestion); 4 plantillas combo por gancho; gancho Gestion cae a la plantilla de campaña (`v13`) mientras la combo no este aprobada; se elimina la variante 2D/3D por rubro visual; la IA hace venta cruzada del combo una sola vez despues del dolor; Armar presupuesto con selector multiple de frentes. Riesgos nuevos: el combo reparte el foco del mensaje (D-R6, medir contra `v13`) y falta el precio de paquete (D-R7, `olvidata-ceo`). Analisis actualizado (P1, alcance 3-4) y PAT-031 con la variante combo. Pendiente: que Joaquin confirme 4 interpretaciones (8.16) para habilitar Arquitectura.
-- **DISEÑO APROBADO (mismo dia):** Joaquin confirmo las 4 interpretaciones de 8.16 (tabla de rubros solo para el gancho; Build como gancho Gestion con fallback a la plantilla de campaña; Landing 2D fuera del primer mensaje, se ofrece en la propuesta; combo mencionado una sola vez despues del dolor). Arquitectura habilitada.
-
-## 2026-09-14 (9) — arquitecto-mvc: Arquitectura de "4 frentes — combo con gancho" (pendiente de aprobacion)
-
-- **Agente/etapa:** `arquitecto-mvc`, modo Ask (sin codigo). Entrada: analisis (6) y diseño (8) aprobados. Detalle en `definiciones/3-arquitecto-mvc.md` §7.2.
-- **Reutilizacion:** PAT-031 es patron sin codigo portable (nacido en este diseño); ningun proyecto del historial resuelve algo equivalente. Todo lo demas es reutilizacion literal intra-repo → para el presupuestador es iteracion evolutiva sobre modulos existentes, no modulo nuevo.
-- **Modelo:** enums `GanchoContacto` y `FrenteComercial`; `Contacto` + `Gancho`/`MotivoGancho`/`FechaGancho`/`GanchoAMano`/`PlantillaPrimerContacto` + metodo `AsignarGancho` (CRM-001); `ModuloCatalogo.Frente` (default Build); 4 plantillas por gancho en `ConfiguracionOutbound`. **1 migracion aditiva `AddGanchoYFrenteComercial`**, sin SQL de datos (la carga inicial usa las reglas en C#).
-- **Piezas nuevas:** `CategoriaHelpers` (fuente unica del vocabulario de categorias, hoy escrito en 3 lugares), `GanchoHelpers` (grupos, dominios en memoria, tabla de decision), `PlantillasCombo` (nombres fijos: los botones QUICK_REPLY no los soporta la rama generica G1), `ModuloCatalogoQueries` (la consulta de modulos estaba duplicada en `BotFlowService` y `ConversacionIaService`).
-- **Hallazgos tecnicos nuevos:** (1) el lote corta con `.Take(cupo)` antes de enviar — el filtro de "sin plantilla" tiene que ir antes o un salteado ocupa cupo; (2) la guarda de rename/delete de plantillas (B5) y `TemplatesSinCampana` de `/Bot/Salud` solo miran campañas — hay que sumar la configuracion (LP-002); (3) `ProcessFollowUpsAsync` manda `olv_nurturing_v2` (texto de gestion) a todo `MensajeEnviado` y `MarkColdAsync` solo enfria desde `FollowUpEnviado` → decision A1.
-- **Cache del prompt:** todo lo nuevo que es igual para todos va al bloque estable; gancho/oferta/modulos al bloque del contacto. Reescritura de cache una sola vez al desplegar.
-- **Riesgos:** T1-T12 (MH-001/CRM-019, CRM-001, CRM-007/016, CRM-020, CRM-022, LP-002 cubiertos explicitamente). Permisos sin cambios. Maquina de estados sin valores nuevos.
-- **Gate:** Presupuesto bloqueado hasta aprobar la arquitectura y decidir A1 (follow-up de los ganchos combo; recomendada A1-a: sin `nurturing_v2`, frio directo a los 7 dias) y A2 (nombres de plantilla combo en codigo).
-- **ARQUITECTURA APROBADA (mismo dia):** Joaquin avanzo con las opciones recomendadas — A1-a (sin follow-up de gestion para PresenciaWeb/Administracion/Consultas, frio directo a los 7 dias) y A2 (nombres de plantilla combo en codigo). Presupuesto habilitado.
-
-## 2026-09-14 (10) — presupuestador: estimacion interna de "4 frentes — combo con gancho" (pendiente de aprobacion)
-
-- **Agente/etapa:** `agentes-ia-presupuestador`, modo Ask. Proyecto interno: estimacion de esfuerzo y costo equivalente, sin precio al cliente, sin Tokens IA/descuentos/mantenimiento. Detalle en `definiciones/4-presupuestador.md`.
-- **Anclaje:** cierre real propio del sprint 2026-08-27 (22 h M → 2.5-3 h reales). Iteracion evolutiva sobre el mismo repo con rondas previas → pisos de "modificacion sobre modulo existente".
-- **Numeros:** 7 etapas, **21.0 h M base / 22.0 h PERT / 25.62 h con contingencia variable** (E5 envio facturable al 25%, E1 y E7 al 8%, resto 15%) / 10.08 h facturables / ≈ USD 353 de costo interno equivalente (M × 16,80) + ≈ USD 46 de IA sombra (overhead Ask-mode subido a 6 h por las 2 rondas de rediseño). Sanity check total contra el sprint 08/27: 0.95. Real esperado 3-3.5 h, techo 4.5-5 h por la verificacion contra produccion de E2/E5.
-- **Etapas de entrega:** Etapa 1 = E1+E2 (3.5 h, desplegable ya, mejora el inbound, sin migracion); Etapa 2 = E3+E4+E5+E7 (14 h, reactiva el outbound con el combo; para enviar requiere textos de marketing + aprobacion de Meta); Etapa 2b = E6 modulos por frente (3.5 h, diferible sin bloquear el outbound).
-- **Gate:** Implementacion bloqueada hasta que Joaquin apruebe y elija alcance de arranque (Etapa 1 sola / Etapa 1+2 / con o sin E6).
-- **PRESUPUESTO APROBADO (mismo dia):** Joaquin eligio alcance completo E1-E7 (incluye E6 modulos por frente, una sola migracion). Implementacion habilitada y lanzada con `agentes-ia-implementador` — migracion solo en `olvidatacrm_dev`, sin deploy a produccion, sin commits, sin tocar Meta ni reactivar outbound hasta QA + confirmacion del owner.
-
-## 2026-09-14 (11) — implementador: "4 frentes — combo con gancho", E1 a E7 implementadas (pendiente QA)
-
-- **Agente/etapa:** `agentes-ia-implementador` (Agent). Detalle completo en `definiciones/5-implementador.md`, seccion "Feature 4 frentes — combo con gancho".
-- **Reutilizacion:** PAT-031 confirmado con rutas reales de codigo (`pendiente_verificar` retirado); todo lo demas reutilizacion intra-repo. Hallazgo: el repo NO tiene auto-init global de Select2 — cada combo nuevo se inicializa en su vista.
-- **Codigo:** Domain (2 enums, 5 props + `Contacto.AsignarGancho`, `ModuloCatalogo.Frente`, 4 plantillas por gancho en `ConfiguracionOutbound`); Application (`CategoriaHelpers`, `GanchoHelpers`, `PlantillasCombo`, DTOs, 2 metodos en `IOutboundCampaignService`); Infrastructure (`ModuloCatalogoQueries` compartida, `OutboundCampaignService`, `BotFlowService`, `ConversacionIaService`, `AppDbContext`); Web (Contactos, Chats, Bot, Salud, Templates, Modulos + JS/CSS).
-- **Puntos criticos verificados en codigo:** filtro "sin plantilla" antes del `Take(cupo)`; boton "Sí, contame más" fija categoria por gancho (sin gancho → `rent` identico); guardas de rename/delete de Templates y `TemplatesSinCampana` contemplan las 4 plantillas de configuracion (LP-002); `PlantillasCombo.TieneBotonContinuar` reemplaza la condicion literal v10-v13; oferta y modulos del contacto en el bloque no cacheado del prompt; sin `Contains` de lista de string ni `StartsWith`/`EndsWith` en queries nuevas; codigo nuevo del webhook envuelto; modo sombra sin escrituras nuevas; los 4 `new Contacto` cubiertos (Ads queda sin gancho por regla).
-- **Migracion:** `20260915010357_AddGanchoYFrenteComercial` (aditiva) aplicada **solo en `olvidatacrm_dev`** (destino verificado). Produccion sin tocar.
-- **Build:** Release `--no-incremental` 0 errores, 26 advertencias todas preexistentes.
-- **Desvios:** 11, documentados en `5-implementador.md` §6 (card con patron `dl` existente, gancho a mano solo outbound frio, "Automatico" no toca historicos ya enviados, escalada con pausa + notificacion unica, modulos genericos = MVP, entre otros).
-- **Pendientes para el owner:** (1) **concordancia de genero en los borradores combo** ("muchos clínicas/inmobiliarias/farmacias") → `olvidata-marketing` antes de Meta; (2) aprobacion de Meta y asignacion en /Bot; (3) contenido de modulos por frente (`olvidata-presupuesto-bot`); (4) precio del combo (`olvidata-ceo`); (5) QA + migracion en produccion + deploy; outbound sigue pausado.
-- **Catalogo 32:** regla nueva "Lote con cupo: todo filtro de elegibilidad va ANTES del Take(cupo)". E7: `arbol-comunicacion-bot.md` y `logica-negocio-bot.md` actualizados.
-
-## 2026-09-14 (12) — QA: "4 frentes — combo con gancho" (E1-E7) — GO condicional, 1 defecto major corregido
-
-- **Agente/etapa:** `agentes-ia-qa` (Agent). Detalle completo en `definiciones/6-qa.md`, sección "QA — feature 4 frentes — combo con gancho (2026-09-14)".
-- **Seguridad de la corrida:** dev tiene credenciales REALES de Meta (token, número y teléfono admin) y de Google Places en user-secrets, y el outbound estaba despausado con 26 campañas activas y 234 contactos Pendiente. Se pausaron `OutboundPausado`/`BusquedaMapsPausada` durante la prueba, la app corrió con token de WhatsApp, key de Places y teléfono admin inválidos por variable de entorno, y todo envío/webhook se ejecutó con un harness de consola (servicios reales + `IWhatsAppClient` falso + transacción con rollback). **0 mensajes de WhatsApp, 0 llamadas a Places.** IA real: 7 mensajes (14 requests), **USD 0,149**.
-- **Método:** Playwright MCP no disponible (el navegador del MCP corre aislado: `ERR_CONNECTION_REFUSED` a localhost/127.0.0.1, `host.docker.internal` no resuelve) → HTTP autenticado + SQL + harness. Baseline HEAD (2ad3830) en worktree temporal para las comparaciones "idéntico a antes". Build propio Release `--no-incremental` 0 errores.
-- **Resultado:** los 8 puntos obligatorios del Implementador PASS (cupo con salteados, regresión v13/A-B/Referido, botón por gancho con texto idéntico a HEAD sin gancho, IA con los 4 mensajes de CU-30 CA2 + precio + cliente actual + sin Merge, fallbacks, filtros con Session/Limpiar/sin coincidencias, guardas de plantillas y POST manipulado, A1-a, Armar presupuesto solo Build byte a byte igual a HEAD). Tabla de `GanchoHelpers` 26/26, carga inicial 234 + idempotente.
-- **Defecto CRM-023 (major, auto-fix aplicado):** el selector múltiple "Frentes" de `/Modulos/Presupuesto` y del modal de `Chats/Detail` nunca llegaba al servidor — `$.get` manda `frentes[]=`, que ASP.NET Core no bindea en query string, y `NormalizarFrentes` caía a Build en silencio. Fix: `$.ajax({ ..., traditional: true })` en las 2 vistas. Re-verificado por HTTP; build Release 0 errores. Catalogado en `regresiones-manuales.yml` + regla nueva en `32-estandares`.
-- **Hallazgo de negocio (R3 medido):** los 234 contactos Pendiente de dev reciben gancho Presencia web ("Sin web": ninguno tiene `PaginaWeb`). Mientras `olv_frio_combo_web_v1` no esté aprobada y asignada, el outbound manda 0 mensajes frescos.
-- **Pendiente manual (sin navegador):** consola limpia y tema oscuro de los Select2/badges nuevos; confirmar en la pestaña Red que el XHR de "Frentes" viaja como `frentes=2&frentes=3`.
-- **Limpieza:** 6 contactos + 2 templates de prueba borrados; ganchos, `UpdatedAt` de los 234 contactos y configuración restaurados desde backup (verificado 0 diferencias); flags de outbound/Maps de vuelta a 0 como estaban; worktree y tablas de backup eliminados. Sin commits ni deploy.
 
 ## 2026-10-15 — Canal nuevo: el bot atiende los DM de Instagram (plan completo, fases 1-5, en producción apagado→encendido)
 
@@ -383,6 +404,41 @@ Mismo formato y tono que `olv_frio_v13` (pain-first, primera persona de Joaquin,
 Esta entrada cierra el canal de Instagram, pero `trazabilidad.md` **no tiene entradas entre el 2026-09-15 y el 2026-10-14**. Quedó sin registrar el trabajo de octubre que el agente no hizo y no puede reconstruir sin inventar: avisos de renovación por anticipación (`4d0901f`), un contacto con varios sistemas (`09c4814`), el perfil de Web Deploy invocable por línea de comandos (`9e27277`), la reescritura de las 4 plantillas de primer contacto (`aca2184`), el ruteo y la sincronización de plantillas con Meta (`467571e`) y el envío de imágenes desde `/Chats` (sin commitear). **Se puede reconstruir desde los commits si el cliente lo pide.**
 
 ## Historial de ajustes
+
+### Bloques archivados (2026-10-15)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-09** — 1 bloques (2026-09-14 a 2026-09-14) → [`trazabilidad-2026-09-7.md`](historial/trazabilidad-2026-09-7.md)
+
+
+### Bloques archivados (2026-10-15)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-09** — 1 bloques (2026-09-14 a 2026-09-14) → [`trazabilidad-2026-09-6.md`](historial/trazabilidad-2026-09-6.md)
+
+
+### Bloques archivados (2026-10-15)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-09** — 1 bloques (2026-09-14 a 2026-09-14) → [`trazabilidad-2026-09-5.md`](historial/trazabilidad-2026-09-5.md)
+
+
+### Bloques archivados (2026-10-15)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-09** — 1 bloques (2026-09-14 a 2026-09-14) → [`trazabilidad-2026-09-4.md`](historial/trazabilidad-2026-09-4.md)
+
+
+### Bloques archivados (2026-10-15)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-09** — 2 bloques (2026-09-14 a 2026-09-14) → [`trazabilidad-2026-09-3.md`](historial/trazabilidad-2026-09-3.md)
+
 
 ### Bloques archivados (2026-10-15)
 
@@ -474,6 +530,54 @@ Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-p
   (d) Dos lecturas de la BD dieron falsos negativos por carrera: el webhook responde 200 al instante
   y procesa en background, asi que con un endpoint inalcanzable en el lote el `SaveChanges` del push
   tarda ~8 s — hay que esperar el final del procesamiento, no el 200.
+
+### Traza de corrida -- 2026-10-15 / etapa qa / lote 1
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: ninguna
+
+
+### 2026-10-16 — QA: re-verificacion de CRM-029 (fix fb45699)
+
+- **CRM-029 cerrado.** El criterio lo declaro QA, no el Implementador, y se midio en contexto nuevo
+  con el criterio de vuelta en FAIL: pestania de detalle abierta en background + 3 mensajes seguidos
+  → **1** aviso (la lectura comun se mueve en cada tick del polling, el aviso no se mueve), y despues
+  de `GET /Chats/Detail` el mensaje siguiente **si** avisa. Antes del fix: 3 mensajes, 3 avisos.
+- **Veredicto: GO para subir en lo que depende del codigo.** Certificado del 19/10 y privada VAPID
+  quedan fuera: decision del owner y tarea del coordinador en el deploy.
+- **Defecto nuevo CRM-030 (minor), parte emitido, sin fix.** El argumento del Implementador sobre los
+  3 estampados de `Descartado` se chequeo y es **correcto en la direccion que se temia**: ninguno
+  escribe el campo nuevo, asi que no pueden re-armar el guard de mentira. Falla en la vuelta:
+  `ContactosController.EstadosManualesPermitidos` es `Enum.GetValues<EstadoEmbudo>()`, o sea que
+  **todos** los estados son asignables a mano, y la secuencia avisado → Descartado → DerivadoManual a
+  mano deja el guard con el aviso viejo puesto y 0 avisos para el mensaje siguiente. Degrada sin
+  perder nada (el chat sigue visible en la bandeja de no leidos). La leccion generalizable que quedo
+  en el catalogo: **un guard de "avisar una sola vez" tiene dos entradas** —la marca de que ya se
+  aviso y la senal que la levanta— y revisar solo la senal deja la marca pegada; lo barato es
+  resetear la marca cuando la entidad sale del estado que habilita el aviso.
+- **Limite nuevo que conviene anotar para el arranque del rol:** los 3 puntos de lectura deliberada
+  que son envios (`EnviarMensaje`, `EnviarPresupuestoPdf`, `EnviarImagen`) **no son ejecutables** en
+  un arnes de QA: estampan recien despues de un envio exitoso a Meta y la URL de la Graph API esta
+  hardcodeada en `WhatsAppClient`, asi que no se puede sustituir por un doble local ni hay
+  destinatario seguro. Se cubrieron con un invariante mecanico (una sola escritura directa de
+  `FechaUltimaLecturaAgente` en `ChatsController`, el tick; las otras 4 por
+  `RegistrarLecturaDeliberada`) y se declararon como no ejecutados, no como PASS. Si alguna vez se
+  quiere poder probarlos, lo que habilita eso es hacer configurable la base URL de la Graph API.
+- **Leccion de metodo propia:** 2 lecturas intermedias dieron falso negativo por mi propio flood (12
+  mensajes al mismo contacto en 2 minutos dispararon el corte anti-loop, y un `MarcarTodosLeidos`
+  masivo toco un contacto de otra prueba). Hay que usar **un contacto nuevo por escenario** y no
+  reciclar, y no correr acciones masivas entre dos mediciones de escenarios distintos.
+
+### Traza de corrida -- 2026-10-16 / etapa qa (re-verificacion CRM-029)
+- Reintentos: 2
+- Criterios fallados: ninguno del criterio de cierre. CRM-029 PASS en las 2 mitades.
+- Reglas releidas: CRM-029 (el criterio de re-verificacion que habia escrito), CRM-020
+- Nota: los 2 reintentos son del arnes. (a) El helper de "no leido" uso un parametro de filtro
+  inventado (`soloNoLeidos`) y `ListaParcial` devolvia todo: el filtro real es
+  `Interaccion=noLeidos` y vive en `ChatFiltrosViewModel.Interaccion`. (b) Contaminacion cruzada por
+  reciclar contactos entre escenarios y por correr un `MarcarTodosLeidos` masivo en el medio — se
+  re-midio sobre contactos nuevos. Las 2 son del tipo "el arnes miente antes que el sistema": ante un
+  resultado inesperado, chequear primero el arnes contra la base.
 
 ### Traza de corrida -- 2026-10-15 / etapa qa / lote 1
 - Reintentos: 0
