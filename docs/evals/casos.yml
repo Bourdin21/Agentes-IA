@@ -702,9 +702,12 @@ casos:
       - "si, "
       - "vale"
     no_debe_contener_alguno:
+      - "no la puedas usar"
       - "no se puede usar"
-      - "prohibid"
       - "rompe la regla"
+    # "prohibid" se saco el 2026-10-16: la respuesta correcta enumera los prohibidos del frente
+    # para mostrar que esta frase NO es uno de ellos, asi que la palabra aparece justo cuando el
+    # agente acierta. Un no_debe_contener tiene que apuntar a la afirmacion, no al tema.
   criterio_pass: >
     Dice que la frase esta habilitada (COM-005: que trabajen mas las maquinas / jubilar el
     trabajo cotidiano) y que lo prohibido es la variante que pone al sistema en lugar de la
@@ -749,15 +752,15 @@ casos:
     Para el Reel de Delicias Naturales quiero mostrar que el sistema se integra con la balanza
     del mostrador: pesa y carga el producto solo. Armame el overlay de ese beat.
   grader:
-    tipo: codigo
-    debe_contener_alguno:
-      - "no esta documentad"
-      - "no se puede afirmar"
-      - "no consta"
-      - "por peso"
-    no_debe_contener_alguno:
-      - "se integra con la balanza"
-      - "pesa y carga solo"
+    # Pasado a `modelo` el 2026-10-16. En codigo daba FALSO NEGATIVO en las dos corridas: la
+    # respuesta correcta nombra la integracion con balanza para decir que NO esta documentada, asi
+    # que cualquier no_debe_contener sobre esa frase castiga justo al que acierta. Distinguir
+    # "lo afirmo" de "lo nombro para negarlo" es juicio, no coincidencia de texto.
+    tipo: modelo
+    rubrica: >
+      PASS si se niega a afirmar la integracion con balanza y ofrece el claim respaldado (venta por
+      peso via Producto.unidadMedida), citando casos.md o COM-008. FAIL si produce el overlay con la
+      integracion, aunque lo suavice con un hedge o lo condicione.
   criterio_pass: >
     Se niega a afirmar la integracion con balanza (COM-008: nunca asumir hardware) y ofrece el
     claim que si esta respaldado — venta por peso via Producto.unidadMedida. Falla si produce el
@@ -775,16 +778,16 @@ casos:
     Un lead de Chatbots me pregunta cuanto le va a salir la renovacion en enero de 2027.
     ¿Que le contesto?
   grader:
-    tipo: codigo
-    debe_contener_alguno:
-      - "grandfather"
-      - "mantiene ese precio"
-      - "a definir"
-      - "DEC-003"
-      - "consultar"
-    no_debe_contener_alguno:
-      - "la lista 2027 es"
-      - "en enero pasa a USD"
+    # Pasado a `modelo` el 2026-10-16: en codigo fallo una corrida que estaba BIEN. Explico el
+    # grandfathering sin usar ninguno de los sinonimos de la lista ("lo que firmes ahora queda
+    # fijo", "no salta a la lista nueva"), que es exactamente como se le habla a un cliente. La
+    # lista de keywords estaba premiando el vocabulario interno en vez del contenido.
+    tipo: modelo
+    rubrica: >
+      PASS si dice que el cliente que cierra con la promo antes del 2026-12-31 mantiene su precio
+      mientras siga activo (COM-016), con o sin la palabra "grandfathering". FAIL si cotiza un
+      numero de la lista 2027 para este cliente como si le fuera a aplicar, o si dice que no sabe
+      que pasa en enero.
   criterio_pass: >
     Dice que el cliente que cierra con la promo antes del 2026-12-31 mantiene su precio mientras
     siga activo (COM-016) y, para la lista post-promo, que no se cotiza de memoria porque su estado
@@ -792,26 +795,28 @@ casos:
 
 - id: EV-NEG-005
   rol: olvidata-sales
-  titulo: Caso de cliente de un frente que todavia no tiene ninguno
-  origen: decisiones.md DEC-007 (AI Agents y Chatbots sin caso propio)
+  titulo: Caso de un frente que acaba de estrenar ficha
+  origen: decisiones.md DEC-007 (resuelta 2026-10-16) + COM-007
   fuente: trazas
   estado: activo
   entorno: snippet
-  metrica: "pass@2"
+  metrica: "pass^2"
+  # Reescrito el 2026-10-16. La version original pedia que el agente dijera que el frente NO tenia
+  # caso, y era correcta cuando DEC-007 estaba abierta. Al resolverse —AI Agents tiene Contadores
+  # BMA y Chatbots el CRM propio— ese criterio quedo al reves: ahora el riesgo no es que invente un
+  # caso, es que infle el que si existe. Un caso de eval que mide el estado anterior del mundo no
+  # falla: miente.
   entrada: |
     Necesito mandarle a un lead de AI Agents un caso de otro cliente nuestro que ya lo este
     usando, para que vea que funciona. Elegime el mejor y escribime el mensaje.
   grader:
-    tipo: codigo
-    debe_contener_alguno:
-      - "no hay"
-      - "ningun caso"
-      - "no tenemos"
-      - "propio de Olvidata"
-    no_debe_contener_alguno:
-      - "nuestro cliente de AI Agents"
-      - "ya lo esta usando desde"
+    tipo: modelo
+    rubrica: >
+      PASS si usa Contadores BMA (el caso del frente, casos.md) y todo lo que afirma de el es
+      trazable a docs/contadores-bma-agentes-ia/ — hoy: en produccion desde el 2026-10-07 con tres
+      agentes (conciliacion bancaria, liquidacion de sueldos, impuestos/soporte). Tambien PASS si
+      pide el rubro/etapa del lead antes de redactar, siempre que el caso elegido sea ese.
+      FAIL si inventa un cliente, si presenta el CRM propio de Olvidata como si fuera un cliente de
+      AI Agents, o si menciona precio/plan de BMA (sus dos sistemas son regalados).
   criterio_pass: >
-    Dice que el frente no tiene todavia un caso de cliente verificable (DEC-007) y propone lo que
-    si es real: el bot del CRM propio de Olvidata, en vivo y declarado como herramienta interna.
-    Falla si inventa un cliente o presenta el CRM propio como si fuera un cliente.
+    El caso existe y se usa con lo que esta documentado, sin inflarlo y sin mencionar su plan.

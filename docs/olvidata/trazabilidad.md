@@ -67,3 +67,19 @@ Formato: `### <fecha> — <qué cambió>` y, abajo, de dónde a dónde y quién 
   Ningún número de la tabla se tocó.
 - **Quedan abiertas:** DEC-002 (formulario del caso de Landing con error 500) y DEC-008 (el frente de
   ESCABA y PiApartments sigue inferido).
+
+### 2026-10-16 — primera corrida de evals de los agentes de negocio
+- **Qué:** 5 casos, 10 corridas, en subagentes limpios de `olvidata-cm`, `olvidata-ceo` y
+  `olvidata-sales`, para verificar que mover los precios y el inventario de casos fuera de los
+  `.agent.md` no dejara a los agentes inventando el dato.
+- **Resultado: 5 de 5 en sustancia, 3 de 5 mecánico.** Ninguno citó de memoria: los cinco fueron a
+  buscar el archivo. Los dos FAIL eran de los graders.
+- **Lo que se arregló:** `EV-NEG-001` castigaba la palabra "prohibid", que aparece justo cuando el
+  agente acierta; `EV-NEG-003` y `EV-NEG-004` pasaron a grader de modelo (distinguir "lo afirmó" de
+  "lo nombró para negarlo", y reconocer una regla dicha con las palabras del cliente, es juicio);
+  `EV-NEG-005` se reescribió porque medía el mundo anterior a DEC-007.
+- **Hallazgo que justificó la corrida sola:** la ficha de **Contadores BMA** en `casos.md` decía "en
+  Discovery/Diseño" y era falso — está **en producción desde el 2026-10-07 con tres agentes**
+  (conciliación bancaria, sueldos, impuestos). El agente de ventas lo citó mejor que la ficha porque
+  fue a leer `docs/contadores-bma-agentes-ia/`. Ficha corregida.
+- **Detalle de la corrida:** `docs/evals/corridas/negocio-2026-10-16/RESULTADO.md`.

@@ -78,18 +78,24 @@ aun así hubo que reescribirlo entero.
 
 ### Contadores BMA — estudio contable (`docs/contadores-bma-agentes-ia/`, `docs/contadores-bma-conversor/`)
 
-**Es el caso del frente AI Agents** (confirmado por Joaquín el 2026-10-16, DEC-007). Antes de usarlo
-en una pieza hay que hacer el paso 1-2-3: el proyecto está en Discovery/Diseño y lo que esté
-implementado hay que verificarlo contra `docs/contadores-bma-agentes-ia/` — tiene tres ramas
-(Contabilidad e Impuestos sobre SOS Contador, Sueldos, y el conversor ya entregado).
+**Es el caso del frente AI Agents** (confirmado por Joaquín el 2026-10-16, DEC-007).
 
-- **Afirmable sin verificar nada más:** el conversor está entregado y en uso (es uno de los dos
-  sistemas de este cliente en `clientes.md`), y el relevamiento estructural del estudio reordenó el
-  proyecto en 2026-09-23 — o sea, hay trabajo real de análisis sobre la operación del cliente.
-- **Ojo:** los dos sistemas de este cliente están **regalados** (sin plan de mantenimiento). No usar
-  el caso para hablar de recurrente ni de valor del plan.
-- **Antes de afirmar una funcionalidad de agente:** grep en sus definiciones. Que el frente tenga
-  caso no significa que cualquier capacidad esté construida.
+- **Afirmable:** **está en producción desde el 2026-10-07 con tres agentes productivos** —
+  conciliación bancaria, liquidación de sueldos e impuestos/soporte de sistemas— corriendo en
+  `agentes.olvidata.com.ar`. Confirmado por Joaquín y registrado en
+  `docs/contadores-bma-agentes-ia/metadata.md` y `definiciones/5-implementador.md`. Es trabajo
+  diario del estudio, no una prueba. El conversor del mismo cliente está entregado y en uso desde
+  antes (proyecto aparte, `docs/contadores-bma-conversor/`).
+- **NO afirmable:** las nueve capacidades del relevamiento original — el trabajo real son **tres**
+  agentes, no nueve (`definiciones/2-disenador-funcional.md`). Tampoco los agentes que están en
+  presupuesto y todavía no se construyeron.
+- **NO mencionar:** precio ni plan. Los dos sistemas de este cliente están **regalados** (sin
+  mantenimiento), así que el caso no sirve para hablar de recurrente ni de valor del plan.
+- **Corregido el 2026-10-16:** esta ficha nació diciendo que el proyecto estaba "en
+  Discovery/Diseño", y era falso — una corrida de evals (EV-NEG-005) mostró que el agente de ventas
+  lo citaba mejor que la ficha, porque fue a `docs/contadores-bma-agentes-ia/` y leyó el estado real.
+  El propio proyecto ya tenía anotado que tres agentes en producción no habían dejado rastro donde
+  debían; esta ficha repitió el error.
 
 ### El CRM de Olvidata — el caso del frente Chatbots (producto propio)
 

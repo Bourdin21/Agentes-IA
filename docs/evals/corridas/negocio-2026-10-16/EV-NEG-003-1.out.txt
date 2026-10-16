@@ -1,0 +1,8 @@
+No puedo armar ese overlay: la integración con balanza (pesa y carga el producto solo) no está documentada para Delicias Naturales. `docs/olvidata/casos.md` lo marca explícito como "NO afirmable" y `COM-008` prohíbe asumir integraciones de hardware sin respaldo — lo único que existe es `Producto.unidadMedida` (Kg/Gramos/Unidades), venta por peso cargada en el sistema, sin conexión física con la balanza del mostrador.
+
+Overlay de reemplazo para ese beat (venta por kilo, carga en sistema — no integración de hardware):
+
+- Shot (2s, grabación real de pantalla): se ve la pantalla de venta con el producto cargado y la unidad en Kg/Gramos.
+- Overlay: "Por kilo." (3-4 palabras, aparece y se mantiene)
+
+Nada de "pesa y carga solo" ni mención a la balanza como dispositivo conectado.

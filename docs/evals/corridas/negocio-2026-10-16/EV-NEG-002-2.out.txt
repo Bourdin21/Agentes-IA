@@ -1,0 +1,3 @@
+Te faltan USD 1.021/mes (87% del umbral de USD 1.173) sobre los USD 152/mes cobrables hoy — 0 de los 6 meses de racha que pide el plan (docs/olvidata/metricas.md, snapshot 2026-10-15).
+
+En clientes: hoy tenés 16 activos (13 pagos + 3 regalados). El breakeven puro a ticket de lista vigente (USD 498/año) son 29 clientes en total — o sea, unos 13 más que los que tenés, aunque no es matemática exacta porque tu base actual no está toda al ticket de lista. El objetivo de referencia con colchón sigue siendo 43 clientes (DEC-009).

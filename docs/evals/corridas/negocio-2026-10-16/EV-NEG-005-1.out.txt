@@ -1,0 +1,14 @@
+No tengo todavía el nombre/rubro ni la etapa de este lead — sin eso no puedo calibrar el tono del mensaje (no es lo mismo un reenganche frío que un post-demo sin respuesta). Pero el caso ya lo puedo resolver:
+
+Caso a mandar: Contadores BMA (único caso verificado del frente AI Agents, docs/olvidata/casos.md DEC-007). Puedo afirmar: 3 agentes en producción real desde el 07/10 — conciliación bancaria, liquidación de sueldos e impuestos. No puedo mencionar precio/plan de ese cliente (está regalado, sin mantenimiento) — para este mensaje no hace falta.
+
+Mensaje (genérico, ajustalo si me decís el rubro/etapa):
+
+---
+Te cuento un caso real, no es un concepto: a un estudio contable le armé un sistema de agentes que hoy está en producción, todos los días — uno hace la conciliación bancaria, otro liquida sueldos y otro maneja los impuestos. No es una prueba, es parte de cómo labura el estudio ahora.
+
+Si te sirve, te muestro en vivo cómo se vería aplicado a lo tuyo.
+
+---
+
+Decime nombre/rubro y en qué etapa está (frío sin respuesta, post-demo, etc.) y te lo ajusto.

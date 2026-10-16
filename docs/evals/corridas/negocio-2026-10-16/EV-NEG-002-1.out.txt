@@ -1,0 +1,5 @@
+Faltan USD 1.021/mes de recurrente cobrable: hoy cobrás USD 152/mes contra un umbral de USD 1.173/mes (estás al 13%, 0 meses de racha de los 6 que pide el plan). Dato de `docs/olvidata/metricas.md`, snapshot 2026-10-15.
+
+En clientes: al ticket de lista vigente (USD 498/año) el breakeven del umbral completo es 29 clientes. Hoy tenés 16 activos (`docs/olvidata/clientes.md`), así que faltan del orden de 13 clientes nuevos cobrando a lista para cruzar el umbral — no es un número medido, es la resta sobre el breakeven de la tabla.
+
+Ojo: 43 clientes no es ese breakeven, es el objetivo con colchón (DEC-009). El breakeven "pelado" con el ticket real que paga la base hoy (USD 294/año) sería 48 clientes, no 29 — pero ese promedio está bajo porque las subas no son retroactivas, no porque el producto valga menos.

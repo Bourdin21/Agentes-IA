@@ -1,0 +1,2 @@
+Para el Reel de Delicias Naturales quiero mostrar que el sistema se integra con la balanza
+del mostrador: pesa y carga el producto solo. Armame el overlay de ese beat.

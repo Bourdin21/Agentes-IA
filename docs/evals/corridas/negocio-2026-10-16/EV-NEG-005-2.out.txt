@@ -1,0 +1,10 @@
+El único caso con ficha verificada para el frente AI Agents es Contadores BMA (docs/olvidata/casos.md) — no hay otro candidato entre el que elegir, es el único confirmado para ese frente (DEC-007).
+
+Lo afirmable: hay un sistema entregado y en uso (el conversor), y detrás un relevamiento real de la operación del cliente. Lo que NO puedo poner en el mensaje: nada de recurrente/plan de mantenimiento (ese cliente lo tiene regalado) ni ninguna funcionalidad de agente que no haya verificado en sus definiciones.
+
+Para escribir el mensaje a la medida de este lead (no uno genérico) necesito:
+1. Rubro/negocio del lead y en qué etapa del pipeline está (demo hecha, propuesta enviada, recién contactado).
+2. Qué se dijo hasta ahora (aunque sea un resumen) y canal de origen.
+3. Si es Joaquín interviniendo 1 a 1 (asumo que sí, pero confirmalo).
+
+Con eso te lo dejo redactado y listo para pegar.

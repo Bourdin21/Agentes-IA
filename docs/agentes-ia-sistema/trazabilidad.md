@@ -39,3 +39,10 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Reglas releidas: 29, 30, 33, 39
 - Nota: gaps 1-6 del research de ingenieria de agentes; doctor.py sin errores
 
+
+### Traza de corrida -- 2026-10-15 / etapa otro
+- Reintentos: 2
+- Criterios fallados: EV-NEG-003, EV-NEG-004
+- Reglas releidas: 40#graders, 29
+- Nota: Primera corrida de los 5 casos de negocio. 5/5 en sustancia, 3/5 mecanico: los 2 FAIL fueron graders de codigo que castigaban la respuesta correcta (citar la frase prohibida dentro de la negacion; explicar el grandfathering con las palabras del cliente). Pasados a modelo. EV-NEG-005 reescrito: medía el mundo anterior a DEC-007. Hallazgo colateral: la ficha de Contadores BMA en casos.md estaba mal y el agente la corrigio leyendo /docs.
+

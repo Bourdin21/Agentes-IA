@@ -1,0 +1,13 @@
+Ese beat no se puede armar como lo pedís. "Integración con balanza" es uno de los dos claims que ya se cayeron en verificación (docs/olvidata/casos.md, precedente 2026-09-02): cero menciones de "balanza", "granel" o "fraccionado" en todo docs/delicias-naturales/. Lo único documentado es Producto.unidadMedida (enum Kg/Unidades/Gramos): el sistema entiende venta por peso, pero no hay hardware de balanza integrado que pese y cargue el producto solo. Afirmarlo es exactamente el error que la regla de oro existe para evitar.
+
+Reemplazo afirmable, mismo lugar en el Reel (reveal de pantalla real):
+
+Overlay: "Vendés por kilo. El sistema lo entiende."
+(pantalla real: alta de producto o ticket de venta mostrando el ítem cargado en Kg/Gramos, con precio por unidad de medida — nunca una balanza en cuadro)
+
+Si Joaquín confirma que sí existe esa integración de hardware (hoy no consta en /docs), se rearma el beat con la balanza. Hasta entonces no entra.
+
+Pendiente para publicar:
+- Reveal grabado del sistema real (no mockup), mostrando Kg/Gramos en pantalla.
+- Sin balanza ni ticketeadora en cuadro en ningún shot de este cliente.
+- CTA del beat: pregunta de oficio o "Seguinos", nunca venta directa.
