@@ -23,6 +23,15 @@ Fuentes: `.github/instructions/29-trazabilidad-conversacion.instructions.md`, `3
 | Regla preventiva cross-proyecto | `.github/instructions/32-estandares-qa-implementador.instructions.md` |
 | Sprint / CR / modulo ya cerrado | `docs/<proyecto>/definiciones/historial/` (puntero de 1 linea en el archivo vigente) |
 | Indice plano de un catalogo (entrada de los agentes) | `docs/qa/cat_resumen.txt`, `docs/patrones/cat_resumen.txt` — generados: `python scripts/contexto.py resumenes` |
+| Clientes, su plan y su recurrente | `docs/olvidata/clientes.md` — **generado** del CRM (`scripts/olvidata_datos.py`) |
+| Leads abiertos y el embudo | `docs/olvidata/pipeline.md` — **generado** |
+| Recurrente real por mes y el umbral del Ministerio | `docs/olvidata/metricas.md` — **generado** |
+| Precio de catalogo o de un plan | `docs/olvidata/precios.md` (deja linea en `docs/olvidata/trazabilidad.md`) |
+| Regla comercial vigente | `docs/olvidata/reglas-comerciales.md` (ID `COM-NNN`, 3 digitos) |
+| Que se puede afirmar de un cliente | `docs/olvidata/casos.md` |
+| Costos de hosting, IA y herramientas | `docs/olvidata/costos.md` |
+| Pregunta abierta esperando a Joaquin | `docs/olvidata/decisiones.md` (ID `DEC-NNN`) |
+| Reglas de marca y lenguaje | `docs/olvidata/marca/MARCA.md` (movido de BotPublicitario el 2026-10-15) |
 
 Si un dato ya existe en otro archivo, **referencialo, no lo copies**. Toda copia se desincroniza: la auditoria del 2026-09-15 encontro el factor de Build desactualizado en 4 archivos a la vez.
 
@@ -38,3 +47,12 @@ Si un dato ya existe en otro archivo, **referencialo, no lo copies**. Toda copia
 ## Antes de cerrar una etapa
 
 Correr `python scripts/doctor.py`. Si aparece un ERROR, es una contradiccion real entre archivos (un precio, un estado, un ID duplicado) y se arregla antes de cerrar. Los avisos son deuda: se atienden cuando se pueda, no bloquean.
+
+## Memoria de negocio (`docs/olvidata/`)
+
+Los tres primeros de la tabla son **snapshots generados**: se regeneran con
+`python scripts/olvidata_datos.py todo`, que lee el CRM productivo. Editarlos a mano es tirar el
+cambio a la basura en la proxima corrida — lo que el CRM no sabe va en `docs/olvidata/datos-manuales.yml`.
+
+El resto se edita a mano, con dos reglas que `doctor.py` controla: todo `COM-NNN` citado existe en el
+catalogo, y todo cambio de `precios.md` deja linea en `docs/olvidata/trazabilidad.md`.

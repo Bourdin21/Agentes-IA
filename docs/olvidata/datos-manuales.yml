@@ -1,0 +1,39 @@
+# Datos que el CRM NO tiene y que `scripts/olvidata_datos.py` necesita para completar los
+# archivos generados. Esto se edita A MANO; el script nunca lo sobreescribe.
+#
+# frente_por_cliente: el CRM tiene FrenteComercial en el catalogo de modulos, no en el cliente,
+# asi que la linea de producto de cada cliente vive aca. Valores: Build | Landing | AI Agents |
+# Chatbots (los cuatro frentes vigentes desde 2026-09-13, ver olvidata-ceo.md).
+# La clave es el nombre del negocio tal como esta en el CRM + el sistema si hay mas de uno.
+
+version: 1
+ultima_actualizacion: 2026-10-15
+
+frente_por_cliente:
+  "Contadores BMA|Front web": Landing
+  "Contadores BMA|Conversor": Build
+  "Delicias Naturales": Build
+  "Diercas SA": Landing
+  "Eleven La Plata|Eleven": Build
+  "ESCABA": Build            # inferido por el tipo de sistema — confirmar
+  "Estancia Santa Rosa": Build
+  "Ferretería la Platense": Build
+  "KOI|KOI Dumplings": Build
+  "LABIPAC|Instituto Privado de Análisis Clínicos": Build
+  "Lumitrack": Build
+  "Lumitrack|Recotrack": Build
+  "Marí Hogar": Build
+  "PiApartments": Build      # inferido por el tipo de sistema — confirmar
+  "ShowroomGriffin|Griffin Showroom": Build
+  "Vinoysefue": Build
+  "Belclau": Build
+
+# El sueldo del Ministerio es el umbral de la decision de salida (olvidata-ceo.md, "Plan
+# financiero"): el plan dice que Joaquin deja el Ministerio cuando el recurrente real pasa este
+# numero durante 6 meses seguidos.
+umbral_ministerio_usd_mes: 1173
+
+# Ticket de planificacion que usa hoy el plan financiero, para poder contrastarlo contra el real
+# que sale del CRM en vez de arrastrarlo como supuesto.
+ticket_planificacion_usd_anual: 426
+ticket_observado_h1_2026_usd_anual: 474

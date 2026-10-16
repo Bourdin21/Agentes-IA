@@ -59,6 +59,19 @@ Cada comando/subagent lee su `.github/agents/*.agent.md` (fuente de verdad) y ca
 
 Este repo aloja ademas los **agentes de negocio de Olvidata Soft** (`/olvidata-ceo`, `/olvidata-marketing`, `/olvidata-cm`, `/olvidata-sales`, `/olvidata-infra`, `/olvidata-presupuesto-bot`) — fuera de la secuencia Discovery→Cierre, se invocan sueltos. Detalle y setup de acceso global en `.claude/README.md`.
 
+**La memoria de negocio de esos agentes vive en `docs/olvidata/` (desde 2026-10-15).** Antes guardaba
+reglas y supuestos dentro de cada `.agent.md`; ahora los datos reales se miden: `clientes.md`,
+`pipeline.md` y `metricas.md` se **generan del CRM productivo** con `python scripts/olvidata_datos.py
+todo` y no se editan a mano. A mano se mantienen `precios.md` (fuente unica de precios, antes dentro
+de `olvidata-ceo.md`), `reglas-comerciales.md` (reglas vigentes con ID citable `COM-NNN`),
+`casos.md` (que se puede afirmar de cada cliente, antes dentro de `olvidata-cm.md`), `costos.md`,
+`decisiones.md` (lo que espera definicion de Joaquin) y `marca/` (MARCA.md y el plan de
+comercializacion del Second Brain, movidos desde `BotPublicitario`, que quedo con punteros). Indice
+completo y para que sirve cada uno: `docs/olvidata/README.md`.
+
+Dos reglas que `doctor.py` controla: todo `COM-NNN` citado tiene que existir en el catalogo, y todo
+cambio de `precios.md` deja linea en `docs/olvidata/trazabilidad.md`.
+
 ## Cómo activar un agente en esta terminal
 
 Para adoptar el rol de un agente específico, indicar explícitamente al inicio del pedido:
@@ -129,6 +142,8 @@ Las instrucciones modulares de arriba son la **fuente completa**; las skills de 
 ## Chequeo de consistencia (`scripts/doctor.py`)
 
 `python scripts/doctor.py` verifica en segundos que la memoria no se haya desincronizado: numeros de precio contradictorios entre archivos, estado de proyecto declarado fuera de `docs/indice.md`, IDs de regla duplicados, cierres reales que quedaron sin cargar en `docs/calibracion/dataset.yml`, **archivos de memoria sobre el techo de 150 KB**, **indices planos (`cat_resumen.txt`) desactualizados respecto de su catalogo**, archivos de mas de 300 KB y huerfanos. `--fast` corre solo los chequeos baratos (incluye el techo de memoria).
+
+`python scripts/olvidata_datos.py todo` regenera los datos de negocio (clientes, pipeline y metricas) leyendo el CRM — correrlo antes de cualquier conversacion de plan, pricing o pipeline: un snapshot viejo miente con la misma cara que un dato bueno.
 
 Los otros scripts: `python scripts/contexto.py` (presupuesto de arranque por agente, indices de los archivos grandes, regeneracion de los `cat_resumen.txt`), `python scripts/archivar_memoria.py` (mueve los sprints/CR/modulos cerrados a `historial/` para mantener el techo; dry-run por defecto, `--aplicar` para hacerlo), `python scripts/traza.py` (traza de corrida al cerrar una etapa: reintentos, criterios fallados y **reglas que hubo que releer** — una regla que se relee siempre esta mal ubicada en el arranque del rol) y `python scripts/evals.py` (suite de evals del harness; **`costo` antes de `preparar`: gasta tokens de verdad, y no ejecuta nada por si solo**).
 

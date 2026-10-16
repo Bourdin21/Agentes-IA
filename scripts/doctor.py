@@ -16,7 +16,7 @@ Uso:
 Salida: 0 = sin errores (puede haber avisos) | 1 = hay errores.
 Origen: auditoria documental 2026-09-15 (5 hallazgos, 4 de ellos de precio).
 """
-import io, os, re, sys, glob
+import io, os, re, subprocess, sys, glob
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(RAIZ)
@@ -320,13 +320,79 @@ def chequear_trazabilidad():
             err("%s: tiene BOM UTF-8 al inicio" % p)
 
 # ─────────────────────────────────────────────────────────────────────────────
+def chequear_reglas_com():
+    """Toda regla comercial citada como COM-NNN tiene que existir en el catalogo.
+
+    Las reglas de negocio vivian en prosa dentro de los .agent.md, asi que citarlas era
+    describirlas de nuevo con otras palabras — y dos descripciones de la misma regla se separan
+    (paso con MARCA.md § 0c y la promesa del CEO, ver docs/olvidata/decisiones.md DEC-000). Desde
+    que tienen ID, una cita rota es detectable.
+    """
+    catalogo = "docs/olvidata/reglas-comerciales.md"
+    if not os.path.isfile(catalogo):
+        return
+    # Tres digitos y sin prefijo pegado, a proposito: los proyectos de cliente usan su propio
+    # espacio de nombres con dos digitos y prefijo de modulo (R-COM-01 son las reglas de Compras
+    # de ShowroomGriffin, nada que ver con una regla comercial de Olvidata). Sin esta distincion
+    # el chequeo marcaba como huerfanas 10 reglas de un analisis funcional ajeno.
+    CITA = r"(?<![\w-])COM-\d{3}(?!\d)"
+    definidas = set(re.findall(r"^\| (COM-\d+)", leer(catalogo), re.M))
+    if not definidas:
+        err("%s no define ninguna regla COM — o se vacio la tabla, o cambio su formato." % catalogo)
+        return
+
+    citadas = {}
+    for p in MD_YML:
+        if os.path.normpath(p) == os.path.normpath(catalogo):
+            continue
+        for cita in set(re.findall(CITA, leer(p))):
+            citadas.setdefault(cita, []).append(p)
+
+    huerfanas = sorted(c for c in citadas if c not in definidas)
+    if huerfanas:
+        err("Reglas COM citadas que no existen en %s: %s. O falta cargarlas, o el ID esta mal escrito." %
+            (catalogo, ", ".join("%s (%s)" % (c, donde(citadas[c][0], c)) for c in huerfanas)))
+
+
+def chequear_precios_con_traza():
+    """Un cambio de precios tiene que dejar linea en la trazabilidad de negocio.
+
+    Mira el working tree y el ultimo commit: si `precios.md` aparece tocado y `trazabilidad.md`
+    no, falta el rastro. Es aviso y no error a proposito — puede estar a medio hacer en el
+    momento en que corre el hook.
+    """
+    precios = "docs/olvidata/precios.md"
+    traza = "docs/olvidata/trazabilidad.md"
+    if not os.path.isfile(precios):
+        return
+
+    def tocados(cmd):
+        try:
+            salida = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=20)
+            return set(salida.stdout.split())
+        except Exception:
+            return set()
+
+    pendientes = tocados("git status --porcelain --no-renames -- docs/olvidata | awk '{print $2}'")
+    if precios in pendientes and traza not in pendientes:
+        avi("%s esta modificado sin tocar %s — todo cambio de precio deja una linea de rastro." %
+            (precios, traza))
+        return
+
+    ultimo = tocados("git log -1 --name-only --pretty=format: -- docs/olvidata")
+    if precios in ultimo and traza not in ultimo:
+        avi("El ultimo commit cambio %s sin registrar nada en %s." % (precios, traza))
+
+
 def main():
     chequear_factor()
     chequear_tokens_ia()
     chequear_estado_proyectos()
     chequear_ids_reglas()
     chequear_techo_memoria()
+    chequear_reglas_com()
     if not FAST:
+        chequear_precios_con_traza()
         chequear_catalogo_patrones()
         chequear_cierres()
         chequear_archivos()

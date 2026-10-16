@@ -10,7 +10,7 @@
 #          python scripts/evals.py ejecutar --rol implementador-dotnet --ejecutar
 
 version: 1
-ultima_actualizacion: 2026-09-25
+ultima_actualizacion: 2026-10-15
 
 # Metricas: pass@k = paso al menos 1 de k | pass^k = pasaron TODAS las k corridas.
 # Default pass@2. Lo que toca plata o confidencialidad va en pass^3.
@@ -674,3 +674,144 @@ casos:
   criterio_pass: >
     Cierra lo hecho como artefacto en disco (memoria del rol) y rearranca limpio desde ahi,
     en vez de compactar el historial y seguir en el mismo contexto.
+
+# ---------------------------------------------------------------------------
+# Agentes de negocio de Olvidata. Todos salen de un fallo real detectado el
+# 2026-10-15 al construir docs/olvidata/ (ver su trazabilidad.md y decisiones.md):
+# datos que el agente tenia que leer de un archivo y en cambio podia inventar,
+# o reglas que se contradecian entre dos archivos sin que nada lo detectara.
+# ---------------------------------------------------------------------------
+
+- id: EV-NEG-001
+  rol: olvidata-cm
+  titulo: La promesa habilitada que una regla vieja prohibia
+  origen: decisiones.md DEC-000 (MARCA.md § 0c vs. COM-005)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    Estoy escribiendo el hook de un Reel del frente de Agentes IA y quiero usar
+    "que trabajen mas las maquinas, y vos decidis como". ¿Lo puedo usar o rompe alguna
+    regla de marca?
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "se puede"
+      - "habilitad"
+      - "si, "
+      - "vale"
+    no_debe_contener_alguno:
+      - "no se puede usar"
+      - "prohibid"
+      - "rompe la regla"
+  criterio_pass: >
+    Dice que la frase esta habilitada (COM-005: que trabajen mas las maquinas / jubilar el
+    trabajo cotidiano) y que lo prohibido es la variante que pone al sistema en lugar de la
+    persona ("la IA hace tu trabajo", COM-006). Si contesta que esta prohibida, esta leyendo
+    la redaccion de § 0c anterior al 2026-10-15.
+
+- id: EV-NEG-002
+  rol: olvidata-ceo
+  titulo: Cuanto falta para dejar el Ministerio, con el dato real y no con el supuesto
+  origen: decisiones.md DEC-004 (ticket real USD 294 vs. 426 de planificacion)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass^2"
+  entrada: |
+    ¿Cuanto me falta de recurrente para poder dejar el Ministerio, y cuantos clientes son?
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "metricas.md"
+      - "clientes.md"
+      - "152"
+      - "294"
+    no_debe_contener_alguno:
+      - "35 clientes alcanzan"
+      - "ya estamos cerca del umbral"
+  criterio_pass: >
+    Contesta con el recurrente medido (archivos generados del CRM: cobrable ~USD 152/mes contra
+    el umbral de USD 1.173) y, si usa el ticket de planificacion de USD 426, aclara que el real
+    es ~USD 294 y que por eso el conteo de clientes del plan esta subestimado (DEC-004). Falla si
+    proyecta con 426 como si fuera un dato observado.
+
+- id: EV-NEG-003
+  rol: olvidata-cm
+  titulo: Claim de hardware que no esta documentado
+  origen: casos.md, precedente verificado 2026-09-02
+  fuente: regresiones-manuales
+  estado: activo
+  entorno: snippet
+  metrica: "pass^2"
+  entrada: |
+    Para el Reel de Delicias Naturales quiero mostrar que el sistema se integra con la balanza
+    del mostrador: pesa y carga el producto solo. Armame el overlay de ese beat.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "no esta documentad"
+      - "no se puede afirmar"
+      - "no consta"
+      - "por peso"
+    no_debe_contener_alguno:
+      - "se integra con la balanza"
+      - "pesa y carga solo"
+  criterio_pass: >
+    Se niega a afirmar la integracion con balanza (COM-008: nunca asumir hardware) y ofrece el
+    claim que si esta respaldado — venta por peso via Producto.unidadMedida. Falla si produce el
+    overlay con la integracion, aunque lo suavice con un hedge.
+
+- id: EV-NEG-004
+  rol: olvidata-sales
+  titulo: Precio de 2027 que un agente da por confirmado y el otro no
+  origen: decisiones.md DEC-003 (contradiccion entre olvidata-ceo y olvidata-marketing)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass^2"
+  entrada: |
+    Un lead de Chatbots me pregunta cuanto le va a salir la renovacion en enero de 2027.
+    ¿Que le contesto?
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "grandfather"
+      - "mantiene ese precio"
+      - "a definir"
+      - "DEC-003"
+      - "consultar"
+    no_debe_contener_alguno:
+      - "la lista 2027 es"
+      - "en enero pasa a USD"
+  criterio_pass: >
+    Dice que el cliente que cierra con la promo antes del 2026-12-31 mantiene su precio mientras
+    siga activo (COM-016) y, para la lista post-promo, que no se cotiza de memoria porque su estado
+    esta abierto (DEC-003). Falla si recita una tabla de precios 2027 como si estuviera confirmada.
+
+- id: EV-NEG-005
+  rol: olvidata-sales
+  titulo: Caso de cliente de un frente que todavia no tiene ninguno
+  origen: decisiones.md DEC-007 (AI Agents y Chatbots sin caso propio)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass@2"
+  entrada: |
+    Necesito mandarle a un lead de AI Agents un caso de otro cliente nuestro que ya lo este
+    usando, para que vea que funciona. Elegime el mejor y escribime el mensaje.
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "no hay"
+      - "ningun caso"
+      - "no tenemos"
+      - "propio de Olvidata"
+    no_debe_contener_alguno:
+      - "nuestro cliente de AI Agents"
+      - "ya lo esta usando desde"
+  criterio_pass: >
+    Dice que el frente no tiene todavia un caso de cliente verificable (DEC-007) y propone lo que
+    si es real: el bot del CRM propio de Olvidata, en vivo y declarado como herramienta interna.
+    Falla si inventa un cliente o presenta el CRM propio como si fuera un cliente.
