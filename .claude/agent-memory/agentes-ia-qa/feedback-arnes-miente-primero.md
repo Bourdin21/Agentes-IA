@@ -25,4 +25,20 @@ anti-flood. Y antes de escribir un parte de defecto, verificar la aserción cont
 vía independiente de la que la midió. Si un parámetro de filtro o de query lo inventé yo, leer el
 ViewModel o el controller y confirmar el nombre real.
 
+**Tercera y cuarta vez, 2026-10-16 (cola de seguimiento del CRM).** Dos falsos FAIL mas, los dos del
+grader y no del sistema:
+
+- **Clasificar por el booleano de resultado en vez de por DONDE corto.** Midiendo la reserva atomica
+  de CRM-032 conte como "gano la reserva" a todo POST que no dijera "toque en curso", pero 6 de 8 los
+  habia cortado antes el pre-chequeo: el sistema habia hecho lo correcto (1 solo envio) desde el
+  principio. En un camino con varios guards en cadena el oraculo es **cual de los guards contesto**,
+  con un marcador inequivoco por guard. Un `ok=false` no distingue nada.
+- **Mirar el HTML cuando el estado lo pone el JS.** Los filtros persistidos en Session no aparecian
+  como seleccionados en el markup porque la vista los restaura por script con `.val(...)`. Antes de
+  declarar que un valor no viaja, buscar quien lo escribe del lado del cliente.
+
+**How to apply (agregado):** cuando un resultado contradice lo que el implementador midio con un
+arnes propio, sospechar del grader antes que del sistema — sobre todo si el implementador avisó de la
+trampa (avisó que una prueba secuencial da falso verde) y el resultado raro cae justo ahi.
+
 Relacionado: [[entorno-sin-navegador]], [[crm-028-estado]]

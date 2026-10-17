@@ -68,4 +68,22 @@ Gotchas que costaron tiempo:
   pago de $2.500 sobre una compra de $4.000 que ya tenia $4.000 programados se rechaza por saldo
   comprometido: el fixture se arma llamando a los servicios reales (asi los dos ledgers nacen como en
   produccion) y hay que dimensionar los montos para que las guardas lo dejen pasar.
+- **La sonda tambien sirve contra PRODUCCION cuando es estrictamente de SOLO LECTURA**, y es la forma
+  de cumplir [[verificar-criterios-contra-produccion]] sobre codigo nuevo: resolver el service por el
+  contenedor de DI **real** (`services.AddInfrastructure(config)` + `GetRequiredService<IMiService>()`)
+  y llamar solo a los metodos de consulta. Eso prueba el LINQ **y** devuelve el numero con el que el
+  usuario va a decidir, en una corrida. En crm-olvidata (2026-10-15) probo que traducian un `COALESCE`
+  de 3 terminos dentro de `Where` y de `Select`, dos subconsultas correlacionadas con
+  `Max` + `EF.Functions.Like`, y un `Count` correlacionado por navegacion. Regla dura: la sonda **no
+  llama al metodo que envia ni al que escribe**, y eso se dice en el reporte.
+- **Ejercitar cada filtro UNO POR UNO, incluido el que devuelve 0 filas**, en un bucle que imprima
+  `nombre -> cantidad`. Son 15 lineas y es donde aparecen las sorpresas: en esa corrida un filtro
+  perfectamente compilable tiraba `ArgumentException` por el `Kind` de un `DateTime` (ver
+  [[convertimetoutc-y-el-kind-del-datetime]]). El de 0 filas no es opcional: es el escenario donde
+  MH-001 revienta igual.
+- **Dos trabas de arranque que cuestan 2 reintentos cada vez:** (a) con un `ServiceCollection` pelado
+  hay que registrar `IConfiguration` a mano (`services.AddSingleton<IConfiguration>(config)`) porque
+  `ErrorNotifier` lo pide por constructor y `AddInfrastructure` no lo registra; (b) `NU1605`
+  (degradacion de paquete) si el `.csproj` de la sonda fija `Microsoft.Extensions.*` en una version
+  menor que la que arrastra Infrastructure — alinear a la que pide el error, no a la ultima.
 - Borrar la carpeta despues. Si queda, el proximo `dotnet build` de la solucion no la toma (esta afuera), pero ensucia el scratchpad y puede confundirse con codigo del proyecto.

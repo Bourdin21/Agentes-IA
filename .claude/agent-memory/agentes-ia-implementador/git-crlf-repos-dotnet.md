@@ -17,6 +17,16 @@ la-platense (LP-040): `FerreteriaLaPlatense.Infrastructure/Services/VentaWorkflo
 **Como aplicar:** ignorar el warning. Si hace falta confirmar que un diff es quirurgico y no una
 reescritura de line endings, mirar `git diff --stat`.
 
+**La herramienta Edit reescribe el archivo ENTERO a LF, y `autocrlf=true` lo esconde.** Medido en
+crm-olvidata (2026-10-15): despues de un Edit de 6 lineas, `DependencyInjection.cs` tenia 0 CRLF y
+149 LF solos — todo el archivo convertido — mientras `git diff --stat` seguia diciendo
+`6 ++++++` porque git normaliza al leer. O sea: **`--stat` limpio NO prueba que el working tree quedo
+como estaba.** Verificarlo contando los EOL (`b.count(b'\r\n')` vs `b.count(b'\n')`) y, si el archivo
+original era CRLF, normalizarlo de vuelta (`b.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')`) antes
+de cerrar — sobre todo cuando el brief pide "agrega tu linea y nada mas, sin reformatear el resto",
+porque el proximo que abra el archivo en un editor va a ver todo el archivo tocado. Al menos no quedan
+EOL **mixtos**, que es el caso peor.
+
 Y sobre todo: **un parche programatico por anclas de texto multilinea tiene que detectar el EOL del
 archivo que abre** (`e = '\r\n' if '\r\n' in s else '\n'`, y reemplazar `\n` por `e` en el ancla y en
 el reemplazo antes de buscar). Asumir LF porque el archivo anterior era LF da `substring not found` o

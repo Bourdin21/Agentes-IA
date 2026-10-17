@@ -8107,6 +8107,67 @@ regresiones:
       - "Secuencia mensaje -> polling -> mensaje -> polling -> mensaje, contando avisos emitidos y mirando las fechas de aviso y lectura."
     leccion_adicional: "Antes de reusar un campo existente como estado de un guard nuevo, listar TODOS los puntos que lo escriben y preguntarse si alguno lo escribe como efecto del mismo evento que el guard quiere limitar. Si lo hace, el guard no limita nada."
 
+  - id: CRM-031
+    modulo: "Combo de plantillas de WhatsApp / PlantillasTextoFijoAprobadasAsync"
+    titulo: "El filtro de 'plantilla sin parametros' mira la COPIA LOCAL del texto, y para las plantillas cuyo texto vive en Meta esa copia es un centinela sin llaves: el sistema lee 'no se cual es el texto' como 'no tiene parametros'"
+    severidad: major
+    reproducido_en: "crm-olvidata, 2026-10-16, QA de la cola de seguimiento. Confirmado contra el clon de produccion por HTTP (GET /Chats/Detail/<id>) y por SQL sobre TemplatesWhatsApp."
+    pasos:
+      - "Dar de alta un template cuyo texto real vive en Meta y cuya copia local en la base es un centinela del tipo '(el texto vive en Meta - el sistema manda esta plantilla por su nombre fijo)'."
+      - "Marcarlo Activo y Aprobado, como ya estan los 22 del catalogo."
+      - "Abrir el modal de reactivacion de un chat con la ventana de 24hs cerrada y mirar el combo."
+    sintoma: "El combo de /Chats ofrece 5 plantillas y 3 de ellas (olv_notif_respuesta, olv_nurturing_v2, olv_referido_v2) llevan parametros en Meta. Dos son outbound de primer contacto o referido y la tercera es el aviso INTERNO al telefono del admin. El envio sale por ReactivarConversacionAsync con components = null, asi que Meta lo rechaza por cantidad de parametros: boton muerto. Si alguna de esas plantillas no declarara parametros en Meta, el envio SI saldria y un prospecto recibiria el aviso interno."
+    expectativa: "El combo ofrece solo plantillas que el camino de envio puede mandar de verdad, y nunca una plantilla interna."
+    causa_raiz: "El proposito y la cantidad de parametros de una plantilla se INFIEREN del texto de la copia local, que es un dato de exhibicion y no la declaracion del template. Con el centinela, la ausencia de llaves significa 'no sabemos', no 'no tiene parametros'."
+    capa: "Negocio (OutboundCampaignService) + Datos (TemplatesWhatsApp sin campo de proposito ni de cantidad de parametros)"
+    deteccion_qa:
+      tipo: api
+      selector_o_endpoint: "GET /Chats/Detail/<id> de un chat con ventana cerrada; listar los nombres de plantilla del HTML. Cruzar con las que tienen texto centinela en TemplatesWhatsApp."
+      condicion_falla: "El combo incluye una plantilla con texto centinela, o una de CategoriaMeta = Utility interna."
+    archivos_fix:
+      - "OlvidataCRM.Domain/Entities/TemplateWhatsApp.cs — campo Proposito (PrimerContacto / Reenganche / Cliente / Interna) y CantidadParametros, sincronizados desde Meta."
+      - "OlvidataCRM.Infrastructure/Services/OutboundCampaignService.cs — PlantillasTextoFijoAprobadasAsync: filtrar por el campo declarado y no por !Texto.Contains('{'); excluir el centinela explicitamente mientras el campo no exista."
+      - "OlvidataCRM.Application/Helpers/PlantillasReenganche.cs — queda como lista blanca de la cola de seguimiento; el fix de /Chats es independiente."
+    migracion_ef: "si (2 columnas nuevas en TemplatesWhatsApp; ver CRM-026 por el defaultValue de la columna de enum)"
+    regla_catalogo: "pendiente de alta en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "El combo de /Chats no ofrece ninguna plantilla cuyo texto local sea el centinela."
+      - "El combo de /Chats no ofrece olv_notif_respuesta."
+      - "Una plantilla nueva con texto centinela no entra sola al combo."
+    pruebas_minimas:
+      - "Listar lo que ofrece el combo por HTTP y cruzarlo contra las plantillas con texto centinela en la base: la interseccion tiene que ser vacia."
+    leccion_adicional: "Un centinela de 'el dato real vive afuera' nunca se puede usar como insumo de una decision sobre ese dato. Si el texto no esta, la respuesta correcta a 'tiene parametros?' es 'no se', y 'no se' no es 'no'."
+
+  - id: CRM-032
+    modulo: "Accion AJAX que cuesta plata / cola de seguimiento, boton de toque"
+    titulo: "El boton se deshabilita mientras se traen las opciones y se vuelve a habilitar antes del envio: la ventana en vuelo del POST pagado queda sin candado y un segundo click cobra dos veces"
+    severidad: minor
+    reproducido_en: "crm-olvidata, 2026-10-16, QA de la cola de seguimiento. Hallado leyendo el handler; NO reproducido end-to-end porque reproducirlo exige autorizar un envio pago real."
+    estado: "CERRADO por QA el 2026-10-16. Fix: candado de UI desde el click hasta el fin del POST (6 puntos de liberacion, sin el always() del getJSON) + RESERVA ATOMICA del lado del servidor: un ExecuteUpdateAsync unico escribe FechaFollowUp = ahora con el WHERE igual al criterio de la cola; 1 fila afectada envia, 0 filas rechaza. Re-verificado con 4 corridas de 10 POST concurrentes (10 conexiones, barrera): llego al envio exactamente 1 en las 4, con 7-9 rechazados por la reserva y no por el pre-chequeo. La liberacion restaura el valor anterior EXACTO (probada sobre un contacto con FechaFollowUp vieja no nula, columna datetime(6)) y devuelve el contacto a la cola tambien cuando el envio responde !Ok. La lista blanca corre antes de reservar: un POST invalido no deja reserva. Cero mensajes enviados (el tope de gasto en 0.01 corta despues de reservar y antes de la red). Sin observar: la rama residual enviadoSinMarcar y la carrera con un envio exitoso real."
+    pasos:
+      - "Abrir la pantalla, apretar el boton de la accion paga: el handler hace prop('disabled', true), pide las opciones y en el always() lo vuelve a habilitar."
+      - "Confirmar el modal: arranca el POST de envio, que tarda lo que tarde la API externa."
+      - "Mientras ese POST esta en vuelo, apretar el boton de la MISMA fila otra vez y confirmar."
+    sintoma: "Salen dos envios pagos al mismo destinatario. El guard del servidor que lo evitaria (la marca de salida de la cola, y el 'ya le mandaste una plantilla y no respondio') se escribe DESPUES del envio, asi que durante el vuelo del primer POST el segundo pasa todos los chequeos."
+    expectativa: "Durante el envio la fila no acepta un segundo pedido, y el servidor rechaza un segundo envio concurrente al mismo destinatario aunque el primero no haya commiteado."
+    causa_raiz: "El candado de UI cubre la lectura (traer opciones) y no la escritura (enviar). El guard del servidor es optimista y depende de una fila que todavia no existe."
+    capa: "Presentacion (el handler) + Negocio (el guard de un solo toque)"
+    deteccion_qa:
+      tipo: ui
+      selector_o_endpoint: "El boton de la accion paga de la fila; dos POST concurrentes al endpoint de envio con el mismo id."
+      condicion_falla: "Los dos POST devuelven ok = true."
+    archivos_fix:
+      - "OlvidataCRM.Web/Views/Seguimiento/Index.cshtml — mantener la fila deshabilitada desde el confirmar hasta que vuelva la respuesta del envio (no re-habilitar en el always() del getJSON)."
+      - "OlvidataCRM.Infrastructure/Services/SeguimientoColaService.cs — guard de concurrencia del lado del servidor (marca de 'en curso' antes del envio, o un unico por contacto+dia sobre la fila del hilo)."
+    migracion_ef: "no"
+    regla_catalogo: "pendiente de alta en 32-estandares-qa-implementador.instructions.md"
+    criterio_aceptacion:
+      - "Con el primer envio en vuelo, la fila no permite abrir el modal de nuevo."
+      - "Dos POST concurrentes con el mismo id: uno responde ok = true y el otro lo rechaza explicitamente."
+    pruebas_minimas:
+      - "Dos POST simultaneos al endpoint de envio con el mismo id, contra un doble local del servicio externo que demore la respuesta a proposito."
+    leccion_adicional: "En una accion que cuesta plata, el candado va alrededor de la ESCRITURA y no de la lectura previa, y el guard del servidor no puede depender de una fila que recien se escribe cuando el cobro ya ocurrio."
+
   - id: MH-060
     modulo: "Costo de cobranza / TasaCostoCobranza / ConfiguracionCostosCobranza"
     titulo: "Un porcentaje copiado del tarifario del proveedor se sembro como costo total: era NETO de IVA y sin la retencion que se cobra sobre el bruto, y el error se autoconfirma contra la misma fuente que lo origino"

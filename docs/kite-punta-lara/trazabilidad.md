@@ -4,6 +4,103 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 
 ## Entradas
 
+### 2026-10-16 - cierre - PWA instalable DEPLOYADA y verificada en produccion
+- Cierra la entrada de hoy que quedaba "SIN DEPLOYAR". Dos commits en `instalable-en-android`, mergeados a
+  `master`: el service worker y el boton "Instalar" del header.
+- **Verificado contra produccion:** `/sw.js` 200 (4.218 bytes), `serviceWorker.register('/sw.js')` en el HTML,
+  `#btn-instalar` presente y con `hidden` (lo muestra el script solo si hay via real), el dialogo de iOS
+  `#dlg-instalar` presente, y `beforeinstallprompt` en el bundle. Home, `/api/pronostico` y manifest los tres 200.
+- `npx astro check` (el mismo comando del CI) dio 0 errores antes de pushear.
+- **Falta la prueba de navegador real**: el prompt de instalacion en Chrome Android y el dialogo en Safari iOS.
+  El Playwright MCP estuvo tomado por otra sesion toda la corrida.
+- **Nota sobre el merge:** el MR se mergeo pasando por `main`, asi que el `Initial commit` del 2026-09-02 quedo
+  enganchado en la historia de `master`. No rompe nada, es ruido. **Pendiente: poner `master` como default branch
+  en GitLab y borrar `main`** — el remoto tiene `HEAD -> main` y por eso GitLab propone el target equivocado en
+  cada MR. Es la segunda vez en el dia que esa rama muerta genera confusion.
+- Dato operativo del deploy: el pipeline se dispara con el push a `master` (`CI_COMMIT_BRANCH == "master"`),
+  nunca con el MR abierto ni con un merge a `main`.
+
+### 2026-10-16 - implementacion - PWA instalable en Android (service worker) — SIN DEPLOYAR
+- Pedido: que la app se pueda instalar como PWA en el celular.
+- **Estado previo medido en produccion:** en **iPhone ya se instalaba** (a Safari le alcanza con el manifest
+  `display: standalone` + `apple-touch-icon`, ambos presentes). En **Android no**: faltaba el service worker, que
+  Chrome sigue exigiendo en 2026 — y especificamente con handler de `fetch`; uno con solo `install`/`activate`
+  no habilita la instalacion. `/sw.js`, `/service-worker.js` y `/registerSW.js` daban 404 y el HTML no registraba
+  ninguno. El resto del manifest estaba impecable (start_url, scope, standalone, portrait, iconos 192/512/maskable,
+  los tres 200).
+- **Cambios:** `front/public/sw.js` nuevo (precache del shell, navegacion red-primero con caida a la raiz guardada,
+  estaticos cache-primero) y registro en `front/src/layouts/BaseLayout.astro` dentro de `load`.
+- **Decision importante — el worker NO cachea `/api/*` a proposito.** `dashboard.ts` escribe el cartel
+  "actualizado {hora}" con `new Date()`, o sea el reloj del momento y no la hora del dato. Si el worker sirviera
+  una respuesta guardada de hace horas, la pantalla la mostraria como recien actualizada y alguien podria decidir
+  ir a navegar con viento viejo. **Pendiente previo a habilitar datos offline: que ese cartel use el timestamp real
+  de la lectura.** Las estaciones si muestran su propio `timestamp` y su "hace", el problema es solo ese cartel.
+- **Verificado:** build limpio (1 pagina, 4,4 s), `dist/sw.js` presente (4.218 bytes), `node --check` OK, el registro
+  aparece en el HTML compilado, las 7 URLs del shell existen en el build, y servido por `astro preview` el worker
+  sale en la raiz con `Content-Type: text/javascript` (scope `/`) y el handler de `fetch` presente.
+- **NO verificado:** el registro y la instalacion en un navegador real. El Playwright MCP estaba tomado por otra
+  sesion. La prueba que falta es abrir el sitio en Chrome Android y ver el prompt de instalacion.
+- **NO deployado.** Los cambios estan en el working tree de `C:\Sistemas\kite-punta-lara` (rama `master`), sin
+  commitear. El deploy es `bash scripts/deploy.sh`.
+- Impacto en capas: solo front (shell estatico). No toca la API ni los datos.
+
+### 2026-10-16 - infra - RESUELTO: `www.club.olvidata.com.ar` con certificado propio via Cloudflare Pages
+- Cierra el pendiente de la entrada anterior de hoy. La URL **ya habia sido compartida en una historia de Instagram**,
+  asi que no alcanzaba con dar de baja el nombre: habia que hacerlo funcionar.
+- **El panel de Ferozo no puede resolverlo.** Se agotaron las tres vias: Subdominios acepta una sola etiqueta
+  (rechaza `www.club`), Mis Dominios solo acepta dominios registrables (rechaza cualquier subdominio), y
+  "Generar certificado" en Let's Encrypt solo ofrece el dominio principal, que ya tiene el wildcard. El tab
+  **Sectigo** si lista subdominios (`bot`, `club`, `portal`) pero tampoco permite escribir `www.club`: habria sido
+  apostar ~USD 29 a que Sectigo agregue `www.<dominio>` como SAN de cortesia — probable (es lo que tiene el
+  certificado de `agentes`) pero no seguro. Se descarto por eso.
+- **No desinstalar nunca el wildcard** para "generar uno nuevo": el panel lo ofrece, y el reemplazo seria otro
+  wildcard con la misma limitacion de un nivel. Se perderia HTTPS en todo el dominio a cambio de nada.
+- **Solucion aplicada:** proyecto de Cloudflare Pages `club-redirect-c56` con un unico `_redirects`
+  (`/*  https://club.olvidata.com.ar/:splat  301`), dominio propio agregado por la via **"My DNS provider"** (DNS
+  externo, sin mover la zona ni tocar el correo), y en Ferozo el CNAME de `www.club` repuntado de
+  `olvidata.com.ar` a `club-redirect-c56.pages.dev` con TTL 300.
+- **Verificado midiendo contra el IP de Cloudflare** (forzando la resolucion, porque durante la propagacion el
+  nombre resolvia a los dos lados a la vez): certificado CN y SAN = `www.club.olvidata.com.ar`, emisor Google
+  Trust Services, vence 2027-01-14, renovacion automatica. El 301 preserva ruta y query y termina en 200 sobre la app.
+- **Gotcha que costo un deploy:** en Cloudflare Pages **un archivo estatico tiene prioridad sobre `_redirects`**.
+  El primer deploy incluia un `index.html` y por eso `/` devolvia 200 en vez de 301. Se saco el `index.html` y se
+  dejo un `robots.txt` como unico asset. No existe el flag `!` de force de Netlify.
+- **Otro gotcha:** el flujo nuevo de "Upload assets" del dashboard crea un **Worker**, no un proyecto de Pages, y
+  los Workers exigen que la zona este dentro de Cloudflare ("No zones match..."). Hay que entrar por la pestaña
+  **Pages** (`/:account/pages/new/upload`), que es la que ofrece DNS externo.
+- **Ventana de caida real:** entre el cambio de DNS y la emision del certificado, `https://www.club` no abrio
+  (handshake rechazado, `SEC_E_ILLEGAL_MESSAGE`) — peor que la advertencia previa, unos minutos. Se habia
+  anticipado que "no empeoraba en ningun momento" y fue incorrecto: cuando el DNS apunta a Cloudflare antes de que
+  el certificado exista, no hay TLS valido. Anticiparlo la proxima vez.
+- `club.olvidata.com.ar` nunca se vio afectado: 200 durante todo el proceso, DNS intacto.
+- Pendiente menor: borrar el proyecto Pages viejo `club-redirect` y el Worker `round-sky-2a72`, que quedaron de los
+  intentos fallidos. El final mas prolijo seguiria siendo que DonWeb emita el certificado en el host real (ticket
+  redactado, sin enviar): ahi se vuelve el CNAME a `olvidata.com.ar` y se da de baja el puente.
+- Impacto en capas: ninguno. No se toco codigo ni datos de la app.
+
+### 2026-10-16 - infra - `www.club.olvidata.com.ar` da "conexion no segura": el wildcard no lo cubre
+- Sintoma: `https://www.club.olvidata.com.ar` muestra advertencia del navegador. `https://club.olvidata.com.ar` esta perfecto.
+- **Causa: el certificado es un wildcard `*.olvidata.com.ar`, y un wildcard cubre UN SOLO nivel.** Sirve para
+  `club.olvidata.com.ar` pero no para `www.club.olvidata.com.ar`, que esta un nivel mas abajo. Medido validando
+  de verdad: `SEC_E_WRONG_PRINCIPAL` (nombre incorrecto), no un certificado vencido ni mal instalado — el de
+  `club.` es Let's Encrypt y vence 2026-12-22.
+- **No alcanza con reemitir el wildcard.** Hace falta `www.club.olvidata.com.ar` como SAN explicito en el
+  certificado, o un wildcard `*.club.olvidata.com.ar`. Es la trampa clasica de este sintoma.
+- DNS ya esta: `www.club` es un CNAME **especifico** a `olvidata.com.ar` (no es DNS wildcard — `otracosa.club` y
+  `noexiste.olvidata` no resuelven). Probablemente lo creo el panel solo, como alias `www.` del subdominio.
+- **El host ya sirve la app en `www.club`**: por http devuelve la pagina de kite, mismo docroot que `club.`
+  (comparado por `<title>`). Asi que **no hace falta redirect ni cambio de codigo**: en cuanto el certificado
+  cubra el nombre, `https://www.club` funciona solo. La canonica ya esta declarada en el HTML
+  (`<link rel="canonical" href="https://club.olvidata.com.ar/">`).
+- **`.htaccess` NO se honra en este hosting de DonWeb** (LiteSpeed). Verificado con una regla testigo
+  (`RewriteRule ^prueba-htaccess-16oct$ ...`) que no disparo: devolvio el 404 propio de LiteSpeed. Se probo subir
+  un `.htaccess` con el redirect y quedo inerte, asi que **se borro** y el docroot quedo como estaba (antes no
+  habia ninguno). Cualquier redirect de este sitio tiene que salir del panel o de la app, no de `.htaccess`.
+- Pendiente (requiere panel de DonWeb/Ferozo, no hay MCP ni API; en ese hosting solo se tienen credenciales de
+  FTP y MySQL): registrar `www.club.olvidata.com.ar` como dominio/alias del sitio y emitir el certificado
+  incluyendo ese nombre. La URL **ya fue compartida**, asi que hoy quien la abra por https ve la advertencia.
+- Impacto en capas: ninguno. No se toco codigo, ni datos, ni configuracion que haya quedado en pie.
+
 ### 2026-09-01 - analista-funcional
 - Etapa: Discovery
 - Cambio: Alta de proyecto nuevo (kite-punta-lara). Investigación de dominio completada sobre 7 temas (CARP, SHN, SMN, Windguru, birazón, sudestada, spot Punta Lara/Club Universitario) y borrador de alcance funcional entregado al cliente (Joaquín) con 9 preguntas abiertas marcadas como hipótesis a validar.

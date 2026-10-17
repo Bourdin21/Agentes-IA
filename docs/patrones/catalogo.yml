@@ -4481,3 +4481,112 @@ patrones:
       `ExpireTimeSpan` que ya tiene el sistema y, si no es claramente menor que la ventana de la PWA,
       resolver primero que se hace con el. Verificar “el navegador queda igual que estaba” en un sistema
       no alcanza: hay que mirar el numero de cada uno.
+
+  - id: PAT-071
+    nombre: "Cola de seguimiento comercial: quien le toca el proximo mensaje"
+    categoria: dominio
+    descripcion: >
+      Pantalla que calcula, ordena POR VALOR y despacha el proximo toque a los contactos que dieron
+      señales de vida y nadie volvio a contactar. Resuelve el caso en que el sistema ya tiene el motor
+      de envio, el catalogo de textos de cadencia y las plantillas para reabrir una conversacion
+      cerrada — y lo unico que falta es el que DECIDE a quien escribirle, decision que hasta entonces
+      es un boton que alguien aprieta contacto por contacto.
+    cuando_usar: >
+      Hay un embudo con estados "abiertos" (respondio / cotizado / derivado), una marca de "ya se le
+      hizo seguimiento" y una ventana de mensajeria que vuelve caro o imposible escribir pasado un
+      plazo. Sintoma que lo dispara: el conteo de contactos en estado abierto sin segundo toque es un
+      orden de magnitud mayor que los que avanzaron. NO usarlo para el goteo automatico: la primera
+      version es manual a proposito, porque cada toque fuera de ventana cuesta dinero real.
+    proyecto_origen: crm-olvidata
+    proyectos_que_lo_usan:
+      - crm-olvidata
+    archivos_referencia:
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Infrastructure/Services/SeguimientoColaService.cs
+        motivo: "Criterio de la cola, orden por valor, revalidacion de la ventana y los 2 caminos de envio."
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Application/Helpers/SugerenciasSeguimientoHelper.cs
+        motivo: "Resolucion del texto sugerido como funcion pura: sirve para 1 contacto y para 320 con un solo catalogo en memoria."
+      - proyecto: crm-olvidata
+        path: OlvidataCRM.Web/Views/Seguimiento/Index.cshtml
+        motivo: "DataTable server-side con filtro por cada columna visible, y los 2 modales de envio (texto libre vs. plantilla con su costo)."
+    dependencias:
+      - "Un servicio de envio ya existente que valide la ventana y el tope de gasto (en crm-olvidata, OutboundCampaignService.ReactivarConversacionAsync). El patron NO incluye un camino de envio propio: eso es su regla central."
+      - "Un catalogo de textos por estado + ventana de dias + rubro (SugerenciaSeguimiento)."
+      - "MH-001 y CRM-019 del catalogo de QA: el criterio de la cola es una query, y es exactamente la forma de las dos."
+    notas: >
+      Las cuatro cosas que no son obvias, todas medidas:
+
+      (1) EL ORDEN DE LA COLA NO ES POR FECHA, Y ESO NO SE PUEDE EXPRESAR EN SQL. Primero los
+      contactos cuyo rubro tiene matriz de modulos/presupuesto cargada —ahi el camino bueno es
+      ofrecer la propuesta, no un recordatorio— y dentro de cada grupo los mas recientes. El mapeo
+      rubro → fila de catalogo vive en diccionarios de C# (3 vocabularios distintos en la misma
+      columna, ver CRM-007), asi que la cola se materializa y se ordena en memoria y la paginacion de
+      DataTables se aplica sobre esa lista. A cientos de filas no molesta; a miles habria que
+      precalcular la industria en la entidad.
+
+      (2) EL CAMPO QUE MARCA "YA SE LE HIZO SEGUIMIENTO" PROBABLEMENTE NO DETECTE LOS MENSAJES
+      MANUALES. Medido en crm-olvidata: `Contacto.FechaFollowUp` lo escribia UN solo lugar
+      (`ProcessFollowUpsAsync`), que corre sobre otro estado del embudo — asi que el filtro no
+      descartaba a NADIE (321 → 321) y 50 contactos a los que un asesor ya les habia escrito desde el
+      chat seguian apareciendo. Antes de construir la cola: contar cuantos descarta el campo. Si
+      descarta cero, el campo no significa lo que su nombre dice. La salida elegida fue NO cambiar el
+      criterio aprobado en silencio, sino calcular el "toque posterior" aparte y exponerlo como
+      columna visible con filtro propio — la decision de pagar un mensaje a alguien a quien ya le
+      escribieron queda a la vista de quien la toma.
+
+      (3) EL NUMERO DEL DIAGNOSTICO Y EL DE LA COLA NO VAN A COINCIDIR, Y HAY QUE DECIR POR QUE. En
+      crm-olvidata el diagnostico decia 276 y la cola dio 320: el diagnostico media "nunca tuvo
+      follow-up" y el criterio aprobado era "sin follow-up POSTERIOR A SU RESPUESTA" — los que
+      recibieron un follow-up frio y despues contestaron vuelven a la cola con razon, y se suman los
+      otros 2 estados abiertos. Medir el criterio real contra produccion ANTES de cerrar la etapa, por
+      etapas del filtro, y reportar los dos numeros con su definicion.
+
+      (4) LA ETIQUETA CON QUE SE REGISTRA EL TOQUE DECIDE SI SE CUENTA COMO GASTO. El texto libre
+      dentro de la ventana no le cuesta nada al proveedor; la plantilla fuera de ventana si. Si las
+      dos se registran con la misma etiqueta y el contador de gasto mira esa etiqueta, el mes queda
+      inflado y el cupo del envio automatico se recorta por mensajes que nadie pago. Es el corolario
+      de CRM-017 dado vuelta: el contador tiene que contar todos los caminos que gastan, y SOLO esos.
+
+      (5) QUE PLANTILLAS SE OFRECEN ES LISTA BLANCA, NUNCA LISTA NEGRA. El contacto de esta cola ya
+      respondio, asi que una plantilla de PRIMER CONTACTO le habla como si no nos conociera y una de
+      CLIENTE (renovacion, cobranza) le habla de algo que no tiene — las dos cuestan lo mismo que la
+      correcta y encima quedan mal. Con lista negra, cada plantilla nueva que alguien da de alta en la
+      pantalla de templates entra sola a la cola y hay que acordarse de excluirla; con lista blanca el
+      default seguro es no ofrecerla. La lista va en UNA constante documentada con el motivo de cada
+      exclusion, y se chequea en DOS lados: filtrando el combo y como guarda del lado del servidor
+      antes de enviar — el servicio de envio que se reusa valida contra su propio criterio (mas
+      amplio, y correcto para SU pantalla), asi que un POST armado a mano pasaria. Si la lista blanca
+      queda vacia por datos, decirlo con el nombre de las que faltan; nunca un combo vacio.
+
+      (6) EL FILTRO "SIN PLACEHOLDERS" MIENTE SI EL TEXTO LOCAL ES UN CENTINELA. Para decidir que
+      plantillas se pueden mandar sin parametros, el precedente usaba `!Texto.Contains('{')` sobre la
+      COPIA LOCAL del texto. Tres plantillas de crm-olvidata tienen como copia local el centinela
+      "(el texto vive en Meta — el sistema manda esta plantilla ...)", que no tiene ninguna llave: el
+      filtro lee "NO SE cual es el texto" como "NO TIENE parametros" y las clasifica como texto fijo.
+      Dos de ellas llevan 3 parametros de body cada una, asi que el envio habria fallado contra Meta
+      por cantidad de parametros en la primera corrida real. Como verificarlo antes de confiar en el
+      filtro: cruzar la lista que devuelve contra los `BuildComponents`/`TemplateBodies` del codigo de
+      envio, no contra la columna de texto. El arreglo de fondo es un campo `Proposito` + la cantidad
+      de parametros como DATO sincronizado del proveedor, y dejar de inferir del nombre y del texto.
+
+      (7) LA MARCA DE SALIDA SE RESERVA ANTES DE ENVIAR, NO DESPUES. Si el toque se envia y DESPUES se
+      escribe "ya se le hizo seguimiento", entre las dos cosas hay un envio por red de cientos de
+      milisegundos: dos requests concurrentes lo leen los dos sin marcar, los dos pasan todos los
+      guards y los dos pagan. Deshabilitar el boton NO lo cubre (un POST a mano lo saltea) y tampoco lo
+      cubre un chequeo "ya esta marcado?" antes del envio, que es justo la lectura que la carrera gana.
+      La forma correcta es un UPDATE CONDICIONAL UNICO (`ExecuteUpdateAsync`) que escribe la marca con
+      el WHERE igual al criterio de la cola: 1 fila afectada = gana la reserva y envia, 0 = rechaza sin
+      enviar. La atomicidad la da el motor en una sentencia, asi que vale entre requests y entre
+      procesos. Si el envio despues falla, se LIBERA restaurando el valor anterior EXACTO (puede no ser
+      null) con un WHERE que incluya la marca propia, para no pisar lo que escribio otro; y hay que
+      liberar tambien cuando el servicio de envio devuelve "no enviado" por sus propias razones (tope
+      de gasto, mensaje ya mandado), si no el contacto sale de la cola en silencio sin que nadie lo
+      haya contactado. El modo de falla queda invertido A PROPOSITO: de "se envio y no se marco"
+      (se paga dos veces) a "se marco y no se envio" (recuperable, sin plata gastada).
+      COMO PROBARLO: N scopes de DI independientes (N conexiones), conexiones ABIERTAS antes de una
+      barrera, y contar los envios efectivos — con un fake del cliente de mensajeria para no mandar
+      nada real, y contra un CLON desechable de dev porque la prueba escribe. Una prueba SECUENCIAL da
+      falso verde: con un solo contexto las sentencias se serializan solas y el segundo intento
+      siempre ve la marca ya escrita. Medido en crm-olvidata (CRM-032): 8 concurrentes -> 1 gana, 7
+      rechazados, 1 solo envio.

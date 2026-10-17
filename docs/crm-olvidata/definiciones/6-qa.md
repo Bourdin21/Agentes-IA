@@ -15,6 +15,7 @@
 - **PAT-069** (Web Push servidor → navegador sin el sitio abierto) validado como patrón nuevo: las 3 piezas que declara (service worker vivo, claves VAPID, suscripción por dispositivo en BD) existen y el sobre real sale bien formado (`vapid t=<jwt>, k=<clave pública>`, `Content-Encoding: aes128gcm`, TTL 1800, `Urgency: high`). Lo único de PAT-069 que **no** se pudo validar es la última milla (el navegador recibiendo el globo), por aislamiento de red del entorno — ver la sección de la corrida.
 - Reglas agregadas por esta corrida: **CRM-029** (yml) — un polling de background que estampa "leído" re-arma un guard anti-ruido en cada mensaje.
 - 2026-10-16 (re-verificación de CRM-029): sin reglas nuevas en el catálogo entre el 2026-10-15 y hoy más allá de las propias de esta corrida. Regla agregada: **CRM-030** (yml) — al angostar un guard de un campo compartido a uno propio se pierden los re-armados legítimos de ese campo. La próxima corrida diferencia desde **2026-10-16**.
+- 2026-10-16 (corrida de la cola de seguimiento, segundo lote del día): `git log --since=2026-10-16` sobre `32-estandares-qa-implementador.instructions.md` y `docs/qa/regresiones-manuales.yml` → **sin commits**: ninguna regla nueva ni modificada desde la corrida anterior de hoy, más allá de las dos que agrega esta. Reglas agregadas: **CRM-031** (major) y **CRM-032** (minor). La próxima corrida diferencia desde **2026-10-16**.
 
 ### 0. Alcance funcional validado
 
@@ -220,162 +221,6 @@ Condiciones para pasar a GO completo:
 3. Nueva pasada de QA ejecuta las pruebas E2E hoy BLOCKED (HU-03 a HU-08) contra credenciales reales, en la ventana de desarrollo aparte (sin tráfico de producción), antes del runbook de corte de BotPublicitario.
 4. CRM-002, CRM-003, CRM-005 (los 3 `minor`) pueden resolverse en la misma pasada o en un ciclo posterior sin bloquear el go-live — no afectan la operación comercial del bot, solo UX/consistencia.
 
-## QA — corrección de bugs/gaps de auditoría completa + 3 mejoras (2026-08-27)
-
-### 0. Alcance funcional validado
-
-QA sobre los 17 items del sprint cerrado por el Implementador el 2026-08-27 (B1-B7 bugs, G1-G7 gaps, M-A/M-B/M-C mejoras), contra los criterios de aceptación de `2-disenador-funcional.md` §7. Checkout local `C:\Sistemas\olvidatasoft-crm`, working tree sin commitear (25 archivos modificados + 10 nuevos). **Sin deploy** — fuera de alcance por instrucción explícita.
-
-**Método — esta es la primera pasada de QA de este proyecto con la app efectivamente ejecutada:**
-
-- `dotnet build -c Release --no-incremental` → **Compilación correcta, 0 errores**, 13 advertencias (todas preexistentes: `NU1902` MailKit/MimeKit, `CS8524`, `CS0114`). Confirmado por este QA en corrida propia, no tomado del reporte del Implementador.
-- **App levantada localmente** (`http://localhost:5199` + `https://localhost:5443`, `ASPNETCORE_ENVIRONMENT=Development`) contra `olvidatacrm_dev`, autenticado como SuperUsuario (`no-reply@olvidata.com.ar`), y ejercitada por HTTP real: 12 pantallas + 6 endpoints POST/AJAX.
-- **Consultas directas a `olvidatacrm_dev`** (MySQL 8.0) antes/después de cada acción, para verificar el efecto real en datos y no solo la respuesta HTTP.
-- Revisión de código línea por línea del diff completo (`git diff` + archivos nuevos).
-- **Servidor MCP `playwright` NO disponible en esta sesión** (no expuesto entre las herramientas del agente). Se declara explícitamente según `33-verificacion-automatizada-qa.instructions.md`. Se sustituyó por verificación HTTP + assertions sobre la base de datos, que cubre todo lo objetivamente chequeable de este sprint salvo lo estrictamente visual (render de toasts/modales SweetAlert2, que quedan en el procedimiento manual).
-- **Datos de dev restaurados** al estado previo al terminar (campañas 27/28/29, contactos 194/236, industria #11, cliente de prueba borrado). Verificado post-restauración.
-
-**Cambio de estado del entorno de dev (necesario y declarado):** la migración `20260827005735_AddMensajeProgramado` **no estaba aplicada** en `olvidatacrm_dev` — el arranque tiraba `Table 'olvidatacrm_dev.mensajesprogramados' doesn't exist` en loop cada 60s y `Chats/Detail` era inalcanzable. Se aplicó (`dotnet ef database update`) para poder probar. Ver defecto **CRM-008**: esa migración es parte de este release candidate y **falta aplicarla en producción**.
-
-### 1. Cobertura por historia de usuario (17 items del Diseño §7)
-
-| Item | Criterio de aceptación | Resultado | Evidencia |
-|---|---|---|---|
-| **B1** — truncado defensivo | Mensaje largo se guarda truncado; error de otro tipo no aborta la campaña | **PASS** | `MensajeriaHelpers.Truncar` (2000/500, coincide con `AppDbContext:117-118`). Aplicado en los 4 `new ContactoRespuesta` sueltos de `BotFlowService` (:339, :373, :390, :1039) y en `LogRespuesta` (:948), que es el punto único de las 8 escrituras del guion — cobertura completa verificada call-site por call-site. `catch (DbUpdateException)` + `ChangeTracker.Clear()` agregado por contacto en `SendDailyBatchAsync` y `ProcessFollowUpsAsync`. El `Clear()` es correcto y necesario (sin él la entidad rota se arrastra al contacto siguiente). |
-| **B2** — rebalanceo por día individual | Campaña Lunes+Miércoles pesa en AMBOS días; el resumen coincide con el volumen real | **PASS (verificado en vivo)** | Escenario armado en dev: campaña 27 (Lunes), 28 (Miércoles), 29 (Lunes+Miércoles, `Dias=5`), las 3 al 30%. `CupoDiario=940`, `MetaDiaria=400` → `targetPct=42,553%`. Tras `POST /Bot/RebalancearMatriz`: las 3 quedaron en **21,28%**, y la carga real resultante fue **Lunes 42,56% = 400 msj** y **Miércoles 42,56% = 400 msj** — exactamente la meta. Con el agrupamiento viejo por combinación de flags, cada una habría escalado a 42,55% por separado y el Lunes real habría sido 85,1% = **800 msj (2× la meta)**. Datos restaurados. |
-| **B3** — polling no pisa "última lectura" | Chat abierto en otra pestaña + contacto escribe → se marca "No leído" pese al polling | **PARCIAL** | 3 ramas medidas contra la DB sobre el contacto #194 (`MaxRespId=4`): **(A)** `HiloParcial/194?ultimoIdVisto=4` (sin novedad) → `FechaUltimaLecturaAgente` intacta en `2020-01-01` y `MarcadoNoLeidoManual=1` conservado → **el bug original está corregido**. **(B)** `HiloParcial/194` sin parámetro (fallback legacy) → pisa a `now` y borra la marca (esperado por diseño, ver riesgo de ventana de deploy). **(C)** `HiloParcial/194?ultimoIdVisto=3` (simula mensaje entrante nuevo) → **pisa `FechaUltimaLecturaAgente` y borra `MarcadoNoLeidoManual`**, es decir el chat NO queda "No leído". Ver defecto **CRM-009**. Cableado del JS verificado en el HTML renderizado: `_ChatThread` emite `data-msg-id` en cada burbuja/evento, las burbujas son hijas directas de `#chatThread` (`.children('[data-msg-id]')` las alcanza), y `Url.Action("HiloParcial")` renderiza `'/Chats/HiloParcial/'` **sin** arrastrar el `id` ambiente. |
-| **B4** — etiquetas de evento sincronizadas | Nunca ver un mensaje de diagnóstico del bot como burbuja saliente nuestra | **PASS (verificado en vivo)** | Barrido exhaustivo de los 14 literales de `Pregunta` que `BotFlowService` escribe (`LogRespuesta` + `ProcesarBajaAsync` + los `new ContactoRespuesta` sueltos): **los 14 están en `EtiquetasDeEvento`**, y el caso dinámico (`LogRespuesta(contacto, pregunta, text)` :740) cae al `else` por diseño correcto (ahí `Pregunta` sí es texto real enviado). Render real: `GET /Chats/Detail/7` devuelve `<div class="chat-evento" data-msg-id="1">Consulta inicial: ...` — no burbuja saliente. (Nota menor: los comentarios `⟵B4 BotFlowService:NNN` tienen las líneas corridas 3-6 posiciones; los literales son correctos.) |
-| **B5** — bloquear rename con campañas activas | Renombrar template en uso se bloquea con mensaje; editar el texto sigue permitido | **PASS (verificado en vivo)** | `POST /Templates/Edit` con `Nombre=olv_frio_v4_RENAMED` sobre `olv_frio_v3` (26 campañas activas) → HTTP 200 sin redirect, `field-validation-error data-valmsg-for="Nombre"`: *"26 campaña(s) activa(s) usan este template por su nombre actual ('olv_frio_v3')…"*. DB: nombre **sin cambiar**. Mismo POST con el nombre original y texto editado → **302 a `/Templates`**, cambio aplicado. Ambas ramas correctas. |
-| **B6** — fórmula única "Respuesta → Presupuesto" | El número es el mismo en Bot/Outbound, Contactos/Pipeline y Campañas/Dashboard | **PARCIAL** | Fórmula centralizada en `MensajeriaHelpers.TuvoPresupuesto`/`TuvoPresupuestoExpr` y consumida por las 3 pantallas — verificado en código. **Bot/Index y Contactos/Pipeline ahora coinciden exactamente: 199 enviados / 19 respondieron** (antes Pipeline calculaba sobre los 433 contactos totales). **Campañas/Dashboard sigue dando 198 / 18**, porque su universo base es deliberadamente más angosto (`FechaPrimerEnvio != null && Rubro != null` + tiene que mapear a una campaña). El Diseño §7 solo pedía alinear el universo de *Pipeline*, así que la implementación cumple el diseño, pero **el criterio literal de la HU ("los 3 números") no se cumple** y la prueba #4 del Implementador no es un check válido de PASS/FAIL. Además, con los datos de dev `conPresupuesto = 0` en las 3 pantallas, así que la parte de *fórmula* (las 3 señales) quedó verificada solo por código, no por datos. |
-| **B7** — canal Referido desde la UI | Cargar un Referido a mano y que **entre al circuito ya construido** (template dedicado, prioridad de cupo) | **PARCIAL** | La mitad de carga funciona: `CanalOrigen`/`ReferidoPor`/`MotivoReferido` presentes y persistidos en Create y Edit (partial compartido `_CamposCanalYPresupuesto`, incluido por ambas vistas; `ContactoEditViewModel : ContactoCreateViewModel` hereda las 4 props). `NormalizarReferido` descarta los datos de referido si el canal final no es Referido — correcto. **Pero el contacto NO entra al pipeline outbound**: `Contactos/Create` escribe `Rubro` = `IndustriaCatalogo.Nombre` (ej. `"Farmacias"`), mientras `SendDailyBatchAsync:183` filtra por `claves.Contains(c.Rubro)` contra `CampanaOutboundIndustria.ClaveRubro` (ej. `"farmacia"`). Nunca matchea. Ver defecto **CRM-010** (misma causa raíz que CRM-007). |
-| **G1** — templates de catálogo con N placeholders | Template de 4-5 placeholders se asigna y envía sin tocar código; el fallo se ve en el contacto | **PASS (código)** / **BLOCKED (E2E)** | `BuildComponentsDinamico` + `ContarPlaceholders` (cuenta índices `{{N}}` **distintos**, correcto contra la semántica de Meta), con 8 campos genéricos disponibles y fallback a los 3 históricos si no hay texto — retrocompatible exacto para templates de 3. `RenderMensajeFrio` convierte `{{N}}` (base 1, Meta) a `{N-1}` (base 0, `string.Format`) — bug real que habría dejado `{1}` crudo en el hilo. `RegistrarFalloEnvioAsync` + `MaxIntentosFallidosPorContacto=3` implementados. **E2E bloqueado**: exige envío real contra Meta. Ver defecto **CRM-011** (el tope cuenta fallos históricos totales, no consecutivos). |
-| **G2** — corrida manual con shuffle + `UltimaCorridaUtc` | Corrida manual a las 8am impide que el scheduler de 9:30 reprocese; sin sesgo por Id | **PASS (código)** / **NO EJECUTADO (E2E, deliberado)** | Shuffle `OrderBy(c => (c.Id + hoyAr) % 997)` subido a `CampanasActivasHoyAsync`, que es efectivamente el único punto por el que pasan la corrida manual y la automática (verificado). `MarcarCorridaAsync` sella `UltimaCorridaUtc` al final de cada campaña **y** en la rama `pendientes.Count == 0`; `OutboundSchedulerService:101` ya saltea por `yaCorrioHoy`, así que el circuito cierra. Sellado correctamente omitido cuando el cupo global se agota antes del `break`. **No se ejecutó `Bot/EjecutarAhora`**: el scheduler local corría con `standby=False` y dispararlo habría intentado envíos reales de WhatsApp a 234 contactos pendientes. Queda como prueba manual. |
-| **G3** — `PrimerAnioGratis` en el alta de Cliente | Marcarlo al convertir; el ARR del Dashboard no lo cuenta | **PASS (verificado end-to-end)** | Switch presente en `_ConvertirClienteModal` con su `<input type="hidden" value="false">` compañero (patrón correcto de checkbox de ASP.NET). `POST /Clientes/ConvertirDesdeContacto` con `PrimerAnioGratis=true` sobre el contacto #194 en `Cerrado` → Cliente creado con **`PrimerAnioGratis=1`** en DB. `/Negocio/Dashboard`: **"1 Clientes activos"** pero **"USD 0 Ticket promedio real"**, **"USD 0 de USD 15.000 — Avance hacia la meta"**, **"USD 0 Ingresos totales"** — el ARR efectivamente lo excluye. Cliente de prueba eliminado. |
-| **G4** — `PresupuestoCotizadoUsd` editable | Cargarlo a mano desde la ficha; las lecturas dejan de estar vacías | **PASS** | Presente en Create y Edit (`name="PresupuestoCotizadoUsd"` renderizado en ambas, HTTP 200), persistido en ambos handlers, con `[Range(0, 1_000_000)]`. |
-| **G5** — acciones AJAX devuelven JSON | Toast de confirmación/error en la lista; el form de Detail sigue redirigiendo | **PASS (verificado en vivo, ambos invocadores)** | `POST /Chats/MarcarNoLeido` **con** `X-Requested-With: XMLHttpRequest` → `application/json`, `{"ok":true,"mensaje":"Conversación marcada como no leída."}`. **Sin** el header (form POST normal de `Chats/Detail`) → **302 a `/Chats?fecha=hoy&interaccion=todos`**, sin volcado de JSON. `MarcarTodosLeidos` → JSON siempre (único invocador es AJAX, correcto). JS: `.done(manejarRespuesta)/.fail(manejarError)` reemplaza al `.always()` ciego, y la lista solo se refresca con `ok=true`. jQuery agrega el header solo en llamadas AJAX same-origin, así que la negociación es fiable. El render visual del toast queda para la prueba manual. |
-| **G6** — `ExecuteUpdateAsync` con auditoría | Rápido y sin consumo proporcional al total | **PASS (verificado en vivo, incluida la auditoría)** | `POST /Chats/MarcarTodosLeidos` con `Fecha=todos` → `{"ok":true,"mensaje":"4 conversaciones marcadas como leídas."}` en **27 ms**, un solo `UPDATE`. DB: los 4 contactos con `FechaUltimaLecturaAgente`/`UpdatedAt` idénticos y **`UpdatedByUserId = 6cdb16cd-7a0c-4879-a4a2-0a8051d63706`**, que es exactamente el Id del SuperUsuario en `AspNetUsers`. **El stamping manual es correcto en los 2 call sites**: usa `ClaimTypes.NameIdentifier`, el mismo claim que `AppDbContext.StampSoftDestroyable` (:333). El segundo call site (`IndustriasController.Delete` con `reasignarA`) también se verificó en vivo y estampó el mismo GUID. `QueryFiltrada` parte de `_db.Contactos`, así que el filtro global de soft-delete se conserva. |
-| **G7** — aviso al eliminar industria con contactos | El sistema dice cuántos contactos quedan sin campaña que los alcance | **FAIL** | Mitad correcta / mitad rota. **`CampanasController.EliminarIndustria` es correcto** (cuenta por `industria.ClaveRubro`, el vocabulario real). **`IndustriasController.ImpactoDelete`/`Delete` son incorrectos**: cuentan por `IndustriaCatalogo.Nombre`. Medido en vivo: `ImpactoDelete` devuelve **`contactos: 0` para las 14 industrias del catálogo**, mientras `/Bot/Salud` del mismo sprint reporta **425 contactos huérfanos**. El modal renderiza *"Ningún contacto tiene ese rubro asignado. No hay impacto."* — la misma afirmación engañosa que G7 venía a eliminar, ahora con apariencia de dato calculado. Ver defecto **CRM-007**. |
-| **M-A** — constante de dominio compartida | Agregar una etiqueta saliente se hace en un solo lugar | **PASS** | `MensajeriaHelpers` en `Application` es la fuente única; `ChatsController`, `OutboundCampaignService`, `VentanaExpiracionSchedulerService` y `MensajesProgramadosSchedulerService` consumen alias `const` que apuntan a ella. Corrigió de paso 2 desincronizaciones reales: `VentanaExpiracionSchedulerService` tenía literales crudos y le faltaba `[Follow-up]` en las 3 subqueries de "último mensaje entrante". `EtiquetaErrorEnvio` agregada a las 8 repeticiones de la condición. La decisión de dejar las condiciones inline (con `const`, que el compilador inlinea en el árbol de expresión) es correcta y preserva la traducción a SQL — confirmado empíricamente: `/Chats`, `/Bot` y `/Bot/Salud` devuelven 200 con datos, sin caer en MH-001. |
-| **M-B** — reclasificación asistida | Reasignar los contactos a otra categoría en el mismo paso | **FAIL** | Inerte en la práctica y conceptualmente incorrecto cuando dispara. Demostrado en vivo: se plantó un contacto con `Rubro = "Finanzas personales (gestión completa)"` (un `Nombre` de catálogo); `ImpactoDelete/11` entonces sí devolvió `contactos: 1`, confirmando que el conteo **solo** funciona con ese vocabulario. `POST /Industrias/Delete/11` con `reasignarA=E-commerce / tiendas online` reasignó al contacto — pero al valor `"E-commerce / tiendas online"`, que **no es `ClaveRubro` de ninguna campaña activa** (verificado: 0 coincidencias). El contacto sigue huérfano. Con los datos reales el `WHERE` nunca matchea, así que M-B no hace nada (no corrompe datos, pero tampoco rescata a nadie). Ver **CRM-007**. |
-| **M-C** — endpoint de salud del pipeline | Una sola pantalla para confirmar que el pipeline está sano | **PASS (con 1 observación)** | `/Bot/Salud` → **HTTP 200**, solo lectura, con datos correctos y contrastados contra la DB: 0 templates activos sin campaña, 0 campañas con template inválido, **425 contactos huérfanos** desglosados por rubro (indumentaria 135, consultorio 101, inmobiliaria 56, servicios 38, estudio 28, ganaderia 22, comercio 16, restaurant 13, agro 13, farmacia 1, +2). El número es **legítimo**: en dev las 26 campañas activas usan claves con sufijo de zona (`indumentaria-palermo`, `consultorio-microcentro`, …) mientras esos 425 contactos llevan las claves base. Cruce template↔campaña resuelto en memoria, evitando MH-001 correctamente. Observación: `Alineadas = true` está **hardcodeado** (ver **CRM-012**). |
-
-**Resumen: 10 PASS · 4 PARCIAL · 2 FAIL · 1 PASS-con-observación.**
-
-### 2. Cobertura de máquina de estados
-
-`FaseConversacion`: **sin cambios en este sprint**. B4/M-A tocan cómo se *renderizan* las filas que el guion escribe, no las transiciones. Verificado que los 14 literales de evento y el caso dinámico cubren todas las ramas de `HandleIncomingAsync` sin dejar ninguna cayendo al render por default.
-
-`EstadoEmbudo`: 2 transiciones tocadas, ambas verificadas.
-
-| Transición | Cambio del sprint | Resultado |
-|---|---|---|
-| `Pendiente → MensajeEnviado` | G1: se saltea el contacto con ≥3 fallos; G2: se sella `UltimaCorridaUtc` | PASS (código) / BLOCKED E2E |
-| `Pendiente` (se mantiene) tras fallo de envío | G1: ahora deja fila `[Error de envío outbound]` en vez de fallar en silencio | PASS (código) |
-| `Cerrado → Cliente` | G3: `PrimerAnioGratis` se setea en el alta | **PASS (E2E real)** |
-| Guarda "solo desde `Cerrado`" | sin cambios | PASS — `ConvertirDesdeContacto:207` sigue rechazando cualquier otro estado |
-| Transición inválida (`Respondido → Cliente`) | — | PASS — bloqueada por la misma guarda |
-
-`EtiquetaErrorEnvio` cuenta como **saliente**, así que no corre la ventana de 24hs ni marca el chat como no leído — correcto, y consistente en las 4 capas.
-
-### 3. Cobertura del catálogo cross-proyecto (`docs/qa/regresiones-manuales.yml`)
-
-| id | aplica | resultado | acción |
-|---|---|---|---|
-| MH-001 (Contains sobre colección local de string no traduce en MySQL) | **sí** | **PASS** | El sprint agrega varios `Contains`/`ToHashSet`. Los que van a SQL son sobre `enum`/`int` (`CanalesOutbound.Contains(c.CanalOrigen)`, `idsConError.Contains(c.Id)`) y traducen bien; los de string se resuelven **en memoria** a propósito (`GetSaludAsync`, `SendDailyBatchAsync`), con el comentario justificándolo. Confirmado en vivo: `/Bot/Salud`, `/Bot`, `/Contactos/Pipeline` y `/Campanas/Dashboard` devuelven 200 con datos. |
-| ELV-001 (controllers sin `[Authorize]`) | **sí** | **PASS** | Los 3 endpoints nuevos/modificados probados sin autenticar → **302 a `/Account/Login`**: `/Bot/Salud`, `/Industrias/ImpactoDelete/2`, `/Chats/HiloParcial/7`. |
-| LIP-001 (errores de `ModelState` invisibles) | **sí** | **PASS** | El `AddModelError` de B5 se renderiza como `field-validation-error data-valmsg-for="Nombre"` con el texto completo — verificado en el HTML de respuesta. |
-| KOI-001 (`btn-swal-confirm` fuera del form no ejecuta el delete) | **sí** | **PASS** | El modal de `Industrias/Index` construye el form por JS y lo submitea; `POST /Industrias/Delete/11` ejecutó realmente (soft-delete aplicado y luego revertido). El `preConfirm` devuelve el valor del select correctamente. |
-| CRM-003 (DataTable ignora `order[...]`) | sí | sin cambios | Fuera del alcance del sprint; sigue abierto. |
-| CRM-004 (duplicado de teléfono en batch de Google Maps) | sí | sin cambios | Fuera del alcance del sprint; sigue abierto. **Ojo:** los comentarios de `IndustriasController` y `GetSaludAsync` citan "regla CRM-004" para la regla de *huérfanos*, que no es lo que CRM-004 documenta. Ver **CRM-013**. |
-| CRM-001, CRM-002, CRM-005, CRM-006 | sí | sin cambios | Fuera del alcance del sprint. |
-| REG-008 (input pierde foco al tipear) | no | N/A | No hay grilla con recálculo en el alcance. |
-| REG-010 / KOI-003 / KOI-005 / KOI-006 (sidebar vs. rol) | parcial | N/A justificado | Rol único `SuperUsuario`; el link nuevo (`Bot/Salud`) está respaldado por autorización real (probado arriba) y su controller existe. |
-| GAN-003 (`<partial>` dentro de `<script>`) | no | N/A | Los templates de fila nuevos no usan ese patrón. |
-| SG-001 / LP-003 (binding de numéricos vacíos / cultura) | **sí** | **PASS** | `PresupuestoCotizadoUsd` es `decimal?` (nullable), así que un campo vacío no rompe el POST — probado: alta y edición con el campo vacío devuelven 200/302 sin error de binding. |
-| DN-001 / DN-002, MH-002..MH-013, LP-001/004/005, ELV-002, VSF-001/002, GAN-001/002/004, REG-001..007/009, LIP-001 (resto) | no | N/A | Módulos inexistentes en este proyecto (compras, ventas, AFIP, cheques, stock). |
-
-### 4. Defectos detectados
-
-| id | severidad | descripción y pasos |
-|---|---|---|
-| **CRM-007** | **major (bloqueante de G7 y M-B)** | *`Industrias/ImpactoDelete` y `Industrias/Delete` usan `IndustriaCatalogo.Nombre` como si fuera el rubro del contacto, cuando el vocabulario real de `Contacto.Rubro` es `CampanaOutboundIndustria.ClaveRubro`.* `IndustriaCatalogo` **no tiene** campo `ClaveRubro` — la clave granular vive en `CampanaOutboundIndustria` a propósito (varios rubros operativos comparten una fila de precio: `ganaderia`/`agro` → "Ganadería / producción agropecuaria"). **Pasos:** `GET /Industrias/ImpactoDelete/{id}` para cualquiera de las 14 industrias → `contactos: 0`. Contrastar con `/Bot/Salud` → 425 huérfanos. **Impacto:** el modal siempre dice "No hay impacto" (G7 no cumple), y la reasignación de M-B nunca dispara; cuando se la fuerza, escribe un `Nombre` de catálogo que tampoco es `ClaveRubro` de ninguna campaña activa, así que el contacto sigue huérfano. **No es un fix de una línea**: hay que decidir cuál es el vocabulario canónico de `Contacto.Rubro` y ofrecer como destino de reasignación una `ClaveRubro` de campaña activa, no un `Nombre` de catálogo. **Escalado al Implementador** (causa raíz = decisión de diseño, no ambigüedad de código). |
-| **CRM-008** | **major (bloqueante de deploy)** | *La migración `20260827005735_AddMensajeProgramado` no está aplicada.* No es del sprint (viene de la sesión previa de "mensajes programados"), pero está en el mismo working tree y sale en el mismo release. **Pasos:** levantar la app sin aplicarla → `MySqlException: Table '…mensajesprogramados' doesn't exist` cada 60s desde `MensajesProgramadosSchedulerService`, y `Chats/Detail` (que ahora proyecta `MensajesProgramados`) queda inalcanzable. **Acción:** aplicar la migración en producción **antes o junto con** el deploy del código. Aplicada y verificada en dev por este QA. |
-| **CRM-009** | medium | *B3: un mensaje entrante nuevo se marca como leído solo por estar la pestaña abierta en background.* La HU pide lo contrario ("se marca No leído … sin importar que el polling siga corriendo"); el párrafo de Diseño §7 y la prueba #1 del Implementador piden lo implementado. Contradicción **dentro del propio Diseño**. **Pasos:** ver caso (C) de la fila B3. **Impacto:** ventana de hasta 8s en la que el chat figura no leído y después se limpia solo, sin que nadie lo haya mirado. **Fix sugerido (no aplicado):** condicionar el marcado a `document.visibilityState === 'visible'` (o mandar un flag `visible` en el tick) para que una pestaña en background nunca cuente como lectura. **Escalado** por ser decisión funcional. |
-| **CRM-010** | medium | *B7: un Referido cargado a mano nunca entra al pipeline outbound.* `Contactos/Create` escribe `Rubro` = `IndustriaCatalogo.Nombre`; `SendDailyBatchAsync:183` matchea contra `ClaveRubro`. **Pasos:** alta manual con canal Referido y rubro "Farmacias" → el contacto queda `Pendiente` y ninguna corrida lo toma. Misma causa raíz que CRM-007. Confirmado en datos: 0 de 435 contactos tienen un `Nombre` de catálogo como rubro; 434 usan claves. |
-| **CRM-011** | minor | *G1: el tope de reintentos cuenta fallos históricos totales, no consecutivos, y no se resetea nunca.* `fallidosPorContacto` agrupa **todas** las filas `[Error de envío outbound]` del contacto, sin ventana temporal ni reset tras un envío exitoso, pese a que el log dice "fallos de envio seguidos". Un contacto con 3 fallos transitorios repartidos en meses queda excluido del outbound para siempre, y no hay UI para limpiarlo (`/Bot/Salud` lo muestra como `Agotado` pero no ofrece acción). |
-| **CRM-012** | minor | *M-C: `Alineadas = true` está hardcodeado en `GetSaludAsync`.* El aviso "si alguna vez difieren de nuevo" que pide la HU no puede dispararse jamás. Además, lo que compara son la fórmula nueva vs. la vieja **sobre el mismo universo**, no lo que realmente calculan las 3 pantallas — no detectaría la divergencia de universo que sí existe hoy en Campañas/Dashboard (ver B6). |
-| **CRM-013** | minor (documentación) | *Citas cruzadas incorrectas al catálogo de QA.* `IndustriasController.ImpactoDelete` y `OutboundCampaignService.GetSaludAsync` atribuyen la regla de contactos huérfanos a "CRM-004", que en `regresiones-manuales.yml` es el duplicado de teléfono en el batch de Google Maps. Confunde a quien lea el código buscando el item. También: los punteros `⟵B4 BotFlowService:NNN` de `EtiquetasDeEvento` tienen las líneas corridas (ej. dice `:565`, el literal está en `:569`). |
-
-**Sin auto-fix aplicado.** Los 2 defectos major y CRM-009/CRM-010 tienen causa raíz en una **decisión de diseño no tomada** (cuál es el vocabulario canónico de `Contacto.Rubro`; si una pestaña en background cuenta como lectura). Por regla del rol, ante causa raíz ambigua se escala al Implementador en vez de adivinar. **Ningún archivo de código fue modificado por este QA** (`git status` idéntico al inicio: 25 modificados + 10 nuevos).
-
-**Items nuevos NO agregados al catálogo por instrucción explícita del orquestador** (el alta en `regresiones-manuales.yml` y en `32-estandares-qa-implementador.instructions.md` queda para el cierre de Documentación). Quedan redactados arriba, listos para transcribir.
-
-### 5. Patrones que generalizan a `32-estandares-qa-implementador.instructions.md`
-
-Dos hallazgos de este sprint no son bugs puntuales de este CRM sino patrones reutilizables, hoy no documentados:
-
-1. **"Clave de negocio duplicada en dos vocabularios sin FK"** (de CRM-007/CRM-010). Cuando una columna de texto libre (`Contacto.Rubro`) se puebla desde **dos fuentes con vocabularios distintos** (un catálogo por `Nombre` y una tabla de relación por `ClaveRubro`), toda pantalla que cuente, filtre o reasigne por esa columna tiene que declarar contra cuál compara — y QA tiene que verificarlo **contra datos reales**, porque el código compila y la pantalla renderiza igual con el vocabulario equivocado, devolviendo cero en silencio. Chequeo objetivo propuesto: para cada pantalla que informe "N registros afectados", correr la misma query contra la BD y comparar; si da 0 en todos los casos, sospechar del vocabulario antes de creerle.
-2. **"`ExecuteUpdateAsync` se saltea la auditoría automática"** (de G6/M-B, que acá está **bien** resuelto). `ExecuteUpdateAsync`/`ExecuteDeleteAsync` no pasan por `SaveChangesAsync`, así que el stamping de `UpdatedAt`/`UpdatedByUserId` no corre. El patrón correcto — replicarlo a mano con **el mismo claim** que usa el interceptor del `DbContext` — merece quedar documentado como regla, junto con el chequeo de QA (verificar en la BD que las filas afectadas quedaron con `UpdatedByUserId` poblado, no solo que la acción respondió 200).
-
-### 6. Validación de los 4 puntos que el Implementador marcó como delicados
-
-1. **B3 / el JS manda `ultimoIdVisto` siempre** → **CONFIRMADO**. Verificado en el HTML renderizado, no solo en el `.cshtml`: `data-msg-id` presente en burbujas y eventos, hijas directas de `#chatThread`, `ultimoIdVisto()` recalculado del DOM en cada tick, y la URL renderiza `'/Chats/HiloParcial/'` sin arrastrar el `id` ambiente de la ruta. El caso (A) medido contra la DB prueba que el parámetro llega y surte efecto. El fallback legacy sí reproduce el bug (caso B) — riesgo de ventana de deploy real, mitigable con hard-refresh.
-2. **G6 / stamping manual en los 2 call sites** → **CONFIRMADO EN AMBOS, con evidencia en base de datos.** `ChatsController.MarcarTodosLeidos` y `IndustriasController.Delete` estampan `UpdatedAt` + `UpdatedByUserId` con `ClaimTypes.NameIdentifier`, el mismo claim que `AppDbContext.StampSoftDestroyable:333`. Verificado que las filas afectadas quedaron con el GUID real del SuperUsuario.
-3. **G5 / negociación por `X-Requested-With`** → **CONFIRMADO, los 2 caminos probados en vivo.** AJAX → JSON; form POST normal → 302 al listado con los filtros. Ningún usuario ve JSON crudo.
-4. **`EtiquetaErrorEnvio` en la lista de eventos** → **CONFIRMADO**. Tiene su propia rama en `ConstruirMensajes` (evento centrado con etiqueta "Error de envío"), antes del `else` por default, y está incluida en las 8 subqueries de "último mensaje entrante" de las 4 capas. El Implementador efectivamente detectó y cerró esa trampa.
-
-### 7. Riesgos de liberación y mitigaciones
-
-| riesgo | severidad | mitigación |
-|---|---|---|
-| Migración `AddMensajeProgramado` sin aplicar en producción → `Chats/Detail` caído y scheduler en loop de error | **alta** | Aplicarla en el mismo deploy. **Bloqueante.** |
-| G7/M-B dan información falsa ("no hay impacto") sobre 425 contactos | **alta** | No liberar esas 2 pantallas, o liberarlas con el modal degradado al texto anterior hasta corregir CRM-007. |
-| Ventana de deploy de B3: clientes con la página cacheada siguen reproduciendo el bug | media | Avisar de hard-refresh (Ctrl+F5) tras el deploy. Autolimitado. |
-| B6: Campañas/Dashboard sigue dando un número distinto a las otras 2 pantallas | media | Es decisión de alcance, pero hay que **documentarlo en la pantalla** o el usuario va a reportarlo como bug. |
-| G1/G2 sin prueba E2E (exigen envío real contra Meta) | media | Primera corrida real supervisada, con `/Bot/Salud` abierto para ver fallos acumulados. |
-| CRM-011: exclusión permanente de contactos por 3 fallos históricos | baja | Revisar `/Bot/Salud` → "Contactos con errores de envío" antes de la primera corrida real. |
-
-### 8. Pruebas mínimas ejecutadas por este QA
-
-1. `dotnet build -c Release --no-incremental` → 0 errores, 13 advertencias preexistentes. ✔
-2. Migraciones: detectada 1 pendiente, aplicada en dev, verificada en `__EFMigrationsHistory`. ✔
-3. App levantada y 12 pantallas cargadas autenticado (todas 200 salvo `/Bot/Outbound`, que no existe como ruta — el panel real es `/Bot`). ✔
-4. B3: 3 ramas de `HiloParcial` medidas contra la BD. ✔
-5. B4: render real de un hilo con la etiqueta "Consulta inicial". ✔
-6. B5: rename bloqueado / edición de texto permitida, ambos contra la BD. ✔
-7. B2: rebalanceo con campaña multi-día, resultado verificado y datos restaurados. ✔
-8. G3: conversión end-to-end + exclusión del ARR en el Dashboard. ✔
-9. G5: los 2 invocadores de `MarcarNoLeido`. ✔
-10. G6: `MarcarTodosLeidos` con auditoría verificada en BD. ✔
-11. G7/M-B: `ImpactoDelete` sobre las 14 industrias + experimento controlado de reasignación. ✔
-12. M-C: `/Bot/Salud` contrastado contra consultas directas a la BD. ✔
-13. Autorización de los 3 endpoints nuevos sin autenticar. ✔
-14. Restauración y verificación del estado de `olvidatacrm_dev`. ✔
-
-**No ejecutado:** `Bot/EjecutarAhora` (habría disparado envíos reales de WhatsApp a 234 contactos) y el render visual de toasts/modales SweetAlert2 (sin MCP `playwright` en esta sesión).
-
-### 9. Checklist de salida para merge
-
-- [x] Build en Release, 0 errores, sin advertencias nuevas — confirmado por QA.
-- [x] Vistas Razor compiladas (verificado por el Implementador y respaldado por la carga real de las 10 vistas tocadas).
-- [x] 0 migraciones EF **del sprint** — confirmado.
-- [ ] **Migración `AddMensajeProgramado` aplicada en producción** — pendiente, bloqueante (CRM-008).
-- [x] Lógica de negocio en `Application`/`Infrastructure`, no en controllers.
-- [x] Autorización real en los endpoints nuevos.
-- [x] Auditoría preservada en los 2 usos de `ExecuteUpdateAsync`.
-- [ ] **CRM-007 corregido (G7 + M-B)** — pendiente, bloqueante.
-- [ ] CRM-009 / CRM-010 resueltos o aceptados explícitamente como alcance reducido.
-- [ ] Items nuevos transcritos a `regresiones-manuales.yml` y a `32-estandares-qa-implementador.instructions.md` — pendiente, cierre de Documentación.
-
-### 10. Estado go/no-go
-
-**NO-GO para deploy de producción en el estado actual.** Dos bloqueantes:
-
-1. **CRM-008** — la migración `AddMensajeProgramado` no está aplicada; sin ella `Chats/Detail` (la pantalla más usada del sistema) queda caída y un hosted service loguea una excepción por minuto. Es de resolución mecánica.
-2. **CRM-007** — G7 y M-B, 2 de los 17 items, no cumplen su criterio de aceptación y además **muestran información falsa** al usuario sobre 425 contactos, contradiciendo a `/Bot/Salud` del mismo sprint. Liberar así es peor que no haberlos tocado: el modal viejo al menos no simulaba haber calculado nada.
-
-**GO parcial recomendado:** los otros 15 items están sólidos y varios corrigen bugs reales que hoy están en producción (B2 mandaba el doble de la meta los días con campañas multi-día; B3 hacía imposible marcar un chat como no leído; B4 mostraba diagnóstico interno como si se lo hubiéramos escrito al cliente; B5 evitaba romper campañas en silencio; G6 tenía una regresión de auditoría en potencia). Si conviene liberar ya, la vía limpia es: aplicar la migración + revertir `IndustriasController.ImpactoDelete`/`Delete` y el modal de `Industrias/Index` al comportamiento previo (o dejar el modal sin el número), y liberar los 15 restantes. `CampanasController.EliminarIndustria` (la mitad correcta de G7) puede quedar.
-
 ## Re-verificación post-corrección — CRM-007 / CRM-010 / CRM-012 (2026-08-27, misma fecha)
 
 Pasada **acotada** sobre la corrección del Implementador (`5-implementador.md` §9). No se re-ejecutaron los 17 items del sprint: solo los 2 hallazgos bloqueantes, el riesgo que el Implementador declaró y un smoke de regresión. **CRM-008 queda descartado por el cliente** (la migración `AddMensajeProgramado` sí está aplicada en producción; la pasada anterior probó contra `olvidatacrm_dev` y confundió las bases) — no se re-verificó.
@@ -462,63 +307,6 @@ Condiciones de liberación (ninguna bloqueante):
 2. `Alineadas` puede dar **false** en producción por la divergencia de universo de Campañas/Dashboard: es la alerta funcionando, no una regresión.
 3. CRM-014 y los 3 defectos abiertos (CRM-009/011/013) para un ciclo posterior.
 4. El camino de respaldo por mapeo (campañas sin `IndustriaCatalogoId`) sigue sin cobertura empírica: si producción tiene filas con esa FK en null, conviene mirar el primer `ImpactoDelete` post-deploy antes de confirmar un borrado.
-
-## QA — expansión nacional de outbound: 176 campañas nuevas en 22 ciudades (2026-08-28, cambio de datos)
-
-### N0. Alcance y método
-
-Segunda auditoría de un **cambio de datos en producción** (`MYSQL5044.site4now.net` / `db_a7251f_olvidat`, MySQL 8.0.41), esta vez sobre la expansión geográfica nacional de las campañas outbound de Google Maps: **176 `CampanasOutbound` + 176 `CampanaOutboundIndustrias` + 528 `CampanaQueries`** insertadas por **dos agentes en paralelo** (tanda A: Cuyo/Patagonia/Litoral/resto de Buenos Aires, 12 ciudades; tanda B: NOA/NEA, 10 ciudades), cubriendo 8 rubros core en 22 ciudades nuevas.
-
-**Método:** sin build, sin migración, sin deploy, sin navegador. Consultas de **sólo lectura** con `mysql.exe` (`C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe`, credenciales de `OlvidataCRM.Web/appsettings.Production.json`) contra la base real, más lectura de `GoogleMapsService.RestockCampanasAsync`/`SearchByRubroAsync`, `OutboundCampaignService.SendDailyBatchAsync`/`BusquedaDiariaGlobalAsync`, `OutboundSchedulerService` y `DiasSemana` para entender cómo se consumen realmente los campos tocados. **Cero escrituras** de mi parte. La ronda previa del mismo día (93 queries sobre 33 campañas) ya estaba auditada y aprobada — fuera de alcance.
-
-**Veredicto: GO. 7/7 criterios PASS, 0 defectos.**
-
-### N1. Cobertura por criterio
-
-| # | Criterio | Resultado | Evidencia |
-|---|---|---|---|
-| 1 | Conteo global real (176/176/528, ~284 activas) | **PASS** | 176 campañas `Id` 142-317 (span 176), 176 industrias mismo rango, 528 queries `Id` 881-1408 (span 528). Total: 284 vivas / 284 activas = 108 + 176. 1189 queries vivas = 721 + 528. 22 regiones × 8 campañas, 176 industrias × 3 queries |
-| 2 | `ClaveRubro` único en todo el sistema | **PASS** | 284 distintas de 284 (y 284 normalizando `LOWER(TRIM())`). Extendido a las 20 industrias soft-deleteadas: 304/304 únicas |
-| 3 | `IndustriaCatalogoId` correcto y consistente | **PASS** | Las **22** ciudades (no una muestra) con firma idéntica `clinica:5 comercio:2 consultorio:5 dieteticas:14 estudio:16 farmacia:15 indumentaria:2 inmobiliaria:9`. Ningún `rubroBase` del sistema con >1 catálogo; 0 NULL |
-| 4 | Ninguna campaña/industria preexistente tocada | **PASS** | Las 6 protegidas con `UpdatedAt` ≤ 2026-08-26. Únicas escrituras de hoy sobre `Id<142`: 03:02-03:09 (scheduler), ninguna a las 04:0x. Integridad referencial total: 0 huérfanos en 5 direcciones |
-| 5 | Cupo diario por día de la semana | **PASS** | 465-469 msj/día (49,43-49,86% de `CupoDiario`=940). Ningún día cerca del techo; tope global duro en `SendDailyBatchAsync` lo hace imposible por construcción. **Observación:** ~117% de `MetaDiaria`=400 |
-| 6 | Calidad geográfica de las queries nuevas | **PASS** | Las **528** (no 30-40): 510 con nombre de ciudad en el texto, 18 con localidad vecina + provincia. Anclaje correcto en 528/528. 0 duplicados entre ellas, 0 colisiones con `GoogleMapsQueryUsadas` |
-| 7 | Sin rastro de la corrida fallida de MySqlConnector | **PASS** | Contigüidad perfecta de los 3 rangos de `Id` (un INSERT abortado habría quemado `AUTO_INCREMENT`). 0 soft-deletes hoy, 0 huérfanos, `UpdatedAt IS NULL` en las 880 filas nuevas |
-
-### N2. Cupo diario real (`CupoDiario`=940, `MetaDiaria`=400)
-
-Ninguna campaña activa es multi-día (todas 1 bit de `DiasSemana`) ni cae en fin de semana → sin doble conteo. `Completa=1` **no** excluye del envío (`SendDailyBatchAsync` filtra sólo por `Activa` y `Dias`), así que las 17 completas también suman.
-
-| Día | Campañas | % previas | % tanda A | % tanda B | % total | Mensajes/día | % de MetaDiaria |
-|---|---|---|---|---|---|---|---|
-| Lunes | 46 | 42,55 | 3,80 | 3,21 | 49,56 | **466** | 116,5% |
-| Martes | 65 | 42,60 | 4,00 | 3,17 | 49,77 | **468** | 117,0% |
-| Miércoles | 71 | 42,55 | 4,00 | 3,31 | 49,86 | **469** | 117,2% |
-| Jueves | 60 | 42,54 | 3,80 | 3,35 | 49,69 | **467** | 116,8% |
-| Viernes | 42 | 42,55 | 3,60 | 3,28 | 49,43 | **465** | 116,2% |
-| Sáb/Dom | 0 | — | — | — | 0,00 | 0 | — |
-
-### N3. Observaciones no bloqueantes
-
-1. **(MEDIUM, coste) El próximo barrido nocturno triplica el consumo de la API de Google Maps.** `BusquedaDiariaGlobalAsync` → `SearchTodasActivasAsync` recorre **todas** las campañas activas **todos** los días, sin filtrar por `Dias`. Hoy ejecutó 91 queries en 6-7 min con 108 campañas; con 284 campañas y 164 industrias nuevas sin backlog va a disparar del orden de **~255 queries** (Text Search hasta 3 páginas + Place Details por resultado cada una). No rompe nada — el scheduler reintenta sin re-ejecutar queries ya usadas — pero conviene mirar la factura del primer día.
-2. **(LOW) Demanda diaria agregada ~17% arriba de `MetaDiaria`** (≈467 vs 400). Preexistente (el 2026-08-25 ya se enviaron 519 reales), no causado por esta expansión (aporta 6,4-7,3 puntos), pero ahora con pool suficiente (1474 `Pendiente`, 1141 alcanzables) para materializarse. Palanca: `RebalancearMatrizAsync`.
-3. **(LOW, cosmético)** Slug vs. `Nombre`: `comercio-sanjuancapital` se llama "Comercio San Juan". Sin impacto — el `Nombre` no participa de ninguna resolución.
-
-### N4. Efecto colateral positivo no reportado por ninguna tanda
-
-12 de las `ClaveRubro` nuevas ya existían como valor de `Contacto.Rubro` de contactos huérfanos. Al crearse las campañas quedaron **adoptados 266 contactos preexistentes, 127 de ellos `Pendiente`** (`comercio-tucuman` 25, `comercio-bahiablanca` 21, `comercio-mardelplata` 18, `dieteticas-bahiablanca` 13, `dieteticas-salta` 11, `comercio-salta` 8, `indumentaria-ushuaia` 7, y 5 rubros más). Los huérfanos `Pendiente` bajaron a **333**. Esas 12 industrias van a saltear la búsqueda en el próximo barrido (`RestockCampanasAsync` omite si `pendientes >= perRubro`, y `perRubro`=2): empiezan a enviar sin gastar API.
-
-### N5. Hallazgo preexistente confirmado — queries viejas sin anclaje geográfico
-
-Lo reportó la tanda B de paso; queda cuantificado: **140 de las 721 queries previas** no contienen ni la primera ni la última palabra de la `Region` de su campaña. Muchas son barrios distintivos que Maps resuelve solo (`Fisherton`, `Cerro de las Rosas`, `Las Cañitas`, `City Bell`), pero hay un subconjunto genuinamente ambiguo: `clinica Ensenada`, `farmacia Tolosa`, `boutique Gonnet`, `farmacia Los Hornos`, `clinica Berisso` (La Plata); `boutique/farmacia/sanatorio Godoy Cruz` (Mendoza); `inmobiliaria Olivos/Tigre/Pilar/Boulogne` (Zona Norte GBA); `farmacia Av. Corrientes`, `estudio jurídico Tribunales`, `negocio Avenida de Mayo`, `farmacia Diagonal Norte`, `casa de moda Florida` (Microcentro); `boutique Chacarita`, `sanatorio Colegiales`, `centro médico Chacarita` (Palermo). **No se tocó nada.** Candidato natural a la próxima ronda de "afinar campañas".
-
-### N6. Aprendizajes de método reutilizables
-
-- **La contigüidad de `AUTO_INCREMENT` es la mejor prueba de que un script abortado no dejó rastro.** Si `COUNT(*) = MAX(Id)-MIN(Id)+1` sobre el rango insertado, ningún INSERT falló a mitad de camino (un rollback igual quema el id). Más barato y más concluyente que buscar filas huérfanas una por una.
-- **Verificar el universo entero en vez de muestrear, cuando el universo cabe en un `GROUP BY`.** El pedido pedía 3 ciudades por tanda para el `IndustriaCatalogoId` y 30-40 queries para la calidad geográfica; una firma agregada por ciudad (`GROUP_CONCAT(rubro:catalogo)`) cubre las 22, y un `LIKE` contra un diccionario derivado cubre las 528. Mismo coste, cobertura total.
-- **La separación de escrituras por timestamp sigue funcionando** (ya usada en la auditoría del mismo día): scheduler 03:02-03:09, expansión de queries 03:49-03:50, tanda A 04:01-04:04, tanda B 04:05. Permite atribuir cada `UpdatedAt` a su autor sin que el script haya dejado marca propia.
-- **Chequear la unicidad de una clave incluyendo las filas soft-deleteadas** cuando el código que la resuelve no filtra `DeletedAt` — `SearchByRubroAsync` hace `.Where(i => i.ClaveRubro == rubro).OrderByDescending(i => i.CampanaOutbound.Activa).FirstOrDefault()` sin filtro de borrado.
-- **Un alta masiva de campañas no sólo agrega superficie de envío: agrega superficie de búsqueda diaria.** El restock global corre sobre todas las campañas activas todos los días, desacoplado de `Dias`, así que el impacto en la factura de la API escala con el total de campañas, no con las de hoy.
 
 ## QA — feature "4 frentes — combo con gancho" E1-E7 (2026-09-14)
 
@@ -920,7 +708,116 @@ decision tomada del owner: el certificado del 19/10 (sin HTTPS valido el push no
 privada VAPID, que carga el coordinador en el deploy. Lo unico que pido que no se saltee es el
 chequeo manual de 5 minutos del service worker en un navegador real.
 
+## QA — cola de seguimiento (2026-10-16)
+
+**Alcance:** pantalla `/Seguimiento` (cola + modal del toque + endpoints `Index`/`GetData`/`OpcionesToque`/`Toque`). 1 lote (módulo de integración + gasto real). Repo del CRM en read-only: `git status --porcelain` al cerrar = los 9 ítems del implementador y +6/+5 líneas en los 2 archivos tocados, **nada de QA**.
+
+**Método.** Build propio (0 errores, 16 advertencias todas preexistentes). App levantada en `Development` sobre **un clon local de producción** (`olvidatacrm_qacola`, 33 tablas / 25.518 filas, copiado con `SELECT` + `SHOW CREATE TABLE` y `rollback()` del lado de prod — cero escrituras en producción, verificado al cerrar: `ContactoRespuestas` 9075 antes y después, 0 filas del arnés, 0 usuarios del arnés, `ConfiguracionesOutbound` intacta). **Nunca contra producción.** Neutralización del envío antes de levantar: `Olvidata_WhatsApp__AccessToken` pisado por variable de entorno con un token inválido, y en el clon `OutboundPausado=1`, `AvisoRenovacionHabilitado=0`, `BusquedaMapsPausada=1`, `ConversacionIaPausada=1` — los 7 hosted services quedaron inertes. **Cero mensajes enviados**, verificado por conteo de `ContactoRespuestas` antes y después de cada POST.
+
+*Hallazgo de entorno a tener presente:* el `user-secrets` del proyecto Web tiene el **AccessToken real de WhatsApp**, y `dotnet run` en Development lo carga. Levantar la app sobre datos de producción sin pisar ese token por variable de entorno habilita a 3 schedulers a mandar mensajes reales. No es un defecto del sistema; es un paso obligatorio del procedimiento de QA de este proyecto.
+
+**Navegador: no disponible.** Un (1) intento de `browser_navigate` contra el puerto de la app → `ERR_CONNECTION_REFUSED`, con el listener confirmado por `netstat` y alcanzable por `curl`/`requests` desde el mismo contexto. Es el aislamiento de red del entorno ya medido el 2026-10-15, no el MCP. Sin reintentos. Camino usado: **HTTP autenticado (`requests` + cookie de sesión) + SQL directo contra el clon + un oráculo SQL independiente del LINQ**.
+
+**Oráculo independiente.** Se reescribió el criterio de la cola en SQL plano desde el enunciado del plan (no desde el LINQ) para que el número de la pantalla tuviera contra qué contrastarse: universo 320, con toque posterior 50, cola 270, ventana abierta 0, Instagram en la cola 0, WhatsApp con `Telefono` nulo en la cola 0. Los 6 coinciden con lo que muestra la pantalla.
+
+### Cobertura por criterio
+
+| # | Criterio | Resultado | Evidencia observada |
+|---|---|---|---|
+| 1 | Cola 270 / 50 excluidos / 320 con el filtro; universo 320, 180 con matriz, 0 en ventana | **PASS** | Encabezado servido: "270 en la cola · 180 con matriz MVP/FULL · 0 con ventana abierta (gratis) · 270 necesitan plantilla paga · 50 excluidos porque ya les escribimos (320 cumplen el criterio de 48 hs)". `GetData` sin filtros → 270; con `incluirToque=1` → 320. Oráculo SQL: 320/50/270/0. Ninguna fila del default trae `toquePosteriorUtc` (0 de 270): la exclusión vive en un solo lugar |
+| 2 | Combo con exactamente 2 plantillas, `olv_retomar_conversacion_v1` sugerida; la guarda del servidor rechaza cualquier otra | **PASS** | `OpcionesToque` → 2 plantillas, `sugerida=true` en retomar. POST `/Seguimiento/Toque` rechazó **11/11**: `olv_frio_v13`, `olv_renovacion_recordatorio_v1`, `olv_notif_respuesta`, `olv_nurturing_v2`, `olv_referido_v2`, `olv_frio_combo_admin_v2`, `olv_renovacion_notificacion_v3`, `olv_laboratorio_v1`, una inexistente, la sugerida en mayúsculas y la sugerida con un espacio al final. Las 11 con `ok=false` y `ContactoRespuestas` sin cambios: cortó antes de la red. Antiforgery: POST sin token → 400 |
+| 3 | Contacto traído con el filtro sigue elegible; aviso rojo con la fecha, antes del de matriz | **PASS (datos) / verificado en el fuente (orden del aviso)** | #9954 Farina Balbi: ausente del default, presente con el filtro, `toquePosteriorUtc=2026-10-08T12:32:14`, y `OpcionesToque` le devuelve las 2 plantillas sin bloqueo — sigue elegible. El orden del aviso está en el fuente (`Index.cshtml` 423 y 458: `avisoYaContactado(op) + avisoMatriz(op)`, en los 2 modales) pero **no renderizado**: sin navegador no se observa el pixel |
+| 4 | Cada filtro por separado, uno que vacíe la grilla, el rango de fechas, "Primeros 30" = 30 | **PASS** | 46 combinaciones por `GetData`, **ningún 500**. Valores tomados del HTML servido, no inventados. Casos que vacían: buscador sin match → 0, `ventana=abierta` → 0, `canal=AdsPagos/Referido/Manual/InstagramOrganico` → 0, `categoria=build` → 0, fechas invertidas → 0. Rango de fechas: `01/09/2026-10/09/2026` → 44, idem en ISO → 44, basura → 270 (ignora, no revienta): el bug del `Kind` está corregido. Tope: 10→10, 50→50, `abc`/`-5`/`0`→270 (sin tope). **CRM-024**: matriz+ventana+estado+tope 30 → **30**; Retail+matriz+ventana+tope 30 → **30** |
+| 5 | Columnas visibles = filtros disponibles; nunca un combo vacío en silencio | **PASS** | 10 columnas (Negocio, Contacto, Rubro, Zona, Interés, Origen, Días, Matriz, Ventana, Posterior) y 11 controles de filtro, todos con columna que los respalda (Estado se dibuja dentro de la celda de identidad, `labelByEstado`). `ordering: false` global: la UI no promete un orden que el servidor ignore (no repite **CRM-003**). Combo vacío provocado desactivando las 2 plantillas en el clon → mensaje explícito con los 2 nombres y link a `/Templates`, y el POST igual rechazado por el catálogo; restaurado, vuelve a 2 |
+
+**Extras cubiertos.** Orden por valor: 180 con matriz primero, corte exacto en el índice 180, días monótonos no decrecientes en cada grupo (primera fila #7293 Ferretería Mil Cosas, 36 días, 14 módulos; última #194 FM reparaciones, 91 días). Persistencia de filtros en Session, ida y vuelta de los 11, con las cards del encabezado siguiendo siendo los totales. Rama de **ventana abierta**, que con los datos de hoy no tiene ninguna fila: se abrió la ventana de #7293 con un entrante sintético en el clon y el servidor pasó a texto libre (0 plantillas, costo 0, sugerido pre-cargado, cards a 1 abierta / 269 pagas, filtro `ventana=abierta` → 1), y rechazó tanto el texto vacío como un POST con plantilla —no paga por algo que es gratis—; revertido. Performance: Index 58 ms, GetData 69 ms, OpcionesToque 157 ms.
+
+### Catálogo cross-proyecto y reglas nuevas
+
+| id | aplica | resultado | evidencia |
+|---|---|---|---|
+| MH-001 | sí | **PASS** | 46 filtros, incluidos 6 que devuelven 0 filas, sin un solo 500 |
+| CRM-019 | sí | **PASS** | las 2 subconsultas correlacionadas con `Like "[%"` tradujeron y devolvieron las 320 filas |
+| CRM-024 | sí | **PASS** | tope 30 después de 4 filtros → 30 |
+| CRM-017 | sí | **PASS** | con `PresupuestoMensualArs=0.01` en el clon, el modal bloquea y el POST **con la plantilla sugerida** devuelve "El tope de gasto de mensajería del mes ya está consumido", sin tocar la red; restaurado, vuelve a habilitar. Es el único camino de envío de plantillas |
+| CRM-007 (histórico de este proyecto, ya archivado del catálogo) | sí | **PASS** | la opción Retail agrupa 3 vocabularios de `Rubro`: 'indumentaria' (2), 'Indumentaria o calzado' (25), 'indumentaria-laplata' (1) |
+| CRM-023 | sí | **PASS** | el único GET con parámetro manda un escalar |
+| LP-002 | sí | **PASS** | `identidadVisible` poblado en las 270 filas; 0 filas de WhatsApp con `Telefono` nulo en la cola |
+| REG-010 | sí | **PASS** | usuario Vendedor creado en el clon: el sidebar **no** muestra el ítem y los 4 endpoints responden 302 a `AccessDenied` |
+| CRM-003 | sí | **PASS (no repetido)** | `ordering: false`: ninguna columna es clickeable |
+| CRM-026 / CRM-027 | no | **N/A verificado** | 0 migraciones EF; 0 endpoints anónimos nuevos (los 4 responden 302 al login sin sesión) |
+| reglas nuevas desde la corrida anterior | — | **ninguna** | `git log --since=2026-10-16` sobre `32` y el yml: sin commits |
+
+### Defectos y partes emitidos
+
+- **CRM-031 (major) — parte emitido, es de `/Chats` y preexistente.** El defecto señalado queda **CONFIRMADO, no refutado**: `GET /Chats/Detail/7293` sirve un combo de reactivación con 5 plantillas y 3 son las del texto centinela (`olv_notif_respuesta`, `olv_nurturing_v2`, `olv_referido_v2`). Causa raíz verificada: `!t.Texto.Contains('{')` sobre la copia local, con las 22 plantillas en `Activo=1 / Aprobado`. Que `olv_nurturing_v2` lleva parámetros en Meta lo prueba el propio sistema: el pipeline la manda con `BuildFollowUpComponents` (`OutboundCampaignService` 716-717), mientras `ReactivarConversacionAsync` manda `components = null`. **Lo que no se pudo observar es el rechazo de Meta** (exigiría un envío real): queda declarado, no afirmado. La pantalla nueva **no** las ofrece. Re-verificación: la intersección entre lo que ofrece el combo de `/Chats` y las plantillas con texto centinela tiene que ser vacía.
+- **CRM-032 (minor) — parte emitido, propio de esta pantalla.** El botón del toque se deshabilita para traer las opciones y se re-habilita en el `always()` del `getJSON`, **antes** del POST de envío; la marca de salida de la cola se escribe después del envío. Durante el vuelo del POST pagado la fila vuelve a aceptar un toque y los dos pasarían todos los guards. **No reproducido end-to-end**: reproducirlo exige autorizar un envío pago real. Re-verificación: dos POST concurrentes con el mismo id → uno `ok=true` y el otro rechazado explícitamente.
+- Observación cosmética (no defecto, sin parte): con el filtro de ya contactados tildado, `recordsTotal` sigue siendo 270 y `recordsFiltered` 320, así que el pie dice "1 a 25 de 320 (de 270 en la cola)". Es literal pero se lee raro.
+
+### Riesgos de liberación
+
+1. **El envío no tiene una sola evidencia de ejecución** — R1 del implementador, confirmado. Los dos caminos (plantilla paga y texto libre) se ejercitaron hasta el borde: validación de catálogo, guarda de lista blanca, tope de gasto, elección de rama y mensajes de rechazo, todo con `ok=false`. **Ningún envío exitoso fue observado.** Lo que no está probado: que `SendTemplateAsync` con `components=null` y una plantilla de reenganche salga bien, que la fila facturable quede bien etiquetada en el hilo, y que `FechaFollowUp` saque de la cola al contacto después de un envío real.
+2. **CRM-032** convierte una impaciencia en un cobro doble, y el lote de prueba son 30 clicks seguidos: es exactamente el escenario donde pasa.
+3. **CRM-031** no afecta a esta pantalla, pero sí a `/Chats`, que es la pantalla desde la que se va a mirar el resultado del lote.
+
+### Estado go/no-go
+
+**La pantalla: GO.** 5 criterios PASS con evidencia observada, 9 reglas del catálogo PASS, 2 N/A verificados, 0 defectos propios de la cola, 0 regresiones (`/Chats`, `/Contactos`, `/Bot`, `/Templates`, `/Clientes`, `/Negocio/Dashboard`, `/Seguimiento` → 200).
+
+**El envío del lote de 30: NO-GO todavía**, y no por un defecto de la cola. Falta (a) el fix de **CRM-032** o la decisión explícita de convivir con él, y (b) una prueba de envío de **1 contacto** autorizada por Joaquín antes de los 30 — el camino de envío no tiene ninguna evidencia de ejecución y el primer lote sería la primera vez que corre de verdad.
+
+### Checklist de merge
+
+- [x] Build verde propio, 0 errores, sin advertencias nuevas
+- [x] 46 combinaciones de filtro sin un 500
+- [x] Números de la cola contrastados contra un oráculo SQL independiente
+- [x] Guarda de la lista blanca verificada con 11 nombres rechazados, 0 envíos
+- [x] Tope de gasto verificado por comportamiento, no por lectura de código
+- [x] Autorización por rol verificada con un usuario no SuperUsuario
+- [x] 0 migraciones EF; 0 escrituras en producción; `git status` del CRM limpio de QA
+- [x] **CRM-032** aplicado y **cerrado por QA el 2026-10-16** (ver bloque de re-verificación)
+- [ ] Prueba de envío de 1 contacto autorizada y observada
+- [ ] **CRM-031** (de `/Chats`, no bloquea este merge)
+
+## QA — re-verificación de CRM-032 (2026-10-16)
+
+**CRM-032: CERRADO.** Criterio de vuelta en FAIL al arrancar; pasó con evidencia observada. Mismo arnés que la corrida de la cola (clon de producción `olvidatacrm_qacola`, `Development`, token de WhatsApp pisado por variable de entorno, schedulers pausados en el clon). **Cero mensajes enviados:** `ContactoRespuestas` en 9075 al abrir y al cerrar, medido entre cada POST. Universo de la cola en 320 al cerrar, igual que al abrir: el arnés no sacó a nadie.
+
+**Cómo se ejercitó el camino pagado sin pagar:** con `PresupuestoMensualArs=0.01` en el clon, `ReactivarConversacionAsync` corta por tope **después** de la reserva y **antes** de la red. Eso permite recorrer reserva → envío fallido → liberación completo, con el mensaje del tope como marcador inequívoco de "esta request llegó al envío".
+
+| # | Criterio | Resultado | Evidencia |
+|---|---|---|---|
+| 13 | N concurrentes sobre la misma fila: 1 envío | **PASS** | 4 corridas × **10 POST concurrentes** (10 sesiones HTTP = 10 conexiones y 10 scopes de DI, barrera por corrida). Las 4: **llegaron al envío = 1**, reserva perdida 7-9, pre-chequeo 0-2. El trabajo lo hace el `UPDATE` atómico, no el pre-chequeo: en 2 de las 4 corridas el pre-chequeo no filtró a nadie y los 9 perdedores los rechazó la reserva |
+| 14 | POST repetido con el mismo `contactoId` | **PASS** | Con la marca escrita como la deja un envío exitoso (`FechaFollowUp = utc_timestamp(6)`), los 2 POST siguientes se rechazan y el contacto **sale de la cola**. Nota: con el envío en `!Ok` el reintento secuencial **sí** vuelve a ganar la reserva, y eso es correcto — la liberación lo devolvió a la cola. La prueba 14 tal como está escrita en §12 supone un envío exitoso, así que su mitad de carrera real queda cubierta por la 13 |
+| 15/16 | Botón deshabilitado del click al fin del POST | **verificado en el fuente, NO en navegador** | El `always()` del `getJSON` que rehabilitaba ya no existe. `liberarBoton` se llama en 6 sitios y sólo en ésos: bloqueo del servidor (395), falla de opciones (402), cancelar texto libre (448), sin plantillas (458), cancelar plantilla (486) y el `always()` de `enviar()` (518). `$btn` viaja como parámetro a los 2 modales y a `enviar()`. **Sin navegador alcanzable no se observa el estado del botón** — y deja de ser carga estructural: el servidor rechaza igual un POST a mano |
+
+**Las 3 consecuencias que pedía el coordinador, las 3 PASS:**
+
+1. **La liberación restaura el valor anterior EXACTO, no null.** #1012 BAHIAPROP tenía `FechaFollowUp = 2026-08-05 12:38:00.713174` (follow-up frío anterior a su respuesta, uno de los 28). Después del envío en `!Ok` volvió a **ese mismo valor al microsegundo**, y el contacto sigue en la cola. Idem #2123 y #1379 en las corridas concurrentes. La columna es `datetime(6)`, así que el `WHERE FechaFollowUp = @ahora` de la liberación no pierde precisión — era el riesgo real de este diseño y no se materializó.
+2. **Se libera con el envío en `!Ok`.** Tope consumido → `ok=false`, `enviadoSinMarcar=false`, `FechaFollowUp` restaurada y **el contacto vuelve a la cola** (verificado por `GetData`, no por la base solamente). No sale en silencio sin que nadie lo haya contactado.
+3. **La lista blanca corre antes de reservar.** POST con `olv_frio_v13` → rechazado y `FechaFollowUp` **idéntica** antes y después: no dejó reserva. Idem con `plantilla` vacía. Extra propio: un contacto en estado Descartado se rechaza por estado y tampoco deja reserva.
+
+**Lo que no se pudo observar y queda declarado, no afirmado:** la rama residual `enviadoSinMarcar` (ahora "marcado y no enviado", con el `Swal` "Revisá esto a mano" en la línea 500) exige que falle la base **en el medio** del envío; no se simuló. Y la carrera con un envío **exitoso** de verdad sigue sin ejercitarse, porque exige autorizar un envío pago — pero es el caso benigno: ahí la reserva ya quedó escrita y nadie la libera.
+
+**Nota de arnés (mío, no del sistema).** La primera pasada marcó FAIL en concurrencia: mi grader contaba como "ganó la reserva" a todo lo que no dijera "toque en curso", y 6 de 8 habían sido cortados antes por el **pre-chequeo** de `FechaFollowUp`. El sistema había hecho lo correcto (1 solo envío) desde el principio. Hay que clasificar por **dónde** cortó cada request —mensaje del tope / "toque en curso" / "ya recibió su toque"— y no por `ok`. Tercera vez que el arnés miente antes que el sistema en este proyecto.
+
+**Veredicto sobre el lote de 30: mejora, y el bloqueante que quedaba era éste.** Con CRM-032 cerrado, de mi lado no queda nada abierto: la prueba de 1 envío real a un número propio ya está decidida y pendiente de autorización, así que no la cuento como bloqueante mía. **CRM-031** sigue abierto, es de `/Chats`, preexistente, y no bloquea este lote. Mi recomendación pasa a **GO para el lote de 30 una vez observada la prueba de 1 envío**, que es lo único que le falta al camino de envío para tener evidencia de ejecución.
+
 ## Historial de ajustes
+
+### Bloques archivados (2026-10-16)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-08** — 1 bloques (2026-08-27 a 2026-08-27) → [`6-qa-2026-08-3.md`](historial/6-qa-2026-08-3.md)
+
+
+### Bloques archivados (2026-10-16)
+
+Movidos a `historial/` para mantener este archivo bajo el techo de 150 KB (`39-presupuesto-contexto.instructions.md`). Se leen solo si el trabajo los toca.
+
+- **2026-08** — 1 bloques (2026-08-28 a 2026-08-28) → [`6-qa-2026-08-2.md`](historial/6-qa-2026-08-2.md)
+
 
 ### Bloques archivados (2026-10-15)
 
