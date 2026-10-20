@@ -26,7 +26,7 @@
 
 version: 1
 proyecto: ShowroomGriffin
-ultima_actualizacion: 2026-10-15
+ultima_actualizacion: 2026-10-19
 
 regresiones:
 
@@ -8295,3 +8295,124 @@ regresiones:
     pruebas_minimas:
       - "curl -o /dev/null -w '%{http_code}' sobre el endpoint con credencial invalida (sin -L)."
     leccion_adicional: "En el proyecto de origen el webhook preexistente de WhatsApp tiene el mismo detalle y se dejo como esta a proposito: funciona en produccion (Meta manda el token correcto y recibe el 200 con el challenge) y no se toca por cosmetica. La inconsistencia quedo anotada. Al auditar, el grep es `Results.Forbid()` dentro de endpoints sin [Authorize]."
+
+  - id: ELV-011
+    modulo: "Movimientos / Index y Cuentas / Details - columna Cliente / Proveedor (resolucion del owner polimorfico)"
+    titulo: "El nombre del cliente/proveedor desaparece de la fila cuando la CUENTA CORRIENTE del movimiento origen esta dada de baja logica: el IgnoreQueryFilters se puso sobre Clientes/Proveedores, pero el TIPO sale de la cuenta, que sigue filtrada"
+    severidad: medium
+    reproducido_en: "eleven-la-plata, rama dev, ELV-010 sin commitear - reproducido 2026-10-19 contra MySQL local (base eleven, datos reales de produccion)."
+    pasos:
+      - "Buscar un cliente con baja logica cuya cuenta corriente TAMBIEN este dada de baja (en esta base: cliente 184 'Posta 73', CC 96; tambien 7, 72, 146, 192)."
+      - "Abrir cualquier movimiento espejo de un cobro/pago de ese cliente en una cuenta de banco/caja (ej. /Movimientos/Details/7289, cuenta 'La Cardeusse'; /Movimientos/Details/7426, cuenta 'Efectivo')."
+      - "Mirar la columna 'Cliente / Proveedor' en la grilla y el bloque homonimo en el detalle."
+    sintoma: "La fila muestra un guion aunque OwnerId esta cargado y el cliente existe en la tabla. Evidencia observada 2026-10-19: movimientos 7289 y 7426 (OwnerId=184, cliente 'Posta 73', DeletedAt 2025-08-01) muestran etiqueta generica 'Cliente / Proveedor' y valor guion en el detalle. SQL de contraste: 216 movimientos vivos, en cuentas vivas, con OwnerId cargado, cuyo MovimientoOrigen.Cuenta es una CuentaCorriente con DeletedAt no nulo. En esta base el 100% de los clientes con baja logica tiene la CC tambien dada de baja, asi que el IgnoreQueryFilters sobre Clientes no alcanza a salvar ningun caso historico real."
+    expectativa: "El historico contable no se reescribe porque la ficha se archive, y eso incluye la ficha de la cuenta corriente: si el movimiento origen vivia en una CC de cliente, la fila tiene que seguir diciendo el nombre del cliente aunque la CC este dada de baja. Mismo razonamiento que ya se aplico a Clientes y Proveedores."
+    causa_raiz: "MovimientoService.ResolverOwnersAsync aplica IgnoreQueryFilters() a las consultas de Clientes y Proveedores (de donde sale el NOMBRE), pero ResolverTipoOwner saca el TIPO de m.MovimientoOrigen.Cuenta, que llega por Include dentro de la query de Movimientos y sigue sujeta al filtro global de SoftDestroyable de Cuenta. Con la CC borrada, EF deja la navegacion en null, la rama 2 de la cascada no resuelve, la rama 3 tampoco (esos movimientos no tienen motivo con rubro coincidente) y la funcion devuelve null. El IgnoreQueryFilters quedo a mitad de camino: cubre la tabla final y no la que decide de que tabla leer."
+    capa: Infrastructure
+    archivos_fix:
+      - path: Eleven.Infrastructure/Services/MovimientoService.cs
+        motivo: "Hipotesis: resolver el tipo del owner sin depender del Include filtrado - por ejemplo una consulta aparte por lote sobre Cuentas con IgnoreQueryFilters() que traiga (Id, TipoCuentaCorriente) de las cuentas involucradas, y usarla en ResolverTipoOwner en lugar de la navegacion materializada. Si tambien conviene propagar IgnoreQueryFilters al Include lo decide el Implementador."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: dynamic
+      selector_o_endpoint: "GET /Movimientos/Details/{id} y grilla de la cuenta, sobre un movimiento cuyo MovimientoOrigen.Cuenta tiene DeletedAt no nulo y cuyo OwnerId existe en Clientes o Proveedores."
+      condicion_falla: "La columna o el bloque 'Cliente / Proveedor' muestra guion cuando OwnerId apunta a una ficha que existe en la tabla, incluso con baja logica."
+    criterio_aceptacion:
+      - "El movimiento 7289 (y 7426) muestra 'Posta 73' con etiqueta e icono de Cliente, en la grilla de la cuenta y en el detalle, sin reactivar ni el cliente ni la cuenta corriente."
+      - "Las 216 filas afectadas pasan a mostrar nombre: el conteo de filas con nombre sube de 2.646 a aprox. 2.862 sobre 9.307 visibles."
+    pruebas_minimas:
+      - "Baja logica de un cliente CON su cuenta corriente, y recarga de la grilla: el nombre sigue."
+      - "Baja logica del cliente SIN tocar la CC (caso que hoy ya funciona): no debe romperse."
+    estado: "CERRADO por QA el 2026-10-19 (corrida G, contexto nuevo, criterio de vuelta en FAIL). Evidencia: /Movimientos/Details/7289 y /7426 muestran en pantalla la etiqueta 'Cliente' y el valor 'Posta 73' con icono fa-user text-primary, sin reactivar nada (cliente 184 DeletedAt=2025-08-01 y CC 96 DeletedAt=2025-08-01 verificados intactos al cerrar). Las 216 filas con CC de origen dada de baja pasaron de 0 a 216 con nombre; las filas atribuidas a los 8 clientes con baja logica que tienen movimientos pasaron de 0 a 92."
+    fix_aplicado: "MovimientoService.ResolverOwnersAsync resuelve el tipo con dos consultas propias con IgnoreQueryFilters() (Movimientos para la cuenta del movimiento origen, CuentasCorrientes para tipo+owner) y ResolverOwnerRef lee de esos diccionarios en vez de las navegaciones. Se quitaron los Include de MovimientoOrigen.Cuenta de GetDataTableAsync y GetByIdAsync. Sin migracion EF."
+    leccion_adicional: "Regla general: cuando se usa IgnoreQueryFilters para que un historico no se vacie con el tiempo, hay que aplicarlo a TODAS las entidades que participan de la resolucion, no solo a la que aporta el texto que se muestra. La que aporta el discriminador es igual de critica y se olvida porque no se ve en pantalla. Familia de LP-057 (indice unico vs. query filter) y de ELV-009 (conteo vs. Include filtrado)."
+
+  - id: ELV-012
+    modulo: "Movimientos / Index y Cuentas / Details de una cuenta corriente - columna Cliente / Proveedor"
+    titulo: "Los movimientos que viven DENTRO de una cuenta corriente tienen OwnerId null en el 100% de los casos, asi que la columna nueva queda vacia en toda pantalla de cuenta corriente y en mas de la mitad del listado global: la rama 1 de la cascada es codigo muerto"
+    severidad: minor
+    reproducido_en: "eleven-la-plata, rama dev, ELV-010 sin commitear - reproducido 2026-10-19 contra MySQL local (base eleven, datos reales de produccion)."
+    pasos:
+      - "Abrir /Cuentas/Details de cualquier cuenta corriente (ej. 43 'Libreria de Colores', 26 'El Imperio', 57 'Francisco Millan')."
+      - "Mirar la columna 'Cliente / Proveedor' de todas las filas."
+      - "Abrir /Movimientos (listado global) y comparar la columna 'Cuenta' contra la columna 'Cliente / Proveedor' en las filas cuya cuenta ES una cuenta corriente."
+    sintoma: "En la pantalla de una cuenta corriente la columna esta vacia en el 100% de las filas (observado 2026-10-19: cuenta 43, 91 registros, 10 de 10 filas de la primera pagina en guion). En el listado global, filas como 10395 (cuenta 'Libreria de Colores'), 10393 ('Francisco Millan') y 10387/10388 ('El Imperio') muestran guion mientras la fila espejo de la misma operacion (10396, 10394, 10389) si muestra el nombre. SQL: 5.465 de 5.465 movimientos cuya Cuenta es CuentaCorriente tienen OwnerId null; cobertura total de la columna 2.646/9.307 = 28,4% de las filas visibles."
+    expectativa: "O el dato se resuelve igual (la CC ya sabe de quien es: Cuenta.OwnerId + Cuenta.TipoCuentaCorriente), o se asume explicitamente que esa pantalla no necesita la columna porque el titulo ya dice el nombre. Lo que no puede quedar es una rama de codigo escrita creyendo que resuelve y que nunca se ejecuta."
+    causa_raiz: "ResolverOwnersAsync descarta el movimiento antes de la cascada si m.OwnerId no es mayor que 0, y CreateUnificadoAsync copia el OwnerId solo al movimiento espejo (el de la cuenta de banco/caja), no al que escribe en la cuenta corriente. Por eso la rama 1 de ResolverTipoOwner ('el movimiento ES de una cuenta corriente, el tipo sale de esa cuenta') nunca se alcanza: cuando la condicion de la rama se cumple, el movimiento ya fue filtrado por no tener OwnerId. El dato que falta esta a un paso: es Cuenta.OwnerId de la propia cuenta corriente del movimiento."
+    capa: Infrastructure
+    archivos_fix:
+      - path: Eleven.Infrastructure/Services/MovimientoService.cs
+        motivo: "Hipotesis: cuando m.Cuenta es CuentaCorriente, tomar el owner de la cuenta (cc.OwnerId + cc.TipoCuentaCorriente) en lugar de exigir m.OwnerId. Eso revive la rama 1 sin tocar datos ni esquema. El backfill de OwnerId en los 5.465 movimientos de CC es decision del owner, no de QA."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: dynamic
+      selector_o_endpoint: "Grilla de /Cuentas/Details de una cuenta corriente con movimientos."
+      condicion_falla: "Todas las filas de la pantalla de una cuenta corriente muestran guion en la columna Cliente / Proveedor."
+    criterio_aceptacion:
+      - "En /Cuentas/Details/43 las filas muestran 'Libreria de Colores' con icono de Cliente, o el equipo decide por escrito que esa columna no se pinta en pantallas de cuenta corriente."
+      - "En /Movimientos la fila 10395 deja de mostrar guion si la decision fue resolverlo."
+    pruebas_minimas:
+      - "Una cuenta corriente de cliente y una de proveedor (icono y etiqueta distintos)."
+      - "Que el movimiento espejo en la cuenta de banco/caja siga mostrando el mismo nombre: no debe cambiar."
+    estado: "CERRADO por QA el 2026-10-19 (corrida G, contexto nuevo). Evidencia: POST /Movimientos/GetDataTable?cuentaId=43 con length 2000 devuelve 91 de 91 filas con ownerNombre 'Libreria de Colores' y ownerTipo 'Cliente' (antes 0 de 91); en pantalla la grilla muestra el nombre con icono fa-user text-primary en las 10 filas de la primera pagina. Sobre toda la base: las 5.024 filas que entran por la rama 1 resuelven nombre, y la cobertura global de la columna subio de 2.661 a 7.932 sobre 9.307 filas visibles (28,6% -> 85,2%)."
+    fix_aplicado: "Cuando la cuenta del movimiento es una CuentaCorriente, el owner sale de la cuenta (cc.OwnerId + cc.TipoCuentaCorriente) y ya no se exige m.OwnerId, que es null en los 5.465 casos. La guarda 'OwnerId is not > 0' se movio de la entrada del metodo a la rama 3, que es la unica que de verdad necesita el OwnerId del movimiento."
+    leccion_adicional: "Una rama de cascada portada de codigo legacy puede estar correcta como regla y ser inalcanzable en la implementacion nueva por una guarda anterior. Al portar reglas, medir cuantas filas de produccion entran por cada rama ANTES de cerrar: aca la rama 1 entraba 0 veces por la guarda. Correccion de la medicion de la corrida F: la rama 3 (motivo + rubro) NO entra 0 veces, entra 15 veces sobre 9.307 movimientos vivos (movimientos 244, 262, 338, 412, 615, 632, 871, 910, 2217, 2257, 5429, 413, 637, 911, 1037), asi que la cobertura real del algoritmo viejo era 2.661 y no 2.646. Segunda leccion, esta del cierre: contar las filas por rama con SQL y no por inspeccion de paginas, porque una rama de 15 filas sobre 9.307 no aparece en ninguna primera pagina."
+
+  - id: ELV-013
+    modulo: "Cuentas / Details - filtro Motivo de la grilla de movimientos"
+    titulo: "El combo de filtro Motivo se renderiza con una sola opcion ('Todos'): el controller pasa un Dictionary<int,string> y la vista lo testea con 'is IEnumerable<SelectListItem>', que falla en silencio"
+    severidad: minor
+    reproducido_en: "eleven-la-plata, rama dev - reproducido 2026-10-19 contra MySQL local. PREEXISTENTE: ni CuentasController.cs ni el bloque de filtros de la vista estan tocados por el lote ELV-010 (ultimo commit del controller: 37e96dc 'arreglos de roles')."
+    pasos:
+      - "Abrir /Cuentas/Details/11 (cualquier cuenta con movimientos)."
+      - "Desplegar el combo 'Motivo' del panel de filtros."
+    sintoma: "El combo tiene una unica opcion, 'Todos', asi que el filtro por motivo es inoperable aunque el endpoint lo soporta (GetDataTable acepta motivoId y filtra bien). Evidencia observada: querySelectorAll('#filterMotivo option') devuelve 1 elemento, value vacio y texto 'Todos', en una base con mas de 20 motivos y 289 movimientos de motivo 'Varios' solo en la cuenta 11."
+    expectativa: "El combo lista los motivos y filtrar por uno reduce la grilla. El resto del panel (rango de fechas, tipo, nro. de comprobante) ya funciona y este tiene que acompanar."
+    causa_raiz: "CuentasController.Details asigna ViewBag.Motivos = await _movimientoService.GetMotivosDropdownAsync(), que devuelve Dictionary<int,string>. La vista Cuentas/Details.cshtml hace un type check 'ViewBag.Motivos is IEnumerable<SelectListItem> motivos': contra dynamic da false y el foreach no se ejecuta. No hay error ni en consola ni en el log porque el patron 'is' con variable falla sin excepcion. MovimientosController si convierte el diccionario a SelectListItem en CargarCombosAsync, lo que confirma que el contrato esperado era otro."
+    capa: Web
+    archivos_fix:
+      - path: Eleven.Web/Controllers/CuentasController.cs
+        motivo: "Hipotesis: proyectar el diccionario a SelectListItem como ya hace MovimientosController.CargarCombosAsync."
+      - path: Eleven.Web/Views/Cuentas/Details.cshtml
+        motivo: "Alternativa: iterar el Dictionary<int,string> directamente. Una de las dos, no las dos."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: dynamic
+      selector_o_endpoint: "#filterMotivo option en /Cuentas/Details/{id}"
+      condicion_falla: "El select de filtro tiene una sola opcion cuando la tabla Motivos tiene filas vivas."
+    criterio_aceptacion:
+      - "#filterMotivo lista los motivos vivos y elegir 'Combustible' sobre la cuenta 11 devuelve 44 registros."
+    pruebas_minimas:
+      - "Filtrar por un motivo y comparar el conteo contra SQL."
+      - "'Limpiar' vuelve a 1.039 registros en la cuenta 11."
+    leccion_adicional: "Un 'is T' sobre un ViewBag dynamic es una falla muda: no hay excepcion, no hay log, el control simplemente aparece vacio. Donde la vista hace type check sobre ViewBag, QA tiene que contar las opciones del control y no solo verificar que el control exista. Hermano de OLV-012 (filtros que vuelven del servidor y la vista no repone)."
+
+  - id: ELV-014
+    modulo: "Movimientos / Index y Cuentas / Details - columna Cliente / Proveedor (par movimiento de cuenta corriente + su espejo)"
+    titulo: "El movimiento de la cuenta corriente y su espejo en la cuenta de banco/caja se atribuyen a DOS personas distintas: el de la CC toma el owner de la cuenta y el espejo prefiere su propio OwnerId, que en datos migrados quedo apuntando a una ficha vieja"
+    severidad: minor
+    reproducido_en: "eleven-la-plata, rama dev, fix de ELV-011/ELV-012 sin commitear - reproducido 2026-10-19 contra MySQL local (base eleven, datos reales de produccion)."
+    pasos:
+      - "Tomar un par cobro/pago: el movimiento que vive en la cuenta corriente y el espejo que vive en la cuenta de banco/caja (en esta base: 685 en la CC 115 y 686 en la cuenta 12 'La Cardeusse'; tambien 941 en la CC 99 y 942 en la cuenta 12)."
+      - "Mirar la columna 'Cliente / Proveedor' de cada uno en la grilla de su cuenta, y el bloque homonimo en /Movimientos/Details de cada uno."
+    sintoma: "Los dos movimientos de la MISMA operacion muestran nombres distintos. Evidencia observada 2026-10-19: /Movimientos/Details/685 y la grilla de /Cuentas/Details/115 dicen 'Escuela 9 y 38 Gabriela' (cliente 188, owner de la CC 115), mientras /Movimientos/Details/686 y la grilla de /Cuentas/Details/12 dicen 'Escuela n 9 y 38 - buffet' (cliente 155, el OwnerId del propio espejo, cuya CC 113 fue dada de baja el 2023-04-22, cuatro dias ANTES del movimiento). Alcance medido por SQL: 28 pares visibles discrepantes sobre 2.677 (1,05%), en 2 combinaciones de owner (188 -> 155 y 223 -> 188), mas 16 espejos con el mismo conflicto cuyo movimiento origen no se lista. El tipo (Cliente/Proveedor) nunca difiere: 0 de 28."
+    expectativa: "Las dos filas de una misma operacion se atribuyen a la misma persona. Si las dos fuentes de verdad se contradicen, gana la cuenta corriente donde vive el movimiento (es la estructura, no un int suelto) o se declara por escrito que el OwnerId del espejo tiene prioridad y por que."
+    causa_raiz: "En ResolverOwnerRef la rama 1 (movimiento dentro de una CC) toma owner de cc.OwnerId, y la rama 2 (espejo) toma 'm.OwnerId si lo tiene y si no el de la CC de origen'. Mientras la rama 1 no resolvia nada (ELV-012) la contradiccion no se veia: el espejo mostraba su nombre y el original no mostraba ninguno. Al revivir la rama 1, las dos filas empezaron a hablar y en los datos migrados no dicen lo mismo. No es una regresion del fix: el nombre del espejo es el mismo que mostraba antes (verificado: 0 cambios de nombre y 0 perdidas sobre las 9.307 filas). Es un conflicto de datos del legacy que el fix hizo visible."
+    capa: Infrastructure
+    archivos_fix:
+      - path: Eleven.Infrastructure/Services/MovimientoService.cs
+        motivo: "Hipotesis: en la rama 2 invertir la precedencia y tomar primero el owner de la cuenta corriente de origen, dejando m.OwnerId como respaldo. Eso alinea las dos filas por construccion y no puede empeorar la cobertura (el 100% de los espejos tiene CC de origen con owner). Alternativa: dejar el codigo como esta y corregir los 44 OwnerId inconsistentes en la base, que es decision del owner y no de QA."
+    migracion_ef: null
+    deteccion_qa:
+      tipo: dynamic
+      selector_o_endpoint: "POST /Movimientos/GetDataTable (listado global, length alto) y cruce de data por MovimientoOrigenId: para cada par (origen en cuenta corriente, espejo), comparar ownerTipo y ownerNombre."
+      condicion_falla: "Algun par origen/espejo devuelve ownerNombre distinto."
+    criterio_aceptacion:
+      - "El par 685/686 muestra el mismo nombre en las dos pantallas, y el par 941/942 tambien."
+      - "El cruce de los 2.677 pares visibles del listado global devuelve 0 discrepancias de ownerNombre."
+      - "La cobertura global de la columna no baja de 7.932 sobre 9.307 filas."
+    pruebas_minimas:
+      - "Un par de cobro de cliente y un par de pago a proveedor (icono y etiqueta distintos en las dos filas)."
+      - "Un espejo sin OwnerId propio (31 casos en esta base, ej. 1043): tiene que seguir resolviendo por la CC de origen."
+      - "Un cobro nuevo creado por la UI: el par nace coherente."
+    leccion_adicional: "Cuando un fix hace aparecer un dato en una pantalla donde antes no habia nada, hay que cruzar ese dato nuevo contra el que ya se mostraba en la pantalla de al lado. Dos fuentes para el mismo hecho que nunca se compararon suelen no coincidir, y el usuario lo descubre antes que el equipo porque ve las dos filas de la misma operacion. Hermano de ELV-011 por familia (resolucion de owner polimorfico) y del criterio 'grilla y detalle dicen lo mismo' de ELV-010, extendido a 'las dos filas de la misma operacion dicen lo mismo'."

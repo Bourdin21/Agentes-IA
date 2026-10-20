@@ -258,3 +258,98 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Reglas releidas: PAT-070
 - Nota: ExpireTimeSpan 90d -> 8h en Program.cs (SlidingExpiration queda true). Ajuste sobre PAT-070: con el navegador en 90d el patron de la PWA (30d) quedaba al reves de su proposito; paso en 5 de los 14. Build Release 0 errores. Sin commitear ni deployar. Precondicion agregada a PAT-070: leer el ExpireTimeSpan de CADA sistema antes de aplicar el patron.
 
+
+### 2026-10-19 15:40 - implementador
+- Etapa: Implementacion
+- Cambio: **ELV-010 (mejora)** — el listado de movimientos y el detalle ("ojito") ahora muestran el cliente o
+  proveedor que originó el movimiento. Columna nueva "Cliente / Proveedor" en `Cuentas/Details` y
+  `Movimientos/Index`, bloque nuevo en `Movimientos/Details`, y resolución por lote en `MovimientoService`
+  (`ResolverTipoOwner` + `ResolverOwnersAsync`). `MovimientoDto` suma `OwnerTipo` y `OwnerNombre`.
+- Motivo: pedido de Francisco del 2026-10-19 por WhatsApp — en el sistema legacy el dato aparecía y se perdió en la
+  migración. **No se perdió el dato sino el traductor:** `Movimiento.OwnerId` se venía guardando bien (lo copia
+  `CreateUnificadoAsync` desde la cuenta corriente), pero es un número sin columna que diga de qué tabla sale. La
+  regla para deducirlo estaba escrita en el legacy (`Migration-Legacy/Models/Movimiento.cs:66-140`) y se portó
+  completa, sin el `DbContext` dentro de la entidad que motivó su borrado.
+- Clasificación: **P3, no emergencia.** Se evaluó la vía rápida de `42-incidente-produccion` y se descartó: no hay
+  caída ni datos corrompiéndose. Entró por el flujo normal.
+- Impacto en capas: Presentación (3 vistas), Negocio (`MovimientoService`), Aplicación (`MovimientoDto`). **Datos
+  sin cambios: no hay migración EF ni cambio de esquema.**
+- Riesgos/supuestos: los movimientos cargados a mano desde "Nuevo Movimiento" no tienen `OwnerId` (ese formulario
+  nunca pidió cliente/proveedor), así que van a mostrar "—". **Falta medir en la base productiva cuántos
+  movimientos tienen el dato antes de anunciarle la mejora al cliente.** La resolución usa `IgnoreQueryFilters()`
+  a propósito para que un cliente dado de baja siga apareciendo en su histórico (misma familia que ELV-009).
+- Estado: build limpio (0 errores), JS validado. **Aplicado, pendiente de verificación de QA** — el cierre lo
+  declara QA, no el implementador. Sin commitear y sin deployar.
+- Decisiones abiertas: (1) sumar el campo cliente/proveedor al alta manual de movimientos; (2) filtro por esa
+  columna en la grilla (hoy no cumple "columna visible = filtro disponible"). Detalle en `5-implementador.md`.
+
+## 2026-10-19 — QA lote F: ELV-010 (cliente/proveedor en los movimientos)
+
+- Corrida con **Playwright MCP disponible**, primera del proyecto con navegador real (los lotes A-E lo habian
+  declarado no disponible). App local sobre HTTPS y base `eleven` con datos de produccion.
+- **7 de 8 criterios PASS** con evidencia observada; el criterio 8 falla por **ELV-013** (combo de filtro
+  Motivo vacio), **preexistente** y en codigo que este lote no toca.
+- **Veredicto: GO para mergear ELV-010, NO-GO para anunciarle la mejora al cliente** hasta cerrar los dos
+  defectos nuevos.
+- Defectos nuevos catalogados: **ELV-011** (medium — el nombre se pierde cuando la cuenta corriente del
+  movimiento origen tiene baja logica: el `IgnoreQueryFilters` cubrio la tabla del nombre y no la del tipo;
+  216 filas, y los 8 clientes con baja logica de la base caen en este caso) y **ELV-012** (minor — los 5.465
+  movimientos que viven dentro de una cuenta corriente tienen `OwnerId` null, asi que la rama 1 de la cascada
+  es codigo muerto y la columna queda vacia en toda pantalla de cuenta corriente).
+- **Dato que el implementador dejo pendiente de medir:** la columna muestra nombre en **2.646 de 9.307** filas
+  visibles = **28,4%**.
+- `docs/qa/regresiones-manuales.yml`: +3 items (ELV-011, ELV-012, ELV-013), 267 en total; `cat_resumen.txt`
+  regenerado.
+- Repo del sistema **read-only** confirmado: `git status --porcelain` final identico al inicial. Fixtures de
+  base (password de prueba, baja logica del cliente 162, anulacion del movimiento 10292) revertidas y
+  verificadas una por una.
+
+### Traza de corrida -- 2026-10-19 / etapa qa / lote 1
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: ninguna
+
+## 2026-10-19 -- QA lote G: re-verificacion de ELV-011 y ELV-012 (contexto nuevo)
+
+- **ELV-011 y ELV-012 CERRADOS** con evidencia observada. Fix del implementador en
+  `Eleven.Infrastructure/Services/MovimientoService.cs` (sin migracion EF, sin tocar vistas ni DTO):
+  `ResolverOwnerRef` devuelve tipo + ownerId leyendo diccionarios armados con `IgnoreQueryFilters()`, y el
+  owner de un movimiento que vive dentro de una cuenta corriente sale de la cuenta.
+- **Cobertura de la columna Cliente / Proveedor: 28,6% -> 85,2%** (7.932 de 9.307 filas visibles). Reparto
+  por rama: 5.024 dentro de CC, 2.893 espejos, 15 por rubro de motivo. Las 1.375 que quedan en guion son
+  movimientos sueltos sin owner, comportamiento esperado.
+- **Verificacion mas fuerte de la corrida:** replica independiente de la cascada en SQL y cruce **fila por
+  fila de las 9.307 filas servidas** -> 0 mismatches de tipo y nombre; 0 nombres cambiados y 0 perdidos
+  respecto del algoritmo anterior. El riesgo de "mostrar a alguien donde antes no se mostraba a nadie"
+  quedo descartado sobre la poblacion completa, no sobre una muestra.
+- **1 defecto nuevo: ELV-014** (minor) -- el movimiento de la cuenta corriente y su espejo se atribuyen a
+  personas distintas en 28 de 2.677 pares, por un `OwnerId` migrado que apunta a una ficha dada de baja
+  antes del movimiento. No es regresion (el espejo dice lo mismo que decia antes): es un conflicto de datos
+  del legacy que el fix hizo visible. Parte emitido, no bloquea el deploy.
+- **ELV-013** sin cambios (combo Motivo con una sola opcion); **ELV-009** sin agravar (9.748 declarados vs
+  9.307 servidos).
+- **Correccion de la medicion del lote F:** la rama 3 de la cascada (motivo + rubro) **no** entraba 0 veces
+  sino 15, y la cobertura del algoritmo viejo era 2.661 (28,6%) y no 2.646 (28,4%). No cambia ninguna
+  conclusion del lote F. Corregido en el `leccion_adicional` de ELV-012.
+- `docs/qa/regresiones-manuales.yml`: ELV-011 y ELV-012 con `estado: CERRADO` + `fix_aplicado`, +1 item
+  nuevo (ELV-014), **268 en total**; `cat_resumen.txt` regenerado.
+- **Veredicto: GO para deployar a produccion** y para anunciarle la mejora al cliente.
+- Repo del sistema **read-only** confirmado: `git status --porcelain` final = solo el cambio del
+  implementador y el CSV untracked, los dos preexistentes. Fixtures de base (hash de password del
+  superusuario, anulacion del movimiento 10292, dos vistas SQL auxiliares) revertidas y verificadas; no se
+  reactivo ningun cliente ni ninguna cuenta.
+
+### Traza de corrida -- 2026-10-19 / etapa qa / lote G
+- Reintentos: 1 (la primera prueba de ordenamiento uso `sortColumn=importe`, que no es una clave mapeada del
+  switch; cayo a la rama default y parecia un defecto de orden. Rehecha con `importeconsigno`: ordena bien.)
+- Criterios fallados: 1 de 7 -- el criterio 3 (coherencia del par movimiento de CC + espejo) -> ELV-014.
+- Reglas releidas: ninguna del catalogo. Si hubo que leer del codigo dos cosas que el arranque del rol no
+  trae y costaron tiempo: las claves del `switch` de `SortColumn` y si
+  `Movimiento.DescripcionMovimiento` (el unico consumidor de `MovimientoOrigen.Cuenta`) se usa en alguna
+  vista, para saber si quitar el Include rompia algo.
+
+### Traza de corrida -- 2026-10-19 / etapa qa / lote 2
+- Reintentos: 0
+- Criterios fallados: ninguno
+- Reglas releidas: ninguna
+

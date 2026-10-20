@@ -46,3 +46,33 @@ Registro acumulativo de decisiones y ajustes por etapa y agente.
 - Reglas releidas: 40#graders, 29
 - Nota: Primera corrida de los 5 casos de negocio. 5/5 en sustancia, 3/5 mecanico: los 2 FAIL fueron graders de codigo que castigaban la respuesta correcta (citar la frase prohibida dentro de la negacion; explicar el grandfathering con las palabras del cliente). Pasados a modelo. EV-NEG-005 reescrito: medía el mundo anterior a DEC-007. Hallazgo colateral: la ficha de Contadores BMA en casos.md estaba mal y el agente la corrigio leyendo /docs.
 
+### 2026-10-19 - harness
+- Etapa: otro (cambio al propio harness)
+- Cambio: **via rapida para incidentes de produccion**, la unica excepcion a la secuencia obligatoria.
+  Piezas: `.github/instructions/42-incidente-produccion.instructions.md` (contrato),
+  `.github/prompts/10-incidente-produccion.prompt.md` (corrida paso a paso),
+  `/agentes-ia-emergencia` (`.claude/commands/`), registro por entradas `INC-NNN` en
+  `docs/<proyecto>/incidentes.md` (plantilla en `docs/templates/proyecto/`), chequeo
+  `chequear_incidentes_abiertos` en `doctor.py` (aviso a los 7 dias sin cerrar en frio, error a los 30),
+  2 casos de eval (`EV-INC-001`, `EV-INC-002`). Indices actualizados: `CLAUDE.md`, `AGENTS.md`,
+  `.claude/README.md`, `.github/copilot-instructions.md`, `.github/instructions/README.md`.
+- Motivo: el harness no tenia via para "el sistema esta caido ahora". Los gates duros de `00` exigirian
+  presupuesto aprobado para arreglar algo ya pagado, asi que los incidentes se atendian por chat suelto,
+  fuera de toda regla. El costo quedo documentado en eleven-la-plata: un fix que cambio el comportamiento
+  (el formulario de contadores paso a rechazar) entregado sin aviso al equipo del cliente, y bugs de datos
+  vistos semanas despues (441 movimientos invisibles, mismo patron que agosto). El problema de una
+  emergencia no es la velocidad: es que el apuro genera el segundo incidente.
+- Diseño: se saltean las 4 etapas de analisis a proposito y se conservan 4 reglas (reversibilidad antes que
+  velocidad; medir las filas antes de escribir datos; el que arregla declara *servicio restablecido* y no
+  cierra el incidente; el aviso al cliente es parte del fix). Estados `abierto -> restablecido -> cerrado`,
+  con el cierre en frio a 48 h a cargo de QA independiente. Techo de contexto 25k, el mas bajo del harness.
+- Gate anti-abuso: un pedido urgente **sin** caida es P3 y vuelve al flujo normal. Una via rapida que acepta
+  cualquier cosa deja de ser una via rapida: todo pedido pasaria a llegar envuelto en urgencia.
+- Alcance del techo de memoria: `incidentes.md` entra al glob de 150 KB en `doctor.py` y
+  `archivar_memoria.py` (que ahora reconoce `INC-NNN` como unidad de trabajo archivable).
+- Impacto en capas: N/A (harness documental + scripts). `python scripts/doctor.py` sin errores.
+- Riesgos/supuestos: los 2 casos de eval **no se corrieron** (gastan tokens, requieren confirmacion).
+  Falta el caso del gate de triage (P3 colado por la via rapida): no hay fallo real documentado todavia y
+  la `40` prohibe inventarlo. Ningun `.agent.md` fue modificado, asi que no se disparo la obligacion de
+  correr evals de rol.
+

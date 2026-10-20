@@ -13,6 +13,15 @@ Discovery → Análisis → Diseño → Arquitectura → Presupuesto → Impleme
 - Cada etapa cierra su archivo en `C:/Sistemas/Agentes-IA/docs/<proyecto>/definiciones/` antes de pasar a la siguiente.
 - No iniciar Diseño sin Análisis aprobado. No iniciar Arquitectura sin Diseño aprobado. No iniciar Presupuesto sin Arquitectura aprobada. No iniciar Implementación sin Presupuesto aprobado por el cliente.
 
+### Única excepción: incidente de producción (`42-incidente-produccion`)
+
+Sistema caído o datos corrompiéndose **ahora** no espera ningún gate: entra por `/agentes-ia-emergencia`, que
+saltea las cuatro etapas de análisis a propósito (triage → contención → fix mínimo → cierre en frío). La vía rápida
+conserva cuatro reglas que no se negocian: reversibilidad antes que velocidad, medir las filas antes de escribir
+datos, el que arregla declara *servicio restablecido* y **no** cierra el incidente, y el aviso al cliente es parte
+del fix. **Un pedido urgente sin caída es P3 y vuelve al flujo normal** — si la vía rápida acepta cualquier cosa,
+deja de ser una vía rápida.
+
 ## Agentes disponibles
 
 | # | Rol | Archivo | Modo |
@@ -53,6 +62,7 @@ Abrir siempre un `.code-workspace` en `C:/Sistemas/` que incluya este repo + el 
 Ver `.claude/README.md`. Entrada por rol:
 
 - Slash commands (modo Ask, conversación actual): `/agentes-ia-orquestador`, `/agentes-ia-analista-funcional`, `/agentes-ia-disenador-funcional`, `/agentes-ia-arquitecto-mvc`, `/agentes-ia-presupuestador`, `/agentes-ia-documentador`.
+- `/agentes-ia-emergencia` — **vía rápida de incidente en producción** (sistema caído o datos corrompiéndose), fuera de la secuencia de etapas. Lee `42-incidente-produccion` y `.github/prompts/10-incidente-produccion.prompt.md`; registra en `docs/<proyecto>/incidentes.md`. No usar para pedidos urgentes sin caída.
 - Subagents (modo Agent, contexto aislado): `agentes-ia-implementador` (MVC), `agentes-ia-implementador-astro-front` (sitios estáticos Astro) y `agentes-ia-qa` — los invoca el orquestador o se piden explícitamente.
 
 Cada comando/subagent lee su `.github/agents/*.agent.md` (fuente de verdad) y carga sus instrucciones modulares al activarse. Equivalen a `@rol` de Copilot / `/agentes-ia-*` de Cursor.
@@ -114,6 +124,7 @@ Leer según el agente activo:
 - `38-diseno-pantallas-portal` — decisiones de diseño de las pantallas del portal del usuario final
 - `39-presupuesto-contexto` — **techo de contexto por agente, carga por indice, techo de 150 KB por archivo de memoria, reset de contexto entre etapas, hand-off comprimido, QA por lotes y traza de corrida (siempre)**
 - `41-documento-navegable-cliente` — entregable al cliente publicado como **pagina navegable** (manual de uso, resumen de sprint que se va a releer o compartir, instructivo de tramite): el `.md` es la fuente y la pagina la copia de lectura. Contenido verificado contra **produccion** y no contra los documentos previos, envoltorio de marca Olvidata oscura, y la URL anotada en `7-documentador.md` porque **la proxima entrega se republica sobre la misma URL**. Version corta operativa: skill `documento-navegable-cliente`
+- `42-incidente-produccion` — **vía rápida para sistema caído o datos corrompiéndose**: triage P1/P2/P3, contención antes de diagnóstico, fix mínimo y cierre en frío a 48 h. Única excepción a la secuencia obligatoria. Obligatoria antes de tocar producción fuera del flujo normal
 - `40-evals-del-harness` — suite de evals del propio sistema de agentes: casos sacados de fallos reales, graders, `pass@k` vs `pass^k`. Obligatoria antes de commitear un cambio a `32`, `27`, `39`, `30`, `33` o a cualquier `.agent.md`
 
 ## Presupuesto de contexto (obligatorio, `39-presupuesto-contexto`)
@@ -141,7 +152,7 @@ Las instrucciones modulares de arriba son la **fuente completa**; las skills de 
 
 ## Chequeo de consistencia (`scripts/doctor.py`)
 
-`python scripts/doctor.py` verifica en segundos que la memoria no se haya desincronizado: numeros de precio contradictorios entre archivos, estado de proyecto declarado fuera de `docs/indice.md`, IDs de regla duplicados, cierres reales que quedaron sin cargar en `docs/calibracion/dataset.yml`, **archivos de memoria sobre el techo de 150 KB**, **indices planos (`cat_resumen.txt`) desactualizados respecto de su catalogo**, archivos de mas de 300 KB y huerfanos. `--fast` corre solo los chequeos baratos (incluye el techo de memoria).
+`python scripts/doctor.py` verifica en segundos que la memoria no se haya desincronizado: numeros de precio contradictorios entre archivos, estado de proyecto declarado fuera de `docs/indice.md`, IDs de regla duplicados, cierres reales que quedaron sin cargar en `docs/calibracion/dataset.yml`, **archivos de memoria sobre el techo de 150 KB**, **indices planos (`cat_resumen.txt`) desactualizados respecto de su catalogo**, **incidentes de produccion sin cerrar en frio** (aviso a los 7 dias, error a los 30), archivos de mas de 300 KB y huerfanos. `--fast` corre solo los chequeos baratos (incluye el techo de memoria).
 
 `python scripts/olvidata_datos.py todo` regenera los datos de negocio (clientes, pipeline y metricas) leyendo el CRM — correrlo antes de cualquier conversacion de plan, pricing o pipeline: un snapshot viejo miente con la misma cara que un dato bueno.
 

@@ -25,7 +25,7 @@
 # en un proyecto nuevo, agregar ese proyecto a proyectos_que_lo_usan.
 
 version: 1
-ultima_actualizacion: 2026-10-15
+ultima_actualizacion: 2026-10-19
 
 # IDs retirados / sin asignar (para que un hueco no parezca un error):
 #   PAT-011 - se retiro sin reemplazo y NO se recicla (ver docs/delicias-naturales/definiciones/5-implementador.md)
@@ -4272,7 +4272,7 @@ patrones:
       previa a la emision, no un arreglo posterior: sin el bloque la validacion no pasa nunca. Y es
       permanente, porque la renovacion automatica revalida cada ~60 dias.
     proyecto_origen: vinosefue (2026-10-15, SSL Sectigo vencido 15 dias sin que nadie lo notara)
-    proyectos_que_lo_usan: [vinosefue]
+    proyectos_que_lo_usan: [vinosefue, crm-olvidata]
     archivos_referencia:
       - proyecto: vinosefue
         path: "VinoSeFue.Web/web.config"

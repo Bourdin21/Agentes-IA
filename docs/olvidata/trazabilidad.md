@@ -83,3 +83,4 @@ Formato: `### <fecha> — <qué cambió>` y, abajo, de dónde a dónde y quién 
   (conciliación bancaria, sueldos, impuestos). El agente de ventas lo citó mejor que la ficha porque
   fue a leer `docs/contadores-bma-agentes-ia/`. Ficha corregida.
 - **Detalle de la corrida:** `docs/evals/corridas/negocio-2026-10-16/RESULTADO.md`.
+- **2026-10-17** — `precios.md` + `reglas-comerciales.md`: nueva **COM-021**, asistente/chatbot dentro de un Build del estudio paga **un solo recurrente** (el plan de mantenimiento por cantidad de tablas, contando las que agrega el asistente), no dos abonos. El setup sigue separado. Detectado en el lead Grupo Arreglo Todo, donde el primer armado cotizaba 480 + 480 = USD 960/año sobre un mismo sistema; corregido a USD 600/año. No existía regla para el caso.

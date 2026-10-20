@@ -37,6 +37,12 @@ da el indice de cualquiera de ellos.
 - **41-documento-navegable-cliente** — como se construye la PAGINA que el cliente abre y comparte (marca Olvidata
   oscura, capturas de produccion, indice con seccion activa). Va con la `31`: esa define que dice, esta como se ve.
   **Obligatoria antes de publicar un entregable como artifact.**
+- **42-incidente-produccion** — la **via rapida**: sistema caido o datos corrompiendose. Es la unica excepcion a
+  la secuencia obligatoria, y saltea las cuatro etapas de analisis a proposito. Define el triage P1/P2/P3 (un
+  pedido urgente **sin** caida es P3 y vuelve al flujo normal), las cuatro reglas que no se negocian
+  (reversibilidad, medir antes de escribir datos, el que arregla no cierra, el aviso es parte del fix) y el cierre
+  en frio a 48 h. **Obligatoria antes de tocar produccion fuera del flujo normal.** Comando:
+  `/agentes-ia-emergencia`.
 - **40-evals-del-harness** — como saber si un cambio a una instruction mejoro o empeoro al agente. Casos sacados
   de fallos reales, graders, `pass@k` vs `pass^k`. **Obligatoria antes de commitear un cambio a `32`, `27`, `39`,
   `30`, `33` o a cualquier `.agent.md`** — corriendo solo los casos del rol afectado.

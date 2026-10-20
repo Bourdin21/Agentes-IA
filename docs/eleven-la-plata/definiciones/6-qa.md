@@ -1,7 +1,7 @@
 # Memoria - QA
 
 ## Proyecto: eleven-la-plata
-## Ultima actualizacion: 2026-10-01
+## Ultima actualizacion: 2026-10-19
 
 ## Definiciones vigentes
 
@@ -138,6 +138,18 @@ devuelve 302 al login. Causa: `AddAuthorization` en `Program.cs` define policies
 - [ ] **ELV-002 escalado** — parche listo, requiere OK del owner por ser fuera de alcance.
 
 ## Historial de ajustes
+- 2026-10-19 (lote G): re-verificacion en contexto nuevo del fix de ELV-011 y ELV-012. **Los dos CERRADOS**
+  con evidencia observada; el cruce fila por fila de las 9.307 filas servidas contra una replica SQL
+  independiente del algoritmo dio **0 mismatches** de tipo y nombre. Cobertura de la columna: **28,6% ->
+  85,2%** (7.932/9.307). **1 defecto nuevo del fix, ELV-014** (28 pares movimiento de CC + espejo atribuidos
+  a personas distintas). ELV-013 sin cambios. **GO para deployar; el anuncio al cliente puede hacerse
+  mencionando que las pantallas de cuenta corriente ya muestran el nombre.**
+- 2026-10-19 (lote F): QA de ELV-010 (columna cliente/proveedor) con **Playwright MCP disponible por primera vez**
+  en el proyecto. 7 de 8 criterios PASS con evidencia de navegador; el 8 falla por ELV-013, preexistente.
+  Dos defectos nuevos del lote: **ELV-011** (el nombre se pierde si la cuenta corriente tiene baja logica,
+  216 filas) y **ELV-012** (los movimientos de cuenta corriente no tienen OwnerId, 5.465 filas). Cobertura
+  real de la columna medida: **28,4%** de las filas visibles. **GO para mergear, NO-GO para anunciarle la
+  mejora al cliente** hasta cerrar ELV-011/ELV-012.
 - 2026-10-01 (lote C): re-verificacion en contexto nuevo de los 4 fixes de los lotes A y B. **ELV-003, ELV-005,
   ELV-006 y ELV-007 CERRADOS** con evidencia de ejecucion real (mensaje leido en pantalla, escenario del
   movimiento anulado reproducido, 2.950 filas de cruce SQL sin mismatch, render servido ejecutado con node).
@@ -151,6 +163,286 @@ devuelve 302 al login. Causa: `AddAuthorization` en `Program.cs` define policies
   de la app levantada localmente.
 
 ---
+
+---
+
+## QA - Lote 2026-10-19 G: re-verificacion de ELV-011 y ELV-012
+
+**Ultima validacion de reglas cross-proyecto: 2026-10-19.** (Misma fecha que el lote F, que es de hoy:
+`git log --since=2026-10-19 -- .github/instructions/32-estandares-qa-implementador.instructions.md
+docs/qa/regresiones-manuales.yml` devuelve **0 commits**, asi que no hay reglas nuevas de terceros para
+ejecutar retroactivamente en esta corrida. Las reglas que el lote F dejo como dato siguen aplicando:
+**LP-057** (IgnoreQueryFilters a medias en una resolucion polimorfica) es la familia del defecto cerrado
+aca, **MH-001** (IN desde coleccion local) se re-ejecuto porque el fix sumo 2 consultas con `IN`, y
+**OLV-EVAL-01** (un criterio solo juzga lo que el revisor VE) gobierna la tabla de abajo. Esta corrida
+**agrega ELV-014** al catalogo y **corrige** un numero de la medicion del lote F, ver nota al pie.)
+
+**Veredicto: GO para deployar a produccion.** Los 2 defectos re-verificados estan cerrados, no hay ninguna
+regresion medible y el riesgo del cambio - que apareciera un nombre equivocado donde antes habia una celda
+vacia - se descarto con un cruce **fila por fila de las 9.307 filas servidas** contra una replica SQL
+independiente de la cascada: 0 diferencias de tipo y 0 de nombre, 0 nombres cambiados respecto del
+algoritmo anterior y 0 filas que perdieran el nombre que ya tenian. El unico hallazgo nuevo (**ELV-014**,
+minor, 28 pares sobre 2.677) **no es una regresion**: es un conflicto de datos del legacy que el fix hizo
+visible, y afecta la fila espejo, que muestra exactamente el mismo nombre que mostraba antes.
+
+**Entorno:** repo `C:/Sistemas/elevenlaplata` rama `dev` en **read-only** (verificado al cerrar). App
+levantada local con `dotnet run --launch-profile https` (`https://localhost:7200`), MySQL local base `eleven`
+con datos reales de produccion (10.396 movimientos, 9.307 visibles, 9.748 vivos). Servidor MCP `playwright`
+**disponible y usado**. Build `dotnet build Eleven.slnx` -> **0 errores**, 8 warnings (NU1902 preexistentes).
+Diff bajo prueba: solo `Eleven.Infrastructure/Services/MovimientoService.cs`, sin migracion EF, sin tocar
+vistas ni DTO (verificado contra el diff, no contra el reporte del implementador).
+
+**Fixtures de entorno (todas revertidas y verificadas):** (1) hash de password del superusuario
+`no-reply@olvidata.com.ar` reemplazado por uno conocido para poder entrar - **original restaurado y
+comparado byte a byte**; (2) `Anulado=1` sobre el movimiento 10292 para poder observar la regresion de
+ELV-005 (la base no tiene ni un anulado) - **revertido a Anulado=0, AnuladoAt=NULL**; (3) dos vistas SQL
+auxiliares (`v_attr`, `v_attr2`) con la replica del algoritmo - **dropeadas**. No se reactivo ningun
+cliente ni ninguna cuenta: cliente 184 y CC 96 siguen con `DeletedAt` 2025-08-01 al cerrar. `Eleven.Web/keys/`
+que genera el arranque de la app, borrado.
+
+### Cobertura por criterio
+
+| # | Criterio | Resultado | Evidencia observada |
+|---|---|---|---|
+| 1 | **ELV-011** cerrado: 7289 y 7426 muestran "Posta 73" como Cliente sin reactivar nada; extendido a los 8 clientes con baja logica y las 216 filas | **PASS** | En pantalla (Playwright, `/Movimientos/Details/7289`): bloque con etiqueta **"Cliente"** y valor **"Posta 73"**, icono `fa-solid fa-user text-primary me-1`; identico en `/7426`. En la grilla global los dos devuelven `ownerTipo="Cliente"`, `ownerNombre="Posta 73"`. SQL de contraste: las **216** filas cuya CC de origen tiene `DeletedAt` no nulo pasaron de **0 a 216** con nombre, y las filas atribuidas a los **8** clientes con baja logica que tienen movimientos pasaron de **0 a 92** (72, 146, 153, 166, 184, 187, 189, 192). Cliente 184 y CC 96 verificados **todavia dados de baja** al cerrar. |
+| 2 | **ELV-012** cerrado: `/Cuentas/Details/43` muestra "Libreria de Colores"; extendido a los 5.465 movimientos de cuenta corriente | **PASS** | `/Cuentas/Details/43` en navegador: las 10 filas de la pagina 1 con "Libreria de Colores" e icono `fa-user text-primary`, `recordsTotal` 91 = SQL. Traido el total de la pantalla (`length=2000`): **91 de 91** filas con `ownerNombre`, un unico valor distinto y un unico `ownerTipo` ("Cliente"). Sobre toda la base, las **5.024** filas visibles que entran por la rama 1 resuelven nombre las 5.024 (las otras 441 de los 5.465 son de cuentas dadas de baja y no se listan, igual que antes). La columna ya no esta vacia en el 100% de ninguna pantalla de CC. |
+| 3 | Coherencia grilla <-> ojito en los casos nuevos, **incluido el par movimiento de CC + espejo** | **FAIL** | **Grilla <-> ojito: 13 de 13 identicos** (7289, 7426, 685, 686, 941, 942, 1043, 244, 10345, 10396, 10390, 2634, 1153), incluido el caso sin owner (10390: etiqueta generica "Cliente / Proveedor" + "—" en los dos lados) y el caso del `OwnerId=4` que existe en las dos tablas (10345 -> Proveedor "Francisco Millan" en los dos lados). **Pero el par CC + espejo falla:** 685 (en la CC 115) dice "Escuela 9 y 38 Gabriela" y su espejo 686 (en la cuenta 12) dice "Escuela n 9 y 38 - buffet"; 941 dice "Normal 3 58 e/ 8 y 9 (graciela)" y 942 dice "Escuela 9 y 38 Gabriela". Cruce de los **2.677** pares visibles: **28 discrepantes** (1,05%), 2 combinaciones de owner, 0 con el tipo distinto -> defecto **ELV-014**. |
+| 4 | Medicion de cobertura nueva | **PASS** | `POST /Movimientos/GetDataTable` con `length=20000`: **9.307** filas servidas, **7.932 con nombre = 85,23%**. Antes: 2.661 = 28,6% (ver nota al pie: el 28,4% del lote F estaba 15 filas corto). Reparto: rama 1 (movimiento dentro de una CC) 5.024, rama 2 (espejo) 2.893, rama 3 (motivo + rubro) 15. Las 1.375 filas que siguen en guion son movimientos sueltos sin owner resoluble, que es el comportamiento esperado. |
+| 5 | **Atribucion correcta, no solo presente**, contrastada contra SQL por rama | **PASS** | Replica independiente de la cascada en SQL (vistas `v_attr`/`v_attr2`, armadas leyendo el diff y no la descripcion del implementador) y cruce **fila por fila de las 9.307**: **0 mismatches de `ownerTipo` y 0 de `ownerNombre`**. Contra el algoritmo anterior: **0 filas cambiaron de nombre** y **0 perdieron** el nombre que tenian. Por rama: (a) dentro de CC - 5.024 filas, y **ninguna** tiene `OwnerId` propio que pudiera contradecir a la cuenta (0 conflictos); (b) espejo con `OwnerId` propio - 2.862, el caso ambiguo 10345 (`OwnerId=4`, cliente 4 "X Escuela media n 21" vs proveedor 4 "Francisco Millan") sigue resolviendo por la **tabla correcta**: Proveedor "Francisco Millan"; (c) espejo **sin** `OwnerId` - 31 filas, todas resueltas por la CC de origen y verificadas una a una (ej. 1043 "Libreria Belgrano", 1153 Proveedor "CopyMatic"); (d) suelto por rubro de motivo - 15 filas, las 15 con el mismo nombre que daba el algoritmo viejo. **No evaluable por falta de datos:** espejos cuyo movimiento ORIGEN tenga baja logica (0 casos en esta base), declarado. |
+| 6 | Regresiones: mismas filas listadas, nada dado de baja a la vista, saldo, anuladas, orden, paginacion y filtros | **PASS** | (a) **Mismas filas:** 9.307 servidas y el **conjunto de ids es identico** al de la consulta SQL de movimientos vivos en cuentas vivas (0 ids de mas, 0 de menos); cuenta 11 = **1.039** y cuenta 43 = **91**, iguales al lote F. (b) **Nada dado de baja en los listados:** `/Clientes` 115, `/Cuentas` 107, `/Proveedores` 15 = exactamente los vivos en base (115/107/15); el `IgnoreQueryFilters` quedo confinado a la resolucion del dato. (c) **Saldo acumulado:** los **1.039** acumulados de la cuenta 11 recalculados de cero coinciden uno a uno, y el ultimo da **791.071,73** = el del encabezado. (d) **Anulada en "—" y no en 0:** con el fixture sobre 10292 la fila devuelve `saldoAcumulado: null`, sigue listada, **conserva el nombre** ("Gustavo Rodriguez") y la cadena se recalcula excluyendola (791.071,73 -> 1.191.071,73). (e) **Orden por defecto** `[[0,"desc"]]` en las dos grillas; **columna no ordenable** (`sorting_disabled`, y un click en el `<th>` deja las filas byte a byte iguales); `importeconsigno`, `numerocomprobante` y `motivonombre` siguen reordenando de verdad. (f) **Paginacion** 1->2->3->2->1 en `/Movimientos`: paginas 1 y 2 vuelven identicas, sin perder nombres. (g) **Filtros:** rango 01-18/03/2026 -> **26**, Tipo Ingreso -> **364**, comprobante 72023 -> **1**, motivo 7 "Combustible" -> **44**: los cuatro iguales al lote F y a SQL. (h) 9 `<th>` = 9 `columns` en las dos grillas, **0 errores de consola** y **0 errores en el log de la app** en todo el recorrido. |
+| 7 | **ELV-013** no empeoro | **PASS** | `#filterMotivo` en `/Cuentas/Details/11` sigue teniendo **1 sola opcion** ("Todos"), igual que en el lote F; `#filterTipo` sigue con 4. El filtro por motivo funciona del lado del servidor (`motivoId=7` -> 44 registros), asi que el defecto sigue siendo solo el combo. Sin cambios, ni mejor ni peor. |
+
+### Estado de los tres items
+
+| Item | Estado |
+|---|---|
+| **ELV-011** | **CERRADO.** Fix verificado en pantalla y con SQL; 216/216 filas recuperadas. |
+| **ELV-012** | **CERRADO.** 91/91 en la cuenta 43 y 5.024 filas de CC resueltas en toda la base. |
+| **ELV-013** | **SIGUE ABIERTO**, preexistente, no empeoro. Parte ya emitido en el lote F. |
+| **ELV-014** | **NUEVO**, minor, parte emitido abajo. |
+| ELV-009 | **SIGUE ABIERTO**, preexistente: `/Movimientos` declara 9.748 y sirve 9.307. No agravado. |
+| ELV-004 / ELV-001 / ELV-002 | **ABIERTOS**, decision del owner / fuera de alcance. |
+
+### Cobertura del catalogo cross-proyecto ejecutada sobre este fix
+
+| Item | Resultado |
+|---|---|
+| LP-057 / ELV-011 (query filter a medias en una resolucion polimorfica) | **PASS** - las 4 consultas de `ResolverOwnersAsync` ignoran el filtro, y se verifico que ignorarlo **no cambio que filas se listan** (criterio 6a/6b). |
+| MH-001 / MH-050 (`IN` desde coleccion local) | **PASS** - los 2 `IN` nuevos van sobre `List<int>`; una pagina de 20.000 filas se sirvio sin 500 y sin guarda de lista vacia (corolario de la regla: si se rompiera, se romperia desde la primera carga). |
+| DN-001 / DN-002 (Include + OrderBy dinamico + Skip/Take) | **PASS** - el fix **quita** 2 Include; orden por 3 columnas x 2 direcciones + paginacion, 0 excepciones. Se verifico ademas que `Movimiento.DescripcionMovimiento` (lo unico que usaba `MovimientoOrigen.Cuenta`) **no se consume en ninguna vista ni en el DTO**, asi que sacar el Include no dejo un "Desconocido" en pantalla. |
+| ELV-005 (anulada con acumulado 0) | **PASS** - guion y no 0, con el nombre puesto (criterio 6d). |
+| ELV-006 / MH-015 / MH-018 (columna ordenable que el servicio no ordena) | **PASS** - columna nueva inerte; las ordenables ordenan; la rama default respeta la direccion. |
+| CRM-026 / CRM-027 / MH-033 / MH-034 / MH-060 / MH-061 / LP-004 | **N/A** - sin migracion, sin minimal APIs, sin caja ni impuestos en el alcance. |
+| OLV-006 / LP-017 (columna visible que el buscador no alcanza) | **No se evalua** - decision cerrada del lote F. |
+
+### Parte de defecto emitido
+
+**ELV-014 - minor - NUEVO, del fix.** El movimiento de la cuenta corriente y su espejo se atribuyen a dos
+personas distintas en **28 pares de 2.677** visibles. `ResolverOwnerRef` rama 1 toma el owner de la cuenta
+corriente; rama 2 prefiere el `OwnerId` del propio espejo, que en los datos migrados apunta a una ficha
+vieja. Caso testigo: el movimiento 685 vive en la CC 115 de el cliente 188 "Escuela 9 y 38 Gabriela" y su
+espejo 686 lleva `OwnerId=155`, cuya CC 113 fue dada de baja el **2023-04-22, cuatro dias antes del
+movimiento**. **No es regresion:** el espejo muestra el mismo nombre que mostraba antes del fix (0 nombres
+cambiados sobre 9.307). *Hipotesis de fix (no instruccion):* en la rama 2 invertir la precedencia y tomar
+primero `cco.OwnerId`, dejando `m.OwnerId` de respaldo - no puede bajar la cobertura, porque el 100% de los
+espejos tiene CC de origen con owner. Alternativa: corregir los 44 `OwnerId` inconsistentes en la base, que
+es decision del owner. **Criterio de re-verificacion:** el cruce de los 2.677 pares del listado global
+devuelve 0 discrepancias de `ownerNombre`, los pares 685/686 y 941/942 dicen lo mismo en las dos pantallas,
+y la cobertura no baja de 7.932/9.307.
+
+### Maquina de estados
+
+Sigue sin haberla: el fix es resolucion de lectura. No se escribe nada, no hay transicion nueva. Verificado
+por el lado del efecto: la base cerro con los mismos conteos (10.396 movimientos, 0 anulados, 124 clientes
+con baja logica) y las dos fixtures revertidas.
+
+### Riesgos de liberacion
+
+- **Deployar: riesgo bajo.** Ninguna fila cambio de nombre, ninguna lo perdio, ningun listado se movio y
+  ninguna entidad dada de baja aparecio donde no estaba. El costo del fix son 2 consultas mas por pagina,
+  ya ejercitadas con una pagina de 20.000 filas.
+- **Anunciarle la mejora al cliente: habilitado.** Francisco pidio ver quien genero el movimiento y pasa de
+  verlo en 29 de cada 100 filas a verlo en **85**. La pantalla de cuenta corriente, que era la que no lo
+  mostraba nunca, ahora lo muestra en el 100%.
+- **ELV-014 antes de que lo vea el cliente.** Son 28 pares y el sintoma es incomodo de explicar (la misma
+  operacion con dos nombres). No bloquea el deploy, pero conviene cerrarlo antes de que alguien compare las
+  dos pantallas.
+- **Deuda que este fix no toco:** ELV-009 y ELV-013 siguen abiertos en las mismas dos pantallas.
+
+### Checklist de merge (lote G)
+
+- [x] `dotnet build Eleven.slnx` -> 0 errores, 8 warnings NU1902 preexistentes.
+- [x] Sin migracion EF ni cambios de esquema (verificado contra el diff).
+- [x] Cruce fila por fila de las 9.307 filas contra replica SQL independiente: 0 mismatches.
+- [x] 0 nombres cambiados y 0 nombres perdidos respecto del algoritmo anterior.
+- [x] Conjunto de ids servidos identico; `/Clientes`, `/Cuentas` y `/Proveedores` sin filas dadas de baja.
+- [x] Saldo acumulado, anuladas, orden, columna inerte, paginacion y 4 filtros revalidados.
+- [x] Repo del sistema **read-only**: `git status --porcelain` final = solo el cambio del implementador
+      (`M Eleven.Infrastructure/Services/MovimientoService.cs`) y `?? contadores_a_corregir.csv`, los dos
+      preexistentes a esta corrida. `Eleven.Web/keys/` generado por el arranque, borrado.
+- [x] Fixtures de base revertidas y verificadas (password, anulacion del 10292, vistas SQL).
+- [x] **ELV-011 y ELV-012 CERRADOS.**
+- [x] **GO para deployar a produccion** y para anunciar la mejora.
+- [ ] **ELV-014 al Implementador** (minor, no bloquea el deploy).
+- [ ] **ELV-013 al Implementador** (preexistente, sigue pendiente del lote F).
+- [ ] ELV-009 sigue en backlog, decision del owner.
+- [ ] Re-verificacion de ELV-014 en **contexto nuevo**, con el criterio de vuelta en FAIL.
+
+**Correccion de un numero del lote F:** ahi se midio la cobertura del algoritmo viejo en **2.646/9.307 =
+28,4%** y se afirmo que la rama 3 (motivo + rubro) entraba **0 veces**. Medido de nuevo con SQL sobre toda
+la poblacion, la rama 3 entra **15 veces** y la cobertura vieja era **2.661 = 28,6%**. La diferencia no
+cambia ninguna conclusion del lote F, pero la rama 3 **si estaba ejercitada por datos reales** y ahora sigue
+dando los mismos 15 nombres.
+
+---
+
+## QA — Lote 2026-10-19 F: ELV-010 (cliente/proveedor en los movimientos)
+
+**Ultima validacion de reglas cross-proyecto: 2026-10-19.** (Reemplaza al 2026-10-01 de los lotes A-E.
+`git log --since=2026-10-01` sobre `32-estandares-qa-implementador.instructions.md` y
+`docs/qa/regresiones-manuales.yml`: 17 commits. Reglas agregadas/modificadas desde entonces y su veredicto
+sobre este sistema: **LP-057** (indice unico vs. query filter en entidad con baja logica) — *aplicable por
+familia*, y es la que puso el foco en el agujero que termino siendo **ELV-011**; **CRM-026** (enum cuyo
+primer valor es 1 y el `defaultValue` 0 de EF) — **N/A**, el lote no genera migracion ni columna nueva;
+**CRM-027** (`Results.Forbid()` en endpoint anonimo) — **N/A**, no hay minimal APIs en la solucion;
+**MH-033 / MH-034** (ledger de caja) — **N/A**; **MH-060 / MH-061** (porcentaje neto de impuestos,
+recalculo retroactivo idempotente) — **N/A**; **LP-004** (categoria de plantilla de WhatsApp) — **N/A**;
+**ELV-008** — cerrado en el lote E, no se re-abre; **OLV-EVAL-01** (un criterio solo puede juzgar lo que el
+revisor VE) — aplicada a esta corrida: todo PASS de abajo tiene evidencia observada al lado.)
+
+**Veredicto: GO para mergear ELV-010. NO-GO para deployar a produccion sin antes decidir ELV-011 y ELV-012.**
+Los 8 criterios del alcance pasan salvo el 8 (que falla por un defecto **preexistente**, ELV-013, en un
+control que este lote no toco). Los dos defectos nuevos no rompen nada de lo que habia: dejan la columna
+nueva **vacia** en escenarios donde el dato existe. El riesgo de mergear es cero; el riesgo de anunciarle la
+mejora al cliente sin resolverlos es que vea la columna vacia en el **71,6%** de las filas.
+
+**Entorno:** repo `C:/Sistemas/elevenlaplata` rama `dev` en **read-only** (verificado: `git status --porcelain`
+final identico al inicial, 10 M + 2 untracked preexistentes). App levantada local con `dotnet run
+--launch-profile https` (`https://localhost:7200`), MySQL local base `eleven` con datos reales de produccion
+(10.396 movimientos, 9.307 visibles). Servidor MCP `playwright` **disponible y usado** (primera corrida del
+proyecto con navegador real; los lotes A-E lo declararon no disponible). Build: `dotnet build Eleven.slnx`
+-> **0 errores**, 8 warnings (NU1902 preexistentes; el implementador reporto 14, la diferencia es de restore,
+no de codigo).
+
+**Fixtures de entorno (todas revertidas y verificadas):** (1) hash de password del usuario
+`no-reply@olvidata.com.ar` reemplazado para poder entrar — **original restaurado**; (2) baja logica del
+cliente 162 por la UI y luego `Activar` — **DeletedAt=NULL confirmado**; (3) `Anulado=1` sobre el movimiento
+10292 por SQL para poder observar la regresion de ELV-005 (no hay ni un movimiento anulado en la base) —
+**revertido a Anulado=0, AnuladoAt=NULL**. Se borro tambien el `Eleven.Web/keys/` que genera el arranque de
+la app, para no dejar residuos en el working tree.
+
+### Cobertura por criterio de aceptacion
+
+| # | Criterio | Resultado | Evidencia observada |
+|---|---|---|---|
+| 1 | Nombre + tipo correctos en la grilla de la cuenta (Galicia) | **PASS** | `/Cuentas/Details/11`, pagina 1: las 7 filas con owner coinciden una a una con el SQL de contraste (Francisco Millan, facultad de ciencias exactas, Esteban Impronto, Keymex - Gonnet, Alba Caucion, D y A, Gustavo Rodriguez) y el icono sigue el `TipoCuentaCorriente` de la CC origen (`fa-user`/`text-primary` para tcc=0, `fa-truck-field`/`text-secondary` para tcc=1). **Prueba fuerte de "tabla correcta":** el movimiento 10345 tiene `OwnerId=4`, que existe en las DOS tablas con nombres distintos (cliente 4 = "X Escuela media n 21", proveedor 4 = "Francisco Millan"); la grilla muestra el del proveedor. |
+| 2 | El ojito dice lo mismo que la grilla | **PASS** | Los 10 movimientos de la pagina 1 abiertos uno por uno en `/Movimientos/Details/{id}`: 10/10 identicos en nombre, en tipo (etiqueta `Cliente`/`Proveedor`) y en icono. Los 3 sin owner caen a la etiqueta generica "Cliente / Proveedor" con guion. Cero discrepancias. |
+| 3 | Movimiento manual sin owner: guion en grilla y en detalle, sin romper | **PASS** | Movimientos 10337, 10290 y 10315: guion gris en la columna, guion en el detalle, el resto de la fila intacto (notas "mas sillas" / "sillAS" / "celular", importe y acumulado correctos). 0 errores de JS y 0 respuestas != 200 en todo el recorrido. |
+| 4 | Cliente con baja logica: el nombre sigue apareciendo | **PASS** | Baja logica del cliente 162 "Esteban Impronto" por la UI (`POST /Clientes/Delete/162`, `DeletedAt` escrito en base, CC 108 intacta), recarga de `/Cuentas/Details/11`: la fila del movimiento 10340 **sigue mostrando "Esteban Impronto"** y el detalle tambien, con etiqueta Cliente. El `IgnoreQueryFilters()` cumple su funcion. **Pero ver ELV-011:** si la cuenta corriente TAMBIEN esta dada de baja (lo que pasa en el 100% de los casos historicos de esta base), el nombre se pierde. |
+| 5 | Criterios 1 y 3 tambien en `Movimientos/Index` | **PASS** | Listado global, pagina 1: 10396 "Libreria de Colores" (Cliente), 10394 "Francisco Millan" (Proveedor), 10389 "El Imperio (21 37 y 38)" (Cliente), 10386 "La Colmenita Santiago" (Cliente); el movimiento manual 10390 (motivo 17, sin owner) en guion. 9 `<th>` = 9 `columns`. **Ver ELV-012:** las filas cuya cuenta ES una cuenta corriente quedan en guion. |
+| 6 | Regresion ELV-005 / ELV-006 con la columna nueva | **PASS** | (a) **Saldo acumulado intacto:** los 10 acumulados de la pagina 1 forman una cadena aritmetica perfecta contra los importes (1.572.345,82 -> 791.071,73) y el ultimo coincide con el **$ 791.071,73** del encabezado de la cuenta. (b) **Anulada en guion y no en 0:** con el fixture `Anulado=1` sobre 10292 la celda renderiza `<span class="text-muted">—</span>` y los demas acumulados se recalculan excluyendola. (c) **Orden por defecto:** `table.order()` = `[[0,"desc"]]` = Fecha descendente. (d) **Cabecera no clickeable:** `aoColumns[4].bSortable === false` y un click sobre el `<th>` "Cliente / Proveedor" deja las filas **byte a byte iguales**. (e) De paso, el fix de ELV-006 sigue vivo: Nro. Comprobante, Motivo e Importe reordenan de verdad (asc y desc). |
+| 7 | Paginacion ida y vuelta sin perder nombres | **PASS** | `/Cuentas/Details/11` recorrido 1 -> 2 -> 3 -> 2 -> 1: pagina 2 y pagina 1 vuelven **identicas** a la primera visita (comparacion de la lista `id=nombre` completa). Ninguna fila con owner perdio el nombre al cambiar de pagina. Repetido con un orden no-default activo (Importe desc) + paginacion: sin errores y con los nombres puestos. |
+| 8 | Los filtros existentes siguen funcionando | **FAIL** | Rango de fechas (01/03/2026-18/03/2026) -> **26 registros** = SQL. Tipo = Ingreso -> **364** = SQL. Nro. comprobante 72023 -> **1 fila**, con `nc=72023`. "Limpiar" vuelve a 1.039 en los tres casos. **Pero el combo "Motivo" tiene una sola opcion ("Todos"), asi que el filtro por motivo es inoperable** -> defecto **ELV-013**, **PREEXISTENTE**: ni `CuentasController` ni el bloque de filtros de la vista estan tocados por este lote. |
+
+### Cobertura del catalogo cross-proyecto ejecutada sobre este lote
+
+| Item | Resultado |
+|---|---|
+| MH-001 / MH-050 (`IN` desde coleccion local) | **PASS** — el `IN` de `ResolverOwnersAsync` va sobre `List<int>`; las dos grillas sirven paginas sin 500 (1.039 y 9.748 registros declarados, paginacion y orden ejercitados). |
+| MH-015 / MH-018 / CRM-003 / ELV-006 (columna ordenable sin rama en el switch) | **PASS** — la columna nueva es `orderable: false` y el header es inerte; las ordenables reordenan de verdad. |
+| ELV-005 (anulada con acumulado 0) | **PASS** — guion, no 0, con la columna nueva en pantalla. |
+| ELV-007 (comprobante 0 pintado como ausente) | **PASS** — el render distingue `0` de vacio (verificado con el filtro de comprobante). |
+| DN-001 / DN-002 (Include + OrderBy dinamico + Skip/Take -> NullReference) | **PASS** — los 2 Include nuevos son de referencia; orden por 4 columnas x 2 direcciones + paginacion, 0 excepciones y 0 respuestas != 200. |
+| OLV-006 / LP-017 (columna visible que el buscador no alcanza) | **No se evalua** — decision cerrada del lote: el buscador y los filtros no alcanzan la columna nueva. |
+| ELV-009 (recordsTotal vs filas servidas) | **SIGUE ABIERTO, preexistente** — `/Movimientos` declara 9.748 y la base tiene 9.307 visibles. Confirmado, no agravado por este lote. |
+| OLV-007 (Select2 roto por `data-select2`) | **N/A** — los filtros son `<select>` planos. |
+| LP-006 (hora en 12h sin AM/PM) | **N/A** — las grillas muestran fecha sin hora. |
+
+### Defectos y partes emitidos
+
+1. **ELV-011 — medium — NUEVO, del lote.** El nombre se pierde cuando la **cuenta corriente** del movimiento
+   origen tiene baja logica. El `IgnoreQueryFilters()` se aplico a `Clientes`/`Proveedores` (de donde sale el
+   **nombre**) pero no a la navegacion `MovimientoOrigen.Cuenta`, de donde sale el **tipo**: con la CC
+   borrada, EF deja la navegacion en null, la rama 2 de la cascada no resuelve y la funcion devuelve null.
+   **Reproduccion:** `/Movimientos/Details/7289` y `/Movimientos/Details/7426` (OwnerId=184, cliente
+   "Posta 73", `DeletedAt` 2025-08-01, CC 96 tambien dada de baja) -> etiqueta generica y guion.
+   **Alcance medido:** 216 movimientos vivos; y en esta base **los 8 clientes con baja logica tienen la CC
+   tambien dada de baja**, asi que el `IgnoreQueryFilters` no salva ningun caso historico real — solo el caso
+   sintetico en que se da de baja el cliente y no su cuenta.
+   *Hipotesis de fix (del catalogo, no instruccion):* `MovimientoService.cs` — resolver el tipo con una
+   consulta por lote sobre `Cuentas` con `IgnoreQueryFilters()` en vez de leerlo de la navegacion incluida.
+   **Criterio de re-verificacion:** el movimiento 7289 muestra "Posta 73" con etiqueta e icono de Cliente en
+   grilla y detalle, sin reactivar ni el cliente ni la cuenta; y el total de filas con nombre sube de 2.646 a
+   ~2.862 sobre 9.307.
+
+2. **ELV-012 — minor — NUEVO, del lote.** Los movimientos que viven **dentro** de una cuenta corriente tienen
+   `OwnerId` null en **5.465 de 5.465** casos, porque `CreateUnificadoAsync` copia el owner solo al espejo.
+   Resultado: la columna esta vacia en el **100%** de las filas de toda pantalla de cuenta corriente
+   (observado en `/Cuentas/Details/43`, 91 registros, 10/10 en guion) y en el **56%** del listado global, con
+   el efecto raro de que la fila espejo si muestra el nombre y la original no. La **rama 1** de
+   `ResolverTipoOwner` es codigo muerto: la guarda `OwnerId is not > 0` descarta el movimiento antes de
+   llegar a ella. **La rama 3** (motivo + rubro) tambien entra **0 veces** sobre 9.307 movimientos vivos, o
+   sea que el riesgo que el implementador declaro para esa rama hoy no existe — pero tampoco quedo verificada.
+   *Hipotesis de fix:* cuando `m.Cuenta is CuentaCorriente`, tomar `cc.OwnerId` + `cc.TipoCuentaCorriente` en
+   lugar de exigir `m.OwnerId`. **Criterio de re-verificacion:** `/Cuentas/Details/43` muestra "Libreria de
+   Colores" con icono de Cliente — **o** el owner decide por escrito que esa columna no se pinta ahi, y
+   entonces el criterio pasa a ser documental.
+
+3. **ELV-013 — minor — PREEXISTENTE, no del lote.** El combo "Motivo" de `Cuentas/Details` tiene una sola
+   opcion: `ViewBag.Motivos` es `Dictionary<int,string>` y la vista lo testea con
+   `is IEnumerable<SelectListItem>`, que da false sin excepcion ni log. *Hipotesis de fix:* proyectar a
+   `SelectListItem` en el controller (como ya hace `MovimientosController.CargarCombosAsync`) **o** iterar el
+   diccionario en la vista. **Criterio de re-verificacion:** el combo lista los motivos y "Combustible" sobre
+   la cuenta 11 devuelve 44 registros.
+
+**Dato que el implementador dejo pendiente de medir, medido aca (sobre la base local con datos de
+produccion):** la columna muestra nombre en **2.646 de 9.307** filas visibles = **28,4%**. Descomposicion de
+lo que falta: 5.465 filas de cuentas corrientes (ELV-012), 216 por CC dada de baja (ELV-011) y el resto son
+movimientos manuales sin owner, que es el comportamiento esperado.
+
+### Estado de los defectos de la corrida anterior
+
+| Item | Estado |
+|---|---|
+| ELV-008 | **CERRADO** en el lote E, no se re-abrio en esta corrida. |
+| ELV-005 / ELV-006 / ELV-007 | **CERRADOS**; re-verificados como regresion en este lote (criterio 6) y siguen cerrados. |
+| ELV-009 | **ABIERTO, preexistente.** Confirmado otra vez (9.748 declarados vs 9.307 servibles). No agravado. |
+| ELV-004 | **ABIERTO**, decision del owner, fuera de este alcance. |
+| ELV-001 / ELV-002 | **ABIERTOS**, escalados, fuera de este alcance. |
+
+### Maquina de estados
+
+El lote **no tiene maquina de estados**: es una columna de lectura. No hay transicion nueva, no se escribe
+nada, no cambia ningun estado de movimiento, cuenta, cliente ni proveedor. Verificado por el lado del efecto:
+los dos endpoints tocados (`GetDataTable`, `Details`) son GET/POST de lectura y la base quedo con los mismos
+conteos al terminar.
+
+### Riesgos de liberacion
+
+- **Mergear: riesgo bajo.** Ningun comportamiento previo cambio. La columna agrega informacion y las 5
+  pasadas de QA del ciclo anterior (orden, saldo acumulado, anuladas, paginacion, filtros) siguen pasando con
+  ella en pantalla.
+- **Deployar y anunciarle la mejora al cliente: riesgo medio.** Francisco pidio ver "el cliente o proveedor
+  que genero el movimiento" y hoy lo ve en 28 de cada 100 filas. En la pantalla de una cuenta corriente —
+  donde el dato es trivial de resolver — no lo ve nunca. La mejora **funciona** donde el implementador la
+  apunto (la cuenta Galicia de la captura) y es ahi donde se la puede mostrar; el resto de las pantallas
+  conviene cerrarlo antes de anunciarla.
+- **Deuda que este lote no toco:** ELV-009 y ELV-013 siguen abiertos en las mismas dos pantallas.
+
+### Checklist de merge (lote F)
+
+- [x] `dotnet build Eleven.slnx` -> 0 errores, 8 warnings (todos NU1902 preexistentes).
+- [x] Sin migracion EF ni cambios de esquema (confirmado: no hay entidad ni configuracion tocada).
+- [x] 9 `<th>` = 9 `columns` en las dos grillas, verificado en el DOM servido.
+- [x] Columna nueva `orderable: false` y cabecera inerte, coherente con el switch de `SortColumn`.
+- [x] Grilla y detalle dicen lo mismo en 10/10 movimientos (criterio prioritario 2).
+- [x] Repo del sistema **read-only**: `git status --porcelain` final identico al inicial.
+- [x] Fixtures de base revertidas y verificadas (password, baja del cliente 162, anulacion del 10292).
+- [x] **GO para mergear ELV-010.**
+- [ ] **ELV-011 y ELV-012 al Implementador** antes de deployar y antes de anunciarle la mejora al cliente.
+- [ ] **ELV-013 al Implementador** (preexistente, no bloquea este merge).
+- [ ] ELV-009 sigue en backlog, decision del owner.
+- [ ] Re-verificacion de ELV-011/ELV-012 en **contexto nuevo**, con los criterios de vuelta en FAIL.
 
 ---
 

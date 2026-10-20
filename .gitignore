@@ -9,3 +9,7 @@ docs/credenciales.local.md
 
 # Memorias de agente escritas en el cwd de una corrida — su lugar es .claude/agent-memory/ en la raiz.
 docs/**/.claude/
+
+# Cache de Python de los scripts.
+__pycache__/
+*.pyc

@@ -212,3 +212,186 @@ JS de las 3 vistas tocadas validado con `node --check` tras strip de expresiones
 - [ ] **ELV-004 y la causa de fondo de ELV-006 quedan "aplicado, pendiente de re-verificación"** — el cierre lo declara QA.
 - [x] ~~Sumar el saneamiento de los contadores en negativo de la máquina 6 a la planilla.~~ **No corresponde:** producción no tiene contadores negativos (verificado 2026-10-01). Los negativos vivieron solo en el clon de QA.
 - [ ] **No deployar, no commitear** — lo autoriza el owner aparte.
+
+## Implementación — ELV-010 (mejora): cliente/proveedor en los movimientos
+
+Pedido del cliente (Francisco, 2026-10-19 por WhatsApp, sobre la pantalla de cuenta): *"ahí en las operaciones
+también aparecía el cliente o proveedor que generó el movimiento, no sé si se puede agregar una columna, o por lo
+menos que te muestre el dato cuando entramos al ojito"*. Es una **mejora, no un defecto**, y entró como P3 por el
+flujo normal (se evaluó y descartó la vía rápida de `42-incidente-produccion`: no hay caída ni datos corrompiéndose).
+
+**Sin migración EF, sin cambios de esquema.** `dotnet build Eleven.slnx` → "Compilación correcta", **0 errores**,
+14 warnings, todos preexistentes. JS de las 2 vistas validado con `node --check`.
+
+### Resultado del escaneo de reutilización
+- `docs/patrones/cat_resumen.txt` → **PAT-008** (DataTables server-side + filtro por columna visible) es lo único
+  cercano, y cubre el chasis de la grilla que este proyecto **ya tiene**; no aporta nada sobre resolver una FK
+  polimórfica. Sin entrada para "owner polimórfico" / "FK sin discriminador".
+- **La reutilización que valió fue interna y de otra clase: el código legacy del propio repo.**
+  `Eleven.Application/Migration-Legacy/Models/Movimiento.cs` (líneas 66-140) tiene la regla de negocio completa
+  en las propiedades `OwnerType`/`Owner`, que la migración a Clean Architecture borró — con razón, porque
+  instanciaban un `ApplicationDbContext` **dentro de la entidad** y hacían un `Find` por fila al pintar la grilla
+  (N+1, documentado en `refactoreo.md` §2.A). Lo que se borró fue la implementación, no la regla: la cascada de
+  decisión se portó tal cual a `MovimientoService`, resuelta por lote y sin DbContext en el dominio.
+- **No se agregó patrón al catálogo:** la regla es específica de este modelo de datos (un `OwnerId` sin columna
+  discriminadora), no un componente reutilizable.
+
+### El problema de fondo
+`Movimiento.OwnerId` **se venía guardando bien todo este tiempo** — `CreateUnificadoAsync` lo copia desde la cuenta
+corriente a los dos movimientos del cobro/pago (el de la CC y el espejo en la cuenta de banco/caja). Lo que faltaba
+era el traductor: `OwnerId` es un número sin columna que diga de qué tabla sale. No era un dato perdido, era un dato
+mudo.
+
+### Cambios por capa
+
+**Application**
+- `Eleven.Application/DTOs/MovimientoDtos.cs` — `MovimientoDto` suma `OwnerTipo` y `OwnerNombre` (`string?`),
+  **al final y con default `null`**: las 3 construcciones posicionales existentes (una en el Service, dos en
+  `MovimientosController`) siguen compilando sin tocarse.
+
+**Negocio / Infrastructure** — `Eleven.Infrastructure/Services/MovimientoService.cs`
+- `ResolverTipoOwner(Movimiento)` (estática, pura): la cascada portada del legacy, en orden —
+  1. el movimiento **es** de una cuenta corriente → el `TipoCuentaCorriente` de esa cuenta (caso del movimiento
+     que `CreateUnificadoAsync` escribe en la CC);
+  2. el movimiento es **espejo** de otro → el tipo de la CC del movimiento origen (**este es el caso de la pantalla
+     que miró el cliente**: la fila en la cuenta Galicia);
+  3. movimiento suelto con motivo → `Ingreso` + `Rubro.Clientes` = Cliente, `Egreso` + `Rubro.Proveedores` =
+     Proveedor (única rama del legacy que mira el motivo);
+  4. ninguna aplica → `null`. **Hay OwnerId pero no se puede afirmar de quién es, y mostrar el nombre equivocado es
+     peor que no mostrar nada.**
+- `ResolverOwnersAsync(IReadOnlyCollection<Movimiento>)`: resuelve tipo + nombre **por lote** sobre la página ya
+  materializada. Dos consultas por página como máximo, contra el `Find` por fila del legacy.
+  - **`IgnoreQueryFilters()` deliberado** sobre `Clientes` y `Proveedores`: las dos son `SoftDestroyable` y el
+    filtro global de `AppDbContext` las esconde al darlas de baja. Un movimiento de 2024 de un cliente dado de baja
+    en 2025 **igual tiene que decir a quién correspondía** — el histórico contable no se reescribe porque la ficha
+    se archive. Sin esto la columna se vaciaría sola con el tiempo: misma clase de problema que **ELV-009**
+    (movimientos invisibles por cuenta soft-deleted).
+  - El `IN` va sobre `List<int>` (MH-001 es específico de colecciones locales de `string`) y **sin guarda de lista
+    vacía**, por el corolario de esa misma regla: si alguna vez se rompiera, se rompería desde la primera carga y
+    no el día que aparece el primer dato.
+- `GetDataTableAsync` y `GetByIdAsync` suman `.Include(m => m.MovimientoOrigen).ThenInclude(mo => mo!.Cuenta)`.
+  Son dos Include **de referencia** (many-to-one): no multiplican filas, así que no aplica el patrón de dos queries
+  de DN-001/DN-002. El resto de la query (filtros, switch de `SortColumn`, `Skip`/`Take`, saldo acumulado) quedó
+  intacto.
+- `MapToDto` suma un tercer parámetro opcional `(string Tipo, string Nombre)? owner`.
+
+**Presentación**
+- `Views/Cuentas/Details.cshtml` y `Views/Movimientos/Index.cshtml` — columna **"Cliente / Proveedor"** después de
+  Motivo, con ícono según el tipo (`fa-user` azul / `fa-truck-field` gris) y `—` cuando no hay dato. Las dos grillas
+  quedaron en 9 `<th>` = 9 `columns`.
+  - **`orderable: false`**, por la regla preventiva de MH-015 que este mismo proyecto aplicó en el lote anterior:
+    el dato se resuelve **en memoria después del `Skip`/`Take`**, así que no hay rama posible en el switch de
+    `SortColumn` y una cabecera clickeable movería la flecha sin reordenar nada (que fue exactamente ELV-006).
+- `Views/Movimientos/Details.cshtml` — bloque nuevo en el "ojito", primero en la fila de Motivo. La **etiqueta es
+  el tipo resuelto** ("Cliente" / "Proveedor"), no el genérico "Cliente / Proveedor", para no obligar a deducir cuál
+  de los dos es; cae al genérico solo cuando no hay dato.
+
+### Migraciones EF generadas
+Ninguna. `OwnerId` ya existía en el esquema y no se tocó ninguna entidad del dominio.
+
+### Riesgos y supuestos
+- **El supuesto que falta medir, y es el que define la expectativa del cliente:** cuántos movimientos de producción
+  tienen `OwnerId` cargado. Los que nacen de un cobro/pago lo tienen por construcción; los cargados a mano desde
+  "Nuevo Movimiento" **no**, porque ese formulario nunca pidió cliente/proveedor (`MovimientoCreateViewModel` no
+  tiene el campo). En la captura que mandó Francisco, "Obra 68 / edelap vecina" y "Combustible" son de ese tipo y
+  van a mostrar `—`. **Hay que medirlo en la base productiva antes de anunciarle la mejora**, o se la anuncia y ve
+  media columna vacía.
+- El buscador general y los filtros de la grilla **no alcanzan** a la columna nueva (se resuelve en memoria, después
+  del filtrado). Es coherente con `saldoAcumulado`, que ya funciona así.
+- La rama 3 de la cascada (por `Motivo.Rubro`) es la más débil: hereda del legacy la suposición de que un ingreso
+  con motivo de rubro Clientes tiene un `OwnerId` que es un cliente. Si en la base hay un movimiento con rubro mal
+  cargado, el nombre que muestre va a ser el de la tabla equivocada. Las ramas 1 y 2 son estructurales y no tienen
+  ese riesgo.
+
+### Pruebas mínimas requeridas para QA
+1. **El caso del cliente** — entrar a la cuenta Galicia (la de la captura) y confirmar que los movimientos que
+   vienen de un cobro/pago muestran el nombre del cliente/proveedor en la columna nueva, y que el tipo del ícono
+   coincide con la cuenta corriente de origen.
+2. **El ojito** — abrir el detalle de esos mismos movimientos: el nombre y el tipo tienen que ser **los mismos** que
+   muestra la grilla. Una discrepancia entre las dos pantallas es el fallo más probable de este cambio.
+3. **Movimiento manual** — uno cargado desde "Nuevo Movimiento" sin owner: columna en `—` y detalle en `—`, sin
+   error ni fila rota.
+4. **Cliente/proveedor dado de baja** — dar de baja (lógica) un cliente con movimientos y recargar la grilla: el
+   nombre **tiene que seguir apareciendo**. Es la razón del `IgnoreQueryFilters` y no se puede verificar leyendo
+   el código.
+5. **Las dos grillas** — repetir 1 y 3 en `Movimientos/Index` (listado global), no solo en la pantalla de cuenta.
+6. **Regresión de ELV-005/ELV-006** — con la columna nueva en pantalla: el saldo acumulado de cada fila sigue
+   igual, las filas anuladas siguen pintando `—` y no `0`, el orden por defecto sigue siendo Fecha descendente, y
+   la cabecera "Cliente / Proveedor" **no** debe ser clickeable.
+7. **Paginación** — barrido ida y vuelta con 2+ páginas: ninguna fila debe quedar sin nombre al pasar de página
+   (sería el síntoma de que el lote se resuelve mal).
+8. **Filtros** — rango de fechas, tipo, motivo y nro. de comprobante siguen funcionando con la columna nueva.
+
+### Checklist de salida para merge
+- [x] Build limpio, 0 errores, sin warnings nuevos.
+- [x] Sin migración EF ni cambios de esquema.
+- [x] Lógica de negocio en el Service; las vistas solo pintan.
+- [x] JS de las 2 vistas validado con `node --check`.
+- [x] Conteo `<th>` ↔ `columns` revalidado en las 2 grillas (9 = 9).
+- [x] Columna no ordenable, coherente con el switch de `SortColumn` (regla preventiva MH-015).
+- [ ] **Medir en producción cuántos movimientos tienen `OwnerId`** — antes de anunciarle la mejora al cliente.
+- [ ] QA sobre las 8 pruebas de arriba, con prioridad en 2 y 4.
+- [ ] **Queda "aplicado, pendiente de verificación"** — el cierre lo declara QA, no este rol.
+- [ ] **No deployar, no commitear** — lo autoriza el owner aparte.
+
+### Decisiones abiertas para el orquestador / Joaquín
+1. **Campo cliente/proveedor en el alta manual de movimientos.** Hoy "Nuevo Movimiento" no lo pide, así que todo
+   movimiento cargado a mano nace sin owner y la columna queda vacía para siempre. **No se implementó a propósito:**
+   Francisco pidió *ver* el dato, no cargarlo, y sumar el campo cambia un formulario de alta en producción. Si se
+   decide, es un cambio chico (un Select2 en `MovimientoCreateViewModel` + el tipo a elegir, porque en una cuenta
+   común no hay cuenta corriente que lo desambigüe).
+2. **Filtro por cliente/proveedor en la grilla.** La preferencia del estudio es "columna visible = filtro
+   disponible" (PAT-008), y esta columna no lo cumple. Se puede hacer, pero obliga a replicar la cascada de
+   `ResolverTipoOwner` **en SQL** dentro de `GetDataTableAsync`, sobre una query que acaba de salir de 5 pasadas de
+   QA por el orden y el saldo acumulado. No se tocó sin que se pida.
+
+## Implementación — ELV-011 y ELV-012: la atribución deja de depender de las navegaciones filtradas
+
+Partes de defecto del lote F de QA (2026-10-19), sobre la entrega de ELV-010 de más arriba. **Los dos son
+míos**, no preexistentes. Aplicado el mismo día; **sin migración EF, sin cambios de esquema, sin tocar vistas ni
+el DTO** — todo en `Eleven.Infrastructure/Services/MovimientoService.cs`. Build: 0 errores.
+
+### Qué estaba mal
+
+**ELV-011 (medium).** El `IgnoreQueryFilters()` de la primera versión cubría la consulta del **nombre**
+(`Clientes` / `Proveedores`) pero no la del **tipo**, que se leía por navegación (`m.Cuenta`,
+`m.MovimientoOrigen.Cuenta`). El filtro global de soft delete devuelve esas navegaciones en `null` cuando la
+cuenta tiene baja lógica, así que la cascada se cortaba **antes** de llegar a la parte protegida. Resultado medido
+por QA: 216 filas sin nombre, y **los 8 clientes con baja lógica de la base caen todos en ese caso** — o sea, el
+`IgnoreQueryFilters` no salvaba ni un solo histórico real. Protegía la mitad del camino y daba la sensación de
+estar resuelto, que es lo peor de los dos mundos.
+
+**ELV-012 (minor).** La rama 1 de la cascada leía `Movimiento.OwnerId` cuando el movimiento vive **dentro de** una
+cuenta corriente. QA midió que ahí ese campo es `null` en **5.465 de 5.465** casos: el dato vive en la cuenta
+(`CuentaCorriente.OwnerId`), no en el movimiento. La rama era código muerto y la columna quedaba vacía en el 100%
+de las pantallas de cuenta corriente, con el detalle feo de que la fila espejo mostraba el nombre y la original no.
+
+### Qué se cambió
+
+- `ResolverTipoOwner` → **`ResolverOwnerRef`**: ya no devuelve solo el tipo sino **tipo + ownerId**, porque el
+  owner no siempre sale del movimiento. Rama 1: de la cuenta corriente. Rama 2 (espejo): del movimiento si lo
+  tiene y, si no, de la cuenta corriente de origen. Rama 3 (motivo + rubro): del movimiento, como antes.
+- El tipo ya **no se lee por navegación**. `ResolverOwnersAsync` arma dos diccionarios con consultas propias que
+  **ignoran los query filters** — la cuenta de cada movimiento origen, y cuáles de todas esas cuentas son
+  corrientes con su tipo y su owner — y la cascada decide contra esos diccionarios. Cuatro consultas por página
+  como máximo, todas con `IgnoreQueryFilters()`.
+- Se quitaron los `Include` de `MovimientoOrigen.Cuenta` de `GetDataTableAsync` y `GetByIdAsync`: la resolución ya
+  no depende de ellos, y la query principal queda con los joins que tenía antes de ELV-010.
+
+### La regla que hay que recordar de esto
+**Ignorar el filtro de soft delete en el último paso de una cadena de resolución no sirve de nada si un paso
+anterior lo respeta.** La protección vale lo que vale el eslabón más filtrado, y el síntoma es engañoso: el código
+dice `IgnoreQueryFilters()` bien visible, así que una revisión por lectura lo da por cubierto. Solo se detecta
+ejecutando contra datos con bajas lógicas reales. Candidata a regla preventiva de `32` si vuelve a aparecer en otro
+proyecto — todavía no se agregó al catálogo cross-proyecto porque es la primera vez que se ve.
+
+### Lo que se mantuvo a propósito
+- Que ignorar los filtros sea **solo para resolver el dato que se muestra**: la query de la grilla conserva todos
+  sus filtros, así que **qué filas se listan no cambió**. Es un criterio de verificación explícito de la corrida.
+- El resto de las decisiones de ELV-010 (columna no ordenable, fuera del buscador, sin campo en el alta manual).
+
+### Estado
+**Aplicado, pendiente de re-verificación.** El cierre de ELV-011 y ELV-012 lo declara QA en la corrida siguiente,
+con los criterios de re-verificación que el propio parte fijó (`/Movimientos/Details/7289` mostrando "Posta 73";
+`/Cuentas/Details/43` mostrando "Libreria de Colores") más la medición nueva de cobertura, que en el lote F daba
+2.646 de 9.307 filas (28,4%). **No se deploya hasta ese GO.**

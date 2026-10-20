@@ -16,7 +16,7 @@ Uso:
 Salida: 0 = sin errores (puede haber avisos) | 1 = hay errores.
 Origen: auditoria documental 2026-09-15 (5 hallazgos, 4 de ellos de precio).
 """
-import io, os, re, subprocess, sys, glob
+import io, os, re, subprocess, sys, glob, datetime
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(RAIZ)
@@ -268,7 +268,8 @@ TECHO_MEMORIA = 150 * 1024      # techo objetivo por archivo de memoria
 TECHO_MEMORIA_ERR = 250 * 1024  # a partir de aca ya degrada el arranque de los agentes
 
 def chequear_techo_memoria():
-    memorias = [p for p in sorted(glob.glob("docs/*/definiciones/*.md") + glob.glob("docs/*/trazabilidad.md"))
+    memorias = [p for p in sorted(glob.glob("docs/*/definiciones/*.md") + glob.glob("docs/*/trazabilidad.md")
+                                  + glob.glob("docs/*/incidentes.md"))
                 if "historial" not in p]
     pasados = sorted(((os.path.getsize(p), p) for p in memorias
                       if os.path.getsize(p) > TECHO_MEMORIA), reverse=True)
@@ -284,6 +285,46 @@ def chequear_techo_memoria():
             "(python scripts/archivar_memoria.py <archivo> --aplicar)"
             % (len(leves), TECHO_MEMORIA / 1024,
                ", ".join("%s (%.0f KB)" % (p, t / 1024.0) for t, p in leves[:4])))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Incidentes de produccion (instruccion 42).
+# El paso que se cae en una emergencia nunca es el fix: es el cierre en frio.
+# Mientras el INC no esta 'cerrado' (= paso la corrida de QA independiente), es
+# deuda abierta — y la deuda que no se ve no se paga.
+# ─────────────────────────────────────────────────────────────────────────────
+DIAS_INC_AVISO = 7
+DIAS_INC_ERROR = 30
+
+def chequear_incidentes_abiertos():
+    hoy = datetime.date.today()
+    for p in sorted(glob.glob("docs/*/incidentes.md")):
+        proyecto = os.path.basename(os.path.dirname(p))
+        inc = estado = None
+        for i, l in enumerate(lineas(p), 1):
+            cab = re.match(r"^### +(INC-\d+)\b(.*)$", l)
+            if cab:
+                inc = cab.group(1)
+                m = re.search(r"estado: *([a-z]+)", cab.group(2))
+                estado = m.group(1) if m else "sin estado"
+                continue
+            if not inc:
+                continue
+            m = re.match(r"^- +\*\*abierto:\*\* *(\d{4}-\d{2}-\d{2})", l)
+            if not m or estado == "cerrado":
+                continue
+            try:
+                abierto = datetime.datetime.strptime(m.group(1), "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            dias = (hoy - abierto).days
+            if dias > DIAS_INC_ERROR:
+                err("%s:%d: %s (%s) lleva %d dias sin cerrar en frio (instruccion 42, paso 5): "
+                    "falta la corrida de QA independiente que lo cierra"
+                    % (p, i, inc, proyecto, dias))
+            elif dias > DIAS_INC_AVISO:
+                avi("%s:%d: %s (%s) lleva %d dias en estado '%s': el cierre en frio vence a las 48 h"
+                    % (p, i, inc, proyecto, dias, estado))
+            inc = None
 
 def chequear_resumenes_al_dia():
     """Los cat_resumen.txt son el indice por el que entran los agentes: si quedan viejos,
@@ -391,6 +432,7 @@ def main():
     chequear_ids_reglas()
     chequear_techo_memoria()
     chequear_reglas_com()
+    chequear_incidentes_abiertos()
     if not FAST:
         chequear_precios_con_traza()
         chequear_catalogo_patrones()

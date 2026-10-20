@@ -1,6 +1,6 @@
 # Métricas reales contra el plan
 > **Archivo generado — no editarlo a mano.** Lo regenera `python scripts/olvidata_datos.py metricas` leyendo el CRM productivo.
-> Snapshot del 2026-10-15. Lo que el CRM no sabe se edita en `datos-manuales.yml`.
+> Snapshot del 2026-10-20. Lo que el CRM no sabe se edita en `datos-manuales.yml`.
 
 El plan financiero (`olvidata-ceo.md`) fija la decisión de salida del Ministerio en **USD 1.173/mes de recurrente durante 6 meses seguidos**. Esta es la tabla donde ese número se mide en vez de estimarse.
 

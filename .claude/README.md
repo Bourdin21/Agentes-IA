@@ -13,6 +13,7 @@ Fuente de verdad de cada rol: `.github/agents/*.agent.md` (no se duplica logica 
 | `/agentes-ia-arquitecto-mvc` | Arquitectura tecnica | slash command | Ask |
 | `/agentes-ia-presupuestador` | Presupuesto PERT | slash command | Ask |
 | `/agentes-ia-documentador` | Resumen para cliente | slash command | Ask |
+| `/agentes-ia-emergencia` | **Incidente en produccion** (via rapida, fuera de la secuencia) | slash command | Ask + Agent |
 | subagent `agentes-ia-implementador` | Implementacion (ASP.NET Core MVC) | subagent | Agent |
 | subagent `agentes-ia-implementador-astro-front` | Implementacion (sitios institucionales Astro) | subagent | Agent |
 | subagent `agentes-ia-qa` | Pruebas funcionales | subagent | Agent |
@@ -28,6 +29,12 @@ Fuente de verdad de cada rol: `.github/agents/*.agent.md` (no se duplica logica 
 
 ```
 /agentes-ia-orquestador Proyecto: vinosefue — nueva feature: alta de promociones por rango de fechas
+```
+
+Incidente en produccion (via rapida, saltea las etapas de analisis — solo si hay caida o datos corrompiendose):
+
+```
+/agentes-ia-emergencia Proyecto: eleven-la-plata — el listado de movimientos aparece vacio para todas las cuentas desde esta mañana
 ```
 
 Implementacion (subagent, tras aprobar presupuesto):

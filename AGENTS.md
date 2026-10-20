@@ -37,6 +37,15 @@ Reglas de etapa:
 Los roles estan definidos en `.github/agents/*.agent.md` (fuente de verdad) y expuestos
 como subagentes/slash commands en `.claude/agents/` y `.claude/skills/`.
 
+**Unica excepcion a la secuencia: incidente de produccion.** Sistema caido o datos corrompiendose
+**ahora** no espera gates — entra por la via rapida de
+`.github/instructions/42-incidente-produccion.instructions.md` (triage P1/P2/P3 -> contencion -> fix
+minimo -> cierre en frio a 48 h), que saltea las cuatro etapas de analisis a proposito y conserva
+cuatro reglas: reversibilidad antes que velocidad, medir las filas antes de escribir datos, el que
+arregla declara *servicio restablecido* y no cierra el incidente, y el aviso al cliente es parte del
+fix. Un pedido urgente **sin** caida es P3 y vuelve al flujo normal. Se registra por entradas `INC-NNN`
+en `docs/<proyecto>/incidentes.md`.
+
 ## Reglas que aplican a todo cambio de codigo
 
 De `.github/instructions/00-operativa-global` y `01-fronteras-por-capa`:

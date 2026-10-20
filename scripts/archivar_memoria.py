@@ -50,7 +50,7 @@ ESTRUCTURALES = ("proyecto:", "ultima actualizacion", "última actualizacion",
 # "Contexto del negocio") es parte del estado vigente y no se archiva nunca, aunque el
 # archivo este pesado. Antes que fragmentar mal un documento, el script avisa y para.
 RE_TRABAJO = re.compile(
-    r"^(sprint\b|cr[-_ ]?\d|cr[-_ ]?[a-z]\b|m\d+\b|modulo \d|módulo \d|etapa \d|fase \d"
+    r"^(sprint\b|cr[-_ ]?\d|cr[-_ ]?[a-z]\b|inc[-_ ]?\d|m\d+\b|modulo \d|módulo \d|etapa \d|fase \d"
     r"|auditoria\b|auditoría\b|qa\b|iteracion \d|iteración \d|ronda \d|sesion \d|sesión \d"
     r"|entrega \d|\d{4}-\d{2}-\d{2})",
     re.I)
@@ -285,7 +285,8 @@ def archivar(ruta):
 
 
 def candidatos():
-    rutas = sorted(glob.glob("docs/*/definiciones/*.md") + glob.glob("docs/*/trazabilidad.md"))
+    rutas = sorted(glob.glob("docs/*/definiciones/*.md") + glob.glob("docs/*/trazabilidad.md")
+                   + glob.glob("docs/*/incidentes.md"))
     return [p for p in rutas if os.path.getsize(p) > TECHO and "historial" not in p]
 
 

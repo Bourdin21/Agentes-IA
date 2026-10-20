@@ -1,6 +1,6 @@
 # Clientes y su plan
 > **Archivo generado — no editarlo a mano.** Lo regenera `python scripts/olvidata_datos.py clientes` leyendo el CRM productivo.
-> Snapshot del 2026-10-15. Lo que el CRM no sabe se edita en `datos-manuales.yml`.
+> Snapshot del 2026-10-20. Lo que el CRM no sabe se edita en `datos-manuales.yml`.
 
 | Cliente | Sistema | Frente | Plan | Recurrente anual USD | Año 1 gratis | Alta | Próxima renovación |
 |---|---|---|---|---:|---|---|---|
@@ -54,7 +54,7 @@ El CRM marca el cliente como inactivo pero **no guarda la fecha de la baja**, as
 
 **Vencidas** (la fecha ya pasó y el cliente sigue activo — o se renovó sin actualizar el CRM, o hay que cobrarla):
 
-- **ESCABA** — vencía el 2026-10-02, USD 160/año (13 días).
+- **ESCABA** — vencía el 2026-10-02, USD 160/año (18 días).
 
 ## Upsells por cliente
 

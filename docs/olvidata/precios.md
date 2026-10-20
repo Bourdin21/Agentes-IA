@@ -78,6 +78,28 @@ Upsell observado H1 2026 (con precios pre-suba): +39% sobre el plan base → tic
 | Scale (alto volumen) | USD 1.200–1.800 | USD 1.100 |
 | **Grandes empresas** (nuevo 2026-09-19) | USD 2.500–4.000 | USD 3.000 |
 
+> **Asistente dentro de un sistema del estudio — un solo recurrente (COM-021, 2026-10-17).** Cuando el
+> chatbot/asistente no es un servicio suelto sino que vive **dentro de un Build nuestro** —mismo hosting,
+> misma base, mismo deploy—, **no se cobran dos abonos anuales**. Las dos líneas facturan lo mismo
+> (infra, monitoreo, ronda de ajuste) y superponerlas es cobrar dos veces la misma infraestructura: no se
+> puede defender si el cliente lo mira de cerca.
+>
+> Qué se cobra entonces:
+> - **Recurrente: una sola línea**, la del plan de mantenimiento, y el plan sale de la tabla por **cantidad
+>   de tablas de negocio** contando las que agrega el asistente (conversaciones, mensajes, mapeo
+>   teléfono→cliente). En la práctica eso suele mover el sistema un escalón de plan, que es exactamente lo
+>   que paga la atención extra del bot: afinar el prompt y mirar conversaciones con clientes reales.
+> - **Setup: sí se cobra separado.** Construir el sistema y configurar el asistente son trabajos distintos,
+>   más las horas de integración (API de alta de solicitud, consulta de estado, aviso de salida,
+>   idempotencia). Ahí no hay duplicación.
+> - **El año 1 de mantenimiento gratis (COM-014) cubre la parte del sistema, no el servicio del asistente**:
+>   el año 1 se cobra el recurrente del tier de chatbot que corresponda, y recién desde el año 2 rige la
+>   línea única del plan.
+>
+> Origen: lead Grupo Arreglo Todo (2026-10-17). La regla **no existía** y el primer armado cotizaba
+> USD 480 de mantenimiento + USD 480 del asistente = USD 960/año sobre un único sistema. Lo detectó Joaquín
+> preguntando por qué se cobraba doble.
+
 > **CORREGIDO 2026-09-17, confirmado por Joaquín.** Reemplaza la tabla anterior (setup USD 400–700 igual para los 3 tiers + recurrente 350/550/900), que estaba 5–10x debajo del mercado de desarrollo a medida y **por debajo del piso de rentabilidad**: un Starter a 200 conv/mes tenía USD 6–21/mes de costo directo contra USD 29/mes de ingreso. Fundamento en `docs/olvidata-agentes-multirubro/trazabilidad.md` (2026-09-17), con research de mercado de septiembre 2026: agencia bot esencial USD 1.500–3.000, bot inteligente USD 3.500–6.000 + USD 200–400/mes; SaaS autoservicio USD 59–279/mes. Todos esos precios **excluyen la mensajería de Meta**, igual que el de Olvidata — la comparación es directa. Cambios respecto de la tabla vieja: (1) el setup ahora **escala por tier** (antes era el mismo rango para los tres, a diferencia de AI Agents); (2) **piso duro: no vender un Starter por debajo de USD 40/mes (USD 480/año)**.
 >
 > **Modelo de facturación de mensajería — Tech Provider (decidido 2026-09-17, aplica a TODOS los planes).** El WABA es del cliente y **el cliente le paga a Meta directo** con su medio de pago (~USD 0,0618 por conversación de marketing en Argentina); Olvidata no tiene línea de crédito ni responsabilidad por el consumo. El cliente trae además **su propia key de Claude**. Consecuencia: el costo directo por cliente queda en hosting + monitoreo, y el encarecimiento de Meta del 01/10/2026 (cobra por mensaje, incluidas las respuestas de servicio en la ventana de 24hs) **no golpea el margen de Olvidata**. Decir siempre en la propuesta que la mensajería va aparte — es lo que hace todo el mercado.

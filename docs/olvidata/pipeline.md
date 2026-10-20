@@ -1,29 +1,29 @@
 # Pipeline
 > **Archivo generado — no editarlo a mano.** Lo regenera `python scripts/olvidata_datos.py pipeline` leyendo el CRM productivo.
-> Snapshot del 2026-10-15. Lo que el CRM no sabe se edita en `datos-manuales.yml`.
+> Snapshot del 2026-10-20. Lo que el CRM no sabe se edita en `datos-manuales.yml`.
 
 ## El embudo, por etapa
 
 | Etapa | Contactos | Cotizado USD |
 |---|---:|---:|
-| Pendiente | 3716 | — |
-| Mensaje enviado | 833 | — |
-| Follow-up enviado | 22 | — |
-| Respondio | 301 | — |
+| Pendiente | 3657 | — |
+| Mensaje enviado | 799 | — |
+| Follow-up enviado | 32 | — |
+| Respondio | 305 | — |
 | Presupuesto enviado | 16 | — |
 | Cerrado | 16 | — |
-| Frio | 4442 | — |
-| Descartado | 885 | — |
-| Derivado manual | 4 | — |
-| **Total** | **10.235** | |
+| Frio | 4516 | — |
+| Descartado | 892 | — |
+| Derivado manual | 7 | — |
+| **Total** | **10.240** | |
 
 ## Conversión del embudo
 
 | Paso | Cantidad | Tasa |
 |---|---:|---:|
-| Contactados (mensaje o más) | 5.634 | — |
-| Respondieron | 337 | 6.0% |
-| Con presupuesto enviado | 32 | 9.5% de los que respondieron |
+| Contactados (mensaje o más) | 5.691 | — |
+| Respondieron | 344 | 6.0% |
+| Con presupuesto enviado | 32 | 9.3% de los que respondieron |
 | Cerrados | 16 | 50.0% de los presupuestados |
 
 > La tasa demo → cierre no sale de acá: el CRM registra el presupuesto enviado, no la demo. Hasta que exista ese dato, se anota a mano en `metricas.md`.
@@ -34,7 +34,14 @@ Entran los que tuvieron actividad en los últimos 30 días, más todos los que t
 
 | Negocio | Contacto | Rubro | Zona | Canal | Frente (por gancho) | Etapa | Cotizado USD | Última actividad |
 |---|---|---|---|---|---|---|---:|---|
-| Departamento Southern Living | Equipo | Inmuebles / Real estate | Bariloche | Outbound frio | — *sin gancho* | Presupuesto enviado | — | 2026-10-15 |
+| El Showroom de la Cris | Equipo | Indumentaria o calzado | La Plata | Outbound frio | Landing | Respondio | — | 2026-10-20 |
+| — | — | — | — | Ads pagos | — *sin gancho* | Respondio | — | 2026-10-20 |
+| — | Esteban | Comercio o alquiler de maquinaria | — | Ads pagos | — *sin gancho* | Derivado manual | — | 2026-10-20 |
+| Importadora jorge | Equipo | Comercios de venta por peso o unidad | CABA | Outbound frio | Build | Derivado manual | — | 2026-10-20 |
+| — | Arreglotodo | Servicios urbanos o técnicos | — | Ads pagos | — *sin gancho* | Derivado manual | — | 2026-10-17 |
+| — | ɴᴜʟʟ | — | — | Instagram organico | — *sin gancho* | Respondio | — | 2026-10-17 |
+| — | Andrea Puglisi | — | — | Instagram organico | — *sin gancho* | Respondio | — | 2026-10-16 |
+| Departamento Southern Living | Equipo | Inmuebles / Real estate | Bariloche | Outbound frio | — *sin gancho* | Presupuesto enviado | — | 2026-10-16 |
 | Estudio Caride Sierra - Consultoría | Equipo | estudio-laplata | La Plata | Outbound frio | Build | Respondio | — | 2026-10-15 |
 | Farina Balbi | Estudio Jurídico Penal | Equipo | estudio-laplata | La Plata | Outbound frio | Build | Respondio | — | 2026-10-08 |
 | — | digiphoto | — | — | Ads pagos | — *sin gancho* | Respondio | — | 2026-10-06 |
@@ -50,12 +57,6 @@ Entran los que tuvieron actividad en los últimos 30 días, más todos los que t
 | — | stechinaolivio | — | — | Ads pagos | — *sin gancho* | Respondio | — | 2026-09-30 |
 | Rebolledo Inmobiliaria | Equipo | Inmuebles / Real estate | Neuquén | Outbound frio | Chatbots | Respondio | — | 2026-09-30 |
 | — | Esther | — | — | Ads pagos | — *sin gancho* | Respondio | — | 2026-09-30 |
-| — | Viky | — | — | Ads pagos | — *sin gancho* | Respondio | — | 2026-09-18 |
-| — | MELLINACHO | — | — | Ads pagos | — *sin gancho* | Respondio | — | 2026-09-18 |
-| — | Evangelina Di Croce | — | — | Ads pagos | — *sin gancho* | Respondio | — | 2026-09-17 |
-| DEPARTAMENTO Céntrico GALERIAS PACIFICO | Aparts Buenos Aires | ganaderia | Gran La Plata | Outbound frio | — *sin gancho* | Respondio | — | 2026-09-17 |
-| Amapola | Amapola | indumentaria | La Plata Calle 12 | Outbound frio | — *sin gancho* | Respondio | — | 2026-09-16 |
-| Albert Sport Talles Especiales | Albert Sport | indumentaria | La Plata Calle 12 | Outbound frio | — *sin gancho* | Respondio | — | 2026-09-16 |
 | Librería Horizonte | Equipo | Comercio o alquiler de maquinaria | Centro | Outbound frio | — *sin gancho* | Presupuesto enviado | — | 2026-09-15 |
 | — | Matias | Servicios urbanos o técnicos | — | Ads pagos | — *sin gancho* | Derivado manual | — | 2026-09-01 |
 | TODOLANDIA | Equipo | Comercio o alquiler de maquinaria | Ciudad Vieja | Outbound frio | — *sin gancho* | Derivado manual | — | 2026-08-31 |
@@ -74,4 +75,4 @@ Entran los que tuvieron actividad en los últimos 30 días, más todos los que t
 | Ferretería La Nueva Tuerca | Equipo | Comercio o alquiler de maquinaria | Melchor Romero | Outbound frio | — *sin gancho* | Presupuesto enviado | — | 2026-07-25 |
 | FM reparaciones | franco machuca | Otro rubro | Gran La Plata | Outbound frio | — *sin gancho* | Presupuesto enviado | — | 2026-07-17 |
 
-**Dormidos:** otros 282 leads siguen en etapa abierta pero sin actividad en más de 30 días (282 en Respondio; el más reciente movió el 2026-09-14). No se listan uno por uno a propósito — son decisión de reactivar o marcar fríos, no seguimiento. Para verlos: el CRM.
+**Dormidos:** otros 288 leads siguen en etapa abierta pero sin actividad en más de 30 días (288 en Respondio; el más reciente movió el 2026-09-18). No se listan uno por uno a propósito — son decisión de reactivar o marcar fríos, no seguimiento. Para verlos: el CRM.
