@@ -1,0 +1,10 @@
+Estado: trasladable con cambios. Sale "Facturacion AFIP incluida" (regla 4; no "e-invoicing"). No sumo la integracion con balanza (COM-007/COM-008, precedente casos.md 2026-09-02); "Pesas, cargas y listo" queda como accion manual.
+Caption:
+A specialty food store selling by the kilo and by the unit — one inventory, no double entry.
+Weigh it, key in the weight, done. Same stock, whether it leaves by the scoop or by the pack.
+Built in Spanish for an Argentine client — the logic is the same.
+
+How do you track bulk stock today — spreadsheet, or nothing at all?
+Hashtags: #specialtyfood #healthfoodstore #inventorymanagement #retailsoftware #customsoftware
+Bloqueante: original no verificable (sin permalink/post ID): no entra a feed.md. Sin calificar: va a olvidata-revisor-en.
+Glosario propuesto: a granel -> bulk (loose goods).

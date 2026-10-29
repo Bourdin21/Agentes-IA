@@ -1,0 +1,12 @@
+## NL-002 · RECHAZADA
+R1 FAIL — sin original (NL-002 "por traer" en feed.md, sin permalink/post ID).
+R2 PASS — sin AFIP, factura, CUIT, pesos, cuotas ni MercadoPago.
+R3 FAIL — "Your Amsterdam software partner" simula ser local de NL (posicionamiento-nl.md: Argentina-based).
+R4 PASS — sin nombre de cliente, monto ni moneda (logo no verificable sin el video).
+R5 FAIL — "DM us for a quote!" es CTA de venta.
+R6 PASS — ningun termino de glosario mal aplicado.
+R7 FAIL — "software partner" registro generico; coma que empalma dos oraciones; "us" en vez de primera persona.
+R8 FAIL — 6 hashtags (max 5), falta alt text.
+R9 FAIL — candidata a pauta sin post ID propio en la cuenta EN.
+Para el traductor: traer original; sacar Amsterdam; sacar "DM us for a quote!" -> pregunta de oficio; cortar la oracion; <=5 hashtags + alt text; primera persona.
+(Corrida de prueba: no modifico archivos. Se revisa de nuevo en otra corrida.)

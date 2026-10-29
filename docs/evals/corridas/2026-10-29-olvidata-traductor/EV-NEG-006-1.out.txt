@@ -1,0 +1,9 @@
+Estado: trasladable con cambios. Saco "Facturacion AFIP incluida" (regla 4, no se generaliza a e-invoicing). No agrego integracion con balanza: no afirmable (casos.md, precedente 2026-09-02).
+Caption:
+A health food store that sells by the unit and by the kilo — one inventory for both.
+Weigh it, type in the weight, done.
+
+How do you track bulk stock today — spreadsheet, or nothing at all?
+Hashtags: #healthfoodstore #inventorymanagement #retailsoftware #smallbusiness #custombusinesssoftware
+Bloqueante: sin permalink/post ID del original no se carga en feed.md. Lo revisa olvidata-revisor-en.
+Glosario propuesto: a granel -> bulk; dietetica -> health food store (posicionamiento usa tambien "specialty food store": unificar).
