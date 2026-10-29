@@ -21,7 +21,7 @@ el perfil se contradiría solo.
 ## 2. Lo que se ve en el perfil
 
 **Foto:** el isotipo con anillo de color (`04_isotipo_con_anillo_color.png`, assets de marca en
-`BotPublicitario\Veo\reference_photos\logo-olvidata\`), sobre navy `#0c1424`. Es la misma foto que la
+`BotPublicitario\Veo\reference_photos\logo-olvidata\`), sobre `#0A0A0A` (único fondo oscuro de marca, `MARCA.md` § 1), 1080×1080, con la zona de respeto del anillo para que el recorte circular no lo corte. Es la misma foto que la
 cuenta ES: la marca es una sola.
 
 **Nombre** (es campo de búsqueda, máximo 30 caracteres):
@@ -83,7 +83,7 @@ mismo lugar.
 
 ## 5. Destacadas (stories fijadas)
 
-Cuatro, con portadas en el mismo sistema visual de la cuenta ES (navy, acento `#2B9DE4`, ícono
+Cuatro, con portadas en el mismo sistema visual de la cuenta ES (fondo `#0A0A0A`, acento `#2B9DE4`, ícono
 lineal):
 
 | Destacada | Contenido |
