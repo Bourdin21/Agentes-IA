@@ -1,0 +1,12 @@
+## NL-002 · RECHAZADA
+R1 FAIL — sin original; ademas "pallet->box" no esta en casos.md (dice caja->unidad / rollo->metro), sale de posicionamiento-nl.md § 4.
+R2 PASS.
+R3 FAIL — "Your Amsterdam software partner" + #amsterdam simulan estar en NL.
+R4 FAIL — caption pasa, pero sin ver el Reel no se puede descartar logo/dominio del cliente.
+R5 FAIL — "DM us for a quote!" es CTA de venta.
+R6 PASS con reserva — "software partner" no esta en glosario.
+R7 FAIL — coma calcada del castellano, "software partner" corporativo, "us" vs primera persona.
+R8 FAIL — 6 hashtags, sin alt text, hook ~137 caracteres (>125).
+R9 n/a.
+Para el traductor: traer original; sacar Amsterdam y #amsterdam; pregunta de oficio en vez de CTA; reescribir el caso con la conversion de casos.md; <=5 hashtags; alt text; revisar pantallas.
+Nota: unificar pallet->box (posicionamiento § 4) con caja->unidad (casos.md).

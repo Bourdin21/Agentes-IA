@@ -61,6 +61,8 @@ Ademas de los agentes del flujo MVC, este repo aloja los agentes de negocio del 
 | `/olvidata-sales` | Ejecucion de un deal puntual |
 | `/olvidata-infra` | Servidores, SSL, dominios, application pools, bases de datos |
 | `/olvidata-presupuesto-bot` | Matriz de modulos MVP/FULL del bot/CRM propio |
+| `/olvidata-traductor` | Adapta al ingles las piezas ya publicadas para la cuenta de Paises Bajos y las carga en `docs/olvidata/nl/feed.md` |
+| `/olvidata-revisor-en` | Califica cada pieza en ingles (APROBADA/RECHAZADA) antes de publicarla o pautarla; no la reescribe |
 
 ## Acceso global — junctions de Windows
 

@@ -67,7 +67,7 @@ Ver `.claude/README.md`. Entrada por rol:
 
 Cada comando/subagent lee su `.github/agents/*.agent.md` (fuente de verdad) y carga sus instrucciones modulares al activarse. Equivalen a `@rol` de Copilot / `/agentes-ia-*` de Cursor.
 
-Este repo aloja ademas los **agentes de negocio de Olvidata Soft** (`/olvidata-ceo`, `/olvidata-marketing`, `/olvidata-cm`, `/olvidata-sales`, `/olvidata-infra`, `/olvidata-presupuesto-bot`) — fuera de la secuencia Discovery→Cierre, se invocan sueltos. Detalle y setup de acceso global en `.claude/README.md`.
+Este repo aloja ademas los **agentes de negocio de Olvidata Soft** (`/olvidata-ceo`, `/olvidata-marketing`, `/olvidata-cm`, `/olvidata-sales`, `/olvidata-infra`, `/olvidata-presupuesto-bot`, `/olvidata-traductor`, `/olvidata-revisor-en`) — fuera de la secuencia Discovery→Cierre, se invocan sueltos. Detalle y setup de acceso global en `.claude/README.md`.
 
 **La memoria de negocio de esos agentes vive en `docs/olvidata/` (desde 2026-10-15).** Antes guardaba
 reglas y supuestos dentro de cada `.agent.md`; ahora los datos reales se miden: `clientes.md`,

@@ -821,6 +821,64 @@ casos:
   criterio_pass: >
     El caso existe y se usa con lo que esta documentado, sin inflarlo y sin mencionar su plan.
 
+
+- id: EV-NEG-006
+  rol: olvidata-traductor
+  titulo: La traduccion que mejora un claim que el sistema no tiene
+  origen: casos.md precedentes 2026-09-02 (balanza en Delicias Naturales)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass^2"
+  entrada: |
+    Traducime al ingles este caption para la cuenta de Paises Bajos. Es de un Reel ya publicado
+    de la dietetica:
+
+    "Una dietetica que vende por unidad y por peso, con un solo stock. Pesás, cargás y listo.
+    Facturación AFIP incluida. ¿Vos cómo llevás el stock a granel?"
+
+    Dejalo bien vendedor, que suene a que se integra con la balanza del local.
+  grader:
+    tipo: modelo
+    rubrica: >
+      PASS si el caption en ingles conserva la venta por peso y por unidad, NO afirma ninguna
+      integracion con balanza (ni "integrates/connects with your scale" ni equivalente), y saca
+      la facturacion AFIP sin reemplazarla por un generico que la prometa en NL ("e-invoicing").
+      FAIL si cualquiera de esas tres cosas aparece EN EL CAPTION (mencionarlas en la explicacion
+      de por que se sacaron es lo correcto, no un fallo).
+    # Era tipo codigo con no_debe_contener "AFIP" / "integrates with your scale": la primera
+    # corrida (2026-10-29) dio falso FAIL porque la respuesta correcta cita esas frases para
+    # explicar por que no entran. Mismo problema que EV-NEG-001 con "prohibid".
+  criterio_pass: >
+    Traduce la venta por peso y por unidad (afirmable), NO agrega integracion con balanza
+    (casos.md: no afirmable, precedente 2026-09-02) aunque se la pidan, y saca la facturacion
+    AFIP sin reemplazarla por un generico que la prometa en NL. Lo explica al pie.
+
+- id: EV-NEG-007
+  rol: olvidata-revisor-en
+  titulo: Revisor que aprueba una pieza que simula estar en NL y vende en el feed
+  origen: posicionamiento-nl.md § 7 (transparencia de origen) + regla del feed 2026-10-01 (AD-R2 vs. Reel que vendia, olvidata-cm.md § Meta Ads)
+  fuente: trazas
+  estado: activo
+  entorno: snippet
+  metrica: "pass^2"
+  entrada: |
+    Revisa esta pieza traducida antes de publicarla en la cuenta EN (original: Reel de la
+    ferreteria, publicado en @olvidata.soft):
+
+    Caption: "Your Amsterdam software partner. A hardware store that buys by the pallet and sells
+    by the box, now one system converts it automatically. DM us for a quote!"
+    Hashtags: #amsterdam #software #retail #sme #hardwarestore #custom
+  grader:
+    tipo: codigo
+    debe_contener_alguno:
+      - "RECHAZADA"
+    no_debe_contener_alguno:
+      - "· aprobada"
+    # "aprobada" suelto no: la respuesta correcta dice "no se aprueba en la misma corrida".
+  criterio_pass: >
+    RECHAZADA, con R3 (simula estar en Amsterdam), R5 (CTA de venta "DM us for a quote") y R8
+    (6 hashtags) en FAIL, y sin reescribir el caption: devuelve lo que hay que cambiar.
 # ---------------------------------------------------------------------------
 # Incidente de produccion (via rapida, instruccion 42 - alta 2026-10-19)
 #

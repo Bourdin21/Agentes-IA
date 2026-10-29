@@ -84,3 +84,33 @@ Formato: `### <fecha> — <qué cambió>` y, abajo, de dónde a dónde y quién 
   fue a leer `docs/contadores-bma-agentes-ia/`. Ficha corregida.
 - **Detalle de la corrida:** `docs/evals/corridas/negocio-2026-10-16/RESULTADO.md`.
 - **2026-10-17** — `precios.md` + `reglas-comerciales.md`: nueva **COM-021**, asistente/chatbot dentro de un Build del estudio paga **un solo recurrente** (el plan de mantenimiento por cantidad de tablas, contando las que agrega el asistente), no dos abonos. El setup sigue separado. Detectado en el lead Grupo Arreglo Todo, donde el primer armado cotizaba 480 + 480 = USD 960/año sobre un mismo sistema; corregido a USD 600/año. No existía regla para el caso.
+
+### 2026-10-29 — posicionamiento de Olvidata para Países Bajos (NL)
+- **Qué:** nuevo `docs/olvidata/marca/posicionamiento-nl.md` (olvidata-marketing, a pedido de
+  Joaquín) — posicionamiento para la cuenta de Instagram en inglés con pauta dirigida a NL: ICP,
+  one-liner y pilares, voz/tono y CTA de pregunta de oficio en inglés, qué casos de `casos.md` se
+  pueden contar y cómo, glosario ES→EN para el agente traductor, lineamientos de pauta (sin lanzar
+  nada) y requisitos legales/GDPR visibles en el perfil.
+- **Decisión de fondo que trae:** transparencia total — Olvidata se presenta como estudio argentino
+  (nearshore), nunca simulando estar en NL. Suiza queda para una segunda etapa.
+- **Decisión de canal:** primer contacto en NL por Instagram/email + Calendly, no WhatsApp outbound
+  frío (requisito de consentimiento GDPR y norma de negocios NL) — distinto del outbound Google
+  Maps + WhatsApp vigente en Argentina.
+- **Queda abierto:** el precio en EUR y la vigencia de una promo de entrada para NL son pricing, no
+  mensajing — registrado como `decisiones.md` DEC-010 para `olvidata-ceo`.
+- **No toca:** ningún `COM-NNN` nuevo ni cambio a `precios.md` — este documento no fija precios.
+
+### 2026-10-29 — cuenta de Instagram en inglés para NL: agentes de traducción, feed y perfil
+- **Qué:** agentes nuevos `olvidata-traductor` (adapta al inglés lo ya publicado y lo carga en el
+  feed NL) y `olvidata-revisor-en` (lo califica APROBADA/RECHAZADA sin reescribirlo: quien traduce no
+  califica), con sus slash commands. Nueva carpeta `docs/olvidata/nl/`: `feed.md` (inventario de lo
+  publicado y su estado EN) y `perfil.md` (configuración completa del perfil, botones, DM,
+  destacadas, fijadas, Meta Business y checklist de alta).
+- **Evals:** EV-NEG-006 (traductor no mejora un claim: balanza/AFIP) y EV-NEG-007 (revisor rechaza
+  pieza que simula estar en NL y vende), ambos pass^2 PASS el 2026-10-29.
+- **Correcciones al posicionamiento NL que salieron de los evals:** ferretería con la conversión de
+  `casos.md` (rollo→metro, caja→unidad; decía pallet), dietética = *health food store* unificado, y
+  rubros + *a granel → bulk* agregados al glosario.
+- **Queda abierto:** el feed tiene 5 piezas identificadas pero sin texto original: el repo no guarda
+  los textos publicados y el conector Meta Ads pide reautorización. Usuario, email de dominio y
+  página `/en` del sitio pendientes (`perfil.md` § 8).

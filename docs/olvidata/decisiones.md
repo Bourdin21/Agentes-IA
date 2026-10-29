@@ -25,6 +25,18 @@ el historial de por qué algo se decidió así vale tanto como la decisión.
 
 
 
+### DEC-010 · Precio en EUR para NL, y vigencia de la "promo de entrada" ahí
+- **Qué:** `docs/olvidata/marca/posicionamiento-nl.md` (2026-10-29) define el posicionamiento de
+  Olvidata para Países Bajos, pero deja el **precio en EUR sin fijar** — es decisión de pricing, no
+  de mensajing.
+- **Dónde:** `docs/olvidata/marca/posicionamiento-nl.md` § "Pendiente".
+- **Por qué importa:** la cuenta de Instagram en inglés y la pauta dirigida a NL no pueden mostrar
+  ningún número hasta que esto se resuelva, y el glosario (§ 5 de ese documento) deja "promo de
+  entrada / launch pricing" como término a usar solo si se define vigencia para NL.
+- **Lo que hace falta:** que `olvidata-ceo` fije el precio en EUR (tipo de cambio, nivel vs. mercado
+  NL) y si corre una promo de entrada propia para ese mercado o se mantiene fuera de la ventana
+  2026-12-31 ya vigente para AR (COM-016).
+
 ### DEC-008 · El frente de dos clientes está inferido, no confirmado
 - **Qué:** ESCABA y PiApartments tienen frente **Build** asignado por inferencia del tipo de sistema.
 - **Dónde:** `datos-manuales.yml`, marcados con un comentario.

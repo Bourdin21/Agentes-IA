@@ -23,7 +23,8 @@ Esta carpeta es ese registro.
 | `decisiones.md` | Lo que espera una definición de Joaquín | A mano |
 | `trazabilidad.md` | Log de cambios de precios y reglas | A mano, append |
 | `datos-manuales.yml` | Lo que el CRM no sabe (frente por cliente, umbrales) y los scripts necesitan | A mano |
-| `marca/` | MARCA.md, el plan de comercialización del Second Brain y la línea editorial | A mano |
+| `marca/` | MARCA.md, el plan de comercialización del Second Brain, la línea editorial y el posicionamiento NL (`posicionamiento-nl.md`) | A mano |
+| `nl/` | Cuenta de Instagram en inglés para Países Bajos: `feed.md` (inventario de lo publicado y su versión EN) y `perfil.md` (configuración del perfil) | A mano, por `olvidata-traductor` / `olvidata-revisor-en` |
 
 ## Los tres generados no se editan a mano
 
@@ -55,6 +56,7 @@ que el frente de un lead se infiere del gancho).
   seguimiento, `precios.md` para cotizar.
 - `olvidata-marketing` y `olvidata-cm` → `casos.md` (qué se puede afirmar) y `reglas-comerciales.md`
   (qué se puede decir y cómo).
+- `olvidata-traductor` y `olvidata-revisor-en` → `marca/posicionamiento-nl.md` (glosario y tono), `casos.md` y `nl/feed.md`.
 - `olvidata-infra` → `costos.md` es el espejo comercial de lo que ese agente decide técnicamente.
 
 Todos → `decisiones.md` antes de asumir que algo está definido.
