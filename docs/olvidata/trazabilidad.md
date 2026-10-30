@@ -114,3 +114,12 @@ Formato: `### <fecha> — <qué cambió>` y, abajo, de dónde a dónde y quién 
 - **Queda abierto:** el feed tiene 5 piezas identificadas pero sin texto original: el repo no guarda
   los textos publicados y el conector Meta Ads pide reautorización. Usuario, email de dominio y
   página `/en` del sitio pendientes (`perfil.md` § 8).
+
+### 2026-10-30 — perfil NL: bio y destacadas replican la cuenta ES
+- **Qué:** `docs/olvidata/nl/perfil.md` § 2 y § 5. A pedido de Joaquín, nombre, bio y destacadas
+  de la cuenta EN son la versión en inglés de `@olvidata.soft` (captura del 2026-10-30):
+  *OlvidataSoft | Software Studio 🇦🇷* y bio *Build your own Software / Management systems, AI
+  agents, chatbots & Motion 3D websites / For shops and SMEs that have outgrown Excel 🤖🚀*.
+  Destacadas START HERE / CASES / INDUSTRIES (+ la cuarta, pendiente de confirmar el nombre).
+- **Superada:** la bio y las destacadas propias del 2026-10-29 (quedan citadas en `perfil.md`).
+- **Se mantiene distinto de la ES:** sin dirección, y "Software Studio" en lugar de "Factory".
