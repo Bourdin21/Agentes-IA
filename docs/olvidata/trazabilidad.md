@@ -123,3 +123,9 @@ Formato: `### <fecha> — <qué cambió>` y, abajo, de dónde a dónde y quién 
   Destacadas START HERE / CASES / INDUSTRIES (+ la cuarta, pendiente de confirmar el nombre).
 - **Superada:** la bio y las destacadas propias del 2026-10-29 (quedan citadas en `perfil.md`).
 - **Se mantiene distinto de la ES:** sin dirección, y "Software Studio" en lugar de "Factory".
+
+### 2026-10-31 — COM-022: cada consulta se atiende en el idioma en que llega
+- **Qué:** regla nueva `COM-022` (Joaquín). Aplicada en `marca/posicionamiento-nl.md` § 6,
+  `nl/perfil.md` § 4 y `olvidata-sales` (el mensaje al lead va en su idioma; con Joaquín, castellano).
+- **Abierto:** DEC-011 — no está verificado si el bot de ventas de WhatsApp contesta en inglés; las
+  plantillas aprobadas en Meta son `es_AR`.

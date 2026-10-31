@@ -81,6 +81,7 @@ mismo lugar.
   1. *What kind of software do you build?*
   2. *How does working with a studio in Argentina work?*
   3. *Can I see a system running?*
+- **Idioma (`COM-022`):** cada DM se contesta en el idioma en que llega.
 - **Respuestas guardadas:** las escribe `olvidata-traductor` a partir de las de la cuenta ES. Ninguna
   lleva precio: el precio en EUR está pendiente en `decisiones.md` DEC-010.
 - **Respuesta automática (Meta Business Suite → Inbox):** una línea que avisa el horario (CET y ART) y
