@@ -39,7 +39,7 @@ referencia a la que la reemplazó.
 | COM-018 | **El mapa está pausado** — se guarda como as bajo la manga, no se publica | 2026-10-13 | `.claude/agents/olvidata-ceo.md` |
 | COM-019 | **Descuento por volumen** (tiers V0–V3 sobre el subtotal de lista): combina con el de reutilización por **MAX, no por suma** | 2026-08-19 | `.github/instructions/27-presupuesto-parametros.instructions.md` |
 | COM-020 | Antes de aplicar un descuento agresivo por defecto, **chequear la capacidad de pago** del cliente (precedente: FABINCO vs. Peras del Olmo, mismo ratio, trato opuesto) | 2026-09-02 | `.claude/agents/olvidata-ceo.md` |
-| COM-022 | **Cada consulta se atiende en el idioma en que llega** — WhatsApp, DM, email y el bot de ventas. No se fuerza el castellano ni se cambia de idioma sin que el cliente lo pida | 2026-10-31 | `docs/olvidata/marca/posicionamiento-nl.md` § 6 |
+| COM-022 | **Cada consulta se atiende en el idioma en que llega** — WhatsApp y mensajes de Instagram (las dos cuentas, ES y EN), email, y el bot de IA en ambos canales. No se fuerza el castellano ni se cambia de idioma sin que el cliente lo pida | 2026-10-31 | `docs/olvidata/marca/posicionamiento-nl.md` § 6 |
 | COM-021 | **Chatbot o asistente dentro de un Build del estudio: un solo recurrente, no dos.** El plan sale de la tabla de mantenimiento por cantidad de tablas, contando las que agrega el asistente. El setup sí se cobra separado | 2026-10-17 | `docs/olvidata/precios.md` |
 
 ## Cómo citar

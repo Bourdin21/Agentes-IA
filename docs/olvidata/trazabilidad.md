@@ -129,3 +129,6 @@ Formato: `### <fecha> — <qué cambió>` y, abajo, de dónde a dónde y quién 
   `nl/perfil.md` § 4 y `olvidata-sales` (el mensaje al lead va en su idioma; con Joaquín, castellano).
 - **Abierto:** DEC-011 — no está verificado si el bot de ventas de WhatsApp contesta en inglés; las
   plantillas aprobadas en Meta son `es_AR`.
+- **2026-10-31, aclaración de Joaquín:** COM-022 alcanza explícitamente a **WhatsApp y mensajes de
+  Instagram** (las dos cuentas). DEC-011 suma el canal de DM de Instagram del CRM, que usa la misma
+  conversación de IA que WhatsApp y hoy está apagado y conectado solo a `@olvidata.soft`.
