@@ -24,29 +24,34 @@ el perfil se contradiría solo.
 `BotPublicitario\Veo\reference_photos\logo-olvidata\`), sobre `#0A0A0A` (único fondo oscuro de marca, `MARCA.md` § 1), 1080×1080, con la zona de respeto del anillo para que el recorte circular no lo corte. Es la misma foto que la
 cuenta ES: la marca es una sola.
 
-**Nombre** (es campo de búsqueda, máximo 30 caracteres):
+**Decisión del 2026-10-30 (Joaquín):** nombre, categoría, bio y destacadas **replican la cuenta ES
+`@olvidata.soft` en inglés**, con la misma estructura. Reemplaza la bio propia del 2026-10-29
+(*"Custom business software & AI agents for SMEs. / Built by Joaquín, from Argentina 🇦🇷 · 4–5 h
+overlap with CET. / Build your own Software."*), que queda superada.
+
+**Nombre** (ES: *OlvidataSoft | Fábrica de Software 🇦🇷*):
 
 ```
-Olvidata · Custom Software
+OlvidataSoft | Software Studio 🇦🇷
 ```
+
+*Software Studio* y no *Software Factory*: en inglés *factory* se lee como tercerización masiva y
+barata, justo lo que hace desconfiar a un comprador holandés. La bandera se queda: es la
+transparencia de origen (§ 7) en el lugar más visible.
 
 **Categoría:** `Software Company`. Se muestra en el perfil.
 
-**Bio** (133 de 150 caracteres):
+**Bio** (131 de 150 caracteres):
 
 ```
-Custom business software & AI agents for SMEs.
-Built by Joaquín, from Argentina 🇦🇷 · 4–5 h overlap with CET.
-Build your own Software.
+Build your own Software
+Management systems, AI agents, chatbots & Motion 3D websites
+For shops and SMEs that have outgrown Excel 🤖🚀
 ```
 
-Por qué está escrita así:
-
-- La primera línea dice qué hacemos, con las palabras que busca un holandés.
-- La segunda cumple con decir quién está detrás y desde dónde (§ 7, transparencia de origen) y
-  convierte la distancia en un argumento: el solapamiento horario.
-- La tercera es el slogan de marca, sin traducir ni tocar (`MARCA.md` § 2).
-- No hay precio, ni "DM for a quote", ni "link in bio to buy". El perfil tampoco vende.
+Línea por línea con la ES: el slogan de marca va igual, sin tocar (`MARCA.md` § 2); *"Sistemas de
+gestión, Agentes de IA, chatbots y webs Motion 3D"*; *"Para comercios y PyMEs que ya no entran en
+un Excel"*. No hay precio, ni "DM for a quote", ni "link in bio to buy": el perfil tampoco vende.
 
 **Pronombres:** ninguno.
 
@@ -55,6 +60,8 @@ Por qué está escrita así:
 | Etiqueta | Destino | Estado |
 |---|---|---|
 | `Work, contact & legal` | Página en inglés del sitio (`olvidatasoft-new`, por ejemplo `/en`) con: los casos operando, el formulario de contacto con **consentimiento GDPR explícito**, el link a Calendly para la demo, la **política de privacidad** y los **datos del titular** (nombre legal, país Argentina, email verificable) | **pendiente: la página `/en` no existe.** Se pide a `agentes-ia-implementador-astro-front`. Hasta que exista, el perfil no se pauta |
+
+Mientras la página `/en` no exista, va `www.olvidata.com.ar`, igual que en la cuenta ES.
 
 No usar Linktree: la página propia es la que cumple con identificar al titular y con el GDPR en el
 mismo lugar.
@@ -65,7 +72,7 @@ mismo lugar.
 |---|---|---|
 | Email | **pendiente: email de dominio propio** (no Gmail) | Para un primer contacto profesional en NL, el email es lo esperado (§ 6) |
 | Teléfono / WhatsApp | **Apagado** | En NL no se abre por WhatsApp. Se ofrece solo si el prospecto lo pide (§ 6) |
-| Dirección | **No mostrar** | No hay dirección en NL y no se inventa. La de Argentina no le aporta nada a un holandés y sí expone datos |
+| Dirección | **No mostrar** (la cuenta ES sí muestra la de La Plata: diferencia deliberada) | No hay dirección en NL y no se inventa. La de Argentina no le aporta nada a un holandés y sí expone datos; el origen ya lo dice la bandera del nombre |
 | Botón de acción | Ninguno al principio | "Book now" en el perfil es CTA de venta. La demo se agenda desde la página `/en` |
 
 ## 4. Mensajes directos (DM)
@@ -74,6 +81,7 @@ mismo lugar.
   1. *What kind of software do you build?*
   2. *How does working with a studio in Argentina work?*
   3. *Can I see a system running?*
+- **Idioma (`COM-022`):** cada DM se contesta en el idioma en que llega.
 - **Respuestas guardadas:** las escribe `olvidata-traductor` a partir de las de la cuenta ES. Ninguna
   lleva precio: el precio en EUR está pendiente en `decisiones.md` DEC-010.
 - **Respuesta automática (Meta Business Suite → Inbox):** una línea que avisa el horario (CET y ART) y
@@ -83,15 +91,16 @@ mismo lugar.
 
 ## 5. Destacadas (stories fijadas)
 
-Cuatro, con portadas en el mismo sistema visual de la cuenta ES (fondo `#0A0A0A`, acento `#2B9DE4`, ícono
-lineal):
+Las mismas de la cuenta ES, en el mismo orden y con las mismas portadas (fondo `#0A0A0A`, acento
+`#2B9DE4`, ícono lineal) — decisión del 2026-10-30, reemplaza las cuatro propias (`Work`, `AI Agents`,
+`About`, `FAQ`) que se habían propuesto el 2026-10-29:
 
-| Destacada | Contenido |
-|---|---|
-| `Work` | Los casos operando: NL-002, NL-004 y NL-005 del feed |
-| `AI Agents` | El estudio contable con tres agentes andando. Solo resultado, nunca el método (COM-004) |
-| `About` | Quién soy, desde dónde, en qué horario, cómo se trabaja a distancia, en qué idioma |
-| `FAQ` | Contrato, propiedad del código, soporte, GDPR. **Sin precios** |
+| ES | EN | Nota |
+|---|---|---|
+| EMPEZÁ ACÁ | START HERE | Sumar quién soy, desde dónde y en qué horario (CET/ART): es lo primero que pregunta un holandés |
+| CASOS | CASES | Solo los trasladables del feed (NL-002, NL-004, NL-005). Agentes IA: resultado, nunca el método (COM-004) |
+| INDUSTRIAS | INDUSTRIES | Los rubros con equivalente en NL (`posicionamiento-nl.md` § 1) |
+| PR… | *pendiente* | En la captura del 2026-10-30 el nombre se corta. Si es PRODUCTOS → PRODUCTS. Si es PRECIOS, **no se replica** hasta resolver DEC-010 (precio en EUR) |
 
 El contenido de cada story lo produce `olvidata-cm` y lo adapta `olvidata-traductor`.
 

@@ -25,6 +25,23 @@ el historial de por qué algo se decidió así vale tanto como la decisión.
 
 
 
+### DEC-011 · ¿El bot de IA contesta en el idioma del cliente, en WhatsApp y en Instagram?
+- **Qué:** `COM-022` (2026-10-31) pide atender cada consulta en el idioma en que llega, incluido el
+  agente de ventas IA del CRM. No hay nada en `docs/crm-olvidata/` que diga si hoy detecta el idioma
+  o contesta siempre en castellano, y las plantillas de WhatsApp en Meta están todas en `es_AR`.
+- **Dónde:** `docs/olvidata/marca/posicionamiento-nl.md` § 6.
+- **Por qué importa:** si un lead de NL llega por WhatsApp y el bot le contesta en castellano, se
+  rompe la regla en la primera respuesta, que es automática.
+- **Instagram también (Joaquín, 2026-10-31: "tanto WhatsApp como mensajes de Instagram"):** el
+  canal de DM de Instagram del CRM reutiliza la misma conversación de IA que WhatsApp
+  (`docs/crm-olvidata/plan-instagram-dm-bot.md`, `IConversacionIaService`), así que el
+  comportamiento de idioma va a ser el mismo en los dos canales. Ese canal está implementado pero
+  **apagado** (`Features:InstagramDm = false`) y conectado solo a `@olvidata.soft`: la cuenta EN
+  necesitaría su propia conexión.
+- **Lo que hace falta:** que Joaquín lo pruebe con un mensaje en inglés al número del bot. Si
+  contesta en castellano, es un cambio en `crm-olvidata` y entra por el flujo normal (análisis →
+  presupuesto → implementación), no por este repo.
+
 ### DEC-010 · Precio en EUR para NL, y vigencia de la "promo de entrada" ahí
 - **Qué:** `docs/olvidata/marca/posicionamiento-nl.md` (2026-10-29) define el posicionamiento de
   Olvidata para Países Bajos, pero deja el **precio en EUR sin fijar** — es decisión de pricing, no

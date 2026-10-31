@@ -188,6 +188,14 @@ reemplaza el ladder de micro-compromisos así:
   follow-up (día 3, día 6, archivar sin presionar) que rige para Argentina.
 - **WhatsApp queda disponible recién si el prospecto lo pide o lo da como preferencia explícita** —
   nunca como canal de apertura.
+- **Idioma de atención (`COM-022`, Joaquín 2026-10-31):** toda consulta se contesta en el idioma en
+  que llega — **WhatsApp y mensajes de Instagram** (las dos cuentas: a `@olvidata.soft` también le
+  puede escribir alguien en inglés), email, y el bot de IA en ambos canales. Si un holandés escribe en inglés por WhatsApp,
+  se le contesta en inglés aunque el número sea el de Argentina; si escribe en neerlandés, se le
+  contesta en inglés avisando que la atención es en inglés o castellano (no hay neerlandés que
+  podamos sostener). Las plantillas de WhatsApp aprobadas en Meta son `es_AR`: para escribir primero
+  en inglés hace falta una plantilla `en` aprobada aparte. Si el bot de ventas hoy contesta en
+  inglés no está verificado — ver `decisiones.md` DEC-011.
 
 Esto es una decisión de diseño de canal, no de presupuesto ni de plataforma: no lanza nada, solo fija
 el criterio para cuando se configure.
